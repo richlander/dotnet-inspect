@@ -233,21 +233,33 @@ the owner's executable plan or one structured failure.
 
 - Resolution is **atomic**. The first failure returns no plan and no partial
   binding, and which failure is first is fixed by this contract rather than by a
-  host's enumeration order. The sequence is the one
-  [row query and ordering](row-query-order.md) already requires, so that a row
-  vocabulary resolved through this model reports the same first failure it
-  reports today: the vocabulary; then terms in their
-  [semantic order](#semantic-order) — for a row vocabulary, that order is what
-  the row owner calls declaration order, since a term set has no other sequence;
-  then bounds in theirs; then the baseline order operation; then the stages in
-  declaration sequence, each ranking stage resolving its own ranking as it is
-  reached — the operation bound to it, else the vocabulary's declared default,
-  else *ranking missing*. Within one element the checks run existence, then
-  admissibility, then binding, then collision, so a term with both an
+  host's enumeration order: the vocabulary; then terms in their
+  [semantic order](#semantic-order); then bounds in theirs; then the baseline
+  order operation; then the stages in declaration sequence, each ranking stage
+  resolving its own ranking as it is reached — the operation bound to it, else
+  the vocabulary's declared default, else *ranking missing*. Within one element
+  the checks run existence, then admissibility, then binding, then collision —
+  and within collision, exclusivity before duplication, because a contradiction
+  is never collapsible while a duplicate may be — so a term with both an
   inadmissible operator and a value its binder would reject reports the
-  operator. For an order reference the sequence reads: exists, is orderable, has
-  the purpose its role requires. Two hosts resolving one intent report the same
-  failure.
+  operator, and a term that is both exclusive with one earlier term and a
+  binder-duplicate of another reports the exclusivity. For an order reference
+  the sequence reads: exists, is orderable, has the purpose its role requires.
+  Two hosts resolving one intent report the same failure.
+
+  The part sequence and the stage-local ranking rule are
+  [row query and ordering](row-query-order.md)'s own, and a row vocabulary
+  resolved through this model agrees with the row owner's resolver on every
+  bound, baseline, stage, and ranking failure. **Terms are the one deliberate
+  divergence.** The row owner validates predicates in the order its caller
+  declared them; a portable intent has no declaration order, because term
+  membership is set-valued so that two spellings of one query share one identity.
+  Terms therefore resolve in semantic order, and with two unknown keys the row
+  owner's own resolver reports the one declared first while this model reports
+  the one that sorts first. The row owner's rule is not changed — it still
+  validates in the order it is given — but a host that lowers its own spelling
+  into intent gives up first-typed failure ordering for terms, and each adopting
+  host accepts that consequence as part of adoption.
 - Resolution **starts no work**. A rejected intent issues no acquisition, no
   source request, and no package payload fetch. This matters more here than for
   row predicates: a package-query term can authorize archive downloads, so a
@@ -406,7 +418,7 @@ successor slice.
 | Gate | Contract |
 | --- | --- |
 | `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, bound, stage, or order reference returns one structured failure with no plan and no partial binding. |
-| `FailurePrecedenceIsContractFixed` | An intent carrying several independent defects reports the same failure — reason, location, and offender — regardless of host enumeration or construction order: vocabulary, terms in semantic order, bounds in semantic order, the baseline order, then stages in sequence each with its ranking; and existence, admissibility, binding, collision within one element. A row vocabulary reports the same first failure through this model as through the row owner's own resolver. |
+| `FailurePrecedenceIsContractFixed` | An intent carrying several independent defects reports the same failure — reason, location, and offender — regardless of host enumeration or construction order: vocabulary, terms in semantic order, bounds in semantic order, the baseline order, then stages in sequence each with its ranking; existence, admissibility, binding, collision within one element; and exclusivity before duplication within collision. A row vocabulary agrees with the row owner's resolver on every bound, baseline, stage, and ranking failure; for terms, the intent's semantic order stands in for the caller's declaration order, and the divergence is witnessed, not hidden. |
 | `IntentResolutionStartsNoWork` | A rejected intent issues no acquisition, source request, or payload fetch; gated with a source capability that fails the test if invoked. |
 | `UnresolvableTermFailsVisibly` | An intent naming a key, operator, or dimension absent from the current build fails; it is never dropped, defaulted, narrowed, or widened. |
 | `IntentCarriesNoResolvedOrPresentationState` | Serialized intent contains no resolved identity, accessor, comparer, label, rendered value, or outcome. |
@@ -415,7 +427,7 @@ successor slice.
 | `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; an exact duplicate never reaches resolution, because membership is set-valued. |
 | `StagesCannotFailResolutionExceptByAdmission` | A structurally valid stage reaches resolution and is refused only when the vocabulary does not declare its kind; admission is per kind, so a vocabulary admitting head, tail, and window but not top refuses exactly the top; structural violations are refused at construction or decode and never reach resolution. |
 | `RankingStagesResolveOrFail` | A top stage resolves its ranking when reached in stage sequence — the bound operation, else the declared default, else ranking missing at the stage with no offender — so with two top stages the earlier stage's missing ranking is reported before the later stage's unknown reference; a sequence-purpose named order in a ranking role fails as order not a ranking. |
-| `ExclusiveFamilyMembersAreRefused` | Two bound terms the vocabulary declares mutually exclusive fail as terms incompatible at the later term in semantic order, distinct from duplicate-after-binding, which requires the binder to map two terms to one predicate. |
+| `ExclusiveFamilyMembersAreRefused` | Two bound terms the vocabulary declares mutually exclusive fail as terms incompatible at the later term in semantic order, distinct from duplicate-after-binding, which requires the binder to map two terms to one predicate; where one later term is both, exclusivity is reported. |
 | `BoundRangeSeesResolvedTerms` | A dimension whose admissible range depends on bound terms — Package Query's candidate cap with a package-content term — is checked with the terms resolved, at the bound, before any acquisition. |
 | `FailureReasonUnionIsClosed` | Every failure carries one reason from the table, at that reason's location, with that reason's offender or none; no implementation or vocabulary emits a reason outside it. |
 
