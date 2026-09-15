@@ -16,6 +16,20 @@ namespace DotnetInspect.Web.Interop.Package;
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageChangesOperations
 {
+    internal const int PackageSetCatalogVersion = 1;
+
+    internal static BrowserPackageChangesPackageSetCatalog PackageSets() =>
+        new(
+            PackageSetCatalogVersion,
+            [
+                .. PackageSetCatalog.Discover().Select(packageSet =>
+                    new BrowserPackageChangesPackageSetDescriptor(
+                        packageSet.Id.Value,
+                        packageSet.Title,
+                        packageSet.Summary,
+                        packageSet.Order)),
+            ]);
+
     internal static EcosystemChangeReportPlan ResolvePlan(
         BrowserPackageChangesRequest request,
         TimeProvider? timeProvider = null)
@@ -378,6 +392,13 @@ public static partial class PackageExports
 {
     static readonly BrowserManagedOperationBridge PackageChangesOperations =
         new();
+
+    [JSExport]
+    public static string ListPackageChangesPackageSets() =>
+        JsonSerializer.Serialize(
+            BrowserPackageChangesOperations.PackageSets(),
+            BrowserPackageJsonContext.Default
+                .BrowserPackageChangesPackageSetCatalog);
 
     [JSExport]
     public static string CancelPackageChanges(
