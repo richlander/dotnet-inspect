@@ -170,6 +170,7 @@ LocatorResult
       MetadataTypeDefinitionName
       Definition | Forwarder
       definition category? (class | interface | value type | enum | delegate)
+      declaration inventory order
       origin
       observation occurrence + detached context
 ```
@@ -200,6 +201,9 @@ of coordinate equality, ordering, or locator filtering policy.
 They also retain Metadata's nullable `IsDefinitionPublic` fact unchanged so a
 consumer can apply a row-local definition visibility policy without redefining
 the locator's enclosing-chain public-surface view.
+`DeclarationOrder` retains the declaration's zero-based position in its
+member's selected inventory view. It is consumer evidence, not part of
+candidate identity or the locator's deterministic output ordering.
 Declaration-discovery completeness does not assert target-attribute availability.
 Cold and resident answers carry the same owner-issued facts.
 

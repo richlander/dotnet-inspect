@@ -437,7 +437,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
-    public async Task Find_FallbacksUseCallerPackageOrder()
+    public async Task Find_LocatorUsesCallerPackageOrder()
     {
         const string FirstVersion = "1.0.1";
         const string SecondVersion = "1.0.0";
@@ -469,23 +469,35 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 packages));
         CoreHttpClientFactory.ResetSharedForTesting();
 
+        await AssertUsesFirstVersion(
+            typeof(ConfiguredPayloadAcquisitionTests).FullName!,
+            limit: 1);
         await AssertUsesFirstVersion("DotnetInspect.Cli.Tests");
         await AssertUsesFirstVersion(
             "DotnetInspect.Cli.Tests."
             + "ConfiguredPayloadAcquisitionTestz");
 
-        async Task AssertUsesFirstVersion(string pattern)
+        async Task AssertUsesFirstVersion(
+            string pattern,
+            int? limit = null)
         {
-            var result = await RunCommandAsync(
-                [
-                    "find", pattern,
-                    "--package", $"{id}@{FirstVersion}",
-                    "--package", $"{id}@{SecondVersion}",
-                    "--tfm", "net11.0",
-                    "--source", FirstFeed,
-                    "--json",
-                    "--tips", "q",
-                ]);
+            var arguments = new List<string>
+            {
+                "find", pattern,
+                "--package", $"{id}@{FirstVersion}",
+                "--package", $"{id}@{SecondVersion}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--tips", "q",
+            };
+            if (limit is not null)
+            {
+                arguments.Add("-n");
+                arguments.Add(limit.Value.ToString());
+            }
+
+            var result = await RunCommandAsync([.. arguments]);
 
             Assert.Equal(0, result.Exit);
             using System.Text.Json.JsonDocument document =
@@ -501,8 +513,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         }
     }
 
-    [Fact]
-    public async Task Find_LocatorNullableGenericPatternIsExact()
+    [Theory]
+    [InlineData(
+        "DotnetInspect.Cli.Tests.NullablePatternTarget<string?>",
+        "Exact")]
+    [InlineData(
+        "DotnetInspect.Cli.Tests.NullablePatternTargat<string?>",
+        "Partial")]
+    public async Task Find_LocatorNullableGenericPatternUsesNormalizedGlobClassification(
+        string pattern,
+        string expectedMatch)
     {
         string id =
             $"Workspace.Search.Nullable.{Guid.NewGuid():N}";
@@ -515,12 +535,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             library: assembly,
             libraryName: "NullablePattern.dll");
         ConfigureCommandFeed(id, package);
-        const string Pattern =
-            "DotnetInspect.Cli.Tests.NullablePatternTarget<string?>";
 
         var result = await RunCommandAsync(
             [
-                "find", Pattern,
+                "find", pattern,
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
@@ -532,12 +550,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
         System.Text.Json.JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Single(
+                document.RootElement.EnumerateArray(),
+                row =>
+                    row.GetProperty("full_name").GetString()
+                    == typeof(NullablePatternTarget<>).FullName);
         Assert.Equal(
-            Pattern,
+            pattern,
             row.GetProperty("pattern").GetString());
         Assert.Equal(
-            "Exact",
+            expectedMatch,
             row.GetProperty("match").GetString());
         Assert.Equal(
             typeof(NullablePatternTarget<>).FullName,

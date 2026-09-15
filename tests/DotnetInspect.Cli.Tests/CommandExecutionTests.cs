@@ -20192,12 +20192,14 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("FSharpKind", false)]
-    [InlineData("System.Text.Json.JsonDocument.*", true)]
+    [InlineData("FSharpKind", false, null)]
+    [InlineData("System.Text.Json.JsonDocument.*", true, null)]
+    [InlineData("System.Text.Json.JsonDocument.*", true, 1)]
     [Trait("Speed", "Slow")]
     public async Task Find_LocatorPreservesCompatibilityVisibility(
         string pattern,
-        bool includeAll)
+        bool includeAll,
+        int? limit)
     {
         async Task<string[]> SearchAsync(bool forceCompatibility)
         {
@@ -20215,6 +20217,11 @@ public partial class CommandExecutionTests
             };
             if (includeAll)
                 arguments.Add("--all");
+            if (limit is not null)
+            {
+                arguments.Add("-n");
+                arguments.Add(limit.Value.ToString());
+            }
             if (forceCompatibility)
             {
                 arguments.Add("--library");
@@ -20257,6 +20264,34 @@ public partial class CommandExecutionTests
                             + "FSharpCoreReflectionProxy.FSharpKind",
                         StringComparison.Ordinal));
         }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Find_LocatorDottedGlobMissReportsWarning()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.JsonSerializer,System.Text.Json.NoSuchTypeXYZ*",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Warning: 1 search pattern matched no types.",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            Assert.Single(document.RootElement.EnumerateArray())
+                .GetProperty("full_name")
+                .GetString());
     }
 
     [Fact]

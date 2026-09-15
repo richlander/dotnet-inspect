@@ -96,6 +96,10 @@ public sealed partial class WorkspaceContextLoaderTests
                 includeAll: true, cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(["Internal", "Public"],
             all.Answers[0].Candidates.Select(candidate => candidate.Name.Segments[0]));
+        Assert.Equal(
+            [1, 0],
+            all.Answers[0].Candidates.Select(
+                candidate => candidate.DeclarationOrder));
     }
 
     [Fact]

@@ -28,9 +28,12 @@ and presentation limits.
 
 The repository convention is a typed operation result between fact production
 and presentation. A service result is not a Markout view and does not acquire
-rendering attributes merely to reduce adapter code. `FindSearchResult<T>` is
-the internal operation envelope: it retains rows, failures, completion state,
-unmatched patterns, and locator Sections. It is not a CLI output document.
+rendering attributes merely to reduce adapter code.
+[Host-observable content kinds](host-observable-content-kinds.md#boundary)
+governs completed host-neutral `InspectionEnvelope<TContent>` boundaries; this
+CLI-local service does not create one. `FindSearchResult<T>` is the internal
+operation envelope: it retains rows, failures, completion state, unmatched
+patterns, and locator Sections. It is not a CLI output Document.
 `TypeFindResult` remains the established typed result-row contract;
 `FindResultView` and `FindRow` remain presentation projections. A locator-backed
 row may carry a JSON-ignored candidate association for exact Type/Member
@@ -123,6 +126,8 @@ Before duplicate elimination, locator-backed prefix and similarity candidates
 are ranked by their attached context/member observation order so Find's caller
 source priority remains distinct from the locator's deterministic output
 ordering.
+Direct candidates are likewise restored to context, member, and declaration
+inventory order before the per-pattern limit is applied.
 
 `FindOptions.Limit` is applied only to classified candidate rows. It is not
 passed to `WorkspaceDeclarationLocatorOptions` and cannot reduce inventory

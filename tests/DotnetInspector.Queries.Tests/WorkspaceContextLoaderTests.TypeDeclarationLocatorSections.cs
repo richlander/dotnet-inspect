@@ -73,6 +73,7 @@ public sealed partial class WorkspaceContextLoaderTests
             AssemblyTypeDefinitionKind.Class,
             candidate.DefinitionKind);
         Assert.True(candidate.IsDefinitionPublic);
+        Assert.Equal(0, candidate.DeclarationOrder);
         var coordinate =
             Assert.IsType<
                 TypeDeclarationLocatorSectionCoordinate

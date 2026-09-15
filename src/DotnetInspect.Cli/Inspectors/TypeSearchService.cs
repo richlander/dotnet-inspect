@@ -169,11 +169,14 @@ internal static class TypeSearchService
         {
             string pattern = patterns[index];
             List<TypeSearchResult> candidates =
-                ProjectCandidates(
-                    direct.Answers[index].Candidates,
-                    options.TypeFilter,
-                    options.IncludeAll,
-                    workspace);
+            [
+                .. InFindSourceOrder(
+                    ProjectCandidates(
+                        direct.Answers[index].Candidates,
+                        options.TypeFilter,
+                        options.IncludeAll,
+                        workspace)),
+            ];
             if (options.Limit is { } directLimit
                 && candidates.Count > directLimit)
             {
@@ -202,9 +205,7 @@ internal static class TypeSearchService
         var prefixRequests =
             misses
                 .Where(static miss =>
-                    !miss.Pattern.Contains('*')
-                    && !miss.Pattern.Contains('?')
-                    && LooksLikeNamespacePrefix(miss.Pattern))
+                    IsPrefixFallbackEligible(miss.Pattern))
                 .Select(static miss => $"{miss.Pattern}*")
                 .ToArray();
         TypeDeclarationLocatorSectionResult.Evaluated? prefixSection = null;
@@ -239,8 +240,7 @@ internal static class TypeSearchService
         bool needsCensus =
             misses.Any(
                 miss =>
-                    !miss.Pattern.Contains('*')
-                    && !miss.Pattern.Contains('?')
+                    !TypeMatcher.IsTypeGlobPattern(miss.Pattern)
                     && (!LooksLikeNamespacePrefix(miss.Pattern)
                         || !prefixes.TryGetValue(
                             $"{miss.Pattern}*",
@@ -273,9 +273,9 @@ internal static class TypeSearchService
 
         foreach ((_, string pattern, bool directComplete) in misses)
         {
-            if (!pattern.Contains('*')
-                && !pattern.Contains('?')
-                && LooksLikeNamespacePrefix(pattern)
+            bool usesPrefixFallback =
+                IsPrefixFallbackEligible(pattern);
+            if (usesPrefixFallback
                 && prefixes.TryGetValue(
                     $"{pattern}*",
                     out List<TypeSearchResult>? prefixCandidates)
@@ -298,7 +298,7 @@ internal static class TypeSearchService
                 continue;
             }
 
-            if (!pattern.Contains('*') && !pattern.Contains('?'))
+            if (!TypeMatcher.IsTypeGlobPattern(pattern))
             {
                 var suggestions =
                     TypeMatcher.FindClosest(
@@ -336,12 +336,11 @@ internal static class TypeSearchService
             }
 
             bool prefixIsComplete =
-                !LooksLikeNamespacePrefix(pattern)
+                !usesPrefixFallback
                 || prefixCompletion.GetValueOrDefault(
                     $"{pattern}*");
             bool patternNeedsCensus =
-                !pattern.Contains('*')
-                && !pattern.Contains('?')
+                !TypeMatcher.IsTypeGlobPattern(pattern)
                 && (!LooksLikeNamespacePrefix(pattern)
                     || !prefixes.TryGetValue(
                         $"{pattern}*",
@@ -376,6 +375,10 @@ internal static class TypeSearchService
                 .ThenBy(
                     static candidate =>
                         candidate.Location?.Observation.MemberOrder
+                        ?? int.MaxValue)
+                .ThenBy(
+                    static candidate =>
+                        candidate.Location?.DeclarationOrder
                         ?? int.MaxValue);
 
     private static List<TypeSearchResult> ProjectCandidates(
@@ -764,6 +767,10 @@ internal static class TypeSearchService
 
     private static bool LooksLikeNamespacePrefix(string pattern)
         => pattern.Contains('.') && !pattern.Contains('<') && !pattern.Contains('`');
+
+    private static bool IsPrefixFallbackEligible(string pattern)
+        => !TypeMatcher.IsTypeGlobPattern(pattern)
+            && LooksLikeNamespacePrefix(pattern);
 
     /// <summary>
     /// Converts separate result dictionaries into a unified flat list of TypeFindResult.

@@ -19,6 +19,7 @@ public sealed class TypeDeclarationLocatorCandidate
     internal TypeDeclarationLocatorCandidate(
         ExactLibrarySourceCoordinate coordinate,
         AssemblyTypeDeclaration declaration,
+        int declarationOrder,
         WorkspaceDeclarationMember observation)
     {
         Coordinate = coordinate;
@@ -27,6 +28,7 @@ public sealed class TypeDeclarationLocatorCandidate
         DefinitionKind = declaration.DefinitionKind;
         IsDefinitionPublic = declaration.IsDefinitionPublic;
         DiscoveryAttributes = declaration.DiscoveryAttributes;
+        DeclarationOrder = declarationOrder;
         Observation = observation;
     }
 
@@ -36,6 +38,7 @@ public sealed class TypeDeclarationLocatorCandidate
     public AssemblyTypeDefinitionKind? DefinitionKind { get; }
     public bool? IsDefinitionPublic { get; }
     public TypeDeclarationDiscoveryAttributes? DiscoveryAttributes { get; }
+    public int DeclarationOrder { get; }
     public WorkspaceDeclarationMember Observation { get; }
 }
 
