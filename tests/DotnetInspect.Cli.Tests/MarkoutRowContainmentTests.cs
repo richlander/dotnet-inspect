@@ -217,6 +217,16 @@ public class MarkoutRowContainmentTests
         "ILCoordinateBatchRow.Label",
         "ILCoordinateBatchRow.Meaning",
         "ILCoordinateBatchRow.Member",
+        "ImplementationProfileRow.Async",
+        "ImplementationProfileRow.EvidenceMethod",
+        "ImplementationProfileRow.EvidenceToken",
+        "ImplementationProfileRow.Generated",
+        "ImplementationProfileRow.Incomplete",
+        "ImplementationProfileRow.Member",
+        "ImplementationProfileRow.OverloadTargets",
+        "ImplementationProfileRow.Selector",
+        "ImplementationProfileRow.Stable",
+        "ImplementationProfileRow.Unsafe",
         "ImplementerRow.Kind",
         "ImplementerRow.Relationship",
         "ImplementerRow.Source",
@@ -358,11 +368,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt236MembersAcross52Types()
+    public void ResidualCensus_IsPinnedAt246MembersAcross53Types()
     {
-        Assert.Equal(236, NotSelfContaining.Length);
+        Assert.Equal(246, NotSelfContaining.Length);
         Assert.Equal(
-            52,
+            53,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)

@@ -19,6 +19,7 @@ internal sealed class MethodDefinitionMap
             string key = Key(
                 method.DeclaringType,
                 method.Name,
+                method.GenericArity,
                 method.ParameterTypes);
             if (ApiMemberIdentity.IsConversionOperator(method.Name))
             {
@@ -53,6 +54,7 @@ internal sealed class MethodDefinitionMap
         string key = Key(
             call.Callee.DeclaringType,
             call.Callee.Name,
+            call.Callee.GenericArity,
             call.Callee.ParameterTypes);
         if (ApiMemberIdentity.IsConversionOperator(call.Callee.Name))
         {
@@ -84,6 +86,7 @@ internal sealed class MethodDefinitionMap
         if (!_methodsByDeclaringTypeAndName.TryGetValue(DeclaringTypeAndNameKey(definition, callee.Name), out var candidates))
             return 0;
 
+        int resolvedToken = 0;
         foreach (var candidate in candidates)
         {
             if (!definition.Equals(candidate.DeclaringType))
@@ -91,39 +94,51 @@ internal sealed class MethodDefinitionMap
             if (SignatureMatches(
                     candidate,
                     declaring.TypeArguments,
-                    callee.TypeArguments,
-                    callee.ParameterTypes,
-                    callee.ReturnType))
+                    callee))
             {
-                return candidate.MetadataToken;
+                if (resolvedToken != 0)
+                    return 0;
+                resolvedToken = candidate.MetadataToken;
             }
         }
 
-        return 0;
+        return resolvedToken;
     }
 
     static bool SignatureMatches(
         MethodIdentity candidate,
         ImmutableArray<TypeRef> typeArguments,
-        ImmutableArray<TypeRef> methodArguments,
-        ImmutableArray<TypeRef> parameterTypes,
-        TypeRef returnType)
+        MemberRef callee)
     {
-        if (candidate.ParameterTypes.Length != parameterTypes.Length)
-            return false;
-        for (int i = 0; i < parameterTypes.Length; i++)
+        if (candidate.GenericArity != callee.GenericArity
+            || candidate.IsStatic == callee.HasThis
+            || candidate.SignatureHeader != 0
+                && callee.SignatureHeader != 0
+                && candidate.SignatureHeader
+                    != callee.SignatureHeader
+            || candidate.ParameterTypes.Length
+                != callee.ParameterTypes.Length)
         {
-            if (!candidate.ParameterTypes[i].Instantiate(typeArguments, methodArguments).Equals(parameterTypes[i]))
+            return false;
+        }
+
+        for (int i = 0; i < callee.ParameterTypes.Length; i++)
+        {
+            if (!TypeRef.ExactSignatureEquals(
+                    candidate.ParameterTypes[i].Instantiate(
+                        typeArguments,
+                        callee.TypeArguments),
+                    callee.ParameterTypes[i]))
+            {
                 return false;
+            }
         }
         TypeRef candidateReturn = candidate.ReturnType.Instantiate(
             typeArguments,
-            methodArguments);
-        return ApiMemberIdentity.IsConversionOperator(candidate.Name)
-            ? TypeRef.ExactSignatureEquals(
-                candidateReturn,
-                returnType)
-            : candidateReturn.Equals(returnType);
+            callee.TypeArguments);
+        return TypeRef.ExactSignatureEquals(
+            candidateReturn,
+            callee.ReturnType);
     }
 
     static string DeclaringTypeAndNameKey(TypeRef declaringType, string name)
@@ -132,8 +147,9 @@ internal sealed class MethodDefinitionMap
     static string Key(
         TypeRef declaringType,
         string name,
+        int genericArity,
         ImmutableArray<TypeRef> parameterTypes) =>
-        $"{GenericMemberIdentity.KeyFragment(declaringType)}|{name}|"
+        $"{GenericMemberIdentity.KeyFragment(declaringType)}|{name}|{genericArity}|"
         + string.Join(
             ",",
             parameterTypes.Select(

@@ -445,6 +445,17 @@ public class LibraryCommand
                 : [],
         };
 
+        if (options.JsonOutput
+            && !options.Count
+            && options.IncludeSections?
+                .Contains(SectionNames.ImplementationProfiles) == true)
+        {
+            CommandError.Write(
+                "Document --json cannot represent Implementation Profiles analysis. "
+                + "Use --jsonl, --tsv, or --table.");
+            return 1;
+        }
+
         if (options.ReferenceTreeDepth is < 1)
         {
             CommandError.Write("--depth must be at least 1.");

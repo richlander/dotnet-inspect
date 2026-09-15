@@ -1,0 +1,301 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+
+namespace ILInspector.Analysis;
+
+/// <summary>
+/// Objective structural measurements for one physical method body, paired
+/// with its logical declared-source owner.
+/// The default order is a body-size baseline, not a universal complexity score.
+/// </summary>
+public sealed record MethodImplementationProfile(
+    MethodIdentity Method,
+    MethodIdentity EvidenceMethod,
+    int ILBytes,
+    int InstructionCount,
+    int DistinctOpcodeCount,
+    int BasicBlockCount,
+    int BranchCount,
+    int ConditionalBranchCount,
+    int SwitchCount,
+    int SwitchTargetCount,
+    int LoopCount,
+    int CatchCount,
+    int FilterCount,
+    int FinallyCount,
+    int FaultCount,
+    int LocalCount,
+    int DirectCallCount,
+    int DistinctCalleeCount,
+    int AllocationCount,
+    int ThrowCount,
+    bool Async,
+    bool Unsafe,
+    int ReflectionCallCount,
+    int IncomingOverloadCallerCount,
+    int OutgoingOverloadTargetCount,
+    bool IsComplete,
+    ImmutableArray<string> IncompleteReasons);
+
+/// <summary>An exact direct call between distinct methods in one overload family.</summary>
+public sealed record OverloadCallRelationship(
+    MethodIdentity Caller,
+    MethodIdentity Callee,
+    MethodIdentity EvidenceMethod,
+    int ILOffset,
+    CallKind Kind);
+
+internal sealed record MethodBodyImplementationMetrics(
+    MethodIdentity Method,
+    MethodIdentity EvidenceMethod,
+    int ILBytes,
+    int InstructionCount,
+    ImmutableArray<ILOpCode> DistinctOpcodes,
+    int BasicBlockCount,
+    int BranchCount,
+    int ConditionalBranchCount,
+    int SwitchCount,
+    int SwitchTargetCount,
+    int LoopCount,
+    int CatchCount,
+    int FilterCount,
+    int FinallyCount,
+    int FaultCount,
+    int LocalCount,
+    bool IsAsync,
+    ImmutableArray<string> IncompleteReasons);
+
+internal static class MethodImplementationProfileAnalysis
+{
+    internal static MethodBodyImplementationMetrics Measure(
+        MethodBodyAnalysisContext context,
+        MethodIdentity method,
+        int ilBytes,
+        bool isAsync)
+    {
+        int branches = 0;
+        int conditionalBranches = 0;
+        int switches = 0;
+        int switchTargets = 0;
+        foreach (var instruction in context.Instructions.Instructions)
+        {
+            if (instruction.Branches)
+            {
+                branches++;
+                if (!instruction.IsUnconditionalBranch)
+                    conditionalBranches++;
+            }
+            if (instruction.OpCode == ILOpCode.Switch)
+            {
+                switches++;
+                switchTargets += instruction.BranchTargets.Length;
+            }
+        }
+
+        int catches = 0;
+        int filters = 0;
+        int finallys = 0;
+        int faults = 0;
+        foreach (var region in context.ExceptionRegions)
+        {
+            switch (region.Kind)
+            {
+                case ExceptionRegionKind.Catch:
+                    catches++;
+                    break;
+                case ExceptionRegionKind.Filter:
+                    filters++;
+                    break;
+                case ExceptionRegionKind.Finally:
+                    finallys++;
+                    break;
+                case ExceptionRegionKind.Fault:
+                    faults++;
+                    break;
+            }
+        }
+
+        return new MethodBodyImplementationMetrics(
+            method,
+            context.Method,
+            ilBytes,
+            context.Instructions.Instructions.Length,
+            [
+                .. context.Instructions.Instructions
+                    .Select(static instruction => instruction.OpCode)
+                    .Distinct()
+                    .Order(),
+            ],
+            context.Blocks.Blocks.Length,
+            branches,
+            conditionalBranches,
+            switches,
+            switchTargets,
+            context.LoopRegions.Distinct().Count(),
+            catches,
+            filters,
+            finallys,
+            faults,
+            context.LocalTypes.Length,
+            isAsync,
+            context.Instructions.IsComplete
+                ? []
+                :
+                [
+                    context.Instructions.Blocks.IncompleteReason
+                    ?? "Method body analysis was incomplete.",
+                ]);
+    }
+
+    internal static ImmutableArray<MethodImplementationProfile> Collect(
+        ImmutableArray<MethodBodyImplementationMetrics> bodies,
+        ImmutableArray<DirectCall> directCalls,
+        IReadOnlyDictionary<int, MethodSignals> signals,
+        ImmutableArray<OverloadCallRelationship> relationships)
+    {
+        var incomingCallers = relationships
+            .GroupBy(static relationship => relationship.Callee.MetadataToken)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Select(static relationship => relationship.Caller.MetadataToken)
+                    .Distinct()
+                    .Count());
+        var outgoingTargets = relationships
+            .GroupBy(static relationship => (
+                relationship.Caller.MetadataToken,
+                relationship.EvidenceMethod.MetadataToken))
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Select(static relationship => relationship.Callee.MetadataToken)
+                    .Distinct()
+                    .Count());
+        var callsByEvidenceMethod = directCalls
+            .Where(static call => IsInvocation(call.Kind))
+            .GroupBy(static call =>
+                call.EvidenceMethod.MetadataToken)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.ToArray());
+
+        return
+        [
+            .. bodies.Select(body =>
+                {
+                    MethodIdentity method = body.Method;
+                    MethodSignals signal = signals.GetValueOrDefault(
+                        body.EvidenceMethod.MetadataToken,
+                        MethodSignals.None);
+                    callsByEvidenceMethod.TryGetValue(
+                        body.EvidenceMethod.MetadataToken,
+                        out DirectCall[]? calls);
+                    calls ??= [];
+
+                    return new MethodImplementationProfile(
+                        method,
+                        body.EvidenceMethod,
+                        body.ILBytes,
+                        body.InstructionCount,
+                        body.DistinctOpcodes.Length,
+                        body.BasicBlockCount,
+                        body.BranchCount,
+                        body.ConditionalBranchCount,
+                        body.SwitchCount,
+                        body.SwitchTargetCount,
+                        body.LoopCount,
+                        body.CatchCount,
+                        body.FilterCount,
+                        body.FinallyCount,
+                        body.FaultCount,
+                        body.LocalCount,
+                        calls.Length,
+                        calls.Select(static call => call.Callee)
+                            .Distinct()
+                            .Count(),
+                        signal.Allocations,
+                        signal.Throws,
+                        body.IsAsync,
+                        signal.Unsafe,
+                        signal.Reflection,
+                        body.EvidenceMethod.MetadataToken
+                            == method.MetadataToken
+                                ? incomingCallers.GetValueOrDefault(
+                                    method.MetadataToken)
+                                : 0,
+                        outgoingTargets.GetValueOrDefault((
+                            method.MetadataToken,
+                            body.EvidenceMethod.MetadataToken)),
+                        body.IncompleteReasons.IsEmpty,
+                        body.IncompleteReasons);
+                })
+                .OrderByDescending(static profile => profile.InstructionCount)
+                .ThenByDescending(static profile => profile.DistinctOpcodeCount)
+                .ThenByDescending(static profile => profile.BasicBlockCount)
+                .ThenBy(static profile => profile.Method.MetadataToken),
+        ];
+    }
+
+    internal static ImmutableArray<OverloadCallRelationship>
+        CollectOverloadRelationships(
+            ImmutableArray<MethodIdentity> declaredMethods,
+            ImmutableArray<DirectCall> directCalls)
+    {
+        var methodMap = MethodDefinitionMap.Create(declaredMethods);
+        var methodsByToken = declaredMethods.ToDictionary(
+            static method => method.MetadataToken);
+        var relationships =
+            ImmutableArray.CreateBuilder<OverloadCallRelationship>();
+        foreach (var call in directCalls)
+        {
+            if (!IsInvocation(call.Kind))
+                continue;
+
+            int calleeToken = methodMap.Resolve(call);
+            if (calleeToken == 0
+                || !methodsByToken.TryGetValue(
+                    calleeToken,
+                    out MethodIdentity? callee)
+                || call.Caller.MetadataToken == callee.MetadataToken
+                || call.Caller.Name != callee.Name
+                || !SameDeclaringType(
+                    call.Caller.DeclaringType,
+                    callee.DeclaringType))
+            {
+                continue;
+            }
+
+            relationships.Add(new(
+                call.Caller,
+                callee,
+                call.EvidenceMethod,
+                call.ILOffset,
+                call.Kind));
+        }
+
+        return
+        [
+            .. relationships
+                .OrderBy(static relationship =>
+                    relationship.Caller.MetadataToken)
+                .ThenBy(static relationship => relationship.ILOffset)
+                .ThenBy(static relationship =>
+                    relationship.Callee.MetadataToken),
+        ];
+    }
+
+    static bool IsInvocation(CallKind kind)
+        => kind is CallKind.Call
+            or CallKind.CallVirtual
+            or CallKind.NewObject;
+
+    static bool SameDeclaringType(TypeRef left, TypeRef right)
+    {
+        left = GenericMemberIdentity.OpenDeclaringType(left);
+        right = GenericMemberIdentity.OpenDeclaringType(right);
+        return left.Kind == right.Kind
+            && left.Assembly == right.Assembly
+            && left.Namespace == right.Namespace
+            && left.Name == right.Name;
+    }
+}

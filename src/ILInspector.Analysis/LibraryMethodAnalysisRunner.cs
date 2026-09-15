@@ -162,6 +162,7 @@ internal sealed class LibraryMethodAnalysisResult
     public bool ScopeExcluded;
     public bool HasSignals;
     public BodySignals Signals;
+    public MethodBodyImplementationMetrics? ImplementationProfile;
     public LeakTriageResult? LeakTriage;
     public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
     public AnalysisDiagnostic? Diagnostic;
@@ -541,6 +542,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
         bool includeAsyncSiblingOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
+        bool includeImplementationProfiles = plan.Includes(
+            LibraryBodyAnalysisFeatures.ImplementationProfiles);
         bool includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
         bool includeOwnershipFlow = plan.Includes(
@@ -880,6 +883,15 @@ internal sealed class LibraryMethodAnalysisRunner(
                 body.ExceptionRegions,
                 loopRegions,
                 localTypes);
+            if (includeImplementationProfiles)
+            {
+                result.ImplementationProfile =
+                    MethodImplementationProfileAnalysis.Measure(
+                        context,
+                        result.DeclaredMethod ?? caller,
+                        il.Length,
+                        asyncBody is not null);
+            }
             // Build allocation's Layer-1 indexes before other topic producers,
             // then keep every result and query bound to this exact context.
             var allocationFacts =

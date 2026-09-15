@@ -11868,6 +11868,179 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void ImplementationProfiles_ExposeRawStructureAndOverloadEdges()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+        var profiles = index.ImplementationProfiles(
+            method =>
+                method.DeclaringType.Name
+                    == "ImplementationProfileSample"
+                && method.Name
+                    == "Analyze");
+
+        var wrapper = Assert.Single(
+            profiles,
+            profile =>
+                profile.Method.ParameterTypes.Length == 1
+                && profile.Method.ParameterTypes[0]
+                    .Name == "Int32");
+        var implementation = Assert.Single(
+            profiles,
+            profile =>
+                profile.Method.ParameterTypes.Length == 2);
+        var independent = Assert.Single(
+            profiles,
+            profile =>
+                profile.Method.ParameterTypes.Length == 1
+                && profile.Method.ParameterTypes[0]
+                    .Name == "String");
+
+        Assert.True(
+            implementation.InstructionCount
+                > wrapper.InstructionCount);
+        Assert.True(implementation.DistinctOpcodeCount > 1);
+        Assert.True(implementation.ConditionalBranchCount > 0);
+        Assert.True(implementation.LoopCount > 0);
+        Assert.Equal(1, implementation.CatchCount);
+        Assert.Equal(1, wrapper.OutgoingOverloadTargetCount);
+        Assert.Equal(1, implementation.IncomingOverloadCallerCount);
+        Assert.Equal(0, independent.IncomingOverloadCallerCount);
+        Assert.Equal(0, independent.OutgoingOverloadTargetCount);
+        var functionLoader = Assert.Single(
+            profiles,
+            profile =>
+                profile != wrapper
+                && profile != implementation
+                && profile != independent);
+        Assert.Equal(0, functionLoader.OutgoingOverloadTargetCount);
+        Assert.DoesNotContain(
+            index.OverloadRelationships(),
+            relationship =>
+                relationship.Caller.MetadataToken
+                    == functionLoader.Method.MetadataToken);
+        Assert.True(wrapper.IsComplete);
+        Assert.True(implementation.IsComplete);
+    }
+
+    [Fact]
+    public void ImplementationProfiles_RequireExplicitAcquisition()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+
+        var error = Assert.Throws<InvalidOperationException>(
+            () => index.ImplementationProfiles());
+
+        Assert.Contains(
+            "were not requested",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OverloadRelationships_PreserveExactCallerTargetAndOffset()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+        var relationship = Assert.Single(
+            index.OverloadRelationships(),
+            relationship =>
+                relationship.Caller.DeclaringType.Name
+                    == "ImplementationProfileSample"
+                && relationship.Caller.Name
+                    == "Analyze");
+
+        Assert.Single(relationship.Caller.ParameterTypes);
+        Assert.Equal(2, relationship.Callee.ParameterTypes.Length);
+        Assert.Equal(
+            relationship.Caller,
+            relationship.EvidenceMethod);
+        Assert.True(relationship.ILOffset >= 0);
+    }
+
+    [Fact]
+    public void OverloadRelationships_ResolveConstructedGenericArityExactly()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+        var relationship = Assert.Single(
+            index.OverloadRelationships(),
+            relationship =>
+                relationship.Caller.DeclaringType.Name
+                    == "GenericOverloadSample`1"
+                && relationship.Caller.Name == "Route");
+
+        Assert.Equal(0, relationship.Caller.GenericArity);
+        Assert.Equal(2, relationship.Callee.GenericArity);
+    }
+
+    [Fact]
+    public void ImplementationProfiles_AttributeAsyncBodiesToSourceMethods()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+        var profiles = index.ImplementationProfiles()
+            .Where(
+                profile =>
+                    profile.Method.DeclaringType.Name
+                        == "ImplementationProfileSample"
+                    && profile.Method.Name == "AnalyzeAsync"
+                    && profile.Method.ParameterTypes.Length == 1
+                    && profile.Method.ParameterTypes[0]
+                        .Name == "Int32")
+            .ToArray();
+        Assert.Equal(2, profiles.Length);
+
+        var stateMachineBody = Assert.Single(
+            profiles,
+            profile =>
+                profile.Async);
+        var kickoffBody = Assert.Single(
+            profiles,
+            profile => !profile.Async);
+
+        Assert.Equal(
+            stateMachineBody.Method,
+            kickoffBody.Method);
+        Assert.NotEqual(
+            stateMachineBody.EvidenceMethod,
+            kickoffBody.EvidenceMethod);
+        Assert.Equal("MoveNext", stateMachineBody.EvidenceMethod.Name);
+
+        var forwardingProfiles = index.ImplementationProfiles()
+            .Where(
+                profile =>
+                    profile.Method.DeclaringType.Name
+                        == "ImplementationProfileSample"
+                    && profile.Method.Name == "AnalyzeAsync"
+                    && profile.Method.ParameterTypes.Length == 1
+                    && profile.Method.ParameterTypes[0]
+                        .Name == "String")
+            .ToArray();
+        var forwardingBody = Assert.Single(
+            forwardingProfiles,
+            profile => profile.Async);
+        var forwardingKickoff = Assert.Single(
+            forwardingProfiles,
+            profile => !profile.Async);
+        Assert.Equal(
+            1,
+            forwardingBody.OutgoingOverloadTargetCount);
+        Assert.Equal(
+            0,
+            forwardingKickoff.OutgoingOverloadTargetCount);
+    }
+
+    [Fact]
     public void BuildCallerTree_OverloadResolvesToOwnDefinition()
     {
         var index = LibraryBodyIndex.Open(typeof(OverloadTargets).Assembly.Location);
