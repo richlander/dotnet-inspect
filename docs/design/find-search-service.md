@@ -47,12 +47,15 @@ may reuse it only from a same-name definition selected in the same answer;
 otherwise Find uses the compatibility inventory rather than guessing a
 category or leaking the declaration role into the result.
 
-Default discovery likewise consumes Metadata's definition-local
-`DiscoveryAttributes`: known `EditorBrowsable(Never)` and obsolete definitions
-are suppressed unless `--all` is selected. A same-name forwarder may reuse
-those facts from a definition in the same answer. When default visibility
-cannot be established, Find uses the compatibility inventory rather than
-publishing a candidate under a guessed visibility policy.
+Default discovery consumes Metadata's definition-local `IsDefinitionPublic`
+and `DiscoveryAttributes` facts. A definition whose own row is not Public or
+NestedPublic, a compiler-generated leaf name, or a known
+`EditorBrowsable(Never)` or obsolete definition is suppressed; `--all` admits
+nonpublic and attribute-hidden definitions but continues to suppress generated
+names. A same-name forwarder may reuse discovery attributes from a definition
+in the same answer. When required definition-local evidence cannot be
+established, Find uses the compatibility inventory rather than publishing a
+candidate under a guessed visibility policy.
 
 This service deliberately remains inside the CLI project. It consumes
 `FindOptions`, a host `HttpClient`, and the CLI diagnostic path, so it is not an
@@ -102,6 +105,11 @@ or Member consumer may reconstruct identity from its `FullName`, `Library`,
 `Source`, or `SourceVersion` strings.
 Package rows retain the caller's Package ID spelling for presentation; the
 normalized locator coordinate remains the identity used for handoff.
+Find requests the locator's all-declaration view because the locator's default
+public-surface view evaluates the enclosing definition chain, while established
+Find visibility is row-local. The CLI then applies its own policy from
+Metadata-issued `IsDefinitionPublic`, `DiscoveryAttributes`, and generated-name
+grammar evidence without changing the shared locator view.
 
 For a direct miss, namespace-prefix and similarity work remains CLI-owned.
 Prefix fallback is issued as a separate `<pattern>*` locator request. A
@@ -362,6 +370,8 @@ the command compatibility boundary:
 - selected-compatible-TFM replay when the request targets a newer framework;
 - staged namespace-prefix fallback without an unrelated wildcard census;
 - established metadata-arity spelling for generic locator rows;
+- parity with compatibility Find for row-local nested visibility and
+  compiler-generated suppression under `--all`;
 - visible Package locator acquisition failures;
 - compatibility fallback when a Package has no implementation-view surface;
 - visible locator inventory/access rejection without duplicate diagnostics

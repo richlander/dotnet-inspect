@@ -25,6 +25,7 @@ public sealed class TypeDeclarationLocatorCandidate
         Name = declaration.Name;
         Kind = declaration.Kind;
         DefinitionKind = declaration.DefinitionKind;
+        IsDefinitionPublic = declaration.IsDefinitionPublic;
         DiscoveryAttributes = declaration.DiscoveryAttributes;
         Observation = observation;
     }
@@ -33,6 +34,7 @@ public sealed class TypeDeclarationLocatorCandidate
     public MetadataTypeDefinitionName Name { get; }
     public AssemblyTypeDeclarationKind Kind { get; }
     public AssemblyTypeDefinitionKind? DefinitionKind { get; }
+    public bool? IsDefinitionPublic { get; }
     public TypeDeclarationDiscoveryAttributes? DiscoveryAttributes { get; }
     public WorkspaceDeclarationMember Observation { get; }
 }

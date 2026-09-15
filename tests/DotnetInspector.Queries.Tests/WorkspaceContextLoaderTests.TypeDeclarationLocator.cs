@@ -379,6 +379,7 @@ public sealed partial class WorkspaceContextLoaderTests
                 Assert.Equal(
                     AssemblyTypeDefinitionKind.Class,
                     definition.DefinitionKind);
+                Assert.True(definition.IsDefinitionPublic);
             });
     }
 

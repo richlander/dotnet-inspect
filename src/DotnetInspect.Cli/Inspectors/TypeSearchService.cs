@@ -468,10 +468,16 @@ internal static class TypeSearchService
             TypeDeclarationDiscoveryAttributes? attributes =
                 candidate.DiscoveryAttributes
                 ?? discoveryAttributes.GetValueOrDefault(candidate.Name);
-            if (!includeAll
+            if (TypeFilters.IsCompilerGenerated(
+                    candidate.Name.Segments[^1])
+                || (!includeAll
+                    && candidate.DeclarationKind
+                        is AssemblyTypeDeclarationKind.Definition
+                    && candidate.IsDefinitionPublic is not true)
+                || (!includeAll
                 && attributes
                     is { IsEditorBrowsableNever: true }
-                        or { IsObsolete: true })
+                        or { IsObsolete: true }))
             {
                 continue;
             }

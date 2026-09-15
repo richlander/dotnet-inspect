@@ -20191,6 +20191,74 @@ public partial class CommandExecutionTests
             });
     }
 
+    [Theory]
+    [InlineData("FSharpKind", false)]
+    [InlineData("System.Text.Json.JsonDocument.*", true)]
+    [Trait("Speed", "Slow")]
+    public async Task Find_LocatorPreservesCompatibilityVisibility(
+        string pattern,
+        bool includeAll)
+    {
+        async Task<string[]> SearchAsync(bool forceCompatibility)
+        {
+            var arguments = new List<string>
+            {
+                "find",
+                pattern,
+                "--package",
+                "System.Text.Json@10.0.0",
+                "--tfm",
+                "net10.0",
+                "--json",
+                "--tips",
+                "q",
+            };
+            if (includeAll)
+                arguments.Add("--all");
+            if (forceCompatibility)
+            {
+                arguments.Add("--library");
+                arguments.Add(TestAssemblyPath);
+            }
+
+            var (exit, output, error) =
+                await RunAppAsync([.. arguments]);
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            return
+            [
+                .. document.RootElement
+                    .EnumerateArray()
+                    .Select(static row => row.GetRawText())
+                    .Order(StringComparer.Ordinal),
+            ];
+        }
+
+        string[] locator = await SearchAsync(forceCompatibility: false);
+        string[] compatibility =
+            await SearchAsync(forceCompatibility: true);
+
+        Assert.Equal(compatibility, locator);
+        if (includeAll)
+        {
+            Assert.DoesNotContain(
+                locator,
+                static row =>
+                    row.Contains(@".\u003C", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.Contains(
+                locator,
+                static row =>
+                    row.Contains(
+                        "System.Text.Json.Serialization.Metadata."
+                            + "FSharpCoreReflectionProxy.FSharpKind",
+                        StringComparison.Ordinal));
+        }
+    }
+
     [Fact]
     public async Task Find_IncompleteLocatorMarkdownPreservesResultsView()
     {

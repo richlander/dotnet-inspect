@@ -353,6 +353,8 @@ public sealed record TypeDeclarationLocatorSectionCandidate(
 {
     [JsonIgnore]
     public AssemblyTypeDefinitionKind? DefinitionKind { get; init; }
+    [JsonIgnore]
+    public bool? IsDefinitionPublic { get; init; }
     public TypeDeclarationDiscoveryAttributes? DiscoveryAttributes { get; init; }
 }
 
@@ -595,6 +597,8 @@ public static class TypeDeclarationLocatorSection
                                 Observation(candidate.Observation))
                             {
                                 DefinitionKind = candidate.DefinitionKind,
+                                IsDefinitionPublic =
+                                    candidate.IsDefinitionPublic,
                                 DiscoveryAttributes = candidate.DiscoveryAttributes,
                             }),
                 ];

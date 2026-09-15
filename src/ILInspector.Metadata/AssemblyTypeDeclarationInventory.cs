@@ -63,12 +63,14 @@ public sealed class AssemblyTypeDeclaration
         MetadataTypeDefinitionName name,
         AssemblyTypeDeclarationKind kind,
         AssemblyTypeDefinitionKind? definitionKind,
+        bool? isDefinitionPublic,
         bool isPublicSurface,
         TypeDeclarationDiscoveryAttributes? discoveryAttributes = null)
     {
         Name = name;
         Kind = kind;
         DefinitionKind = definitionKind;
+        IsDefinitionPublic = isDefinitionPublic;
         IsPublicSurface = isPublicSurface;
         DiscoveryAttributes = discoveryAttributes;
     }
@@ -76,6 +78,13 @@ public sealed class AssemblyTypeDeclaration
     public MetadataTypeDefinitionName Name { get; }
     public AssemblyTypeDeclarationKind Kind { get; }
     public AssemblyTypeDefinitionKind? DefinitionKind { get; }
+
+    /// <summary>
+    /// Whether this definition's own visibility is Public or NestedPublic,
+    /// without evaluating an enclosing definition chain. Null for exports.
+    /// </summary>
+    public bool? IsDefinitionPublic { get; }
+
     public bool IsPublicSurface { get; }
 
     /// <summary>
@@ -317,6 +326,7 @@ public static class AssemblyTypeDeclarationInventoryReader
             declarations.Add(new AssemblyTypeDeclaration(
                 read.Name, AssemblyTypeDeclarationKind.Definition,
                 GetDefinitionKind(reader, definition),
+                definition.IsPublic,
                 IsPublicDefinition(reader, handle),
                 AttributeReader.ReadTypeDiscoveryAttributes(
                     reader, definition.GetCustomAttributes())));
@@ -350,12 +360,15 @@ public static class AssemblyTypeDeclarationInventoryReader
                     // facades. This is an advertised export, not target access.
                     declarations.Add(new AssemblyTypeDeclaration(
                         read.Name, AssemblyTypeDeclarationKind.Forwarder,
-                        definitionKind: null, isPublicSurface: true));
+                        definitionKind: null,
+                        isDefinitionPublic: null,
+                        isPublicSurface: true));
                     break;
                 case TypeDeclarationCandidate.ModuleExport module:
                     declarations.Add(new AssemblyTypeDeclaration(
                         read.Name, AssemblyTypeDeclarationKind.ModuleExport,
                         definitionKind: null,
+                        isDefinitionPublic: null,
                         isPublicSurface: module.Declarations.All(token =>
                             (reader.GetExportedType(
                                 (ExportedTypeHandle)MetadataTokens.EntityHandle(token.Value))

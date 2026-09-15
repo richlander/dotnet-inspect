@@ -197,6 +197,9 @@ Candidates also retain Metadata's
 [definition discovery attributes](type-forwarding-resolution.md#definition-discovery-attributes)
 unchanged as `DiscoveryAttributes`. These are additional evidence, not part
 of coordinate equality, ordering, or locator filtering policy.
+They also retain Metadata's nullable `IsDefinitionPublic` fact unchanged so a
+consumer can apply a row-local definition visibility policy without redefining
+the locator's enclosing-chain public-surface view.
 Declaration-discovery completeness does not assert target-attribute availability.
 Cold and resident answers carry the same owner-issued facts.
 

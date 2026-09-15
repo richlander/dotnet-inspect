@@ -161,8 +161,19 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
         Assert.Equal(6, inventory.GetDeclarations(includeAll: true).Count());
         Assert.DoesNotContain(inventory.Declarations, declaration => declaration.Name == Name("", "<Module>"));
         Assert.Contains(Name("", "<Module>"), inventory.Definitions);
-        Assert.False(inventory.Declarations.Single(
-            declaration => declaration.Name == Name("N", "Hidden", "Child")).IsPublicSurface);
+        AssemblyTypeDeclaration hiddenChild =
+            inventory.Declarations.Single(
+                declaration =>
+                    declaration.Name
+                    == Name("N", "Hidden", "Child"));
+        Assert.True(hiddenChild.IsDefinitionPublic);
+        Assert.False(hiddenChild.IsPublicSurface);
+        Assert.False(
+            inventory.Declarations.Single(
+                declaration =>
+                    declaration.Name
+                    == Name("N", "Outer`1", "Private"))
+                .IsDefinitionPublic);
     }
 
     [Fact]

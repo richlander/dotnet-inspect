@@ -18,7 +18,6 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
 {
     readonly InspectionWorkspace _workspace;
     readonly WorkspaceDeclarationLocator _locator;
-    readonly bool _includeAll;
     readonly IReadOnlyDictionary<int, string> _sourceNames;
     readonly List<TypeDeclarationLocatorSectionResult> _sections = [];
     readonly HashSet<LocatorFailureKey> _reportedLocatorFailures = [];
@@ -26,13 +25,11 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
 
     ConfiguredDeclarationLocatorWorkspace(
         InspectionWorkspace workspace,
-        bool includeAll,
         bool hasFailures,
         IReadOnlyDictionary<int, string> sourceNames)
     {
         _workspace = workspace;
         _locator = workspace.GetDeclarationLocator();
-        _includeAll = includeAll;
         _sourceNames = sourceNames;
         HasLoadFailures = hasFailures;
         HasFailures = hasFailures;
@@ -195,7 +192,6 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
 
             return new(
                 workspace,
-                options.IncludeAll,
                 hasFailures,
                 sourceNames);
         }
@@ -219,7 +215,10 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                             new TypeDeclarationLocatorRequest.Pattern(
                                 pattern)),
                 ],
-                _includeAll,
+                // Find's visibility policy differs from the locator's public
+                // surface. Retain all declarations and apply Find policy from
+                // Metadata-issued facts during row projection.
+                includeAll: true,
                 cancellationToken).ConfigureAwait(false);
         TypeDeclarationLocatorSectionResult section =
             TypeDeclarationLocatorSection.Project(
