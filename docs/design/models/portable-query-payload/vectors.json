@@ -1913,6 +1913,410 @@
         ]
       },
       "canonical": "{\"o\":[[\"base\",\"fields\",\"k😀\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-2-at-maximum-ascii",
+      "description": "A 64-byte key in field-list pair 2 is admissible; Identity rules apply at every pair, not only the first.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-2-supplementary-scalar",
+      "description": "A supplementary-plane scalar in the key of field-list pair 2 is admissible and emits raw.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "k😀",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"k😀\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-3-at-maximum-ascii",
+      "description": "A 64-byte key in field-list pair 3 is admissible; Identity rules apply at every pair, not only the first.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-3-supplementary-scalar",
+      "description": "A supplementary-plane scalar in the key of field-list pair 3 is admissible and emits raw.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "k😀",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"k😀\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-4-at-maximum-ascii",
+      "description": "A 64-byte key in field-list pair 4 is admissible; Identity rules apply at every pair, not only the first.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-4-supplementary-scalar",
+      "description": "A supplementary-plane scalar in the key of field-list pair 4 is admissible and emits raw.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "k😀",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"k😀\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-5-at-maximum-ascii",
+      "description": "A 64-byte key in field-list pair 5 is admissible; Identity rules apply at every pair, not only the first.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-5-supplementary-scalar",
+      "description": "A supplementary-plane scalar in the key of field-list pair 5 is admissible and emits raw.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "k😀",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"k😀\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-6-at-maximum-ascii",
+      "description": "A 64-byte key in field-list pair 6 is admissible; Identity rules apply at every pair, not only the first.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-6-supplementary-scalar",
+      "description": "A supplementary-plane scalar in the key of field-list pair 6 is admissible and emits raw.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "k😀",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"k😀\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-7-at-maximum-ascii",
+      "description": "A 64-byte key in field-list pair 7 is admissible; Identity rules apply at every pair, not only the first.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-7-supplementary-scalar",
+      "description": "A supplementary-plane scalar in the key of field-list pair 7 is admissible and emits raw.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "k😀",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"k😀\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-8-at-maximum-ascii",
+      "description": "A 64-byte key in field-list pair 8 is admissible; Identity rules apply at every pair, not only the first.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-8-supplementary-scalar",
+      "description": "A supplementary-plane scalar in the key of field-list pair 8 is admissible and emits raw.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "k😀",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"k😀\",\"asc\"]]}"
+    },
+    {
+      "name": "eight-field-terms-across-operations",
+      "description": "Four baseline fields and four ranking fields are eight field terms in aggregate and admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "fields",
+            "a",
+            "asc",
+            "b",
+            "asc",
+            "c",
+            "asc",
+            "d",
+            "asc"
+          ],
+          [
+            0,
+            "fields",
+            "e",
+            "asc",
+            "f",
+            "asc",
+            "g",
+            "asc",
+            "h",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"a\",\"asc\",\"b\",\"asc\",\"c\",\"asc\",\"d\",\"asc\"],[0,\"fields\",\"e\",\"asc\",\"f\",\"asc\",\"g\",\"asc\",\"h\",\"asc\"]]}"
+    },
+    {
+      "name": "count-tail-at-domain-maximum",
+      "description": "2147483647 in a tail stage is the top of the Count domain and admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            2147483647
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"tail\",2147483647]]}"
+    },
+    {
+      "name": "count-top-at-domain-maximum",
+      "description": "2147483647 in a top stage is the top of the Count domain and admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            2147483647
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",2147483647]]}"
     }
   ],
   "encode-reject": [
@@ -3265,6 +3669,608 @@
         ]
       },
       "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-2-one-over-in-intent",
+      "description": "A 65-byte key in field-list pair 2 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-2-empty-in-intent",
+      "description": "An empty key in field-list pair 2 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-2-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the key of field-list pair 2 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "a\ud800b",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-3-one-over-in-intent",
+      "description": "A 65-byte key in field-list pair 3 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-3-empty-in-intent",
+      "description": "An empty key in field-list pair 3 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-3-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the key of field-list pair 3 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "a\ud800b",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-4-one-over-in-intent",
+      "description": "A 65-byte key in field-list pair 4 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-4-empty-in-intent",
+      "description": "An empty key in field-list pair 4 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-4-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the key of field-list pair 4 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "a\ud800b",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-5-one-over-in-intent",
+      "description": "A 65-byte key in field-list pair 5 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-5-empty-in-intent",
+      "description": "An empty key in field-list pair 5 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-5-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the key of field-list pair 5 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "a\ud800b",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-6-one-over-in-intent",
+      "description": "A 65-byte key in field-list pair 6 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-6-empty-in-intent",
+      "description": "An empty key in field-list pair 6 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-6-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the key of field-list pair 6 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "a\ud800b",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-7-one-over-in-intent",
+      "description": "A 65-byte key in field-list pair 7 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-7-empty-in-intent",
+      "description": "An empty key in field-list pair 7 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-7-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the key of field-list pair 7 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "a\ud800b",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-8-one-over-in-intent",
+      "description": "A 65-byte key in field-list pair 8 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-8-empty-in-intent",
+      "description": "An empty key in field-list pair 8 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-8-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the key of field-list pair 8 is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "a\ud800b",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "nine-field-terms-across-operations-in-intent",
+      "description": "Four baseline fields and five ranking fields are nine field terms in aggregate; the limit counts across operations, not within one, and refuses on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "fields",
+            "a",
+            "asc",
+            "b",
+            "asc",
+            "c",
+            "asc",
+            "d",
+            "asc"
+          ],
+          [
+            0,
+            "fields",
+            "e",
+            "asc",
+            "f",
+            "asc",
+            "g",
+            "asc",
+            "h",
+            "asc",
+            "i",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "count-tail-zero-in-intent",
+      "description": "0 in a tail stage is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-over-domain-in-intent",
+      "description": "2147483648 in a tail stage is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            2147483648
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-negative-in-intent",
+      "description": "-1 in a tail stage is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            -1
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-zero-in-intent",
+      "description": "0 in a top stage is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-over-domain-in-intent",
+      "description": "2147483648 in a top stage is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            2147483648
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-negative-in-intent",
+      "description": "-1 in a top stage is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            -1
+          ]
+        ]
+      },
+      "reject": "bad-integer"
     }
   ],
   "reject": [
@@ -4268,6 +5274,480 @@
       "name": "value-form-feed-long-form",
       "description": "A form-feed in the value slot spelled as a hex escape rather than its short form is not canonical.",
       "bytes": "{\"t\":[[\"k\",\"eq\",\"a\\u000cb\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-one-over",
+      "description": "A 65-byte key in field-list pair 2 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-2-empty",
+      "description": "An empty key in field-list pair 2 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"\",\"asc\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-2-unpaired-surrogate",
+      "description": "A lone surrogate escape in the key of field-list pair 2 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\ud800b\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-2-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the key of field-list pair 2 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\u00e9b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-null",
+      "description": "null in the key of field-list pair 2 is not an identity.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",null,\"asc\"]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "field-key-3-one-over",
+      "description": "A 65-byte key in field-list pair 3 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-3-empty",
+      "description": "An empty key in field-list pair 3 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"\",\"asc\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-3-unpaired-surrogate",
+      "description": "A lone surrogate escape in the key of field-list pair 3 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\ud800b\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-3-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the key of field-list pair 3 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\u00e9b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-null",
+      "description": "null in the key of field-list pair 3 is not an identity.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",null,\"asc\"]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "field-key-4-one-over",
+      "description": "A 65-byte key in field-list pair 4 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-4-empty",
+      "description": "An empty key in field-list pair 4 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"\",\"asc\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-4-unpaired-surrogate",
+      "description": "A lone surrogate escape in the key of field-list pair 4 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\ud800b\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-4-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the key of field-list pair 4 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\u00e9b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-null",
+      "description": "null in the key of field-list pair 4 is not an identity.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",null,\"asc\"]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "field-key-5-one-over",
+      "description": "A 65-byte key in field-list pair 5 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-5-empty",
+      "description": "An empty key in field-list pair 5 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"\",\"asc\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-5-unpaired-surrogate",
+      "description": "A lone surrogate escape in the key of field-list pair 5 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\ud800b\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-5-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the key of field-list pair 5 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\u00e9b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-null",
+      "description": "null in the key of field-list pair 5 is not an identity.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",null,\"asc\"]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "field-key-6-one-over",
+      "description": "A 65-byte key in field-list pair 6 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-6-empty",
+      "description": "An empty key in field-list pair 6 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"\",\"asc\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-6-unpaired-surrogate",
+      "description": "A lone surrogate escape in the key of field-list pair 6 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\ud800b\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-6-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the key of field-list pair 6 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\u00e9b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-null",
+      "description": "null in the key of field-list pair 6 is not an identity.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",null,\"asc\"]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "field-key-7-one-over",
+      "description": "A 65-byte key in field-list pair 7 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-7-empty",
+      "description": "An empty key in field-list pair 7 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"\",\"asc\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-7-unpaired-surrogate",
+      "description": "A lone surrogate escape in the key of field-list pair 7 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\ud800b\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-7-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the key of field-list pair 7 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\u00e9b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-null",
+      "description": "null in the key of field-list pair 7 is not an identity.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",null,\"asc\"]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "field-key-8-one-over",
+      "description": "A 65-byte key in field-list pair 8 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-8-empty",
+      "description": "An empty key in field-list pair 8 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"\",\"asc\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "field-key-8-unpaired-surrogate",
+      "description": "A lone surrogate escape in the key of field-list pair 8 is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\ud800b\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-8-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the key of field-list pair 8 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\u00e9b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-null",
+      "description": "null in the key of field-list pair 8 is not an identity.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",null,\"asc\"]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "field-direction-1-unknown",
+      "description": "An unknown direction token in field-list pair 1 is refused; direction tokens are fixed at every pair.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"k\",\"up\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "field-direction-1-escaped",
+      "description": "A direction in field-list pair 1 spelled with an escaped letter decodes to a valid token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"k\",\"a\\u0073c\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-2-unknown",
+      "description": "An unknown direction token in field-list pair 2 is refused; direction tokens are fixed at every pair.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"k\",\"up\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "field-direction-2-escaped",
+      "description": "A direction in field-list pair 2 spelled with an escaped letter decodes to a valid token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"k\",\"a\\u0073c\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-3-unknown",
+      "description": "An unknown direction token in field-list pair 3 is refused; direction tokens are fixed at every pair.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"k\",\"up\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "field-direction-3-escaped",
+      "description": "A direction in field-list pair 3 spelled with an escaped letter decodes to a valid token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"k\",\"a\\u0073c\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-4-unknown",
+      "description": "An unknown direction token in field-list pair 4 is refused; direction tokens are fixed at every pair.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"k\",\"up\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "field-direction-4-escaped",
+      "description": "A direction in field-list pair 4 spelled with an escaped letter decodes to a valid token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"k\",\"a\\u0073c\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-5-unknown",
+      "description": "An unknown direction token in field-list pair 5 is refused; direction tokens are fixed at every pair.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"k\",\"up\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "field-direction-5-escaped",
+      "description": "A direction in field-list pair 5 spelled with an escaped letter decodes to a valid token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"k\",\"a\\u0073c\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-6-unknown",
+      "description": "An unknown direction token in field-list pair 6 is refused; direction tokens are fixed at every pair.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"k\",\"up\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "field-direction-6-escaped",
+      "description": "A direction in field-list pair 6 spelled with an escaped letter decodes to a valid token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"k\",\"a\\u0073c\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-7-unknown",
+      "description": "An unknown direction token in field-list pair 7 is refused; direction tokens are fixed at every pair.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"k\",\"up\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "field-direction-7-escaped",
+      "description": "A direction in field-list pair 7 spelled with an escaped letter decodes to a valid token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"k\",\"a\\u0073c\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-8-unknown",
+      "description": "An unknown direction token in field-list pair 8 is refused; direction tokens are fixed at every pair.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"k\",\"up\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "field-direction-8-escaped",
+      "description": "A direction in field-list pair 8 spelled with an escaped letter decodes to a valid token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"k\",\"a\\u0073c\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "nine-field-terms-across-operations",
+      "description": "Nine field terms split four and five across two operations are refused on the wire; a per-operation count would admit them.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"a\",\"asc\",\"b\",\"asc\",\"c\",\"asc\",\"d\",\"asc\"],[0,\"fields\",\"e\",\"asc\",\"f\",\"asc\",\"g\",\"asc\",\"h\",\"asc\",\"i\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "count-tail-zero",
+      "description": "0 in a tail stage is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"tail\",0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-over-domain",
+      "description": "2147483648 in a tail stage is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"tail\",2147483648]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-negative",
+      "description": "-1 in a tail stage is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"tail\",-1]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-fraction",
+      "description": "A tail count spelled 1.0 is not a canonical Count.",
+      "bytes": "{\"s\":[[\"tail\",1.0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-exponent",
+      "description": "A tail count spelled 1e2 is not a canonical Count.",
+      "bytes": "{\"s\":[[\"tail\",1e2]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-zero",
+      "description": "0 in a top stage is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"top\",0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-over-domain",
+      "description": "2147483648 in a top stage is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"top\",2147483648]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-negative",
+      "description": "-1 in a top stage is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"top\",-1]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-fraction",
+      "description": "A top count spelled 1.0 is not a canonical Count.",
+      "bytes": "{\"s\":[[\"top\",1.0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-exponent",
+      "description": "A top count spelled 1e2 is not a canonical Count.",
+      "bytes": "{\"s\":[[\"top\",1e2]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "property-t-escaped",
+      "description": "The property name t spelled with an escape decodes to the right name but is not the canonical spelling.",
+      "bytes": "{\"\\u0074\":[[\"k\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "property-b-escaped",
+      "description": "The property name b spelled with an escape decodes to the right name but is not the canonical spelling.",
+      "bytes": "{\"\\u0062\":[[\"candidates\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "property-s-escaped",
+      "description": "The property name s spelled with an escape decodes to the right name but is not the canonical spelling.",
+      "bytes": "{\"\\u0073\":[[\"head\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "property-o-escaped",
+      "description": "The property name o spelled with an escape decodes to the right name but is not the canonical spelling.",
+      "bytes": "{\"\\u006f\":[[\"base\",\"named\",\"n\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operator-eq-escaped",
+      "description": "The operator eq with one escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"\\u0065q\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operator-ne-escaped",
+      "description": "The operator ne with one escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"\\u006ee\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operator-gte-escaped",
+      "description": "The operator gte with one escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"\\u0067te\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operator-lte-escaped",
+      "description": "The operator lte with one escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"\\u006cte\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "stage-head-escaped",
+      "description": "The stage kind head with one escaped letter is not canonical.",
+      "bytes": "{\"s\":[[\"\\u0068ead\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "stage-tail-escaped",
+      "description": "The stage kind tail with one escaped letter is not canonical.",
+      "bytes": "{\"s\":[[\"\\u0074ail\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "stage-top-escaped",
+      "description": "The stage kind top with one escaped letter is not canonical.",
+      "bytes": "{\"s\":[[\"\\u0074op\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "stage-window-escaped",
+      "description": "The stage kind window with one escaped letter is not canonical.",
+      "bytes": "{\"s\":[[\"\\u0077indow\",1,2]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "role-base-escaped",
+      "description": "The base role with one escaped letter is not canonical.",
+      "bytes": "{\"o\":[[\"\\u0062ase\",\"named\",\"n\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-kind-named-escaped",
+      "description": "The order kind named with one escaped letter is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"\\u006eamed\",\"n\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-kind-fields-escaped",
+      "description": "The order kind fields with one escaped letter is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"\\u0066ields\",\"n\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "direction-asc-escaped",
+      "description": "The direction asc in a named operation with one escaped letter is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"\\u0061sc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "direction-desc-escaped",
+      "description": "The direction desc in a named operation with one escaped letter is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"\\u0064esc\"]]}",
       "reject": "non-canonical"
     }
   ],

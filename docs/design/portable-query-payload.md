@@ -121,14 +121,30 @@ the same.
 ## Shape
 
 The payload is one closed JSON object with one property per serializable part
-of the intent contract, each an abbreviation of that part's name. The long name
-is how documents and consumers refer to a part; the short one is the only form
-that appears on the wire, and the shape region binds each to the other. The
-abbreviations exist because the payload's budget is small and the packet family
-already spells its own fields this way. Note that the packet's top-level `t` is
-its coordinate-tuple table while this payload's `t` is the term set; the two live
-at different scopes and a parser never sees both in one object, but a reader of
-both documents should not assume they mean the same thing.
+of the intent contract, each an abbreviation of that part's name: `t` is the
+**terms**, `b` the **bounds**, `s` the **stages**, and `o` the **order**. The
+fifth part, the vocabulary, has no property here; it travels beside the payload
+as the tuple's `queryId`, as [Packet projection](#packet-projection) describes.
+The long name is how documents and consumers refer to a part; the short one is
+the only form that appears on the wire. The abbreviations exist because the
+payload's budget is small and the packet family already spells its own fields
+this way. Note that the packet's top-level `t` is its coordinate-tuple table
+while this payload's `t` is the term set; the two live at different scopes and a
+parser never sees both in one object, but a reader of both documents should not
+assume they mean the same thing.
+
+One complete payload, exactly as written — the canonical form of the parent's
+worked package query, with the terms sorted and the bound beside them, and no
+stage or order part because that intent has none:
+
+```json
+{"t":[["depends","eq","Serilog"],["prefix","eq","Microsoft.Extensions."],["prerelease","eq","include"]],"b":[["candidates",200]]}
+```
+
+A row query that selects and ranks fills all four parts; the vector
+`all-four-parts` is that payload. Every other layout, token, and limit
+that these bytes obey is fixed once, in the shape region, and witnessed in the
+vectors rather than restated here.
 
 Each part is an array of tuples whose layouts the shape region fixes. Every
 layout is fixed-arity except the field-list order operation, which has a fixed
