@@ -304,6 +304,13 @@ host gate without changing the suite's declaration slicing, conditional
 recovery, exact metadata-name correspondence, corpus breadth, or Roslyn
 parse-validity evidence.
 
+`ILInspector.CSharp.Tests` is the twenty-fifth migrated adopter. Its required PR
+and developer commands remain unfiltered, while the documented hostile
+metadata self-name probe uses the supported MTP method filter. These paths reuse
+the pinned outcome-level host gate without changing the suite's model-bound C#
+formatting, declaration, type-shell, memory-safety spelling, declared-self-name,
+or visible-refusal evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

@@ -145,6 +145,10 @@ internal static class ProductEcosystemPacks
             CorePackages =
             [
                 new("Microsoft.Extensions.Azure"),
+                new("Azure.AI.OpenAI"),
+                new("Microsoft.Azure.SignalR"),
+                new("Aspire.Azure.AI.OpenAI"),
+                new("Aspire.Hosting.Azure.SignalR"),
                 new("Azure.Identity"),
                 new("Azure.Security.KeyVault.Secrets"),
                 new("Azure.Storage.Blobs"),
@@ -155,7 +159,13 @@ internal static class ProductEcosystemPacks
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                 new PackagePrefixDeclaration("Azure.")),
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.Azure.")),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                 new PackagePrefixDeclaration("Microsoft.Extensions.Azure")),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Aspire.Azure.")),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Aspire.Hosting.Azure.")),
         ]),
     ]);
 

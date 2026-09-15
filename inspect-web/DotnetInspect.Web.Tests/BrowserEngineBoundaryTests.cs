@@ -355,6 +355,127 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Throws<ArgumentException>(() => handler.Configure(origin));
     }
 
+    [Theory]
+    [InlineData(
+        "https://api.nuget.org/v3/index.json",
+        "https://dotnet-inspect.ca/api/package-changes/nuget"
+        + "?path=%2Fv3%2Findex.json")]
+    [InlineData(
+        "https://api.nuget.org/v3/catalog0/page20764.json",
+        "https://dotnet-inspect.ca/api/package-changes/nuget"
+        + "?path=%2Fv3%2Fcatalog0%2Fpage20764.json")]
+    [InlineData(
+        "https://api.github.com/advisories?ecosystem=nuget"
+        + "&type=reviewed&is_withdrawn=false&per_page=100"
+        + "&affects=Microsoft.Extensions.AI",
+        "https://dotnet-inspect.ca/api/package-changes/advisories"
+        + "?ecosystem=nuget&type=reviewed&is_withdrawn=false"
+        + "&per_page=100&affects=Microsoft.Extensions.AI")]
+    public async Task PublicEvidenceProxy_RewritesFixedProviderRequests(
+        string providerRequest,
+        string expectedProxyRequest)
+    {
+        var inner = new RequestRecordingHandler();
+        using var handler =
+            new BrowserPublicEvidenceProxyHandler(inner);
+        handler.Configure("https://dotnet-inspect.ca");
+        using var client = new HttpClient(handler);
+
+        using HttpResponseMessage response =
+            await client.GetAsync(
+                providerRequest,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            expectedProxyRequest,
+            inner.RequestUri?.AbsoluteUri);
+        Assert.Equal(
+            providerRequest,
+            response.RequestMessage?.RequestUri?.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task PublicEvidenceProxy_ForwardsNoProviderRequestHeaders()
+    {
+        var inner = new RequestRecordingHandler();
+        using var handler =
+            new BrowserPublicEvidenceProxyHandler(inner);
+        handler.Configure("https://dotnet-inspect.ca");
+        using var client = new HttpClient(handler);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "https://api.github.com/advisories?ecosystem=nuget");
+        request.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer",
+                "secret");
+        request.Headers.TryAddWithoutValidation("X-Caller-Header", "value");
+
+        using HttpResponseMessage response =
+            await client.SendAsync(
+                request,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            "https://dotnet-inspect.ca/api/package-changes/advisories"
+            + "?ecosystem=nuget",
+            inner.RequestUri?.AbsoluteUri);
+        Assert.False(inner.HadAuthorization);
+        Assert.False(inner.HadCallerHeader);
+        Assert.Equal(
+            "https://api.github.com/advisories?ecosystem=nuget",
+            response.RequestMessage?.RequestUri?.AbsoluteUri);
+    }
+
+    [Theory]
+    [InlineData("https://api.nuget.org/v3-flatcontainer/example/index.json")]
+    [InlineData("https://api.nuget.org/v3/catalog0/index.json?other=true")]
+    [InlineData("https://api.github.com/repos/example/project")]
+    [InlineData("https://example.com/advisories?ecosystem=nuget")]
+    public async Task PublicEvidenceProxy_LeavesOtherDestinationsUnchanged(
+        string destination)
+    {
+        var inner = new RequestRecordingHandler();
+        using var handler =
+            new BrowserPublicEvidenceProxyHandler(inner);
+        handler.Configure("https://dotnet-inspect.ca");
+        using var client = new HttpClient(handler);
+
+        using HttpResponseMessage response =
+            await client.GetAsync(
+                destination,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(destination, inner.RequestUri?.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task PublicEvidenceProxy_RequiresConfiguredOrigin()
+    {
+        using var handler =
+            new BrowserPublicEvidenceProxyHandler(
+                new RequestRecordingHandler());
+        using var client = new HttpClient(handler);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.GetAsync(
+                "https://api.nuget.org/v3/index.json",
+                TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("https://dotnet-inspect.ca/path")]
+    [InlineData("https://user@example.com")]
+    public void PublicEvidenceProxy_RejectsValuesThatAreNotHttpOrigins(
+        string origin)
+    {
+        using var handler =
+            new BrowserPublicEvidenceProxyHandler(
+                new RequestRecordingHandler());
+        Assert.Throws<ArgumentException>(() => handler.Configure(origin));
+    }
+
     [Fact]
     public void SourceContexts_UseFreshMemoryOnlyPdbStores()
     {
@@ -9991,12 +10112,16 @@ public sealed partial class BrowserEngineBoundaryTests
     sealed class RequestRecordingHandler : HttpMessageHandler
     {
         internal Uri? RequestUri { get; private set; }
+        internal bool HadAuthorization { get; private set; }
+        internal bool HadCallerHeader { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             RequestUri = request.RequestUri;
+            HadAuthorization = request.Headers.Authorization is not null;
+            HadCallerHeader = request.Headers.Contains("X-Caller-Header");
             return Task.FromResult(
                 new HttpResponseMessage(
                     System.Net.HttpStatusCode.NotFound));

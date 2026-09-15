@@ -99,6 +99,7 @@ export interface TypePanelBindingActions {
   onCopyMemberSource: () => void;
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
+  onExploreSource: () => void;
   onKindSelect: (kind: string) => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
@@ -227,6 +228,9 @@ export function bindTypePanel(
   root.querySelector("#copy-type-source")?.addEventListener(
     "click",
     actions.onCopyTypeSource);
+  root.querySelector("#explore-source")?.addEventListener(
+    "click",
+    actions.onExploreSource);
 
   const namespaceJump =
     root.querySelector<HTMLSelectElement>("#namespace-jump");
@@ -700,7 +704,9 @@ export function renderSourcePageActions(
     <button id="${copyButtonId}" type="button"${source ? "" : " disabled"}>Copy</button>
     ${source?.url
       ? `<a class="shell-action-link" href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Open</a>`
-      : ""}`;
+      : ""}
+    <button id="explore-source" class="primary-action" type="button"
+      title="Explore source options">Explore</button>`;
 }
 
 export function renderTypeSource(options: RenderTypeSourceOptions): string {

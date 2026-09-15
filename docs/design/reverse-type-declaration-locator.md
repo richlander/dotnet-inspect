@@ -8,7 +8,9 @@ the focused design in
 [#6852](https://github.com/richlander/dotnet-inspect/issues/6852) of
 [#6843](https://github.com/richlander/dotnet-inspect/issues/6843), within
 [#6761](https://github.com/richlander/dotnet-inspect/issues/6761). Resident
-inventories and CLI/Browser adoption remain pending.
+inventories are available through the
+[Workspace facade](workspace-live-locator.md#implemented-resident-context-facade)
+for its admitted context population; CLI/Browser adoption remains pending.
 
 **Reverse Type-Declaration Locator**, in `DotnetInspector.Queries`, owns:
 
@@ -300,8 +302,10 @@ Current population producers are exactly those supported by
 This query does not add Artifact Root, local/project, or reference-pack
 population adapters. Coordinate ordering recognizes the existing four source
 arms, but that is not evidence that every producer already feeds this input.
-The result is an L1 prerequisite for the future resident facade and common
-Sections, not a completed host boundary. Their adoption supplies the common
+The Workspace facade supplies prepared occurrence outcomes to the same query
+core. Its work stops retain `NotEvaluated.Bound`; no second matching or ordering
+policy is introduced. The result is an L1 prerequisite for that facade and
+common Sections, not a completed host boundary. Their adoption supplies the common
 [inspection envelope](inspection-envelope.md#boundary); this prerequisite
 does not invent a Share result.
 

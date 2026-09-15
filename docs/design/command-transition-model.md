@@ -6,16 +6,41 @@
   `member`;
 - operation-first commands such as `diff`.
 
-That split is useful, but only if transitions between commands follow an
-explicit model. A user should be able to predict whether a new gesture changes
-the subject, the observation, the operation, the lens, or only the rendering.
+That is the current grammar, not a requirement to put every distinct operation
+at the root. A user should be able to predict whether a new gesture changes
+the subject, observation, operation, lens, or only the rendering.
 
 The governing rule is:
 
-> One transition should change one axis. Change commands when the independently
-> navigable subject domain or operation arity changes; use selectors for points
-> within an established domain, and options or sections for context,
-> observations, lenses, and projection.
+> One transition should change one axis. Subject commands name independently
+> navigable domains; their selectors identify subjects. Distinct operations
+> are explicit and may be subcommands under that subject. A change in arity
+> requires a distinct request and outcome contract, not inherently another
+> top-level command. Options and sections select context, observations,
+> traversal, and projection without silently changing the subject.
+
+The proposed [subject-owned Diff](#subject-owned-diff) adoption is tracked by
+[#7046](https://github.com/richlander/dotnet-inspect/issues/7046), under
+[Compare delivery #5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+This document owns its command placement and completed-host-adoption boundary.
+It supersedes the top-level placement proposed in #6988; the
+[History owner](diff-history.md) retains temporal and population-count
+semantics, not CLI placement. The user also explicitly approved full shared
+envelopes, complete Browser delivery, and public CLI `--envelope` output as
+part of this adoption.
+
+The host-observable Result, Document, and owner-specific Outcome contract
+proposed in
+[#7055](https://github.com/richlander/dotnet-inspect/pull/7055)
+owns the names and semantic extents carried as `TContent`. This adoption
+consumes that contract; it does not define a competing Diff-specific content
+taxonomy.
+
+This is **specification only**. Existing top-level `diff` and `timeline` remain
+current until the cutover. Current examples elsewhere in this document are
+pre-cutover evidence; the target grammar is isolated below. Other root
+operations such as `match`, `find`, `depends`, and `graph` are not relocated
+by this adoption.
 
 Related docs:
 
@@ -32,13 +57,13 @@ Related docs:
 | Axis | Question | Examples | CLI shape |
 | --- | --- | --- | --- |
 | Source context | Where is the subject acquired from? | package, platform, local library, restored project, TFM | Named options such as `--package`, `--platform`, `--library`, `--project`, `--tfm` |
-| Focus / zoom | What structural subject is being addressed? | package artifact, library, type, member | Noun-first inspection command or an explicit focus selector on an operation-first command |
+| Focus / zoom | What structural subject is being addressed? | package artifact, library, type, member | Subject command and selector, or an existing operation-first command's focus selector |
 | Point selector / coordinate | Which exact instance or point is selected within that structural scope? | overload, MethodDef token, IL offset | Positional/named selector whose identity is complete within the current scope |
 | Observation / census | Which identities or facts are measured under that focus? | subject presence, child-member census, allocation sites, call sites | Section or producer descriptor such as `--finding` |
-| Operation / arity | What is being done, and across how many addresses? | inspect one cell, compare two cells, correlate N cells | Top-level operation when the acquisition lifecycle and outcome shape change |
+| Operation / arity | What is being done, and across how many addresses? | inspect one cell, compare two cells, correlate N cells | Explicit operation, at root or under its subject, and admitted modes; separate lifecycle and outcomes do not require root placement |
 | Lens / representation | Which view of the same subject and operation is wanted? | API, analysis, implementation, source, IL, versions | `-S` or focused mode options |
 | Traversal policy | Which addresses are evaluated, and in what order? | `--at`, endpoints, caller-directed probes, next-probe recommendation | Operation-owned options; never implicit payload acquisition |
-| Projection / rendering | How is the same result shaped for output? | fields, columns, count, URLs, printable payload, table, Markdown, JSON | Shape reducers, projectors, and writer options |
+| Projection / rendering | How is the same content shaped for output? | fields, columns, count, URLs, printable payload, table, Markdown, JSON | Shape reducers, projectors, and writer options |
 
 Source context is not focus. In:
 
@@ -119,16 +144,18 @@ A command transition is justified when either of these changes:
    `library --il-offset`, however, remains an option when the selector is
    complete within the established library scope and does not need an
    independent command surface.
-2. **Operation arity:** the acquisition topology and outcome envelope change.
+2. **Operation arity:** the acquisition topology and Outcome content change.
    Unary inspection, pairwise comparison, and N-address correlation have
-   different failure semantics, backpressure, and result shapes.
+   different failure semantics, backpressure, and content kinds. An explicit
+   subject-owned operation or mode can express that transition without moving
+   the operation to the root.
 
 Keep the current command when only an observation producer, lens, section,
 traversal choice, or output projection changes. A type-presence census and a
 type-scoped member census can both participate in `diff --type T`;
 `member -S IL` does not become an `il` command because it is the same member
 under another representation. `--json` does not become a command; it is another
-writer over the same result.
+writer over the same content.
 
 An execution lifecycle is different when at least one of these is true:
 
@@ -156,7 +183,8 @@ These commands are ergonomic spellings of the conceptual unary operation
 `inspect(package|type|member)`. There is no need to add a literal `inspect`
 command until it enables a concrete composition benefit.
 
-Multi-address operations are operation-first:
+Current multi-address operations are operation-first. Before the proposed
+subject-owned Diff cutover:
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@8.0.0..9.0.0 \
@@ -165,14 +193,204 @@ dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 \
   --type System.Text.Json.JsonSerializer --finding api.member --at all
 ```
 
-`timeline` belongs beside `diff`, not behind `type --timeline` or a
-`Timeline` section. It changes arity, acquisition, failure topology, and the
-top-level result from a subject document to an ordered history.
+The current `timeline` command changes arity, acquisition, failure topology,
+and the content from a subject Document to an ordered History Document.
+Subject-owned Diff preserves those distinctions as an explicit operation and
+mode, not a `History` output section. Its native temporal evidence remains
+owned by [Diff History inspection](diff-history.md).
 
-Operation-first commands carry source and focus as explicit selectors. Existing
-positional source shorthands, such as `diff Package@A..B`, may remain compatible,
-but documentation and new cross-operation examples should prefer the named form
-so the source/focus/operation axes stay visible.
+## Subject-owned Diff
+
+### Claim and scope
+
+The user-approved target is:
+
+> A subject-owned Diff request names what is compared before naming its
+> source. Each admitted operation consumes its owner's shared query and
+> delivers one complete `InspectionEnvelope<TContent>` to either host.
+> Placement does not change subject identity, comparison meaning, or content
+> merely to fit a command name.
+
+This section owns the CLI subject/operation mapping and its adoption boundary.
+It consumes, rather than redefines, the existing comparison, History,
+population-range, Count, envelope, and source contracts. Browser controls,
+navigation, state, and transport mechanics remain with their focused owners.
+CLI envelope framing and output-option interaction remain with #6719 and
+[output shapes](output-shapes.md).
+
+`package query` and `package changes` are existing subject-owned operation
+precedents. The Browser's
+[Compare experience](inspect-web-compare-experience.md) already scopes Diff
+to Library, Type, and Member. These are evidence for consistent placement, not
+donors of a universal query or comparison algorithm.
+
+### Subject and source are different
+
+| Subject surface | Meaning and initial boundary |
+| --- | --- |
+| `library diff` | Existing Library/API, admitted Analysis/Implementation, and filtered Library comparison work. Package and Platform options supply sources, not a different subject. |
+| `type diff <Type>` | Comparison of an exact Type, including its owned members; admitted Type History uses the existing Finding domain. |
+| `member diff <Type> <Member>` | Comparison of an exact Member's declaration or admitted body/Findings; admitted Member History retains that domain's focus requirements. |
+| `package P@A..B --count` | Metadata-only version-population reduction, not a Diff operation or package payload inspection. |
+| Future `package diff` | Must compare genuine package facts such as metadata, assets, or dependencies. This adoption does not invent that content or advertise an unsupported command. |
+
+Likewise, this does not add placeholder Project, Workspace, or every-other-
+subject Diff commands. A subject exposes Diff only when its comparison
+meaning, shared content, and supported modes are defined.
+
+Current `diff --package P@A..B` commonly compares Libraries acquired from
+packages. It therefore maps to `library diff`, not automatically `package
+diff`. Multiple Libraries must retain their owner-issued population and
+correspondence rather than being collapsed into one invented Library.
+Type and Member filters on a Library comparison remain filters; they do not
+become exact subject identities merely because one row survives.
+
+Subject-specific selectors keep their established grammar after the `diff`
+subcommand. Ambiguity is handled by the subject owner; legitimate absence at
+one endpoint remains comparison evidence. Source, TFM, visibility, and
+producer semantics retain their owners. No cross-source or cross-subject
+comparison capability is created by relocating the command.
+
+### Target requests
+
+These are proposed examples, not currently executable new syntax:
+
+```bash
+# Compare Libraries acquired from two package versions
+dotnet-inspect library diff --package System.Text.Json@9.0.0..10.0.0 \
+  --endpoints --envelope
+
+# Evaluate the selected Type across the version population
+dotnet-inspect type diff Markout.MarkoutWriterOptions \
+  --package Markout@0.33.0..0.35.2 --history --at all --envelope
+
+# Count versions without acquiring inspection payloads
+dotnet-inspect package Markout@0.33.0..0.35.2 --count --envelope
+```
+
+Source ranges consumed by subject Diff require `--endpoints` or an admitted
+`--history`; the selectors are mutually exclusive and neither is the default.
+Count on a source-range Diff request reduces its selected comparison or History
+rows and does not choose the missing mode. Only the Package version-population
+request uses Count alone as its consumer. `--envelope` selects output, not an
+operation.
+
+The [population-range rule](population-range-selection.md) is unchanged:
+creating a population needs a consumer; filtering declared rows does not
+need another. A `--rows` range cannot supply a missing source-range consumer.
+History still requires explicit `--at` for payload evaluation; an admitted
+History request without it discovers only.
+
+Initial History remains package-scoped Type/Member Findings. Library-wide,
+Platform, and local multi-version History remain unsupported. Existing
+non-range local Library pairs move under `library diff` without changing
+their pairwise argument meaning. The separately recorded single endpoint plus
+duration remains a future population-construction example, not a new flag.
+
+### Envelope-complete adoption
+
+`InspectionEnvelope<TContent>` already exists, and
+`LibraryApiDiffInspection.Execute` already returns
+`InspectionEnvelope<LibraryApiDiffPresentationResult>`. That current type is a
+transitional owner-issued Outcome: its available case composes endpoint
+summaries and a `ComparisonDocument<LibraryApiTypeDiff>`, while its other cases
+represent unavailable or rejected execution.
+
+Under the host-observable content-kind contract, the target terminal exposes
+an owner-specific `LibraryApiDiffOutcome` whose available case carries one
+`LibraryApiDiffDocument`. The Document retains the existing endpoint summaries,
+comparison document, verdicts, and evidence without changing their owners.
+Reuse the existing terminal behavior while adopting those semantic extents;
+do not add another envelope, universal Diff content type, or host-specific
+semantic copy.
+
+The [envelope owner](inspection-envelope.md) requires one owner-issued Content
+value, required Share, and ordered typed diagnostics at the completed shared
+boundary. A subject projection is constructed by its content owner before
+that boundary. CLI and Browser requests with equal semantic plans receive
+equal baselines, including typed unavailable/rejected/partial outcomes.
+Hosts can render less information, but cannot discard it from the delivered
+baseline or move semantic failure into an empty value.
+
+Every adopted CLI leaf must consume that envelope internally and support the
+public `--envelope` projection tracked by
+[#6719](https://github.com/richlander/dotnet-inspect/issues/6719). It serializes
+the already constructed baseline without another inspection, Share projection,
+or host enrichment. Ordinary content rendering, including its existing JSON
+contract, remains a separate projection when `--envelope` is absent.
+Framing, schema/version, content-kind and owner-specific Outcome
+discrimination, serializer registration, option conflicts, output-stream
+handling, and serialization failures are settled by the CLI transport owner,
+not invented by each subject command.
+
+Browser adoption preserves Content, Share, and diagnostic identity/order in
+one identifiable received baseline. It may compose UI state and additional
+owner-issued content outside that envelope. An existing DTO that drops parts
+of the baseline is not complete adoption simply because the current view
+does not render them. Existing transport bounds and visible rejection remain
+in force; completeness is not permission to exceed them.
+
+Markout remains the default lowering for typed CLI content and Count.
+Structured content survives to the rendering boundary; envelope output uses
+the transport owner's typed serialization. Browser rendering remains a
+host-specific projection of the same baseline under its existing UI owner.
+
+### Cutover and production path
+
+This is an intentional CLI change, not a compatibility layer. The production
+cutover removes top-level `diff` and `timeline` and their argument rewriting;
+it does not retain forwarding aliases, hidden routes, or a legacy execution
+fallback. Obsolete-input handling must prevent silent package routing, while
+legitimate subject identifiers remain addressable through established named
+source/selector forms.
+Classify the route removals and explicit source-range consumer requirement as
+**intentionally breaking** under
+[CLI change classification](cli-change-classification.md).
+
+Before removal, map every existing API, multi-Library, Type/Member-filtered,
+Analysis, Implementation, and Finding Transitions route to an admitted subject
+leaf and owner-issued Result, Document, or Outcome. Preserve supported outcomes
+and explicit cost gates. Missing replacement coverage blocks the cutover; it is
+not silently reclassified as an unsupported command. Any deliberate capability
+retirement beyond the approved command/default removals requires a separate
+decision.
+
+Update help, discovery, completion, replay/probe generation, README, shipped
+skills, and active examples with the executable cutover. Do not change current
+product guidance in this specification PR. `package query`, `package changes`,
+and other non-Diff operations retain their behavior.
+
+1. Lock this placement and envelope-adoption specification.
+2. Complete the owner-specific shared enveloped comparison, History, and
+   population-count terminals, reusing already completed Library work.
+3. Implement the supported public CLI envelope transport through #6719,
+   including its owned output contract and more than one content kind.
+4. Adopt subject CLI routes and Package version counts with that transport;
+   atomically retire the old Diff/Timeline routes and update guidance.
+5. Adopt the same complete envelopes in Browser Compare and population-count
+   consumers through their existing owners.
+
+Total steps: **5**. Steps 2 and 3 may progress independently where existing
+enveloped operations provide transport evidence. Step 4 needs both; step 5
+needs the relevant shared content, not the CLI option. Delivery is not complete
+until both hosts consume the complete baseline. This deliberately supersedes
+the earlier decision to defer public envelope output for this migration;
+already-shipped Compare work and unrelated Call Graph/canvas work are not
+blocked by the plan.
+
+The real cases are Library Diff for `System.Text.Json@9.0.0..10.0.0`, Type
+History for `Markout.MarkoutWriterOptions` in `Markout@0.33.0..0.35.2`, and
+version counts for that same range. Implementation gates must cover unchanged
+endpoint content under the new placement, non-range local pairs, explicit
+mode/count units, sparse and failed History, retired-input rejection without
+misrouting valid identifiers, and absence of duplicate execution for output.
+They must compare complete cross-host envelopes and round-trip available and
+owner-issued non-success content, both Share arms, and ordered typed
+diagnostics through public CLI and Browser transports.
+
+These new Release gates are **unverified** in this specification-only change.
+Existing envelope and Library Diff evidence is a baseline, not proof that
+the new commands or complete host migration are implemented.
 
 ## A version range is an address space
 
@@ -368,30 +586,42 @@ a type-focused collection census.
 
 ### Operation / arity
 
+The current command split is:
+
 ```text
 inspect -> diff -> timeline
+```
+
+The approved target retains the subject while selecting the operation:
+
+```text
+library -> library diff --endpoints
+type    -> type diff (--endpoints | --history)
+member  -> member diff (--endpoints | --history)
+package range -> package range --count
 ```
 
 The user keeps the source and structural focus but changes the question:
 
 - inspect: what does the selected observation report at this address?
 - diff: how does the selected observation transition between these addresses?
-- timeline: what is known for the selected observation across this ordered
+- history: what is known for the selected observation across this ordered
   address space?
 
 A workflow may move on any axis, but one command transition should not hide
 multiple changes. For example:
 
 ```text
-diff type presence
-  -> diff type members  observation change, same type focus and operation
-  -> diff member        structural zoom to one member
-  -> timeline member    operation change, same member focus and observation
+type diff presence
+  -> type diff members    observation change, same Type and operation
+  -> member diff          structural zoom to one Member
+  -> member diff history  operation mode change, same Member
 ```
 
 Because the CLI is stateless, source and focus selectors must be repeated when
-changing operations. That repetition is not a reason to conflate the commands;
-it makes the transition explicit and reproducible.
+changing operations. In the target subject-owned Diff family, `--history`
+makes the mode change explicit without conflating endpoint and temporal
+content contracts. The diagram describes axes, not positional argument grammar.
 
 ### Selection / discovery
 

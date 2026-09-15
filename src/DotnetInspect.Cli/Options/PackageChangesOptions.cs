@@ -2,7 +2,7 @@ using DotnetInspect.Cli.Output;
 
 namespace DotnetInspect.Cli.Options;
 
-internal sealed record EcosystemChangesOptions
+internal sealed record PackageChangesOptions
 {
     internal required string Ecosystem { get; init; }
     internal DateTimeOffset? FromExclusive { get; init; }

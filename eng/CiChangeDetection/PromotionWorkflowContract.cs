@@ -472,25 +472,6 @@ internal static class PromotionWorkflowContract
             "      cancel-in-progress: true\n",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted cancellation between promotions.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "      - deploy\n",
-            "",
-            ValidatePromotion,
-            "Promotion workflow contract allowed CoreCLR deployment before production.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "      source_sha: ${{ needs.resolve.outputs.sha }}\n",
-            "      source_sha: ${{ github.sha }}\n",
-            ValidatePromotion,
-            "Promotion workflow contract accepted a non-promoted CoreCLR revision.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "      artifact_id: ${{ needs.resolve.outputs.artifact_id }}\n",
-            "      artifact_id: latest\n",
-            ValidatePromotion,
-            "Promotion workflow contract accepted a non-promoted CoreCLR artifact.");
-
         AssertRejected(
             coreClrStagingWorkflow +
             """
@@ -544,7 +525,7 @@ internal static class PromotionWorkflowContract
             },
             "promotion workflow.concurrency");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "promotion workflow");
-        RequireExactKeys(jobs, ["resolve", "deploy", "coreclr"], "promotion jobs");
+        RequireExactKeys(jobs, ["resolve", "deploy"], "promotion jobs");
         YamlMappingNode resolve = GetRequiredMapping(jobs, "resolve", "promotion jobs");
         RequireExactKeys(
             resolve,
@@ -726,46 +707,6 @@ internal static class PromotionWorkflowContract
             },
             "production deploy step.with");
 
-        YamlMappingNode coreClr =
-            GetRequiredMapping(jobs, "coreclr", "promotion jobs");
-        RequireExactKeys(
-            coreClr,
-            ["name", "needs", "uses", "with", "secrets"],
-            "jobs.coreclr");
-        RequireScalarValue(
-            coreClr,
-            "name",
-            "Publish matching CoreCLR comparison",
-            "jobs.coreclr");
-        YamlSequenceNode coreClrNeeds =
-            GetRequiredSequence(coreClr, "needs", "jobs.coreclr");
-        string[] actualCoreClrNeeds = coreClrNeeds.Children
-            .Select(node => RequireScalar(node, "jobs.coreclr need"))
-            .ToArray();
-        if (!actualCoreClrNeeds.SequenceEqual(["resolve", "deploy"]))
-        {
-            throw new InvalidOperationException(
-                "jobs.coreclr.needs must require resolution and production deployment.");
-        }
-        RequireScalarValue(
-            coreClr,
-            "uses",
-            "./.github/workflows/deploy-inspect-web-coreclr.yml",
-            "jobs.coreclr");
-        RequireExactScalarValues(
-            GetRequiredMapping(coreClr, "with", "jobs.coreclr"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["staging_run_id"] = "${{ inputs.staging_run_id }}",
-                ["source_sha"] = "${{ needs.resolve.outputs.sha }}",
-                ["artifact_id"] = "${{ needs.resolve.outputs.artifact_id }}",
-            },
-            "jobs.coreclr.with");
-        RequireScalarValue(
-            coreClr,
-            "secrets",
-            "inherit",
-            "jobs.coreclr");
     }
 
     private static void ValidateStaging(string workflow)
@@ -955,7 +896,7 @@ internal static class PromotionWorkflowContract
             RequireStep(
                 buildSteps,
                 7,
-                "Publish MSDL managed API",
+                "Publish Inspect Web managed API",
                 "jobs.build"),
             "artifacts/inspect-web-publish/api",
             "staging managed API publish step");
@@ -1579,7 +1520,7 @@ internal static class PromotionWorkflowContract
             RequireStep(
                 publishSteps,
                 9,
-                "Publish MSDL managed API",
+                "Publish Inspect Web managed API",
                 "CoreCLR jobs.build"),
             "artifacts/inspect-web-coreclr-publish/api",
             "CoreCLR managed API publish step");
