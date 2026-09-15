@@ -258,18 +258,16 @@ internal partial class ImplementsCompactJsonContext : JsonSerializerContext { }
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UseStringEnumConverter = true)]
-[JsonSerializable(typeof(TypeFindDocument))]
-internal partial class TypeFindDocumentJsonContext : JsonSerializerContext { }
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<TypeFindResult>))]
+internal partial class TypeFindResultJsonContext : JsonSerializerContext { }
 
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UseStringEnumConverter = true)]
-[JsonSerializable(typeof(TypeFindDocument))]
-internal partial class TypeFindDocumentCompactJsonContext : JsonSerializerContext { }
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<TypeFindResult>))]
+internal partial class TypeFindResultCompactJsonContext : JsonSerializerContext { }
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,

@@ -427,29 +427,27 @@ the count exact.
 `find --package-prefix PREFIX` have been removed. Use `package query` with an
 exact package ID or an explicit terminal-star prefix.
 
-### Typed Find locations
+### Exact Find handoff
 
 An exact-version Package or explicit Platform Library search with `--tfm`
-uses one short-lived Workspace and preserves each declaration's exact
-coordinate and observation context:
+uses one short-lived Workspace internally and preserves each declaration's
+exact coordinate and observation context without changing Find's established
+result presentation:
 
 ```bash
 dotnet-inspect find System.Text.Json.JsonSerializer \
   --package System.Text.Json@10.0.0 \
   --platform System.Text.Json \
-  --tfm net10.0 --json
+  --tfm net10.0
 ```
 
-**Breaking change:** Plain type-search JSON is now an operation document with
-`complete`, `results`, and `locator_sections`, replacing the former root result
-array. Machine consumers should read rows from `.results`. Each result includes
-typed `location` and `navigation` data; zero-candidate and incomplete answers
-remain visible in `locator_sections`. Package navigation is emitted only when
-the observed producer can be reacquired without losing source authority; it
-preserves the selected package-relative implementation asset and compatible TFM
-rather than reopening a same-named reference assembly. Platform
-implementation-pack observations currently decline copyable Type/Member
-commands because public Platform syntax reopens the reference view.
+Default Markdown, tips, table formats, and plain type-search JSON retain their
+existing shapes; plain JSON remains a root result array. When a selected
+Package row feeds Type or Member inspection internally, the handoff preserves
+the selected package-relative implementation asset and compatible TFM rather
+than reopening a same-named reference assembly. Platform implementation-pack
+observations decline exact internal reopening because public Platform syntax
+resolves the reference view.
 
 Repeat `--ecosystem ecosystem.ID` to register exactly those ecosystem packs in
 caller order. Without it, Find registers every shipped ecosystem. Registration

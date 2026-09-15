@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 using Markout;
 
 namespace DotnetInspector.Queries.Tests;
@@ -68,6 +69,9 @@ public sealed partial class WorkspaceContextLoaderTests
 
         TypeDeclarationLocatorSectionCandidate candidate =
             Assert.Single(result.Answers[1].Candidates);
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.Class,
+            candidate.DefinitionKind);
         var coordinate =
             Assert.IsType<
                 TypeDeclarationLocatorSectionCoordinate

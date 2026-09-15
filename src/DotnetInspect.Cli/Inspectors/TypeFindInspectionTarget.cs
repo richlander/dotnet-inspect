@@ -1,16 +1,8 @@
 using DotnetInspect.Cli.Options;
-using DotnetInspect.Cli.Output;
-using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
-using NuGetFetch;
 
 namespace DotnetInspect.Cli.Inspectors;
-
-public sealed record TypeFindNavigation(
-    string? TypeCommand,
-    string? MemberIndexCommand,
-    string? UnavailableReason);
 
 /// <summary>
 /// Exact CLI inspection target projected from one selected locator
@@ -61,64 +53,6 @@ internal sealed class TypeFindInspectionTarget
             _ => throw new InvalidOperationException(
                 "The selected locator candidate has no CLI Member reopening path."),
         };
-    }
-
-    internal TypeFindNavigation CreateNavigation(
-        NuGetSourceOptions? sourceOptions,
-        bool includeAll)
-    {
-        string type = ShellCommandText.Quote(TypeName());
-        string sourceArguments;
-        switch (_candidate.Observation.Realization)
-        {
-            case TypeDeclarationLocatorRealization.PackageRealization package:
-                if (!CanReplayPackage(
-                        package,
-                        sourceOptions,
-                        out string? unavailable))
-                {
-                    return new(null, null, unavailable);
-                }
-                if (!TryGetPackageSelection(
-                        package,
-                        out string selectedTfm,
-                        out string assetPath,
-                        out unavailable))
-                {
-                    return new(null, null, unavailable);
-                }
-
-                sourceArguments =
-                    $"--package "
-                    + ShellCommandText.Quote(
-                        $"{package.PackageId}@{package.Version}")
-                    + " --library "
-                    + ShellCommandText.Quote(assetPath)
-                    + (includeAll ? " --all" : "")
-                    + " --tfm "
-                    + ShellCommandText.Quote(selectedTfm);
-                break;
-
-            case TypeDeclarationLocatorRealization.PlatformRealization:
-                return new(
-                    null,
-                    null,
-                    "The selected Platform observation is implementation-pack "
-                        + "content, but the public Type and Member CLI source "
-                        + "syntax reopens the reference view.");
-
-            default:
-                return new(
-                    null,
-                    null,
-                    "This source context has no portable CLI reopening form.");
-        }
-
-        return new(
-            $"dotnet-inspect type {type} {sourceArguments}",
-            $"dotnet-inspect member {type} {sourceArguments} "
-                + "-S 'Member Index'",
-            null);
     }
 
     string TypeName() =>
@@ -214,37 +148,4 @@ internal sealed class TypeFindInspectionTarget
         return false;
     }
 
-    static bool CanReplayPackage(
-        TypeDeclarationLocatorRealization.PackageRealization package,
-        NuGetSourceOptions? sourceOptions,
-        out string? unavailable)
-    {
-        if (sourceOptions is not null
-            && (sourceOptions.Sources.Length > 0
-                || sourceOptions.AdditionalSources.Length > 0
-                || sourceOptions.ConfigFile is not null
-                || sourceOptions.ConfigDirectory is not null))
-        {
-            unavailable =
-                "The selected package used configured source authority that "
-                + "has no producer-pinned CLI reopening codec.";
-            return false;
-        }
-
-        string nugetOrgKey =
-            NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url);
-        if (!string.Equals(
-                package.Producer,
-                nugetOrgKey,
-                StringComparison.Ordinal))
-        {
-            unavailable =
-                "The selected package producer cannot be represented by the "
-                + "default NuGet.org CLI source.";
-            return false;
-        }
-
-        unavailable = null;
-        return true;
-    }
 }

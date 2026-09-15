@@ -24,12 +24,14 @@ public sealed class TypeDeclarationLocatorCandidate
         Coordinate = coordinate;
         Name = declaration.Name;
         Kind = declaration.Kind;
+        DefinitionKind = declaration.DefinitionKind;
         Observation = observation;
     }
 
     public ExactLibrarySourceCoordinate Coordinate { get; }
     public MetadataTypeDefinitionName Name { get; }
     public AssemblyTypeDeclarationKind Kind { get; }
+    public AssemblyTypeDefinitionKind? DefinitionKind { get; }
     public WorkspaceDeclarationMember Observation { get; }
 }
 

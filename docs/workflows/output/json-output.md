@@ -55,12 +55,12 @@ dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compa
 ```
 
 ```expect
-"results":[
+[
 "type":"Command"
 ```
 
 ```query
-python3 -c "import json,sys; d=json.load(sys.stdin); print('nonempty' if d['results'] else 'empty')"
+python3 -c "import json,sys; d=json.load(sys.stdin); print('nonempty' if d else 'empty')"
 ```
 
 ```expect
@@ -89,16 +89,13 @@ dotnet-inspect type System.Text.Json JsonSerializer --json -v:q -n 15
 ## 3. Find results as JSON
 
 > Goal: Search results as structured data, useful for feeding into other tools.
-> Plain type-search JSON is an operation document. This intentionally replaces
-> the former root result array; read result rows from `.results`, completion
-> from `.complete`, and locator evidence from `.locator_sections`.
 
 ```bash
 dotnet-inspect find 'JsonSer*' --json --compact
 ```
 
 ```expect
-"results":[
+[
 "type":"JsonSerializer"
 ```
 
@@ -109,7 +106,7 @@ dotnet-inspect find 'JsonSer*' --json --compact
 ### 4a. Extract type names
 
 ```bash
-dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact | python3 -c "import json,sys; [print(t['full_name']) for t in json.load(sys.stdin)['results']]"
+dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact | python3 -c "import json,sys; [print(t['full_name']) for t in json.load(sys.stdin)]"
 ```
 
 ```expect
@@ -120,7 +117,7 @@ System.CommandLine.Parsing.CommandLineParser
 ### 4b. Count results
 
 ```bash
-dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact | python3 -c "import json,sys; print('nonempty' if json.load(sys.stdin)['results'] else 'empty')"
+dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact | python3 -c "import json,sys; print('nonempty' if json.load(sys.stdin) else 'empty')"
 ```
 
 ```expect

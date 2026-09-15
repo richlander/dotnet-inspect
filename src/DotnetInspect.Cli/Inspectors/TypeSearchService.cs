@@ -28,87 +28,116 @@ internal static class TypeSearchService
         HttpClient httpClient,
         CancellationToken cancellationToken = default)
     {
-        bool hasFailures = false;
-        void MarkFailure() => hasFailures = true;
         AssemblySetRequest request =
             FindSourceCollector.BuildFindRequest(options);
+        async Task<FindSearchResult<TypeFindResult>>
+            FindWithCompatibilityAsync()
+        {
+            bool hasFailures = false;
+            void MarkFailure() => hasFailures = true;
+            if (ConfiguredPackageSearchWorkspace.IsEligible(
+                    options.SourceSelection,
+                    request,
+                    options.Tfm,
+                    resultLimit: options.Limit))
+            {
+                await using ConfiguredPackageSearchWorkspace? configured =
+                    await ConfiguredPackageSearchWorkspace.OpenAsync(
+                        httpClient,
+                        request,
+                        options.Tfm!,
+                        logger.Log,
+                        cancellationToken,
+                        FindSourceCollector.CreateWorkspacePlan(options));
+                if (configured is null)
+                    return new([], HasFailures: true);
+
+                List<TypeFindResult> configuredResults =
+                    patterns.Length == 1
+                    ? await FindSinglePatternAsync(
+                        patterns[0],
+                        options,
+                        pattern => CollectTypesAsync(
+                            options,
+                            pattern,
+                            logger,
+                            configured,
+                            MarkFailure,
+                            cancellationToken))
+                    : await FindMultiPatternAsync(
+                        patterns,
+                        options,
+                        pattern => CollectTypesAsync(
+                            options,
+                            pattern,
+                            logger,
+                            configured,
+                            MarkFailure,
+                            cancellationToken));
+                return CreateSearchResult(
+                    configuredResults,
+                    hasFailures,
+                    options.PackagePrefixLimitReached);
+            }
+
+            return await FindWithLegacyAsync(
+                options,
+                patterns,
+                logger,
+                httpClient);
+        }
+
         if (ConfiguredDeclarationLocatorWorkspace.IsEligible(
                 request,
                 options.Tfm))
         {
-            await using ConfiguredDeclarationLocatorWorkspace locator =
-                await ConfiguredDeclarationLocatorWorkspace.OpenAsync(
-                    options,
-                    logger,
-                    httpClient,
-                    cancellationToken);
-            List<TypeFindResult> located =
-                await FindWithLocatorAsync(
-                    patterns,
-                    options,
-                    locator,
-                    cancellationToken);
+            List<TypeFindResult> located;
+            bool locatorHasFailures;
+            IReadOnlyList<TypeDeclarationLocatorSectionResult>
+                locatorSections;
+            await using (
+                ConfiguredDeclarationLocatorWorkspace locator =
+                    await ConfiguredDeclarationLocatorWorkspace.OpenAsync(
+                        options,
+                        logger,
+                        httpClient,
+                        cancellationToken))
+            {
+                located =
+                    await FindWithLocatorAsync(
+                        patterns,
+                        options,
+                        locator,
+                        cancellationToken);
+                locatorHasFailures = locator.HasFailures;
+                locatorSections = [.. locator.Sections];
+            }
+
+            if (located.Any(
+                    static row =>
+                        row.Location is not null
+                        && string.IsNullOrEmpty(row.Kind)))
+            {
+                FindSearchResult<TypeFindResult> compatibility =
+                    await FindWithCompatibilityAsync();
+                return compatibility with
+                {
+                    LocatorSections = locatorSections,
+                };
+            }
+
             FindSearchResult<TypeFindResult> search =
                 CreateSearchResult(
                     located,
-                    locator.HasFailures,
+                    locatorHasFailures,
                     options.PackagePrefixLimitReached);
             return search with
             {
-                LocatorSections = locator.Sections,
+                LocatorSections = locatorSections,
             };
         }
 
-        if (ConfiguredPackageSearchWorkspace.IsEligible(
-                options.SourceSelection,
-                request,
-                options.Tfm,
-                resultLimit: options.Limit))
-        {
-            await using ConfiguredPackageSearchWorkspace? configured =
-                await ConfiguredPackageSearchWorkspace.OpenAsync(
-                    httpClient,
-                    request,
-                    options.Tfm!,
-                    logger.Log,
-                    cancellationToken,
-                    FindSourceCollector.CreateWorkspacePlan(options));
-            if (configured is null)
-                return new([], HasFailures: true);
-
-            List<TypeFindResult> configuredResults =
-                patterns.Length == 1
-                ? await FindSinglePatternAsync(
-                    patterns[0],
-                    options,
-                    pattern => CollectTypesAsync(
-                        options,
-                        pattern,
-                        logger,
-                        configured,
-                        MarkFailure,
-                        cancellationToken))
-                : await FindMultiPatternAsync(
-                    patterns,
-                    options,
-                    pattern => CollectTypesAsync(
-                        options,
-                        pattern,
-                        logger,
-                        configured,
-                        MarkFailure,
-                        cancellationToken));
-            return CreateSearchResult(
-                configuredResults,
-                hasFailures,
-                options.PackagePrefixLimitReached);
-        }
-
-        return await FindWithLegacyAsync(
-            options,
-            patterns,
-            logger,
-            httpClient);
+        return await FindWithCompatibilityAsync();
     }
 
     private static async Task<List<TypeFindResult>> FindWithLocatorAsync(
@@ -139,7 +168,8 @@ internal static class TypeSearchService
             List<TypeSearchResult> candidates =
                 ProjectCandidates(
                     direct.Answers[index].Candidates,
-                    options.TypeFilter);
+                    options.TypeFilter,
+                    workspace);
             if (options.Limit is { } directLimit
                 && candidates.Count > directLimit)
             {
@@ -159,9 +189,7 @@ internal static class TypeSearchService
                 pattern.Contains('*') || pattern.Contains('?')
                     ? MatchKind.Glob
                     : MatchKind.Exact,
-                candidates,
-                options.SourceOptions,
-                options.IncludeAll);
+                candidates);
         }
 
         if (misses.Count == 0)
@@ -196,7 +224,8 @@ internal static class TypeSearchService
                 prefixes[prefixRequests[index]] =
                     ProjectCandidates(
                         prefixSection.Answers[index].Candidates,
-                        options.TypeFilter);
+                        options.TypeFilter,
+                        workspace);
                 prefixCompletion[prefixRequests[index]] =
                     prefixSection.Answers[index].IsComplete;
             }
@@ -228,7 +257,8 @@ internal static class TypeSearchService
             censusAnswer is not null
                 ? ProjectCandidates(
                     censusAnswer.Candidates,
-                    options.TypeFilter)
+                    options.TypeFilter,
+                    workspace)
                 : [];
         List<string> typeNames =
             census.Select(static candidate => candidate.FullName)
@@ -258,9 +288,7 @@ internal static class TypeSearchService
                     results,
                     prefixPattern,
                     MatchKind.Glob,
-                    selected,
-                    options.SourceOptions,
-                    options.IncludeAll);
+                    selected);
                 continue;
             }
 
@@ -294,9 +322,7 @@ internal static class TypeSearchService
                                 pattern,
                                 MatchKind.Partial,
                                 similarities[candidate.FullName],
-                                candidate,
-                                options.SourceOptions,
-                                options.IncludeAll));
+                                candidate));
                     }
                     continue;
                 }
@@ -335,8 +361,32 @@ internal static class TypeSearchService
 
     private static List<TypeSearchResult> ProjectCandidates(
         ImmutableArray<TypeDeclarationLocatorSectionCandidate> candidates,
-        string? typeFilter)
+        string? typeFilter,
+        ConfiguredDeclarationLocatorWorkspace workspace)
     {
+        Dictionary<MetadataTypeDefinitionName, AssemblyTypeDefinitionKind?>
+            definitionKinds =
+                candidates
+                    .Where(
+                        static candidate =>
+                            candidate.DefinitionKind is not null)
+                    .GroupBy(static candidate => candidate.Name)
+                    .ToDictionary(
+                        static group => group.Key,
+                        static group =>
+                        {
+                            AssemblyTypeDefinitionKind[] kinds =
+                            [
+                                .. group
+                                    .Select(
+                                        static candidate =>
+                                            candidate.DefinitionKind!.Value)
+                                    .Distinct(),
+                            ];
+                            return kinds.Length == 1
+                                ? (AssemblyTypeDefinitionKind?)kinds[0]
+                                : null;
+                        });
         var results = new List<TypeSearchResult>(candidates.Length);
         foreach (TypeDeclarationLocatorSectionCandidate candidate
             in candidates)
@@ -362,12 +412,15 @@ internal static class TypeSearchService
                 {
                     TypeDeclarationLocatorRealization.PackageRealization
                         package =>
-                        (package.PackageId, package.Version),
+                        (workspace.SourceFor(candidate), package.Version),
                     TypeDeclarationLocatorRealization.PlatformRealization
                         platform =>
-                        (platform.Family, platform.Version),
+                        (workspace.SourceFor(candidate), platform.Version),
                     _ => ("", null),
                 };
+            AssemblyTypeDefinitionKind? definitionKind =
+                candidate.DefinitionKind
+                ?? definitionKinds.GetValueOrDefault(candidate.Name);
             results.Add(
                 new TypeSearchResult
                 {
@@ -376,7 +429,7 @@ internal static class TypeSearchService
                     Namespace = candidate.Name.Namespace,
                     FullName = MetadataTypeNameFormatter
                         .FormatGenericTypeName(fullName),
-                    Kind = candidate.DeclarationKind.ToString(),
+                    Kind = DisplayTypeKind(definitionKind),
                     Assembly =
                         candidate.Observation.AssemblyIdentity.Name,
                     Source = source,
@@ -388,13 +441,25 @@ internal static class TypeSearchService
         return results;
     }
 
+    private static string DisplayTypeKind(
+        AssemblyTypeDefinitionKind? kind) =>
+        kind switch
+        {
+            AssemblyTypeDefinitionKind.Class => "class",
+            AssemblyTypeDefinitionKind.Interface => "interface",
+            AssemblyTypeDefinitionKind.ValueType => "struct",
+            AssemblyTypeDefinitionKind.Enum => "enum",
+            AssemblyTypeDefinitionKind.Delegate => "delegate",
+            null => "",
+            _ => throw new InvalidOperationException(
+                "Unknown assembly type-definition kind."),
+        };
+
     private static void AddClassifiedResults(
             List<TypeFindResult> results,
             string pattern,
             MatchKind match,
-            IEnumerable<TypeSearchResult> candidates,
-            DotnetInspector.Packages.NuGetSourceOptions? sourceOptions,
-            bool includeAll)
+            IEnumerable<TypeSearchResult> candidates)
     {
         foreach (TypeSearchResult candidate in candidates)
         {
@@ -403,9 +468,7 @@ internal static class TypeSearchService
                     pattern,
                     match,
                     similarity: 1.0,
-                    candidate,
-                    sourceOptions,
-                    includeAll));
+                    candidate));
         }
     }
 
@@ -413,9 +476,7 @@ internal static class TypeSearchService
             string pattern,
             MatchKind match,
             double? similarity,
-            TypeSearchResult candidate,
-            DotnetInspector.Packages.NuGetSourceOptions? sourceOptions,
-            bool includeAll) =>
+            TypeSearchResult candidate) =>
             new()
             {
                 Pattern = pattern,
@@ -429,13 +490,6 @@ internal static class TypeSearchService
                 Source = candidate.Source ?? "",
                 SourceVersion = candidate.SourceVersion,
                 Location = candidate.Location,
-                Navigation =
-                    candidate.Location is { } location
-                        ? TypeFindInspectionTarget.Create(location)
-                            .CreateNavigation(
-                                sourceOptions,
-                                includeAll)
-                        : null,
             };
 
     private static async Task<FindSearchResult<TypeFindResult>>

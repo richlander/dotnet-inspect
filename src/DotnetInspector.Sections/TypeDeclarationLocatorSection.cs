@@ -344,7 +344,11 @@ public sealed record TypeDeclarationLocatorSectionCandidate(
     TypeDeclarationLocatorSectionCoordinate Coordinate,
     MetadataTypeDefinitionName Name,
     AssemblyTypeDeclarationKind DeclarationKind,
-    TypeDeclarationLocatorObservation Observation);
+    TypeDeclarationLocatorObservation Observation)
+{
+    [JsonIgnore]
+    public AssemblyTypeDefinitionKind? DefinitionKind { get; init; }
+}
 
 /// <summary>
 /// One unsupported Metadata declaration retained as coverage evidence.
@@ -592,7 +596,10 @@ public static class TypeDeclarationLocatorSection
                                     .FromSource(candidate.Coordinate),
                                 candidate.Name,
                                 candidate.Kind,
-                                Observation(candidate.Observation))),
+                                Observation(candidate.Observation))
+                            {
+                                DefinitionKind = candidate.DefinitionKind,
+                            }),
                 ];
             answerIdentities[index] = identity;
             requests[index] = request;

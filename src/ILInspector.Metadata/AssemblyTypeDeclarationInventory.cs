@@ -46,21 +46,34 @@ public enum AssemblyTypeDeclarationKind
     ModuleExport,
 }
 
+/// <summary>High-level type category carried by a type definition.</summary>
+public enum AssemblyTypeDefinitionKind
+{
+    Class,
+    Interface,
+    ValueType,
+    Enum,
+    Delegate,
+}
+
 /// <summary>One detached declaration; public discovery is not target binding.</summary>
 public sealed class AssemblyTypeDeclaration
 {
     internal AssemblyTypeDeclaration(
         MetadataTypeDefinitionName name,
         AssemblyTypeDeclarationKind kind,
+        AssemblyTypeDefinitionKind? definitionKind,
         bool isPublicSurface)
     {
         Name = name;
         Kind = kind;
+        DefinitionKind = definitionKind;
         IsPublicSurface = isPublicSurface;
     }
 
     public MetadataTypeDefinitionName Name { get; }
     public AssemblyTypeDeclarationKind Kind { get; }
+    public AssemblyTypeDefinitionKind? DefinitionKind { get; }
     public bool IsPublicSurface { get; }
 }
 
@@ -287,6 +300,7 @@ public static class AssemblyTypeDeclarationInventoryReader
             }
             declarations.Add(new AssemblyTypeDeclaration(
                 read.Name, AssemblyTypeDeclarationKind.Definition,
+                GetDefinitionKind(reader, definition),
                 IsPublicDefinition(reader, handle)));
         }
 
@@ -317,12 +331,14 @@ public static class AssemblyTypeDeclarationInventoryReader
                     // Forwarder visibility bits are zero in real reference
                     // facades. This is an advertised export, not target access.
                     declarations.Add(new AssemblyTypeDeclaration(
-                        read.Name, AssemblyTypeDeclarationKind.Forwarder, true));
+                        read.Name, AssemblyTypeDeclarationKind.Forwarder,
+                        definitionKind: null, isPublicSurface: true));
                     break;
                 case TypeDeclarationCandidate.ModuleExport module:
                     declarations.Add(new AssemblyTypeDeclaration(
                         read.Name, AssemblyTypeDeclarationKind.ModuleExport,
-                        module.Declarations.All(token =>
+                        definitionKind: null,
+                        isPublicSurface: module.Declarations.All(token =>
                             (reader.GetExportedType(
                                 (ExportedTypeHandle)MetadataTokens.EntityHandle(token.Value))
                                 .Attributes & TypeAttributes.VisibilityMask)
@@ -337,6 +353,26 @@ public static class AssemblyTypeDeclarationInventoryReader
             new AssemblyTypeDeclarationInventory(
                 identity, definitions.ToImmutable(), forwarders.ToImmutable(),
                 declarations.ToImmutable(), meaningfulPublicTypeCount));
+    }
+
+    static AssemblyTypeDefinitionKind GetDefinitionKind(
+        MetadataReader reader,
+        TypeDefinition definition)
+    {
+        if ((definition.Attributes & TypeAttributes.Interface) != 0)
+            return AssemblyTypeDefinitionKind.Interface;
+
+        string? baseType = definition.BaseType.IsNil
+            ? null
+            : TypeResolver.GetTypeName(reader, definition.BaseType);
+        return baseType switch
+        {
+            "System.Enum" => AssemblyTypeDefinitionKind.Enum,
+            "System.ValueType" => AssemblyTypeDefinitionKind.ValueType,
+            "System.Delegate" or "System.MulticastDelegate" =>
+                AssemblyTypeDefinitionKind.Delegate,
+            _ => AssemblyTypeDefinitionKind.Class,
+        };
     }
 
     static bool IsPublicDefinition(MetadataReader reader, TypeDefinitionHandle handle)

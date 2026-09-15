@@ -14638,7 +14638,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_JsonWithoutProjection_EmitsTypedOperationDocument()
+    public async Task Find_JsonWithoutProjection_KeepsPreLoweredShape()
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath, "--json");
@@ -14646,14 +14646,15 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
-        Assert.True(document.RootElement.GetProperty("complete").GetBoolean());
-        JsonElement results = document.RootElement.GetProperty("results");
-        Assert.NotEqual(0, results.GetArrayLength());
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
         Assert.All(
-            results.EnumerateArray(),
-            result => Assert.True(result.TryGetProperty("type", out _)));
-        Assert.True(document.RootElement.TryGetProperty("locator_sections", out _));
+            document.RootElement.EnumerateArray(),
+            static result =>
+            {
+                Assert.True(result.TryGetProperty("type", out _));
+                Assert.False(result.TryGetProperty("location", out _));
+                Assert.False(result.TryGetProperty("navigation", out _));
+            });
     }
 
     [Fact]
@@ -20102,7 +20103,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_ExactPackageAndPlatformJsonRetainsLocatorNavigation()
+    public async Task Find_ExactPackageAndPlatformJsonPreservesResultArray()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -20124,87 +20125,55 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        Assert.True(
-            document.RootElement.GetProperty("complete").GetBoolean());
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
         JsonElement[] rows =
         [
-            .. document.RootElement.GetProperty("results").EnumerateArray(),
+            .. document.RootElement.EnumerateArray(),
         ];
-        JsonElement[] sections =
-        [
-            .. document.RootElement
-                .GetProperty("locator_sections")
-                .EnumerateArray(),
-        ];
-        Assert.Single(sections);
-        Assert.Equal(
-            "evaluated",
-            sections[0].GetProperty("kind").GetString());
-        Assert.Equal(
-            2,
-            sections[0]
-                .GetProperty("answers")[0]
-                .GetProperty("available_candidate_count")
-                .GetInt32());
         Assert.Equal(2, rows.Length);
-        Assert.Collection(
+        Assert.All(
             rows,
             static row =>
                 Assert.Equal(
-                    "package",
-                    row.GetProperty("location")
-                        .GetProperty("coordinate")
-                        .GetProperty("kind")
-                        .GetString()),
+                    "class",
+                    row.GetProperty("kind").GetString()));
+        Assert.Contains(
+            rows,
             static row =>
-                Assert.Equal(
-                    "platform",
-                    row.GetProperty("location")
-                        .GetProperty("coordinate")
-                        .GetProperty("kind")
-                        .GetString()));
+                row.GetProperty("source").GetString()
+                    == "System.Text.Json");
+        Assert.Contains(
+            rows,
+            static row =>
+                row.GetProperty("source").GetString()
+                    == "runtime");
         Assert.All(
             rows,
             static row =>
             {
                 Assert.Equal(
-                    "Definition",
-                    row.GetProperty("location")
-                        .GetProperty("declaration_kind")
-                        .GetString());
+                    [
+                        "pattern",
+                        "match",
+                        "similarity",
+                        "type",
+                        "namespace",
+                        "full_name",
+                        "kind",
+                        "library",
+                        "source",
+                        "source_version",
+                    ],
+                    row.EnumerateObject()
+                        .Select(static property => property.Name)
+                        .ToArray());
             });
-        JsonElement packageNavigation =
-            rows[0].GetProperty("navigation");
-        Assert.Contains(
-            "dotnet-inspect type",
-            packageNavigation.GetProperty("type_command").GetString(),
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "Member Index",
-            packageNavigation.GetProperty("member_index_command").GetString(),
-            StringComparison.Ordinal);
-        JsonElement platformNavigation =
-            rows[1].GetProperty("navigation");
-        Assert.Contains(
-            "implementation-pack content",
-            platformNavigation
-                .GetProperty("unavailable_reason")
-                .GetString(),
-            StringComparison.Ordinal);
-        Assert.False(
-            platformNavigation.TryGetProperty(
-                "type_command",
-                out _));
-        Assert.False(
-            platformNavigation.TryGetProperty(
-                "member_index_command",
-                out _));
     }
 
     [Fact]
-    public async Task Find_IncompleteLocatorMarkdownDisclosesCoverageAndGap()
+    public async Task Find_IncompleteLocatorMarkdownPreservesResultsView()
     {
-        var (exit, output, _) = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Object",
             "--package",
@@ -20217,10 +20186,10 @@ public partial class CommandExecutionTests
             "q");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Coverage", output);
-        Assert.Contains("## Gaps", output);
-        Assert.Contains("Incomplete", output);
-        Assert.Contains("PackageAssetUnavailable", output);
+        Assert.Contains("## Results", output);
+        Assert.DoesNotContain("## Coverage", output);
+        Assert.DoesNotContain("## Gaps", output);
+        Assert.Empty(error);
     }
 
     [Fact]

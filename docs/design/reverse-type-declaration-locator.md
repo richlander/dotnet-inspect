@@ -17,8 +17,8 @@ for its admitted context population; CLI/Browser adoption remains pending.
 > For one explicitly supplied finite assembly population, report matching type
 > declarations as a vector of detached exact Library source coordinates with
 > origin and structured Metadata names, preserving declaration kind,
-> observation context, and coverage. The consumer chooses; discovery never
-> selects a candidate or binding.
+> locally known definition category, observation context, and coverage. The
+> consumer chooses; discovery never selects a candidate or binding.
 
 This is one new query-composition owner. Metadata retains declaration decoding,
 name identity, matching grammar, visibility, and type binding. Source Selection
@@ -169,6 +169,7 @@ LocatorResult
       ExactLibrarySourceCoordinate
       MetadataTypeDefinitionName
       Definition | Forwarder
+      definition category? (class | interface | value type | enum | delegate)
       origin
       observation occurrence + detached context
 ```
@@ -180,6 +181,12 @@ same occurrence does not add an entry. Distinct occurrences, origins or
 target/view contexts remain separate entries even when their logical
 coordinates are equal. There is no coordinate-only collapse followed by a
 hidden origin/context choice.
+
+Metadata also retains the high-level category of a local definition. A
+forwarder has no category of its own: the locator does not bind its target or
+guess a category. A consumer may reuse the category from a same-name
+definition in the selected answer, but otherwise must use an owner-issued
+binding or compatibility path before publishing a type-category claim.
 
 The consumer may display the vector, group it without discarding entries, or
 apply an explicit selection policy suited to its workflow. It owns that choice
@@ -471,7 +478,7 @@ implementation tests.
 | --- | --- |
 | Stable vector currency and consumer choice | Queries/Sections: zero, one and many matches retain the same vector/array shape; no singleton unwrap or preferred entry. The same coordinate from two feeds remains two entries with owner-issued origins, including colliding display labels. |
 | Deterministic identity-preserving discovery | Queries: permute one exact mixed-source population; compare candidate entries, occurrence associations, and failures, including same-named Libraries and two views of one coordinate. |
-| Declaration fidelity | Metadata/Queries: pinned definition/forwarder pair, nested generic names, exact versus pattern matching, public/all visibility, and duplicate or unsupported declaration evidence. |
+| Declaration fidelity | Metadata/Queries: definition categories, a pinned definition/forwarder pair, nested generic names, exact versus pattern matching, public/all visibility, and duplicate or unsupported declaration evidence. |
 | Honest completeness | Queries: empty complete population, upstream omitted-member gap, invalid image, coordinate-unavailable local member, partial inventory, and early work stop alongside a healthy match. |
 | Detached exact handoff | Workspace/host adoption: retain result after close, then reopen each selected package/Platform observation under new authority; preserve producer, target/view, Library and type. Include unavailable reopening and forwarder failure. |
 | Format and host continuity | Sections/CLI/browser: compare typed coordinates, origin and coverage across output and navigation; consume owner-safe origin display without using it as identity or authority. Row windows never certify a partial census or pick a binding. |

@@ -19,17 +19,20 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
     readonly InspectionWorkspace _workspace;
     readonly WorkspaceDeclarationLocator _locator;
     readonly bool _includeAll;
+    readonly IReadOnlyDictionary<int, string> _sourceNames;
     readonly List<TypeDeclarationLocatorSectionResult> _sections = [];
     bool _closed;
 
     ConfiguredDeclarationLocatorWorkspace(
         InspectionWorkspace workspace,
         bool includeAll,
-        bool hasFailures)
+        bool hasFailures,
+        IReadOnlyDictionary<int, string> sourceNames)
     {
         _workspace = workspace;
         _locator = workspace.GetDeclarationLocator();
         _includeAll = includeAll;
+        _sourceNames = sourceNames;
         HasFailures = hasFailures;
     }
 
@@ -103,6 +106,7 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
             Log = logger.Log,
         };
         bool hasFailures = false;
+        var sourceNames = new Dictionary<int, string>();
 
         try
         {
@@ -126,6 +130,7 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                             },
                             loadOptions,
                             cancellationToken).ConfigureAwait(false);
+                sourceNames.Add(context.Receipt.Order, packageId);
                 hasFailures |= context.Outcome
                     is WorkspaceContextLoadOutcome.Failed;
             }
@@ -163,6 +168,7 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                             },
                             loadOptions,
                             cancellationToken).ConfigureAwait(false);
+                sourceNames.Add(context.Receipt.Order, platform.Family);
                 hasFailures |= context.Outcome
                     is WorkspaceContextLoadOutcome.Failed;
             }
@@ -170,7 +176,8 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
             return new(
                 workspace,
                 options.IncludeAll,
-                hasFailures);
+                hasFailures,
+                sourceNames);
         }
         catch
         {
@@ -209,6 +216,18 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
         };
         _sections.Add(section);
         return section;
+    }
+
+    internal string SourceFor(
+        TypeDeclarationLocatorSectionCandidate candidate)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        return _sourceNames.TryGetValue(
+            candidate.Observation.ContextOrder,
+            out string? source)
+                ? source
+                : throw new InvalidOperationException(
+                    "The locator candidate has no originating Find source.");
     }
 
     public async ValueTask DisposeAsync()

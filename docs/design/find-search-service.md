@@ -25,17 +25,24 @@ and presentation limits.
 
 The repository convention is a typed operation result between fact production
 and presentation. A service result is not a Markout view and does not acquire
-rendering attributes merely to reduce adapter code. `TypeFindDocument` is the
-plain-JSON operation result: it retains result rows, operation completion, and
-every shared locator Section, including zero-candidate and incomplete answers.
-`TypeFindResult` is its typed result-row currency; `FindResultView` and
-`FindRow` remain presentation projections.
+rendering attributes merely to reduce adapter code. `FindSearchResult<T>` is
+the internal operation envelope: it retains rows, failures, completion state,
+unmatched patterns, and locator Sections. It is not a CLI output document.
+`TypeFindResult` remains the established typed result-row contract;
+`FindResultView` and `FindRow` remain presentation projections. A locator-backed
+row may carry a JSON-ignored candidate association for exact Type/Member
+handoff, but that execution context is not part of the result contract.
 
-Adopting `TypeFindDocument` is an intentionally breaking typed-JSON transition
-under [CLI change classification](cli-change-classification.md): plain
-type-search `find --json` previously emitted a root `TypeFindResult` array.
-Current machine consumers read rows from `.results` and can additionally
-distinguish complete from incomplete searches and retain locator evidence.
+Locator adoption is presentation-compatible under
+[CLI change classification](cli-change-classification.md). Default Markdown,
+tips, table formats, and plain type-search JSON preserve their established
+shapes; plain JSON remains a root `TypeFindResult` array.
+The locator's declaration role (`Definition` or `Forwarder`) is not the
+published row's type category (`class`, `struct`, `interface`, `enum`, or
+`delegate`). Metadata supplies the type category for definitions. A forwarder
+may reuse it only from a same-name definition selected in the same answer;
+otherwise Find uses the compatibility inventory rather than guessing a
+category or leaking the declaration role into the result.
 
 This service deliberately remains inside the CLI project. It consumes
 `FindOptions`, a host `HttpClient`, and the CLI diagnostic path, so it is not an
@@ -83,6 +90,8 @@ The service retains the shared
 selection. `TypeFindResult` is a one-way compatibility presentation; no Type
 or Member consumer may reconstruct identity from its `FullName`, `Library`,
 `Source`, or `SourceVersion` strings.
+Package rows retain the caller's Package ID spelling for presentation; the
+normalized locator coordinate remains the identity used for handoff.
 
 For a direct miss, namespace-prefix and similarity work remains CLI-owned.
 Prefix fallback is issued as a separate `<pattern>*` locator request. A
@@ -108,15 +117,14 @@ after that Type binding. Package reopening uses the selection context's exact
 package-relative implementation asset path and selected compatible target
 framework, not the Library simple name or the realization's requested target
 framework. The path remains observation selection context rather than Package
-or Library identity. Package navigation is generated only when both values are
+or Library identity. Package handoff is available only when both values are
 present and the invocation's existing source authorization can reacquire the
 observed producer. Platform implementation-pack observations have no public
-Type/Member source syntax that preserves their view, so their copyable commands
-visibly decline. Applying such a candidate to Type or Member is likewise
-unavailable until a source-owned exact implementation-view route exists. A
-candidate without a representable authorized reopening target retains its
-locator row and reports navigation unavailable rather than emitting a lossy
-command.
+Type/Member source syntax that preserves their view, so applying such a
+candidate to Type or Member remains unavailable until a source-owned exact
+implementation-view route exists. A candidate without a representable
+authorized reopening target retains its locator row without publishing a
+lossy approximation.
 
 Automatic Platform Type/Member routing keeps the current definition and
 namespace-prefix preference in the Platform routing owner and remains on its
@@ -262,13 +270,9 @@ detail. An operation-wide exception propagates to `FindCommand`, which owns
 the hard error and exit status.
 
 An empty result is therefore not proof that every source succeeded; the stderr
-diagnostic stream remains part of the CLI operation outcome. Plain type-search
-JSON publishes `complete`, `results`, and `locator_sections`, so locator
-coverage survives even when `results` is empty. Default Markdown appends the
-shared locator Results, Coverage, and Gaps view. Row-only table, JSONL, TSV,
-and projected-JSON stdout remain display projections; the same shared
-locator view is rendered as plain text on stderr so those formats do not turn
-incomplete evidence into an unqualified miss.
+diagnostic stream remains part of the CLI operation outcome. Structured locator
+completion and coverage remain in the internal operation envelope; they do not
+change the CLI compatibility result or its renderers.
 
 `FindTypesAsync` accepts the command cancellation token and carries it through
 package Root acquisition, publication, query admission, and the boundaries

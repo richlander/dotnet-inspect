@@ -375,6 +375,9 @@ public sealed partial class WorkspaceContextLoaderTests
             {
                 Assert.Equal("System.Private.CoreLib", definition.Coordinate.LibraryIdentity.Identity.Name);
                 Assert.Equal(AssemblyTypeDeclarationKind.Definition, definition.Kind);
+                Assert.Equal(
+                    AssemblyTypeDefinitionKind.Class,
+                    definition.DefinitionKind);
             });
     }
 

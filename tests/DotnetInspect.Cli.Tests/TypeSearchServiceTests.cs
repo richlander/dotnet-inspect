@@ -7,7 +7,6 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
-using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 
 namespace DotnetInspect.Cli.Tests;
@@ -72,6 +71,15 @@ public class TypeSearchServiceTests
 
         Assert.False(result.HasFailures);
         Assert.Equal(2, result.Rows.Count);
+        Assert.All(
+            result.Rows,
+            static row => Assert.Equal("class", row.Kind));
+        Assert.Contains(
+            result.Rows,
+            static row => row.Source == "System.Text.Json");
+        Assert.Contains(
+            result.Rows,
+            static row => row.Source == "runtime");
         TypeDeclarationLocatorSectionResult.Evaluated section =
             Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
                 Assert.Single(result.LocatorSections));
@@ -82,7 +90,6 @@ public class TypeSearchServiceTests
         Assert.All(result.Rows, row =>
         {
             Assert.NotNull(row.Location);
-            Assert.NotNull(row.Navigation);
         });
 
         TypeFindResult package =
@@ -102,32 +109,6 @@ public class TypeSearchServiceTests
             "lib/net10.0/System.Text.Json.dll",
             packageType.AssemblyPath);
         Assert.Equal("net10.0", packageType.Tfm);
-        Assert.Null(package.Navigation!.UnavailableReason);
-        Assert.Contains(
-            "lib/net10.0/System.Text.Json.dll",
-            package.Navigation.TypeCommand,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "--all",
-            package.Navigation.TypeCommand,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "Member Index",
-            package.Navigation.MemberIndexCommand,
-            StringComparison.Ordinal);
-        TypeFindNavigation customSourceNavigation =
-            TypeFindInspectionTarget.Create(package.Location!)
-                .CreateNavigation(
-                    new NuGetSourceOptions
-                    {
-                        Sources = ["https://packages.example.test/v3/index.json"],
-                    },
-                    includeAll: true);
-        Assert.Null(customSourceNavigation.TypeCommand);
-        Assert.Contains(
-            "configured source authority",
-            customSourceNavigation.UnavailableReason,
-            StringComparison.Ordinal);
 
         TypeFindResult platform =
             Assert.Single(
@@ -144,9 +125,6 @@ public class TypeSearchServiceTests
             () => platformSelection.ApplyTo(new TypeOptions()));
         Assert.Throws<InvalidOperationException>(
             () => platformSelection.ApplyTo(new MemberOptions()));
-        Assert.NotNull(platform.Navigation!.UnavailableReason);
-        Assert.Null(platform.Navigation.TypeCommand);
-        Assert.Null(platform.Navigation.MemberIndexCommand);
 
         var (typeExit, typeOutput, _) =
             await ConsoleCapture.RunAsync(
@@ -208,10 +186,6 @@ public class TypeSearchServiceTests
             "lib/netstandard2.0/Microsoft.CSharp.dll",
             typeOptions.AssemblyPath);
         Assert.Equal("netstandard2.0", typeOptions.Tfm);
-        Assert.Contains(
-            "lib/netstandard2.0/Microsoft.CSharp.dll",
-            row.Navigation!.TypeCommand,
-            StringComparison.Ordinal);
         Assert.Collection(
             result.LocatorSections,
             section => Assert.Equal(
@@ -264,14 +238,6 @@ public class TypeSearchServiceTests
                 .ApplyTo(new TypeOptions());
         Assert.Equal("net10.0", typeOptions.Tfm);
         Assert.Equal(selection.AssetPath, typeOptions.AssemblyPath);
-        Assert.Contains(
-            "--tfm 'net10.0'",
-            row.Navigation!.TypeCommand,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "net11.0",
-            row.Navigation.TypeCommand,
-            StringComparison.Ordinal);
 
         var (exitCode, output, _) =
             await ConsoleCapture.RunAsync(
@@ -349,6 +315,9 @@ public class TypeSearchServiceTests
 
         Assert.False(result.HasFailures);
         Assert.Equal(2, result.Rows.Count);
+        Assert.All(
+            result.Rows,
+            static row => Assert.Equal("class", row.Kind));
         Assert.Contains(
             result.Rows,
             static row =>

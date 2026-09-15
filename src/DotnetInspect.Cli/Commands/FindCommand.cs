@@ -6,7 +6,6 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
-using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -155,7 +154,7 @@ public class FindCommand
             {
                 // --fields/--columns name post-lowering vocabulary (computed table columns), so
                 // naming one opts into the lowered display view; plain --json keeps the typed
-                // result document (#3494). This combination used to fail closed (#3386) only
+                // root result array (#3494). This combination used to fail closed (#3386) only
                 // because the lowered JSON view did not exist yet.
                 if (IsColumnProjectionRequested(options))
                 {
@@ -163,16 +162,10 @@ public class FindCommand
                 }
                 else
                 {
-                    var document = new TypeFindDocument(
-                        Complete:
-                            !search.HasFailures
-                            && !search.SourceSelectionIncomplete,
-                        Results: results,
-                        LocatorSections: search.LocatorSections);
                     JsonOutputHelper.Write(
-                        document,
-                        TypeFindDocumentJsonContext.Default.TypeFindDocument,
-                        TypeFindDocumentCompactJsonContext.Default.TypeFindDocument,
+                        results,
+                        TypeFindResultJsonContext.Default.ListTypeFindResult,
+                        TypeFindResultCompactJsonContext.Default.ListTypeFindResult,
                         options.CompactJson);
                 }
             }
@@ -181,7 +174,6 @@ public class FindCommand
                 WriteOutput(results, title, options);
             }
 
-            WriteLocatorSections(search.LocatorSections, options);
             return 0;
         }
         catch (Exception ex)
@@ -635,47 +627,6 @@ public class FindCommand
         {
             OutputFormatter.WriteWindowedMarkdown(Console.Out, rows: null,
                 opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
-        }
-    }
-
-    private static void WriteLocatorSections(
-        IReadOnlyList<TypeDeclarationLocatorSectionResult> sections,
-        FindOptions options)
-    {
-        if (sections.Count == 0
-            || options.Count
-            || (options.JsonOutput
-                && !IsColumnProjectionRequested(options)))
-        {
-            return;
-        }
-
-        bool useStandardOutput =
-            !options.Count
-            && !options.Tabular
-            && !options.JsonOutput;
-        TextWriter writer =
-            useStandardOutput ? Console.Out : CommandError.Writer;
-        foreach (TypeDeclarationLocatorSectionResult section in sections)
-        {
-            writer.WriteLine();
-            TypeDeclarationLocatorView view =
-                TypeDeclarationLocatorView.Create(section);
-            if (useStandardOutput)
-            {
-                MarkoutSerializer.Serialize(
-                    view,
-                    writer,
-                    TypeDeclarationLocatorViewContext.Default);
-            }
-            else
-            {
-                MarkoutSerializer.Serialize(
-                    view,
-                    writer,
-                    new PlainTextFormatter(),
-                    TypeDeclarationLocatorViewContext.Default);
-            }
         }
     }
 

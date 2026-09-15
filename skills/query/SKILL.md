@@ -40,13 +40,10 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
-On type-search `find`, plain `--json` returns an operation document with
-`complete`, `results`, and `locator_sections`; read result rows from
-`.results`. This replaces the former root result array so incomplete and
-zero-candidate locator evidence remains visible. Adding `--columns` or
-`--fields` requests projected JSON instead: the result is a JSON document
-containing the same selected rows and snake_case fields as the `--tsv` and
-`--jsonl` formats.
+On `find`, plain `--json` retains the typed root result array. Adding
+`--columns` or `--fields` requests projected JSON instead: the result is a
+JSON document containing the same selected rows and snake_case fields as the
+`--tsv` and `--jsonl` formats.
 
 For `member -S "Call Graph"`, default Markdown is an edge table. Choose the
 view for the task without changing the graph or its ordered edge rows:
