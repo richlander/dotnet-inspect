@@ -240,7 +240,11 @@ collection and source behavior:
 - runtime-asset package fallback; and
 - early exit before an unnecessary later source.
 
-The classification cascade itself has no focused service-level gate. In
+`FindTypesAsync_NullableGenericPatternIsClassifiedAsExact` is the first focused
+service-level classification gate. It verifies that result classification uses
+the matcher-owned normalized glob predicate, so nullable generic syntax remains
+a direct `Exact` match rather than becoming `Glob` merely because its raw
+spelling contains `?`. Broader cascade equivalence remains ungated. In
 particular, the following properties are unverified or known gaps:
 
 - the optimized single-pattern path returns an empty list for an all-miss
