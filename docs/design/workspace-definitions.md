@@ -25,7 +25,10 @@ coordinator defined here are not yet implemented.
 [#7047](https://github.com/richlander/dotnet-inspect/issues/7047) owns the
 query-free version-2 records, strict JSON, and composition slice;
 [#7049](https://github.com/richlander/dotnet-inspect/issues/7049) owns portable
-selector resolution against one fresh Workspace. Issue
+selector resolution against one fresh Workspace, including inactive
+direct-Package state.
+[#7087](https://github.com/richlander/dotnet-inspect/issues/7087) owns
+query-free packet-format-2 transposition. Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
 complete-restoration implementation; its first retained production consumer is
 Inspect Web activation
@@ -2520,8 +2523,10 @@ Definition records and product demos (this slice):
   Browser route, without stale packet state, until product facet IDs are
   implemented; and
 - **not yet:** the designed View Facet Registry implementation, schema version
-  2, packet format 2, legacy lowering, per-coordinate view/query binding,
-  complete-restoration coordinator, CLI use of the codec/transposer for
+  2, query-free packet format 2
+  ([#7087](https://github.com/richlander/dotnet-inspect/issues/7087)),
+  query-bearing packet projection, legacy lowering, per-coordinate view/query
+  binding, complete-restoration coordinator, CLI use of the codec/transposer for
   executable `-W` ([#4647](https://github.com/richlander/dotnet-inspect/issues/4647)),
   or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still
