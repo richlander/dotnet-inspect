@@ -21,7 +21,11 @@ CLI Platform demos use the same `WorkspaceContextLoader` implementation-pack
 realization before lowering the selected images into the ordinary type/member
 section pipeline.
 Schema version 2, packet format 2, complete view binding, and the restoration
-coordinator defined here are not yet implemented. Issue
+coordinator defined here are not yet implemented.
+[#7047](https://github.com/richlander/dotnet-inspect/issues/7047) owns the
+query-free version-2 records, strict JSON, and composition slice;
+[#7049](https://github.com/richlander/dotnet-inspect/issues/7049) owns portable
+selector resolution against one fresh Workspace. Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
 complete-restoration implementation; its first retained production consumer is
 Inspect Web activation
@@ -358,13 +362,16 @@ Field semantics:
   anchor, signature, or definition-only group key, and Library values are
   assembly filename stems. Browser-issued Type and Library keys belong only to
   packet v1. The legacy lowerer below owns both sources' conversion.
-- `navigation` records — named ordered tab sets plus one focused tab id. Each
+- `navigation` records — named ordered tab sets plus one active tab id. Each
   tab has a record-local stable id and exactly one source: either a kinded
   acquisition coordinate or a group subscription. A group source also carries
   optional `framework` and `rid` target declarations because those values are
-  not part of the subscription string. Tab ids are unique, `focus` resolves
-  exactly one of them, and normalized tab sources are unique. Source identity
-  is the source kind plus every normalized explicit field, including the group
+  not part of the subscription string. Tab ids are unique, and normalized tab
+  sources are unique. In schema version 1, `focus` is required and resolves
+  exactly one tab. In schema version 2, `focus` is required but nullable:
+  a string resolves exactly one active Package occurrence and `null` means the
+  Workspace is active with no occurrence context. Source identity is the
+  source kind plus every normalized explicit field, including the group
   expression, pin, framework, and RID. A coordinate source must equal an
   explicit member; a group source must equal a context's `subscribe`; and every
   non-null target declaration must agree with that context's effective target.
@@ -442,9 +449,9 @@ claim.
 
 ### Complete committed views
 
-Definition schema version 2 replaces the flat version-1 view with one
-committed state for every entry in the scenario's navigation record. This is
-the long-form shape:
+Definition schema version 2 replaces the flat version-1 view with one explicit
+Workspace state plus one committed state for every entry in the scenario's
+navigation record. This is the long-form shape:
 
 ```json
 {
@@ -453,11 +460,18 @@ the long-form shape:
   "id": "serializer-views",
   "states": [
     {
+      "navigation": null,
+      "subject": {
+        "kind": "workspace"
+      },
+      "facet": "workspace.overview"
+    },
+    {
       "navigation": "platform"
     },
     {
       "navigation": "stj",
-      "subject": {
+      "retained": {
         "kind": "member",
         "library": {
           "name": "System.Text.Json",
@@ -470,6 +484,9 @@ the long-form shape:
           "segments": ["JsonSerializer"]
         },
         "memberAnchor": "74b6b4b321"
+      },
+      "subject": {
+        "kind": "member"
       },
       "facet": "member.call-graph",
       "queries": ["member-callers"]
@@ -490,29 +507,50 @@ property bag from bypassing query-owned validation. Dispatch is one static
 product registry over inert IDs; packet text never becomes a reflection name,
 dependency-injection key, path, URI, or dynamic provider lookup.
 
-`states` has exactly one entry for every tab ID in the composed version-2
-navigation record. Entries use navigation order, and `navigation` must equal
-the corresponding tab ID; a missing, duplicated, reordered, unknown, or
-foreign tab reference is an invalid definition set. The active coordinate is
-still `navigation.focus`. It receives no second active flag in the view.
-Inactive entries remain committed state rather than being collapsed into the
-active entry.
+`states` has exactly one leading Workspace entry followed by exactly one entry
+for every tab ID in the composed version-2 navigation record. The leading
+entry has required `navigation: null`; it is the only state with no Package
+occurrence and must request the Workspace subject. Remaining entries use
+navigation order, and `navigation` must equal the corresponding tab ID. A
+missing, duplicated, reordered, unknown, or foreign tab reference is an
+invalid definition set.
+
+`navigation.focus` chooses the active state. A string selects the corresponding
+Package-occurrence entry; `null` selects the leading Workspace entry and means
+there is no active occurrence or retained occurrence context. It receives no
+second active flag in the view. A Package-occurrence entry may itself request
+the Workspace subject while retaining that occurrence and an optional
+descendant path. This is distinct from `focus: null`: the former preserves
+exact context for later navigation, while the latter has no occurrence
+context. Inactive entries remain committed state rather than being collapsed
+into the active entry.
 
 The table retains requested portable state, not one retained Navigation
-session per coordinate. Only `navigation.focus` has an installed Navigation
-snapshot and current effect authority. Inactive states are resolved
-statelessly during complete restoration and retained as dormant exact inputs.
-Activating one later submits that coordinate's retained state as ordinary
-Navigation through the active Workspace's retained Navigation session; it does
-not construct another Workspace.
+session per coordinate. Only the state selected by `navigation.focus` has an
+installed Navigation snapshot and current effect authority. The null-focus
+Workspace state installs a Workspace-selected snapshot with no retained
+occurrence context. Inactive states are resolved statelessly during complete
+restoration and retained as dormant exact inputs. Activating one later submits
+that coordinate's retained state as ordinary Navigation through the active
+Workspace's retained Navigation session; it does not construct another
+Workspace.
 
 Each state has these fields:
 
-- `navigation` is the exact record-local tab ID whose coordinate owns the
-  state.
+- `navigation` is required. `null` denotes the one Workspace state; otherwise
+  it is the exact record-local tab ID whose coordinate owns the state.
+- `retained` is optional and valid only on a Package-occurrence state. Its
+  closed selector supplies the descendant part of Navigation's retained
+  context. The state coordinate always supplies the exact retained Package, so
+  absence means Package-only context. Presence retains one contiguous
+  aggregate-Library or exact Library/Type/Member path beneath that Package.
 - `subject` is optional. Absence asks Inspection Subject Navigation for its
-  initial-subject recommendation after that coordinate is realized. Presence
-  requests one exact portable structural subject.
+  initial-subject recommendation after that coordinate is realized and is
+  valid only on a Package-occurrence state with Package-only retained context.
+  Presence requests one structural level from the exact retained context. The
+  Workspace state requires `{"kind":"workspace"}`. A
+  Package-occurrence state may also request Workspace while independently
+  retaining any valid descendant path.
 - `facet` is an optional exact View Facet Registry ID. It is valid only with a
   present subject. Absence requests Navigation's recommendation for that exact
   subject, or accompanies absent `subject` so initial subject and facet are
@@ -541,19 +579,47 @@ identity and version-2 codec. Otherwise the state is `NonProjectable`; the
 transposer never serializes a Browser `selectedOverloadIndex`, metadata token
 alone, display name, or host object key.
 
-#### Portable subject selectors
+#### Portable subject and retained-context selectors
 
-The `subject` object is a closed tagged union:
+The `subject` object is a closed structural-level request. Identity does not
+appear twice: the state coordinate and optional `retained` selector supply the
+portable ancestry, while `subject.kind` chooses one exact node from that
+ancestry.
 
-| `kind` | Required fields | Forbidden fields | Structural subject |
+| `subject.kind` | State and retained-context requirement | Structural subject |
 | --- | --- | --- | --- |
-| `root` | none | `library`, `type`, member selector | Realized coordinate Root |
-| `allLibraries` | none | `library`, `type`, member selector | Explicit aggregate Library |
-| `library` | `library` | `type`, member selector | One acquired Library |
-| `type` | `library`, `type` | member selector | One exact Type |
-| `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | One exact Member |
+| `workspace` | Any state; the null state forbids `retained` | Exact Workspace |
+| `package` | Package-occurrence state | Exact retained Package occurrence |
+| `allLibraries` | `retained.kind` is `allLibraries` | Explicit aggregate Library |
+| `library` | `retained.kind` is `library`, `type`, or `member` | Exact retained Library |
+| `type` | `retained.kind` is `type` or `member` | Exact retained Type |
+| `member` | `retained.kind` is `member` | Exact retained Member |
 
-`library` is one closed `PortableLibraryIdentity`:
+Every `subject` object contains exactly `kind`; all other fields are forbidden.
+`root` is not a version-2 subject kind. The runtime Package subject replaces
+the old coordinate Root abstraction, while Workspace is an independently
+selectable subject above it.
+
+`retained` is a closed tagged union:
+
+| `retained.kind` | Required fields | Forbidden fields | Retained context |
+| --- | --- | --- | --- |
+| `allLibraries` | none | `library`, `type`, member selector | Package plus aggregate Library |
+| `library` | `library` | `type`, member selector | Package plus one exact Library |
+| `type` | `library`, `type` | member selector | Package, Library, and exact Type |
+| `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | Package through exact Member |
+
+An omitted `retained` on a Package-occurrence state denotes Package-only
+context. The null Workspace state forbids `retained`. A requested non-Workspace
+subject must name one node present in the retained path. Workspace may be
+requested with any Package-only or lower retained context. This directly
+preserves Navigation's distinction between active subject and retained
+context: two Workspace-selected states for the same occurrence but different
+retained Types are distinct committed states. An absent subject with lower
+retained context is invalid because recommendation would have ambiguous
+starting context.
+
+`retained.library` is one closed `PortableLibraryIdentity`:
 
 ```json
 {
@@ -570,11 +636,11 @@ name. `version` has exactly four unsigned 16-bit decimal components with no
 leading zero except the scalar `0`. `culture` is `null` for nil, empty, or
 `neutral` metadata culture and otherwise preserves the metadata scalar.
 `publicKeyToken` is `null` for an unsigned assembly and otherwise exactly 16
-lowercase hexadecimal digits. Parse resolves the complete value by
-`AssemblyReferenceIdentity` equivalence inside the state entry's own realized
-coordinate and canonical write emits the matched acquired identity's spelling.
-Zero or several matches are typed failure; alternate casing or neutral-culture
-spelling can resolve but makes the candidate a replacement.
+lowercase hexadecimal digits. Parse resolves the complete value by `AssemblyReferenceIdentity` equivalence
+inside the state entry's own realized Package occurrence and canonical write
+emits the matched acquired identity's spelling. Zero or several matches are
+typed failure; alternate casing or neutral-culture spelling can resolve but
+makes the candidate a replacement.
 
 Lists of portable identities use ascending lexicographic order over
 `name`, parsed four-component `version`, `culture`, then `publicKeyToken`,
@@ -602,11 +668,18 @@ outside that context, and one coordinate may participate in several contexts.
 Display text, package ID alone, assembly filename, metadata token alone, list
 position, and Browser key are never subject identity.
 
-Resolution produces the exact
-`StructuralSubjectIdentity` consumed by Inspection Subject Navigation. A
-missing, ambiguous, or cross-coordinate selector is a typed preparation
-failure. It does not select a nearby Library, Type, or Member. Navigation alone
-owns any recommendation or reconciliation it performs from a valid request.
+Resolution produces one exact `NavigationInitialization`: the state coordinate
+resolves to the retained Package occurrence, `retained` resolves its optional
+contiguous descendant path, and `subject.kind` selects the Workspace or one
+exact node of that path. These resource-free selectors are not runtime
+identities and never serialize `InspectionWorkspaceIdentity`,
+`WorkspacePackageOccurrenceIdentity`, `StructuralSubjectIdentity`, Registry
+receipts, or Navigation authority. Missing, ambiguous, noncontiguous, or
+cross-occurrence resolution is a typed preparation failure. It does not select
+a nearby Library, Type, or Member. Inspection Subject Navigation owns final
+internal-consistency validation, recommendation, and reconciliation from the
+resolved initialization; Workspace Definitions owns only portable resolution
+against the exact fresh Workspace it constructed.
 
 #### Valid subject, facet, and query combinations
 
@@ -615,8 +688,9 @@ descriptors and applies these rules before restoration may commit:
 
 | Subject request | Facet requirement | Query requirement |
 | --- | --- | --- |
-| Absent | `facet` and `queries` absent | Initial subject and facet recommendation |
-| Root | Known applicable Root facet, or absent for recommendation | Every referenced query declares Root input |
+| Absent | `facet` and `queries` absent; Package-occurrence state with Package-only context | Initial subject and facet recommendation |
+| Workspace | Known applicable Workspace facet, or absent for recommendation | Every referenced query declares Workspace input |
+| Package | Known applicable Package facet, or absent for recommendation | Every referenced query declares Package input |
 | All Libraries or one Library | Known applicable Library facet, or absent for recommendation | Every referenced query declares the matching aggregate or exact-Library input |
 | Type | Known applicable Type facet, or absent for recommendation | Every referenced query declares Type input for the exact Library and Type |
 | Member | Known applicable Member facet, or absent for recommendation | Every referenced query declares Member input for the exact Member |
@@ -670,9 +744,16 @@ A scenario and every workspace, navigation, view, and query record it
 references use one schema version. Catalog entries reached through that
 workspace use the same version. Version-1 and version-2 records never compose
 directly in one scenario, because that would let a legacy view token enter a
-canonical-ID composition. The explicit legacy lowerer first produces a
-complete version-2 record set; ordinary version-2 validation then runs once
-over that output.
+canonical-ID composition.
+
+Strict version-1 decode first preserves one unresolved legacy plan. After the
+fresh Workspace's coordinates are realized, the explicit legacy lowerer
+resolves each flat Type or Member selector to its exact defining Library and
+forms the complete version-2 state table: one explicit Workspace state plus one
+state per navigation tab. Only that realized, exact output enters ordinary
+version-2 composition validation. A missing or ambiguous defining Library is
+`LegacyLoweringFailed`; the lowerer never invents a Library, stores a
+display-name approximation, or emits a partially specified version-2 state.
 
 ### The dependency boundary
 
@@ -1305,9 +1386,10 @@ arrays and the transposer must not collapse their identities.
 
 #### Packet format 2
 
-Format 2 retains `t`, `g`, `a`, and `x` unchanged and replaces the one flat
-view with a complete per-coordinate view table. A packet without persisted
-query payloads has this canonical decoded shape:
+Format 2 retains `t`, `g`, and `x`, permits `a` to be `null`, and replaces the
+one flat view with an explicit Workspace state plus a complete per-coordinate
+view table. A packet without persisted query payloads has this canonical
+decoded shape:
 
 ```json
 {
@@ -1321,11 +1403,17 @@ query payloads has this canonical decoded shape:
   "x": 0,
   "v": [
     {
+      "t": null,
+      "u": {
+        "k": "workspace"
+      }
+    },
+    {
       "t": 0
     },
     {
       "t": 1,
-      "u": {
+      "r": {
         "k": "member",
         "l": [
           "System.Text.Json",
@@ -1335,6 +1423,9 @@ query payloads has this canonical decoded shape:
         ],
         "y": "System.Text.Json.JsonSerializer",
         "m": "74b6b4b321"
+      },
+      "u": {
+        "k": "member"
       },
       "f": "member.call-graph"
     }
@@ -1348,21 +1439,34 @@ The top-level property order is `f`, `t`, `g`, `a`, `x`, optional `q`, then
 table. An old scalar `v` under `f:2`, a new array `v` under `f:1`, or any mixed
 field set is invalid rather than shape-sniffed.
 
-`v` has exactly one entry for every `t` index, in ascending `t` order. Entry
-properties are emitted as `t`, optional `u`, optional `f`, optional `q`, then
-optional `l`:
+`a` is either `null` or one exact index into `t`. `null` selects the leading
+Workspace state and carries no active occurrence context; an index selects the
+matching Package-occurrence state. `x` remains the independently selected
+binding context.
 
-- `t` is the exact coordinate-table index.
-- `u` is the portable subject. Its closed property order is `k`, optional
-  `l`, optional `y`, then exactly one optional `m` or `s`. `k` is `root`,
-  `all-libraries`, `library`, `type`, or `member`; the remaining fields project
-  the corresponding long-form subject selector. `l` is the compact
+`v` has exactly one leading Workspace entry followed by one entry for every
+`t` index in ascending order. Entry properties are emitted as `t`, optional
+`r`, optional `u`, optional `f`, optional `q`, then optional `l`:
+
+- `t` is `null` on the leading Workspace entry and otherwise the exact
+  coordinate-table index.
+- `r` is the optional retained descendant selector and is forbidden when `t`
+  is `null`. Its closed property order is `k`, optional `l`, optional `y`,
+  then exactly one optional `m` or `s`. `k` is `all-libraries`, `library`,
+  `type`, or `member`; the remaining fields project the corresponding
+  long-form `retained` selector. `l` is the compact
   `PortableLibraryIdentity` tuple `[name,version,culture,publicKeyToken]`; it
   has exactly four slots with the same scalar grammar as the long form. `y` is
   the exact `MetadataTypeDefinitionName.ToEscapedFullName()` projection of the
-  long-form `type`. Decode treats it as a bounded identity string and requires
-  exactly one Type in the resolved `l` Library whose structured name emits that
-  exact ordinal spelling; it does not split delimiters or reconstruct segments.
+  long-form `retained.type`. Decode treats it as a bounded identity string and
+  requires exactly one Type in the resolved `l` Library whose structured name
+  emits that exact ordinal spelling; it does not split delimiters or
+  reconstruct segments. Absence on a coordinate entry denotes Package-only
+  retained context.
+- `u` is the structural subject request. Its only property is `k`, whose value
+  is `workspace`, `package`, `all-libraries`, `library`, `type`, or `member`.
+  The leading null-coordinate entry requires `workspace`. A coordinate entry
+  applies the same subject/retained compatibility rules as the long form.
 - `f` is one exact View Facet Registry ID. Its absence preserves a
   recommendation basis; it never means a host-default facet.
 - `q` is a nonempty array of unique indexes into the query table, in ascending
@@ -1392,22 +1496,22 @@ bundle-local name part of share-link identity.
 Format 2 uses format 1's coordinate, context, base64url, canonical scalar
 escaping, exact-version normalization, and all-or-nothing validation rules.
 Its bounds are 32 KiB encoded text, 24 KiB decoded UTF-8 JSON, nesting depth
-24, 2048 JSON values, 12 tuples, 24 contexts, exactly one view state per tuple,
-and at most 24 query states. One query payload is additionally limited to
-4 KiB of UTF-8 JSON, nesting depth 12, and 256 JSON values before its owner
-codec runs. Cancellation is checked before decode and before each query
-payload is bound. Breaching either the outer or nested limit is a typed packet
-failure and restores nothing.
+24, 2048 JSON values, 12 tuples, 24 contexts, exactly one leading Workspace
+view state plus one view state per tuple, and at most 24 query states. One
+query payload is additionally limited to 4 KiB of UTF-8 JSON, nesting depth
+12, and 256 JSON values before its owner codec runs. Cancellation is checked
+before decode and before each query payload is bound. Breaching either the
+outer or nested limit is a typed packet failure and restores nothing.
 
 Packet-to-record transposition creates one schema-version-2 workspace,
 navigation, view, scenario, and the needed query records. Record-to-packet
 projection first validates the complete version-2 composition, then requires
-one view state per navigation tab and one packet codec for every query payload.
-Valid state outside the table or byte bounds, a coordinate kind unavailable in
-the compact tuple grammar, or a portable query whose owner has no format-2
-codec is `NonProjectable`. An invalid subject, facet, query, or cross-record
-relationship is `InvalidDefinitionSet`. Neither outcome flattens, drops, or
-defaults a field.
+one leading Workspace state, one view state per navigation tab, and one packet
+codec for every query payload. Valid state outside the table or byte bounds, a
+coordinate kind unavailable in the compact tuple grammar, or a portable query
+whose owner has no format-2 codec is `NonProjectable`. An invalid subject,
+retained context, facet, query, or cross-record relationship is
+`InvalidDefinitionSet`. Neither outcome flattens, drops, or defaults a field.
 
 #### Legacy lowering
 
@@ -1539,11 +1643,13 @@ coordinate state, or incompatible facet returns `LegacyLoweringFailed`.
 Workspace Definitions never drops the preset or manufactures `{}`.
 
 Format 1 carries view state only for `a`. The lowerer creates an absent-subject
-recommendation state for every other open coordinate; it does not pretend
-version 1 preserved those views. A version-1 composition with no view fields
-likewise becomes recommendation state. Filters, body targets, source targets,
-and overload ordinals have no version-1 field and are never inferred from
-courtesy routes or host state.
+recommendation state for every other open coordinate and the required explicit
+Workspace state; it does not pretend version 1 preserved those views. The
+version-1 focused tab remains focused, because neither version-1 source can
+express a Workspace selection with no active occurrence. A version-1
+composition with no view fields likewise becomes recommendation state.
+Filters, body targets, source targets, and overload ordinals have no version-1
+field and are never inferred from courtesy routes or host state.
 
 The adapter retains the exact decoded version-1 packet as the requested packet
 basis. If the fresh Workspace realizes the same semantic state, that original
@@ -1908,8 +2014,9 @@ Implementation must add, at minimum:
   `PortableLibraryIdentity` equality and canonical ordering, structured
   `MetadataTypeDefinitionName` equality, exact compact
   `ToEscapedFullName()` matching, nesting-versus-literal-delimiter collision
-  vectors, every outer and per-query bound, and cancellation before each query
-  bind;
+  vectors, required null-coordinate Workspace state, nullable `a`, retained
+  selector/subject compatibility, every outer and per-query bound, and
+  cancellation before each query bind;
 - a legacy-lowering gate derived from the closed mapping table, with one
   positive case for every row and close negatives for case variation,
   whitespace, Browser hash spellings, CLI aliases, contradictory lens/section
@@ -1934,13 +2041,14 @@ Implementation must add, at minimum:
   query migration likewise attaches only to `a` for coordinate-backed
   scenarios. No legacy token is submitted to the Registry, no private facet
   binding is consulted for legacy scope, final composition validation follows
-  exact Registry and query-owner resolution, inactive format-1 coordinates
-  become explicit recommendation states, exact format-1 packet restoration
-  retains its byte basis, and every changed or newly captured state emits
-  format 2 rather than a legacy token;
+  exact Registry and query-owner resolution, the explicit Workspace state is
+  added, inactive format-1 coordinates become recommendation states, exact
+  format-1 packet restoration retains its byte basis, and every changed or
+  newly captured state emits format 2 rather than a legacy token;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable format-2 committed state, including distinct
-  inactive-coordinate views, all structural subjects, package-root facets,
+  inactive-coordinate views, Workspace with and without retained occurrence
+  context, Package and every descendant structural subject, Package facets,
   filters, exact member anchors or signatures, multi-Library scope, and every
   portable body or source-target query payload. Format 1 retains its narrower
   existing closure gate without inferring relationships across contexts;
@@ -1960,11 +2068,12 @@ Implementation must add, at minimum:
   never inspect a Registry-private execution binding; and classify a
   non-portable result-affecting filter, body, or source target as
   `NonProjectable`;
-- a navigation gate proving ordered tabs and record-local focus round-trip,
+- a navigation gate proving ordered tabs and nullable record-local focus
+  round-trip, `null` selects the Workspace state with no occurrence context,
   duplicate ids or normalized sources fail, target-distinct group sources
   remain distinct, group and coordinate sources resolve in at least one
-  workspace context, and focus remains valid when it is outside the scenario's
-  selected query context;
+  workspace context, and non-null focus remains valid when it is outside the
+  scenario's selected query context;
 - an anchor-durability gate pinning the canonical-signature spelling and
   degraded-decode prefix behind `MemberAnchor.ComputeFingerprint`, so a
   formatting change that would invalidate issued links and bundled demos

@@ -1429,9 +1429,11 @@ through owner-issued actions and initialization inputs. This document does not
 define that Spotlight orchestration. Covered Platform Libraries remain outside
 this shared grammar because this version has no Platform structural subject.
 
-The current version-2 shape cannot yet represent an explicitly selected
-Workspace or carry an optional retained occurrence and descendant context
-independently from the active subject. #5525 owns that focused adoption.
+The [Workspace Definitions version-2
+shape](workspace-definitions.md#complete-committed-views) represents an
+explicitly selected Workspace and carries an optional retained occurrence and
+descendant context independently from the active subject. #5525 owns the
+record, JSON, composition, and portable-resolution implementation.
 Section, body, source-target, and other portable state remain outside this
 owner.
 
