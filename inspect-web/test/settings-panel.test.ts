@@ -282,6 +282,9 @@ test("settings view renders modal semantics and one close action", () => {
   assert.match(workbenchHtml, /aria-modal="true"/);
   assert.match(workbenchHtml, /aria-labelledby="settings-title"/);
   assert.match(workbenchHtml, /id="settings-title" tabindex="-1">Settings/);
+  assert.match(
+    workbenchHtml,
+    /id="settings-decompiler-title" tabindex="-1">Decompiler style/);
   assert.match(workbenchHtml, /id="settings-close"[^>]*>Close/);
 });
 
