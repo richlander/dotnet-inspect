@@ -641,7 +641,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
-    public async Task Find_PackageLocatorUsesAssemblyIdentityFromImplementationUniverse()
+    public async Task Find_MixedPackageLayoutUsesCompatibilityAssemblyIdentity()
     {
         string id =
             $"Workspace.Search.Reference.{Guid.NewGuid():N}";
@@ -672,11 +672,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             referenceResult.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "\"library\": \"DotnetInspector.Services\"",
+            "\"library\": \"Workspace.Search\"",
             referenceResult.Output,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "\"library\": \"Workspace.Search\"",
+            "\"library\": \"DotnetInspector.Services\"",
             referenceResult.Output,
             StringComparison.Ordinal);
     }
