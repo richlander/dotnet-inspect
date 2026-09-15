@@ -196,7 +196,8 @@ public static class PackageContentAudit
                     continue;
                 }
 
-                bytes = GC.AllocateUninitializedArray<byte>((int)length);
+                bytes =
+                    unsafe(GC.AllocateUninitializedArray<byte>((int)length));
                 stream.ReadExactly(bytes);
                 if (stream.ReadByte() >= 0)
                 {

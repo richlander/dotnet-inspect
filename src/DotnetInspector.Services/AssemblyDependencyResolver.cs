@@ -910,7 +910,7 @@ public sealed partial class AssemblyDependencyResolver :
             reservedBytes = length;
 
             byte[] image =
-                GC.AllocateUninitializedArray<byte>((int)length);
+                unsafe(GC.AllocateUninitializedArray<byte>((int)length));
             source.ReadExactly(image);
 
             var selection = ResolvedAssemblyReference.SelectFromStream(

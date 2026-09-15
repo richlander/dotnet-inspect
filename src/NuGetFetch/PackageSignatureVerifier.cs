@@ -117,7 +117,8 @@ public static partial class PackageSignatureVerifier
                 "Package signature entry is too large.");
         }
 
-        byte[] signatureBytes = GC.AllocateUninitializedArray<byte>((int)stream.Length);
+        byte[] signatureBytes =
+            unsafe(GC.AllocateUninitializedArray<byte>((int)stream.Length));
         stream.ReadExactly(signatureBytes);
         return VerifySignature(signatureBytes);
     }
@@ -212,7 +213,7 @@ public static partial class PackageSignatureVerifier
 
         stream.Position = dataOffset;
         byte[] signatureBytes =
-            GC.AllocateUninitializedArray<byte>((int)uncompressedSize);
+            unsafe(GC.AllocateUninitializedArray<byte>((int)uncompressedSize));
         stream.ReadExactly(signatureBytes);
         return signatureBytes;
     }

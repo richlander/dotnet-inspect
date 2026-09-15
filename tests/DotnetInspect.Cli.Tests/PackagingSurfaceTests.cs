@@ -77,6 +77,28 @@ public sealed class PackagingSurfaceTests
         AssertProperty(toolGroup, "IsPublishable", "true");
     }
 
+    [Fact]
+    public void Net11NativeAotPublishingEnablesUpdatedMemorySafetyRules()
+    {
+        string root = FindRepositoryRoot();
+        var targets = XDocument.Load(Path.Combine(root, "Directory.Build.targets"));
+        var nativeAotGroup = Assert.Single(
+            targets.Descendants(),
+            static element => element.Name.LocalName == "PropertyGroup"
+                && string.Equals(
+                    element.Attribute("Condition")?.Value,
+                    "'$(TargetFramework)' == 'net11.0' and '$(PublishAot)' == 'true'",
+                    StringComparison.Ordinal));
+
+        AssertProperty(nativeAotGroup, "AllowUnsafeBlocks", "true");
+        XElement features = Assert.Single(
+            nativeAotGroup.Elements(),
+            static element => element.Name.LocalName == "Features");
+        Assert.Contains(
+            "updated-memory-safety-rules",
+            features.Value.Split(';', StringSplitOptions.RemoveEmptyEntries));
+    }
+
     /// <summary>
     /// The half that keeps the tool census above from passing vacuously in the way
     /// that actually matters. Deleting the default restores the SDK's
