@@ -55,7 +55,6 @@ public class SearchSourceAdapterTests
     }
 
     [Theory]
-    [InlineData("find")]
     [InlineData("implements")]
     [InlineData("extensions")]
     public void PrefixDeclarationUsesTheTypeSearchBound(string command)

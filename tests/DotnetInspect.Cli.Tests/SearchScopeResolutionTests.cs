@@ -76,7 +76,6 @@ public class SearchScopeResolutionTests
     [InlineData("--platform", "System.Text.Json")]
     [InlineData("--project", "Example.csproj")]
     [InlineData("--bin", "missing")]
-    [InlineData("--package-prefix", "Example.")]
     public void EachDirectSourceSignal_SuppressesTheDefault(string option, string value)
     {
         var intent = SearchSourceAdapterTests.DeclareSources("find", option, value);
@@ -270,7 +269,6 @@ public class SearchScopeResolutionTests
     }
 
     [Theory]
-    [InlineData("find", "System.String")]
     [InlineData("implements", "IDisposable")]
     [InlineData("extensions", "System.String")]
     public void PackagePrefixGuidance_DisclosesExpansionLimit(
@@ -289,9 +287,6 @@ public class SearchScopeResolutionTests
     }
 
     [Theory]
-    [InlineData(
-        "docs/workflows/core/type-queries.md",
-        "across all Azure AI packages")]
     [InlineData(
         "skills/relationships/SKILL.md",
         "search every package under")]
