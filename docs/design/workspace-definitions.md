@@ -1674,24 +1674,29 @@ uses `v` shape, field presence, a record `kind`, or a legacy token to guess a
 version.
 
 For a direct Package-focused plan, dispatch uses this closed, scope-aware
-table:
+table. For packet input the two slots are `v; c`; for definition input they are
+`lens; section`. A vertical bar separates alternatives within one slot:
 
-| Version-1 source and structural evidence | Exact legacy value | Version-2 disposition |
+| Version-1 source and structural evidence | Exact `lens; section` slots | Version-2 disposition |
 | --- | --- | --- |
-| no Type or Member, no `lens` or `section`, and no query state | absent | Package-only recommendation state |
-| Package-only recommendation state with a referenced query or packet `l` | any | `LegacyCompatibilityRequired` |
-| package-capable coordinate with no Type or Member | `overview` | Package, `package.overview` |
-| package-capable coordinate with no Type or Member | `dependencies` | Package, `package.dependencies` |
-| one exact selected Library | `library:overview`, `library:compare`, `library:references`, `library:integrations`, `library:analysis`, or `library:metadata` | `LegacyCompatibilityRequired` |
-| exact Type and no Member | absent, `api`, `metadata`, `source`, or definition `Methods` | `LegacyCompatibilityRequired` |
-| package-capable coordinate with no Type or Member | `integrations`, `opportunities`, `analysis`, or `metadata` | `LegacyCompatibilityRequired` |
-| exact Member | absent, `overview`, `call-graph`, `facts`, `source`, `annotated`, or definition `Call Graph` | `LegacyCompatibilityRequired` |
+| no Type or Member and no query state | absent; absent | Package-only recommendation state |
+| Package-only recommendation state with a referenced query or packet `l` | absent; absent | `LegacyCompatibilityRequired` |
+| package-capable coordinate with no Type or Member | `overview`; absent | Package, `package.overview` |
+| package-capable coordinate with no Type or Member | `dependencies`; absent | Package, `package.dependencies` |
+| one exact selected Library | `library:overview` \| `library:compare` \| `library:references` \| `library:integrations` \| `library:analysis` \| `library:metadata`; absent | `LegacyCompatibilityRequired` |
+| exact Type and no Member | absent \| `api` \| `metadata` \| `source`; absent | `LegacyCompatibilityRequired` |
+| exact Type and no Member, definition only | absent \| `api`; `Methods` | `LegacyCompatibilityRequired` |
+| package-capable coordinate with no Type or Member | `integrations` \| `opportunities` \| `analysis` \| `metadata`; absent | `LegacyCompatibilityRequired` |
+| exact Member | absent \| `api`; absent \| `overview` \| `call-graph` \| `facts` \| `source` \| `annotated` | `LegacyCompatibilityRequired` |
+| exact Member, definition only | absent \| `api`; `Call Graph` | `LegacyCompatibilityRequired` |
 
-The packet values name exact Browser tokens; the entries labeled `definition`
+The lowercase values name exact Browser tokens; `Methods` and `Call Graph`
 name exact legacy `ProductDemoSections` values. They are compatibility
-mappings, not Registry aliases. Case variation, whitespace, labels, qualified
-Browser hash spellings such as `pkg:dependencies`, CLI aliases, and values
-absent from this table fail with `LegacyLoweringFailed`.
+mappings, not Registry aliases. A section without its required structural
+selector, a Package or Library row with a section, a Member row with
+`metadata` or `source` lens, and every other pair absent from the table fail
+with `LegacyLoweringFailed`. So do case variation, whitespace, labels,
+qualified Browser hash spellings such as `pkg:dependencies`, and CLI aliases.
 
 Version 1 does not require the exact structured Metadata identities that
 version 2 requires. Strict decode therefore preserves every selector and its
@@ -2121,16 +2126,18 @@ Implementation must add, at minimum:
   `ToPacket_OverCapacityPreflightRemainsNearLinear`,
   `ToPacket_ClassifiesPacketCapacityAsNonProjectable`,
   `ToPacket_ClassifiesDistinctEquivalentContextsAsNonProjectable`, and the
-  neighboring `ToPacket_Rejects*` tests gate those properties. Version 2 must
-  additionally prove every direct Package tuple retains its own subject, facet,
-  query set, and Library scope across packet → records → packet; every group
-  tuple retains one undecorated dormant row; inactive Package state is not
-  replaced by the active state; an exact focused or inactive subject resolves
-  in its owning Package occurrence when that coordinate is outside `g[x]` or
-  reused by several contexts; query records deduplicate and sort by canonical
-  semantic content rather than peer ID; a valid query state not expressible as
-  canonical portable intent is `NonProjectable`; and an invalid relationship
-  is `InvalidDefinitionSet`.
+  neighboring `ToPacket_Rejects*` tests gate those properties. The query-free
+  format-2 slice must additionally prove every direct Package tuple retains its
+  own subject, facet, and retained context across packet → records → packet;
+  query references and state-level Library scope are `NonProjectable`; every
+  group tuple retains one undecorated dormant row; inactive Package state is
+  not replaced by the active state; and an exact focused or inactive subject
+  resolves in its owning Package occurrence when that coordinate is outside
+  `g[x]` or reused by several contexts. Query-bearing adoption must then prove
+  each query set and its consumed Library scope round-trip together, query
+  records deduplicate and sort by canonical semantic content rather than peer
+  ID, a valid query state not expressible as canonical portable intent is
+  `NonProjectable`, and an invalid relationship is `InvalidDefinitionSet`.
   Portable Library identity cases must cover signed, unsigned, neutral-culture,
   culture-specific, same-name/different-version, alternate-equivalent spelling,
   malformed version/token, and duplicate semantic identity inputs while
