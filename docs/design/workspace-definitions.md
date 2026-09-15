@@ -149,8 +149,10 @@ Navigation effect authority remain separate owner-issued currencies.
    label; the peer definition records are always canonical.
 6. **Complete committed views begin at definition schema version 2 and packet
    format 2.** Version 1 remains an immutable legacy contract. Version 2 uses
-   one canonical View Facet Registry ID field, one retained view state per
-   open coordinate, and no browser lens, member-section, label, or CLI alias.
+   one explicit Workspace state, one ordered state per open coordinate, one
+   canonical View Facet Registry ID field, and no browser lens, member-section,
+   label, or CLI alias. Only direct Package coordinates carry structural state
+   in this version; other coordinate kinds remain undecorated dormant entries.
 7. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
    restoration recipe. The consuming host supplies the fresh Workspace
@@ -369,12 +371,16 @@ Field semantics:
   not part of the subscription string. Tab ids are unique, and normalized tab
   sources are unique. In schema version 1, `focus` is required and resolves
   exactly one tab. In schema version 2, `focus` is required but nullable:
-  a string resolves exactly one active Package occurrence and `null` means the
-  Workspace is active with no occurrence context. Source identity is the
-  source kind plus every normalized explicit field, including the group
-  expression, pin, framework, and RID. A coordinate source must equal an
-  explicit member; a group source must equal a context's `subscribe`; and every
-  non-null target declaration must agree with that context's effective target.
+  `null` means the Workspace is active with no occurrence context, while a
+  string must resolve one tab whose source is a direct Package coordinate.
+  Group, Platform, embedded, project, directory, and local sources remain
+  ordered dormant navigation entries but cannot be the active version-2
+  structural state until an owning structural grammar adopts them. Source
+  identity is the source kind plus every normalized explicit field, including
+  the group expression, pin, framework, and RID. A coordinate source must equal
+  an explicit member; a group source must equal a context's `subscribe`; and
+  every non-null target declaration must agree with that context's effective
+  target.
   If an omitted target would match contexts with different effective targets,
   activation fails as ambiguous rather than choosing one. The match may occur
   outside the scenario's selected query context. Navigation order is
@@ -512,45 +518,54 @@ for every tab ID in the composed version-2 navigation record. The leading
 entry has required `navigation: null`; it is the only state with no Package
 occurrence and must request the Workspace subject. Remaining entries use
 navigation order, and `navigation` must equal the corresponding tab ID. A
-missing, duplicated, reordered, unknown, or foreign tab reference is an
-invalid definition set.
+direct Package-coordinate entry may carry the structural state defined below.
+Every other source kind is a dormant coordinate entry and must contain only
+`navigation`; `retained`, `subject`, `facet`, `queries`, and `libraries` are
+forbidden. A missing, duplicated, reordered, unknown, foreign, or structurally
+decorated non-Package tab reference is an invalid definition set.
 
 `navigation.focus` chooses the active state. A string selects the corresponding
-Package-occurrence entry; `null` selects the leading Workspace entry and means
-there is no active occurrence or retained occurrence context. It receives no
-second active flag in the view. A Package-occurrence entry may itself request
-the Workspace subject while retaining that occurrence and an optional
-descendant path. This is distinct from `focus: null`: the former preserves
-exact context for later navigation, while the latter has no occurrence
-context. Inactive entries remain committed state rather than being collapsed
-into the active entry.
+direct Package-coordinate entry; a non-Package tab ID is invalid as version-2
+focus. `null` selects the leading Workspace entry and means there is no active
+occurrence or retained occurrence context. It receives no second active flag
+in the view. A Package-occurrence entry may itself request the Workspace
+subject while retaining that occurrence and an optional descendant path. This
+is distinct from `focus: null`: the former preserves exact context for later
+navigation, while the latter has no occurrence context. Inactive Package
+entries remain committed state rather than being collapsed into the active
+entry; inactive non-Package entries preserve only ordered navigation inventory.
 
 The table retains requested portable state, not one retained Navigation
 session per coordinate. Only the state selected by `navigation.focus` has an
 installed Navigation snapshot and current effect authority. The null-focus
 Workspace state installs a Workspace-selected snapshot with no retained
-occurrence context. Inactive states are resolved statelessly during complete
-restoration and retained as dormant exact inputs. Activating one later submits
-that coordinate's retained state as ordinary Navigation through the active
-Workspace's retained Navigation session; it does not construct another
-Workspace.
+occurrence context. Inactive direct Package states are resolved statelessly
+during complete restoration and retained as dormant exact inputs. Activating
+one later submits that coordinate's retained state as ordinary Navigation
+through the active Workspace's retained Navigation session; it does not
+construct another Workspace. Non-Package entries carry no structural state in
+this version. Their later activation belongs to their own owner and makes a
+captured session `NonProjectable` until that owner defines a portable
+structural grammar.
 
 Each state has these fields:
 
 - `navigation` is required. `null` denotes the one Workspace state; otherwise
   it is the exact record-local tab ID whose coordinate owns the state.
-- `retained` is optional and valid only on a Package-occurrence state. Its
-  closed selector supplies the descendant part of Navigation's retained
-  context. The state coordinate always supplies the exact retained Package, so
-  absence means Package-only context. Presence retains one contiguous
-  aggregate-Library or exact Library/Type/Member path beneath that Package.
+- `retained` is optional and valid only on a direct Package-coordinate state.
+  Its closed selector supplies the descendant part of Navigation's retained
+  context. The direct Package coordinate resolves to the exact retained
+  Package occurrence, so absence means Package-only context. Presence retains
+  one contiguous aggregate-Library or exact Library/Type/Member path beneath
+  that Package.
 - `subject` is optional. Absence asks Inspection Subject Navigation for its
   initial-subject recommendation after that coordinate is realized and is
-  valid only on a Package-occurrence state with Package-only retained context.
-  Presence requests one structural level from the exact retained context. The
-  Workspace state requires `{"kind":"workspace"}`. A
-  Package-occurrence state may also request Workspace while independently
-  retaining any valid descendant path.
+  valid only on a direct Package-coordinate state with Package-only retained
+  context. Presence requests one structural level from the exact retained
+  context. The Workspace state requires `{"kind":"workspace"}`. A direct
+  Package-coordinate state may also request Workspace while independently
+  retaining any valid descendant path. Every non-Package coordinate state
+  forbids `subject`.
 - `facet` is an optional exact View Facet Registry ID. It is valid only with a
   present subject. Absence requests Navigation's recommendation for that exact
   subject, or accompanies absent `subject` so initial subject and facet are
@@ -609,15 +624,15 @@ selectable subject above it.
 | `type` | `library`, `type` | member selector | Package, Library, and exact Type |
 | `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | Package through exact Member |
 
-An omitted `retained` on a Package-occurrence state denotes Package-only
-context. The null Workspace state forbids `retained`. A requested non-Workspace
-subject must name one node present in the retained path. Workspace may be
-requested with any Package-only or lower retained context. This directly
-preserves Navigation's distinction between active subject and retained
-context: two Workspace-selected states for the same occurrence but different
-retained Types are distinct committed states. An absent subject with lower
-retained context is invalid because recommendation would have ambiguous
-starting context.
+An omitted `retained` on a direct Package-coordinate state denotes
+Package-only context. The null Workspace state and every non-Package coordinate
+state forbid `retained`. A requested non-Workspace subject must name one node
+present in the retained path. Workspace may be requested with any Package-only
+or lower retained context. This directly preserves Navigation's distinction
+between active subject and retained context: two Workspace-selected states for
+the same occurrence but different retained Types are distinct committed
+states. An absent subject with lower retained context is invalid because
+recommendation would have ambiguous starting context.
 
 `retained.library` is one closed `PortableLibraryIdentity`:
 
@@ -669,10 +684,12 @@ Display text, package ID alone, assembly filename, metadata token alone, list
 position, and Browser key are never subject identity.
 
 Resolution produces one exact `NavigationInitialization`: the state coordinate
-resolves to the retained Package occurrence, `retained` resolves its optional
-contiguous descendant path, and `subject.kind` selects the Workspace or one
-exact node of that path. These resource-free selectors are not runtime
-identities and never serialize `InspectionWorkspaceIdentity`,
+must be a direct Package coordinate and resolves to the retained Package
+occurrence, `retained` resolves its optional contiguous descendant path, and
+`subject.kind` selects the Workspace or one exact node of that path. A
+non-Package coordinate entry never enters this resolution path. These
+resource-free selectors are not runtime identities and never serialize
+`InspectionWorkspaceIdentity`,
 `WorkspacePackageOccurrenceIdentity`, `StructuralSubjectIdentity`, Registry
 receipts, or Navigation authority. Missing, ambiguous, noncontiguous, or
 cross-occurrence resolution is a typed preparation failure. It does not select
@@ -694,6 +711,11 @@ descriptors and applies these rules before restoration may commit:
 | All Libraries or one Library | Known applicable Library facet, or absent for recommendation | Every referenced query declares the matching aggregate or exact-Library input |
 | Type | Known applicable Type facet, or absent for recommendation | Every referenced query declares Type input for the exact Library and Type |
 | Member | Known applicable Member facet, or absent for recommendation | Every referenced query declares Member input for the exact Member |
+
+This table applies only to the leading Workspace state and direct
+Package-coordinate states. A non-Package coordinate entry is valid only as the
+undecorated dormant row defined above and cannot be selected by version-2
+`navigation.focus`.
 
 When `facet` is present, exact Registry resolution occurs against the resolved
 subject. `Unknown` and `Inapplicable` are invalid portable combinations.
@@ -746,14 +768,26 @@ workspace use the same version. Version-1 and version-2 records never compose
 directly in one scenario, because that would let a legacy view token enter a
 canonical-ID composition.
 
-Strict version-1 decode first preserves one unresolved legacy plan. After the
-fresh Workspace's coordinates are realized, the explicit legacy lowerer
-resolves each flat Type or Member selector to its exact defining Library and
-forms the complete version-2 state table: one explicit Workspace state plus one
-state per navigation tab. Only that realized, exact output enters ordinary
-version-2 composition validation. A missing or ambiguous defining Library is
-`LegacyLoweringFailed`; the lowerer never invents a Library, stores a
-display-name approximation, or emits a partially specified version-2 state.
+Strict version-1 decode first preserves one unresolved legacy plan. When the
+focused source is a direct Package coordinate, the explicit legacy lowerer
+resolves each flat Type or Member selector after realization to its exact
+defining Library and forms the complete version-2 state table: one explicit
+Workspace state, one direct Package structural state per Package tab, and one
+undecorated dormant row per non-Package tab. Only that realized, exact output
+enters ordinary version-2 composition validation. A missing or ambiguous
+defining Library is `LegacyLoweringFailed`; the lowerer never invents a
+Library, stores a display-name approximation, or emits a partially specified
+version-2 state.
+
+A version-1 graph focused on a group, Platform, embedded, project, directory,
+or local source remains on the explicit version-1 compatibility execution
+path. It does not acquire Registry semantics in place and does not claim to be
+a complete version-2 composition. Its unchanged source record or canonical
+packet remains its location basis. Capturing a changed structural state from
+that active source is `NonProjectable` until an owning structural grammar
+exists; Workspace Definitions never fabricates Package ancestry to force the
+conversion. Version-1 support therefore remains behavior-compatible without
+claiming impossible Package-rooted lowering for non-Package inputs.
 
 ### The dependency boundary
 
@@ -1440,9 +1474,9 @@ table. An old scalar `v` under `f:2`, a new array `v` under `f:1`, or any mixed
 field set is invalid rather than shape-sniffed.
 
 `a` is either `null` or one exact index into `t`. `null` selects the leading
-Workspace state and carries no active occurrence context; an index selects the
-matching Package-occurrence state. `x` remains the independently selected
-binding context.
+Workspace state and carries no active occurrence context. A non-null `a` must
+name a direct Package tuple; group tuples cannot be active in format 2. `x`
+remains the independently selected binding context.
 
 `v` has exactly one leading Workspace entry followed by one entry for every
 `t` index in ascending order. Entry properties are emitted as `t`, optional
@@ -1451,10 +1485,10 @@ binding context.
 - `t` is `null` on the leading Workspace entry and otherwise the exact
   coordinate-table index.
 - `r` is the optional retained descendant selector and is forbidden when `t`
-  is `null`. Its closed property order is `k`, optional `l`, optional `y`,
-  then exactly one optional `m` or `s`. `k` is `all-libraries`, `library`,
-  `type`, or `member`; the remaining fields project the corresponding
-  long-form `retained` selector. `l` is the compact
+  is `null` or names a group tuple. Its closed property order is `k`, optional
+  `l`, optional `y`, then exactly one optional `m` or `s`. `k` is
+  `all-libraries`, `library`, `type`, or `member`; the remaining fields
+  project the corresponding long-form `retained` selector. `l` is the compact
   `PortableLibraryIdentity` tuple `[name,version,culture,publicKeyToken]`; it
   has exactly four slots with the same scalar grammar as the long form. `y` is
   the exact `MetadataTypeDefinitionName.ToEscapedFullName()` projection of the
@@ -1467,6 +1501,8 @@ binding context.
   is `workspace`, `package`, `all-libraries`, `library`, `type`, or `member`.
   The leading null-coordinate entry requires `workspace`. A coordinate entry
   applies the same subject/retained compatibility rules as the long form.
+  Group-tuple entries forbid `u`, `f`, `q`, and `l` as well as `r`; they
+  preserve dormant navigation inventory only.
 - `f` is one exact View Facet Registry ID. Its absence preserves a
   recommendation basis; it never means a host-default facet.
 - `q` is a nonempty array of unique indexes into the query table, in ascending
@@ -1517,23 +1553,29 @@ retained context, facet, query, or cross-record relationship is
 
 Definition schema version 1 and packet format 1 remain supported contracts,
 but they never acquire Registry semantics in place. Decode first produces an
-unchanged source-identified version-1 semantic plan. The compatibility adapter
-maps its closed lens/section table to a candidate Registry ID when the table
-produces one and resolves its source-specific structural selectors after
-coordinate realization. It then submits only that exact ID and resolved
-subject to ordinary Registry resolution, invokes any query-owner migration,
-and forms the complete version-2 composition for ordinary validation. A legacy
-token is never submitted to the Registry, and Workspace Definitions never
-reads or duplicates a facet's private execution binding.
+unchanged source-identified version-1 semantic plan. When its focused source is
+a direct Package coordinate, the compatibility adapter maps its closed
+lens/section table to a candidate Registry ID, resolves its source-specific
+structural selectors after coordinate realization, submits only that exact ID
+and resolved subject to ordinary Registry resolution, invokes any query-owner
+migration, and forms the complete version-2 composition for ordinary
+validation. A legacy token is never submitted to the Registry, and Workspace
+Definitions never reads or duplicates a facet's private execution binding.
+
+When the focused source is not a direct Package coordinate, dispatch retains
+the exact version-1 semantic plan for its existing compatibility executor.
+That path never enters version-2 Registry or Navigation composition and never
+claims a portable Workspace/Package subject. It is an explicit compatibility
+boundary, not shape sniffing or partial lowering.
 
 The version dispatch matrix is closed:
 
 | Input | Parse and lowering path |
 | --- | --- |
-| Packet with exact `f:1` | Strict format-1 decode, then whole-composition legacy lowering |
+| Packet with exact `f:1` | Strict format-1 decode, then direct-Package whole-composition lowering or retained non-Package v1 execution |
 | Packet with exact `f:2` | Strict format-2 decode and direct version-2 validation |
 | Packet with absent, unknown, or non-integer `f` | `UnsupportedFormat`; no shape sniffing or lowering |
-| Definition scenario graph containing only version-1 records | Strict version-1 bind, then whole-graph legacy lowering |
+| Definition scenario graph containing only version-1 records | Strict version-1 bind, then direct-Package whole-graph lowering or retained non-Package v1 execution |
 | Definition scenario graph containing only version-2 records | Strict version-2 bind and direct validation |
 | Definition scenario graph mixing record versions | `InvalidDefinitionSet`; no partial lowering |
 
@@ -1542,7 +1584,8 @@ hardened parser. It never tries one format after another format fails and never
 uses `v` shape, field presence, a record `kind`, or a legacy token to guess a
 version.
 
-The lowerer uses this closed, scope-aware table:
+For a direct Package-focused plan, the lowerer uses this closed, scope-aware
+table:
 
 | Version-1 source and structural evidence | Exact legacy value | Version-2 subject and facet |
 | --- | --- | --- |
@@ -1576,14 +1619,15 @@ version 2 requires. Strict decode therefore preserves every selector and its
 source kind in an unresolved legacy plan rather than pretending it already
 contains a version-2 subject.
 
-For packet v1, the compatibility adapter matches `type` against the exact
-`BrowserTypeSurface.Id` values issued for the realized active coordinate. An
-unqualified key corresponds to one metadata definition only while unique; a
-duplicate-name surface uses its issued assembly-qualified key. For definition
-v1, `type` remains the immutable definition contract's metadata-name scalar,
-not a Browser key; the adapter matches it against the exact legacy
+For a direct Package-focused packet v1, the compatibility adapter matches
+`type` against the exact `BrowserTypeSurface.Id` values issued for the realized
+active occurrence. An unqualified key corresponds to one metadata definition
+only while unique; a duplicate-name surface uses its issued
+assembly-qualified key. For a direct Package-focused definition v1, `type`
+remains the immutable definition contract's metadata-name scalar, not a Browser
+key; the adapter matches it against the exact legacy
 `MetadataTypeDefinitionName.ToMetadataFullName()` projection for Types in the
-realized focused coordinate. Either path requires exactly one Type and
+realized focused occurrence. Either path requires exactly one Type and
 defining acquired Library. Zero or several matches return
 `LegacyLoweringFailed` with missing or ambiguous evidence. The output uses the
 matched structured `MetadataTypeDefinitionName` and canonical
@@ -1606,16 +1650,17 @@ lowering. An exact Type with no `lens` or `section` preserves its subject and
 requests facet recommendation. Version-1 `library` or `libraries` values
 contribute only to the version-2 view state's query scope and never infer the
 defining Library. Each is an assembly-filename-stem key, not an assembly
-identity. Packet-v1 keys resolve independently in the active coordinate whose
-Browser surface issued them. Definition-v1 keys resolve independently in the
-scenario's selected context, matching that source contract's context-scoped
-view. Exactly one acquired Library must match each key. A missing key, two
-same-stem Libraries in that source-specific domain, or two keys resolving to
-one identity is `LegacyLoweringFailed`; no key is copied into version 2. After
-exact Registry resolution and query-owner migration, ordinary version-2
-combination validation decides whether the selected facet and query owners
-accept the resulting scope. No private facet binding participates in
-legacy-key resolution.
+identity. Direct Package-focused packet-v1 keys resolve independently in the
+active occurrence whose Browser surface issued them. Direct Package-focused
+definition-v1 keys resolve independently in the scenario's selected context,
+matching that source contract's context-scoped view. Exactly one acquired
+Library must match each key. A missing key, two same-stem Libraries in that
+source-specific domain, or two keys resolving to one identity is
+`LegacyLoweringFailed`; no key is copied into version 2. After exact Registry
+resolution and query-owner migration, ordinary version-2 combination
+validation decides whether the selected facet and query owners accept the
+resulting scope. No private facet binding participates in legacy-key
+resolution.
 
 A packet-v1 `l` value also represents an unresolved legacy query plan because
 format 1 cannot reference a query record. After resolving its Library keys and
@@ -1632,31 +1677,41 @@ private execution binding. This path preserves format-1 packets such as the
 canonical API view whose `l` has no peer query field.
 
 A referenced version-1 query record is also an unresolved legacy plan. For a
-coordinate-backed scenario, its output attaches only to the state for `a`; for
-a workspace-free scenario it remains the scenario-level query. The record must
-carry a non-null exact `queryId`, and that query owner must statically register
-a version-1 migration that returns one canonical version-2 payload for the
-legacy preset. The resulting coordinate-backed query must be compatible with
-the exact lowered facet; migration never chooses or changes a facet. An absent
-`queryId`, missing owner migration, owner rejection, recommendation-only
-coordinate state, or incompatible facet returns `LegacyLoweringFailed`.
-Workspace Definitions never drops the preset or manufactures `{}`.
+direct Package-focused scenario, its output attaches only to the state for
+`a`; for a workspace-free scenario it remains the scenario-level query. The
+record must carry a non-null exact `queryId`, and that query owner must
+statically register a version-1 migration that returns one canonical version-2
+payload for the legacy preset. The resulting Package-backed query must be
+compatible with the exact lowered facet; migration never chooses or changes a
+facet. An absent `queryId`, missing owner migration, owner rejection,
+recommendation-only coordinate state, or incompatible facet returns
+`LegacyLoweringFailed`. A non-Package-focused v1 graph retains the query in its
+legacy plan instead of partially migrating it. Workspace Definitions never
+drops the preset or manufactures `{}`.
 
-Format 1 carries view state only for `a`. The lowerer creates an absent-subject
-recommendation state for every other open coordinate and the required explicit
-Workspace state; it does not pretend version 1 preserved those views. The
-version-1 focused tab remains focused, because neither version-1 source can
-express a Workspace selection with no active occurrence. A version-1
-composition with no view fields likewise becomes recommendation state.
-Filters, body targets, source targets, and overload ordinals have no version-1
-field and are never inferred from courtesy routes or host state.
+Format 1 carries view state only for `a`. For a direct Package-focused plan,
+the lowerer creates an absent-subject recommendation state for every other
+direct Package coordinate, an undecorated dormant row for every non-Package
+coordinate, and the required explicit Workspace state; it does not pretend
+version 1 preserved those views. The version-1 focused Package tab remains
+focused, because version 1 cannot express a Workspace selection with no active
+occurrence. A direct Package-focused version-1 composition with no view fields
+likewise becomes recommendation state.
+
+A non-Package-focused format-1 plan is not lowered. Its unchanged decoded basis
+continues through the retained compatibility executor. Any captured structural
+change from that session is `NonProjectable`; no format-2 writer emits a
+non-Package active subject. Filters, body targets, source targets, and overload
+ordinals have no version-1 field and are never inferred from courtesy routes
+or host state.
 
 The adapter retains the exact decoded version-1 packet as the requested packet
 basis. If the fresh Workspace realizes the same semantic state, that original
 canonical format-1 packet remains the installed location basis. Any owner
-reconciliation, later user change, or newly captured per-coordinate state
-projects as format 2. No version-2 writer emits a version-1 token, and no
-version-1 writer accepts a Registry ID.
+reconciliation, later user change, or newly captured direct Package state
+projects as format 2. A changed non-Package active state is `NonProjectable`.
+No version-2 writer emits a version-1 token, and no version-1 writer accepts a
+Registry ID.
 
 ### Complete restoration
 
@@ -2015,7 +2070,8 @@ Implementation must add, at minimum:
   `MetadataTypeDefinitionName` equality, exact compact
   `ToEscapedFullName()` matching, nesting-versus-literal-delimiter collision
   vectors, required null-coordinate Workspace state, nullable `a`, retained
-  selector/subject compatibility, every outer and per-query bound, and
+  selector/subject compatibility, direct-Package-only non-null focus,
+  undecorated dormant group rows, every outer and per-query bound, and
   cancellation before each query bind;
 - a legacy-lowering gate derived from the closed mapping table, with one
   positive case for every row and close negatives for case variation,
@@ -2038,13 +2094,16 @@ Implementation must add, at minimum:
   It must also prove packet-v1 Library scope invokes exactly one public
   facet-specific query-owner migration, creates or reuses a query whose
   descriptor consumes that scope, and attaches it only to `a`; definition-v1
-  query migration likewise attaches only to `a` for coordinate-backed
+  query migration likewise attaches only to `a` for direct Package-focused
   scenarios. No legacy token is submitted to the Registry, no private facet
   binding is consulted for legacy scope, final composition validation follows
   exact Registry and query-owner resolution, the explicit Workspace state is
-  added, inactive format-1 coordinates become recommendation states, exact
-  format-1 packet restoration retains its byte basis, and every changed or
-  newly captured state emits format 2 rather than a legacy token;
+  added, inactive direct Package coordinates become recommendation states,
+  inactive non-Package coordinates become undecorated dormant rows, and exact
+  format-1 packet restoration retains its byte basis. Focused non-Package v1
+  plans must remain on the retained compatibility executor, never enter
+  Registry/Navigation v2 composition, and classify changed capture as
+  `NonProjectable`;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable format-2 committed state, including distinct
   inactive-coordinate views, Workspace with and without retained occurrence
@@ -2070,10 +2129,12 @@ Implementation must add, at minimum:
   `NonProjectable`;
 - a navigation gate proving ordered tabs and nullable record-local focus
   round-trip, `null` selects the Workspace state with no occurrence context,
-  duplicate ids or normalized sources fail, target-distinct group sources
-  remain distinct, group and coordinate sources resolve in at least one
-  workspace context, and non-null focus remains valid when it is outside the
-  scenario's selected query context;
+  non-null version-2 focus accepts only a direct Package coordinate, every
+  non-Package row is undecorated and dormant, duplicate ids or normalized
+  sources fail, target-distinct group sources remain distinct, group and
+  coordinate sources resolve in at least one workspace context, and
+  direct-Package focus remains valid when it is outside the scenario's selected
+  query context;
 - an anchor-durability gate pinning the canonical-signature spelling and
   degraded-decode prefix behind `MemberAnchor.ComputeFingerprint`, so a
   formatting change that would invalidate issued links and bundled demos
