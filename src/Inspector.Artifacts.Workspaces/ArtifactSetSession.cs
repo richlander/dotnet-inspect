@@ -1097,6 +1097,22 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         ArtifactContentCallback<TResult> callback,
         CancellationToken cancellationToken)
     {
+        return WithContent(
+            lease,
+            callback,
+            static (view, callback, token) =>
+                callback(view, token),
+            cancellationToken);
+    }
+
+    internal ArtifactContentAccessOutcome<TResult>
+        WithContent<TState, TResult>(
+        ArtifactContentLease lease,
+        scoped TState state,
+        ArtifactContentCallback<TState, TResult> callback,
+        CancellationToken cancellationToken)
+        where TState : allows ref struct
+    {
         cancellationToken.ThrowIfCancellationRequested();
         ImmutableArray<byte> snapshot;
         lock (_gate)
@@ -1119,6 +1135,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                 new ArtifactContentView(
                     lease.Reference,
                     snapshot.AsSpan()),
+                state,
                 cancellationToken);
             return new ArtifactContentAccessOutcome<TResult>.Accessed(
                 result);
