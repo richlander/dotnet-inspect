@@ -113,6 +113,13 @@ public-surface view evaluates the enclosing definition chain, while established
 Find visibility is row-local. The CLI then applies its own policy from
 Metadata-issued `IsDefinitionPublic`, `DiscoveryAttributes`, and generated-name
 grammar evidence without changing the shared locator view.
+[The shared visibility selector](type-declaration-visibility.md) remains the
+owner for consumer-controlled `PublicSurface`, EditorBrowsable, and obsolete
+facets and their attributed unknown evidence. Its raw projection is the
+intentional integration point here: both shared presets apply generated-name
+scope across every declaration segment, while Find's compatibility contract
+applies it only to the leaf Metadata name. Using either preset would therefore
+change established Find results.
 
 For a direct miss, namespace-prefix and similarity work remains CLI-owned.
 Prefix fallback is issued as a separate `<pattern>*` locator request. A
