@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -61,7 +62,7 @@ public sealed partial class EhStructuringPass : IIrPass
         var continuations = new Dictionary<IrNode, int>();
         var rebuilt = BuildContainer(function, blocks, 0, blocks.Count, forest.Roots, offsetToIndex, continuations);
         TrimTailLeaves(rebuilt, continuations);
-        InlineReturnLeaves(rebuilt);
+        InlineReturnLeaves(function, rebuilt);
         SynthesizeInlineCatchVariables(function, rebuilt);
         context.Stepper.StepOver("raise exception regions into try/catch/finally", function.Body);
         function.Body.ReplaceWith(rebuilt);
@@ -576,22 +577,446 @@ public sealed partial class EhStructuringPass : IIrPass
     /// the return/throw at the leave site — a C# <c>return</c> inside a try runs
     /// exactly the finallys the leave did — and drop each return block once it
     /// is unreachable (no remaining reference, not reached by falling out of the
-    /// previous block). The single normal-continuation return stays put. With
-    /// the leaves gone the structuring pass raises the bodies.
+    /// previous block). Keep a return outside when reaching it first exits an
+    /// enclosing finally that may change the local it returns. With the leaves
+    /// gone the structuring pass raises the bodies.
     /// </summary>
-    static void InlineReturnLeaves(BlockContainer root)
+    static void InlineReturnLeaves(IrFunction function, BlockContainer root)
     {
         var byOffset = new Dictionary<int, Block>();
         foreach (var block in root.Descendants.OfType<Block>())
             byOffset.TryAdd(block.StartOffset, block);
 
         foreach (var leave in root.Descendants.OfType<Leave>().ToList())
-            if (byOffset.TryGetValue(leave.TargetOffset, out var target) && CloneTerminator(target) is { } clone)
+            if (byOffset.TryGetValue(leave.TargetOffset, out var target)
+                && CloneTerminator(target) is { } clone)
+            {
+                if (TerminatorValueMayChangeAcrossFinally(
+                    function,
+                    root,
+                    leave,
+                    target))
+                {
+                    continue;
+                }
+
                 leave.ReplaceWith(clone);
+            }
 
         // The multi-return blocks sit in the top-level slice after the
         // constructs; once their leaves are inlined they are unreachable.
         RemoveDeadReturns(root, ReferencedOffsets(root));
+    }
+
+    static bool TerminatorValueMayChangeAcrossFinally(
+        IrFunction function,
+        BlockContainer root,
+        Leave leave,
+        Block target)
+    {
+        (int Index, bool IsArgument)? place = target.Children is [var terminator]
+            ? terminator switch
+            {
+                Return { Value: LoadLocal local } => (local.Index, false),
+                Throw { Value: LoadLocal local } => (local.Index, false),
+                Return { Value: LoadArgument argument } => (argument.Index, true),
+                Throw { Value: LoadArgument argument } => (argument.Index, true),
+                _ => null,
+            }
+            : null;
+        if (place is not { } returned)
+            return false;
+
+        var aliases = ByRefAliases(
+            function,
+            root,
+            returned.Index,
+            returned.IsArgument);
+        for (IrNode? ancestor = leave.Parent;
+             ancestor is not null;
+             ancestor = ancestor.Parent)
+        {
+            if (ancestor is TryFinally tryFinally
+                && IsDescendantOf(leave, tryFinally.TryBody)
+                && !IsDescendantOf(target, tryFinally)
+                && (MayWritePlace(
+                        tryFinally.FinallyBody,
+                        returned.Index,
+                        returned.IsArgument,
+                        aliases.Locals,
+                        aliases.Arguments,
+                        aliases.StackSlots,
+                        aliases.Fields)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool MayWritePlace(
+        BlockContainer body,
+        int index,
+        bool isArgument,
+        IReadOnlySet<int> localAliases,
+        IReadOnlySet<int> argumentAliases,
+        IReadOnlySet<int> stackSlotAliases,
+        IReadOnlyList<ByRefFieldAlias> fieldAliases)
+    {
+        foreach (var node in body.Descendants)
+        {
+            if (ReferenceOwnership.IsInsideNestedFunctionBody(node))
+                continue;
+
+            bool mayWrite = node switch
+            {
+                StoreLocal store when !isArgument => store.Index == index,
+                LoadLocalAddress address => (!isArgument && address.Index == index)
+                    || localAliases.Contains(address.Index),
+                StoreArgument store when isArgument => store.Index == index,
+                LoadArgumentAddress address => (isArgument && address.Index == index)
+                    || argumentAliases.Contains(address.Index),
+                LoadLocal load => localAliases.Contains(load.Index),
+                LoadArgument load => argumentAliases.Contains(load.Index),
+                LoadStackSlot load => stackSlotAliases.Contains(load.Slot),
+                LoadField load => fieldAliases.Any(alias =>
+                    SameFieldAlias(alias, load.Field, load.Instance)),
+                LoadFieldAddress address => fieldAliases.Any(alias =>
+                    SameFieldAlias(alias, address.Field, address.Instance)),
+                _ => false,
+            };
+            if (mayWrite)
+                return true;
+        }
+
+        return false;
+    }
+
+    static (
+        HashSet<int> Locals,
+        HashSet<int> Arguments,
+        HashSet<int> StackSlots,
+        List<ByRefFieldAlias> Fields) ByRefAliases(
+        IrFunction function,
+        BlockContainer root,
+        int index,
+        bool isArgument)
+    {
+        var localAliases = new HashSet<int>();
+        var argumentAliases = new HashSet<int>();
+        var stackSlotAliases = new HashSet<int>();
+        var fieldAliases = new List<ByRefFieldAlias>();
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var store in root.Descendants.OfType<StoreLocal>())
+            {
+                if (ReferenceOwnership.IsInsideNestedFunctionBody(store))
+                    continue;
+
+                if (AliasesPlace(
+                    function,
+                    store.Value,
+                    index,
+                    isArgument,
+                    localAliases,
+                    argumentAliases,
+                    stackSlotAliases,
+                    fieldAliases))
+                {
+                    changed |= localAliases.Add(store.Index);
+                }
+            }
+
+            foreach (var store in root.Descendants.OfType<StoreArgument>())
+            {
+                if (ReferenceOwnership.IsInsideNestedFunctionBody(store))
+                    continue;
+
+                if (AliasesPlace(
+                    function,
+                    store.Value,
+                    index,
+                    isArgument,
+                    localAliases,
+                    argumentAliases,
+                    stackSlotAliases,
+                    fieldAliases))
+                {
+                    changed |= argumentAliases.Add(store.Index);
+                }
+            }
+
+            foreach (var store in root.Descendants.OfType<StoreStackSlot>())
+            {
+                if (ReferenceOwnership.IsInsideNestedFunctionBody(store))
+                    continue;
+
+                if (AliasesPlace(
+                    function,
+                    store.Value,
+                    index,
+                    isArgument,
+                    localAliases,
+                    argumentAliases,
+                    stackSlotAliases,
+                    fieldAliases))
+                {
+                    changed |= stackSlotAliases.Add(store.Slot);
+                }
+            }
+
+            foreach (var store in root.Descendants.OfType<StoreField>())
+            {
+                if (ReferenceOwnership.IsInsideNestedFunctionBody(store)
+                    || !AliasesPlace(
+                        function,
+                        store.Value,
+                        index,
+                        isArgument,
+                        localAliases,
+                        argumentAliases,
+                        stackSlotAliases,
+                        fieldAliases))
+                {
+                    continue;
+                }
+
+                changed |= AddFieldAlias(
+                    fieldAliases,
+                    store.Field,
+                    store.Instance);
+                if (store.Instance is { } carrier)
+                {
+                    changed |= AddWritableCarrierAlias(
+                        function,
+                        carrier,
+                        localAliases,
+                        argumentAliases,
+                        stackSlotAliases,
+                        fieldAliases);
+                }
+            }
+
+            foreach (var invocation in root.Descendants.OfType<IrExpression>())
+            {
+                // A helper can bind the returned address into writable storage
+                // inside a ref-bearing value without returning that value.
+                IReadOnlyList<IrExpression>? arguments = invocation switch
+                {
+                    Call call => call.Arguments,
+                    CallIndirect call => call.Arguments,
+                    NewObject creation => creation.Arguments,
+                    _ => null,
+                };
+                if (arguments is null
+                    || ReferenceOwnership.IsInsideNestedFunctionBody(invocation)
+                    || !arguments.Any(argument => AliasesPlace(
+                        function,
+                        argument,
+                        index,
+                        isArgument,
+                        localAliases,
+                        argumentAliases,
+                        stackSlotAliases,
+                        fieldAliases)))
+                {
+                    continue;
+                }
+
+                foreach (var argument in arguments)
+                {
+                    changed |= AddWritableCarrierAlias(
+                        function,
+                        argument,
+                        localAliases,
+                        argumentAliases,
+                        stackSlotAliases,
+                        fieldAliases);
+                }
+            }
+        }
+        while (changed);
+
+        return (localAliases, argumentAliases, stackSlotAliases, fieldAliases);
+    }
+
+    static bool AliasesPlace(
+        IrFunction function,
+        IrExpression value,
+        int index,
+        bool isArgument,
+        IReadOnlySet<int> localAliases,
+        IReadOnlySet<int> argumentAliases,
+        IReadOnlySet<int> stackSlotAliases,
+        IReadOnlyList<ByRefFieldAlias> fieldAliases)
+        => value switch
+        {
+            LoadLocalAddress address => (!isArgument && address.Index == index)
+                || localAliases.Contains(address.Index),
+            LoadArgumentAddress address => (isArgument && address.Index == index)
+                || argumentAliases.Contains(address.Index),
+            LoadLocal load => localAliases.Contains(load.Index),
+            LoadArgument load => argumentAliases.Contains(load.Index),
+            LoadStackSlot load => stackSlotAliases.Contains(load.Slot),
+            LoadField load => fieldAliases.Any(alias =>
+                SameFieldAlias(alias, load.Field, load.Instance)),
+            LoadFieldAddress address => fieldAliases.Any(alias =>
+                SameFieldAlias(alias, address.Field, address.Instance)),
+            { ResultType: { } type } when CanCarryManagedReference(function, type)
+                => value.Children
+                .OfType<IrExpression>()
+                .Any(child => AliasesPlace(
+                    function,
+                    child,
+                    index,
+                    isArgument,
+                    localAliases,
+                    argumentAliases,
+                    stackSlotAliases,
+                    fieldAliases)),
+            _ => false,
+        };
+
+    static bool AddWritableCarrierAlias(
+        IrFunction function,
+        IrExpression value,
+        HashSet<int> localAliases,
+        HashSet<int> argumentAliases,
+        HashSet<int> stackSlotAliases,
+        List<ByRefFieldAlias> fieldAliases)
+    {
+        if (!IsWritableCarrierReference(function, value.ResultType))
+            return false;
+
+        bool changed = value switch
+        {
+            LoadLocal load => localAliases.Add(load.Index),
+            LoadLocalAddress address => localAliases.Add(address.Index),
+            LoadArgument load => argumentAliases.Add(load.Index),
+            LoadArgumentAddress address => argumentAliases.Add(address.Index),
+            LoadStackSlot load => stackSlotAliases.Add(load.Slot),
+            LoadField load => AddFieldAlias(
+                fieldAliases,
+                load.Field,
+                load.Instance),
+            LoadFieldAddress address => AddFieldAlias(
+                fieldAliases,
+                address.Field,
+                address.Instance),
+            _ => false,
+        };
+
+        foreach (var child in value.Children.OfType<IrExpression>())
+        {
+            changed |= AddWritableCarrierAlias(
+                function,
+                child,
+                localAliases,
+                argumentAliases,
+                stackSlotAliases,
+                fieldAliases);
+        }
+
+        return changed;
+    }
+
+    static bool AddFieldAlias(
+        List<ByRefFieldAlias> fieldAliases,
+        FieldRef field,
+        IrExpression? instance)
+    {
+        var alias = new ByRefFieldAlias(field, instance);
+        if (fieldAliases.Any(existing =>
+            SameFieldAlias(existing, alias.Field, alias.Instance)))
+        {
+            return false;
+        }
+
+        fieldAliases.Add(alias);
+        return true;
+    }
+
+    static bool IsWritableCarrierReference(IrFunction function, TypeRef? type)
+        => type is { Kind: TypeRefKind.ByRef, ElementType: { } element }
+            && CanCarryManagedReference(function, element);
+
+    static bool CanCarryManagedReference(IrFunction function, TypeRef type)
+    {
+        if (type.Kind == TypeRefKind.ByRef)
+            return true;
+        if (type.Kind is TypeRefKind.GenericParameter
+            or TypeRefKind.MethodGenericParameter)
+        {
+            return true;
+        }
+
+        var definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType
+            : type;
+        if (definition is not null && function.ByRefLikeTypes.Contains(definition))
+            return true;
+
+        string? name = definition?.Name;
+        if (definition?.Namespace != "System" || name is null)
+            return false;
+        return MetadataNameArity.StripFromSegment(name)
+            is "Span"
+            or "ReadOnlySpan"
+            or "TypedReference"
+            or "ArgIterator"
+            or "RuntimeArgumentHandle";
+    }
+
+    readonly record struct ByRefFieldAlias(FieldRef Field, IrExpression? Instance);
+
+    static bool SameFieldAlias(
+        ByRefFieldAlias alias,
+        FieldRef field,
+        IrExpression? instance)
+        => alias.Field.Equals(field)
+            && SameCarrierPlace(alias.Instance, instance);
+
+    static bool SameCarrierPlace(IrExpression? left, IrExpression? right)
+    {
+        if (left is null || right is null)
+            return left is null && right is null;
+
+        return (left, right) switch
+        {
+            (LoadLocal a, LoadLocal b) => a.Index == b.Index,
+            (LoadLocal a, LoadLocalAddress b) => a.Index == b.Index,
+            (LoadLocalAddress a, LoadLocal b) => a.Index == b.Index,
+            (LoadLocalAddress a, LoadLocalAddress b) => a.Index == b.Index,
+            (LoadArgument a, LoadArgument b) => PlaceIdentity.SameArgument(
+                a.Index, a.Parameter, b.Index, b.Parameter),
+            (LoadArgument a, LoadArgumentAddress b) => PlaceIdentity.SameArgument(
+                a.Index, a.Parameter, b.Index, b.Parameter),
+            (LoadArgumentAddress a, LoadArgument b) => PlaceIdentity.SameArgument(
+                a.Index, a.Parameter, b.Index, b.Parameter),
+            (LoadArgumentAddress a, LoadArgumentAddress b) => PlaceIdentity.SameArgument(
+                a.Index, a.Parameter, b.Index, b.Parameter),
+            (LoadStackSlot a, LoadStackSlot b) => a.Slot == b.Slot,
+            (LoadField a, LoadField b) => a.Field.Equals(b.Field)
+                && SameCarrierPlace(a.Instance, b.Instance),
+            (LoadField a, LoadFieldAddress b) => a.Field.Equals(b.Field)
+                && SameCarrierPlace(a.Instance, b.Instance),
+            (LoadFieldAddress a, LoadField b) => a.Field.Equals(b.Field)
+                && SameCarrierPlace(a.Instance, b.Instance),
+            (LoadFieldAddress a, LoadFieldAddress b) => a.Field.Equals(b.Field)
+                && SameCarrierPlace(a.Instance, b.Instance),
+            _ => false,
+        };
+    }
+
+    static bool IsDescendantOf(IrNode node, IrNode ancestor)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            if (ReferenceEquals(current, ancestor))
+                return true;
+        return false;
     }
 
     static HashSet<int> ReferencedOffsets(BlockContainer root)
