@@ -74,6 +74,16 @@ classification, source authorization and defaults remain Find-owned; any
 fallback is a separately identified request, and `FindOptions.Limit` cannot
 silently stand in for the query's inventory-read bound.
 
+[#7101](https://github.com/richlander/dotnet-inspect/issues/7101) supplies the
+Metadata-owned [definition discovery attributes](type-forwarding-resolution.md#definition-discovery-attributes)
+needed for default-visibility adoption. Locator candidates and Sections rows
+carry `DiscoveryAttributes` unchanged, including unavailable target evidence
+for exports. The existing public/all locator views do not apply attribute
+suppression. Step 7's consumer owns that policy and remains responsible for
+default-path parity; [PR #7082](https://github.com/richlander/dotnet-inspect/pull/7082)
+is a separate CLI slice. Step 8 consumes the same typed facts rather than
+reopening metadata or parsing display text to discover them.
+
 The current cold query and resident facade deliberately do not replace a CLI
 collector before those associations exist. The next production
 steps remain the named step 4 producer completion and step 7 CLI

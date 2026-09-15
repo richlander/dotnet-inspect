@@ -5,6 +5,7 @@ using System.Text.Json;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using Markout;
@@ -285,10 +286,44 @@ public sealed class EcosystemChangeReportPresentationTests
                 TestContext.Current.CancellationToken);
         EcosystemChangeReportDocument document =
             EcosystemChangeReportPresentation.Create(events);
+        var sink = new RecordingNonterminalSink();
+        InspectionEnvelope<EcosystemChangeReportDocument> inspection =
+            await EcosystemChangeReportInspection.ExecuteAsync(
+                IgnoreCancellation(events),
+                sink,
+                TestContext.Current.CancellationToken);
 
         Assert.Equal(
             EcosystemChangeReportCompletionKind.Partial,
             document.Summary.Completion);
+        Assert.Equal(
+            EcosystemChangeReportJson.Serialize(document, compact: true),
+            EcosystemChangeReportJson.Serialize(
+                inspection.Content,
+                compact: true));
+        InspectionShare.NonProjectable share =
+            Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.Equal("package-changes/share", share.Path);
+        Assert.Empty(inspection.Diagnostics);
+        Assert.Equal(
+            events.Count(static item =>
+                item is not EcosystemChangeReportEvent.Completed),
+            sink.Events.Count);
+        Assert.Equal(
+            document.Rows.Select(Serialize),
+            sink.Events
+                .OfType<EcosystemChangeReportNonterminalEvent.Row>()
+                .Select(static item => Serialize(item.Value)));
+        Assert.Equal(
+            document.Failures.Select(Serialize),
+            sink.Events
+                .OfType<EcosystemChangeReportNonterminalEvent.Failure>()
+                .Select(static item => Serialize(item.Value)));
+        Assert.Equal(
+            document.Progress,
+            sink.Events
+                .OfType<EcosystemChangeReportNonterminalEvent.Progress>()
+                .Select(static item => item.Value));
         Assert.False(document.Request.UsedDefaultInterval);
         Assert.Equal(ReferenceTime, document.Request.ReferenceTime);
         Assert.Equal(through, document.Request.ThroughInclusive);
@@ -400,6 +435,19 @@ public sealed class EcosystemChangeReportPresentationTests
             "after terminal completion",
             afterTerminal.Message,
             StringComparison.Ordinal);
+        var afterTerminalSink = new RecordingNonterminalSink();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            EcosystemChangeReportInspection.ExecuteAsync(
+                IgnoreCancellation(
+                    events.Append(
+                        new EcosystemChangeReportEvent.Progress(
+                            new EcosystemChangeReportProgress(
+                                EcosystemChangeReportProgressPhase.Catalog,
+                                Completed: 1,
+                                Total: 1)))),
+                afterTerminalSink,
+                TestContext.Current.CancellationToken).AsTask());
+        Assert.Equal(sink.Events.Count, afterTerminalSink.Events.Count);
 
         using INuGetCatalogPackageSourceClient foreignSource =
             CreateSource(StandardCatalog(
@@ -495,6 +543,25 @@ public sealed class EcosystemChangeReportPresentationTests
             await Task.Yield();
         }
     }
+
+    sealed class RecordingNonterminalSink
+        : IEcosystemChangeReportNonterminalSink
+    {
+        internal List<EcosystemChangeReportNonterminalEvent> Events { get; } =
+            [];
+
+        public ValueTask ReportAsync(
+            EcosystemChangeReportNonterminalEvent reportEvent,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Events.Add(reportEvent);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    static string Serialize<T>(T value) =>
+        JsonSerializer.Serialize(value);
 
     static string Item(
         string leafUrl,

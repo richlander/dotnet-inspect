@@ -128,9 +128,33 @@ elides the Demos description while retaining its label, action, and catalog
 state. Search and Demos are both visible in the initial 390 by 844 CSS-pixel
 content viewport; artwork never precedes them.
 
-Home does not repeat links already owned by the data bar. The data bar is the
-shared entry for the CLI tool, agent skill, Diagnostics, and Credits. The
+Home's Demos entry opens the dedicated `/demos` catalog page. That page lists
+only product demos, not the active Workspace's packages or saved definitions.
+This follows the conventional separation of a sample gallery from a user's
+working document. The motivating flow is a shared System.Text.Json
+`11.0.0-preview.7.26381.103` / `netstandard2.0` Library, then Package, then
+Workspace: Workspace remains about that inspection, while Demos is a separate
+destination. The catalog's activation and failure semantics remain owned by
+[Navigation Presentation](inspect-web-navigation-presentation.md#workspace-surface).
+
+Home does not repeat links already owned by the data bar, except Demos: its
+primary-column entry orients new users while the shared link makes the catalog
+reachable from an inspection. The data bar is the shared entry for the CLI
+tool, agent skill, Demos, Diagnostics, and Credits. The
 current Home-bar action inventory remains unchanged by this composition.
+
+`Demos is a dedicated page reached from Home and the data bar` and
+`Package navigation retains the shared System.Text.Json packet and Workspace
+stays separate from Demos` in `library-hierarchy.spec.ts` gate the production
+page composition and motivating navigation flow using the existing typed
+facade fixtures. Product demo execution remains covered by the neighboring
+package and Platform Methods and Call Graph cases.
+
+This composition gate begins from a settled canonical inspection and ordinary
+successful browser-history writes. Atomicity while a URL projection is pending,
+browser-history rejection recovery, and cross-surface modal focus are separate
+Navigation Consumer and Shell Interaction concerns; this page-composition
+adoption does not broaden or re-gate those contracts.
 
 Loading, catalog-unavailable, query-notice, and long-label states retain the
 same primary hierarchy. They do not replace Search with artwork, turn failure
@@ -1461,7 +1485,7 @@ expand, or host runtime diagnostics:
 
 <!-- markdownlint-disable MD013 -->
 ```text
-dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Diagnostics · Credits
+dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Demos · Diagnostics · Credits
 ```
 <!-- markdownlint-enable MD013 -->
 
@@ -1473,6 +1497,7 @@ The data bar includes:
 - read-only package producer, or the applicable non-package acquisition kind;
 - `CLI tool`;
 - `Agent skill`;
+- `Demos`;
 - `Diagnostics`; and
 - `Credits`.
 
