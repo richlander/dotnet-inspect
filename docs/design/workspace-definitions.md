@@ -29,7 +29,9 @@ selector resolution against one fresh Workspace. Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
 complete-restoration implementation; its first retained production consumer is
 Inspect Web activation
-[#7028](https://github.com/richlander/dotnet-inspect/issues/7028).
+[#7028](https://github.com/richlander/dotnet-inspect/issues/7028). CLI replay
+of the same portable records and packets is
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
@@ -2447,8 +2449,9 @@ Definition records and product demos (this slice):
   implemented; and
 - **not yet:** the designed View Facet Registry implementation, schema version
   2, packet format 2, legacy lowering, per-coordinate view/query binding,
-  complete-restoration coordinator, CLI
-  use of the codec/transposer for executable `-W`, or
+  complete-restoration coordinator, CLI use of the codec/transposer for
+  executable `-W` ([#4647](https://github.com/richlander/dotnet-inspect/issues/4647)),
+  or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still
   uses package + `--caller-package` encoding).
 
