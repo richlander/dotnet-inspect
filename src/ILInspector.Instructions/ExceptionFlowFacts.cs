@@ -1037,8 +1037,6 @@ internal sealed class ExceptionFlowTopology
         ImmutableArray<ExceptionFlowTopologyRegion> source,
         ImmutableArray<ExceptionFlowTopologyRegion> destination)
     {
-        if (source.IsEmpty)
-            return false;
         if (source.Any(region => region.Role == InstructionExceptionRegionRole.Filter))
             return false;
 

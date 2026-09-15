@@ -274,6 +274,34 @@ public class ExceptionFlowFactsTests
     }
 
     [Fact]
+    public void LeaveOutsideEveryExceptionRegionHasKnownEmptyFacts()
+    {
+        byte[] image = File.ReadAllBytes(SelfPath);
+        int token = TokenOf(nameof(ExceptionFlowFactsSamples.SharedCatchExtent));
+        RemoveExceptionSections(image, token);
+
+        MethodBodyData body = ReadMutatedBody(image, token);
+        Assert.Empty(body.ExceptionRegionCatalog.Clauses);
+        MethodInstructions method = MethodInstructions.Decode(body);
+        InstructionExceptionFlowFacts facts = AvailableFacts(method);
+        DecodedInstruction leave = method.Instructions.First(
+            instruction => instruction.LeavesRegion);
+        int target = Assert.Single(leave.BranchTargets);
+        InstructionNormalTransfer transfer = AvailableTransfer(
+            facts,
+            leave,
+            target);
+
+        Assert.Empty(transfer.SourceContext);
+        Assert.Empty(transfer.DestinationContext);
+        Assert.Empty(transfer.RegionsLeft);
+        Assert.Empty(transfer.CleanupHandlers);
+        Assert.Empty(transfer.RegionsEntered);
+        Assert.Equal(NormalContinuationKind.Block, transfer.Continuation.Kind);
+        Assert.Equal(target, transfer.Continuation.BlockStart);
+    }
+
+    [Fact]
     public void ExceptionalTransfersAreExplicitlyUnavailable()
     {
         (_, MethodInstructions method) =
@@ -1021,6 +1049,24 @@ public class ExceptionFlowFactsTests
         image.AsSpan(rightOffset, clauseSize)
             .CopyTo(image.AsSpan(leftOffset, clauseSize));
         left.CopyTo(image, rightOffset);
+    }
+
+    static void RemoveExceptionSections(byte[] image, int methodToken)
+    {
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinition method = reader.GetMethodDefinition(
+            (MethodDefinitionHandle)MetadataTokens.EntityHandle(methodToken));
+        int bodyOffset = RvaToFileOffset(
+            pe.PEHeaders,
+            method.RelativeVirtualAddress);
+        ushort flagsAndSize = BinaryPrimitives.ReadUInt16LittleEndian(
+            image.AsSpan(bodyOffset, 2));
+        Assert.Equal(0x03, flagsAndSize & 0x03);
+        Assert.NotEqual(0, flagsAndSize & 0x08);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(bodyOffset, 2),
+            (ushort)(flagsAndSize & ~0x08));
     }
 
     static int MethodCodeOffset(byte[] image, int methodToken)

@@ -64,8 +64,6 @@ public sealed record BlockGraph(
             BuildBlocks(ilLength, instructions, topology);
         string? reason = ComputeIncompleteReason(
             blocks,
-            instructions,
-            topology.Models,
             topology.BlockGraphIncompleteReason);
         return new BlockGraph(blocks, topology.Models, reason is null, reason);
     }
@@ -316,21 +314,8 @@ public sealed record BlockGraph(
 
     static string? ComputeIncompleteReason(
         ImmutableArray<InstructionBlock> blocks,
-        ImmutableArray<DecodedInstruction> instructions,
-        ImmutableArray<ExceptionRegionModel> regions,
         string? topologyIncompleteReason)
     {
-        if (blocks.Any(block => block.Edges.LeavesRegion))
-        {
-            foreach (var instruction in instructions)
-            {
-                if (!instruction.LeavesRegion)
-                    continue;
-                if (regions.Any(region => region.ContainsAny(instruction.Offset)))
-                    continue;
-                return "Region-leaving control-flow edges are not modeled.";
-            }
-        }
         if (blocks.Any(block => block.Edges.ExternalTargets.Count > 0))
             return "External control-flow targets are not modeled.";
         if (topologyIncompleteReason is not null)

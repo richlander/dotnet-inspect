@@ -154,15 +154,17 @@ matter.
 Availability is opcode-aware. An ordinary branch is available only when its
 encoded edge stays in one EH context; sequential fallthrough may enter one or
 more protected regions at their starts. A direct return is available only
-outside EH regions. A leave can exit protected regions and catch or
-filter-associated handlers, but cannot originate in a filter, exit a `finally`
-or `fault` handler, or enter a filter or handler. A handler retained by both
-endpoints is neither exited nor entered, so a leave nested within that handler
-is valid. The ECMA-335 handler-to-associated-try exception is preserved for
-catch and filter-associated handlers; otherwise a leave cannot enter a new
-protected region. Other encoded cross-boundary transfers make construction of
-the correlated fact set unavailable rather than receive synthetic runtime
-cleanup semantics.
+outside EH regions. A leave whose source and destination are both outside
+every EH region is available with known-empty region and cleanup facts. A
+leave can exit protected regions and catch or filter-associated handlers, but
+cannot originate in a filter, exit a `finally` or `fault` handler, or enter a
+filter or handler. A handler retained by both endpoints is neither exited nor
+entered, so a leave nested within that handler is valid. The ECMA-335
+handler-to-associated-try exception is preserved for catch and
+filter-associated handlers; otherwise a leave cannot enter a new protected
+region. Other encoded cross-boundary transfers make construction of the
+correlated fact set unavailable rather than receive synthetic runtime cleanup
+semantics.
 
 Exceptional search is outside the initial contract. `throw`, `rethrow`,
 `endfilter`, `endfinally`, and `fault` completion return typed unavailable
