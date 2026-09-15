@@ -1022,9 +1022,11 @@ members for an exact non-public Type, prefers an exact full-name declaration
 over fuzzy generic-name matching, and retains every declaration matched by a
 non-full-name lookup through terminal resolution. It follows Type forwarders
 through the group binding policy and collapses roots only when Metadata resolves
-them to the same terminal definition. Distinct terminal definitions are
-ambiguous. Execution bounds are caller-owned: desktop callers may select the
-explicit unbounded overload, while Browser/Wasm must supply
+every matching root to the same terminal definition. Distinct resolved terminal
+definitions are ambiguous; any non-resolved matching root makes the selection
+unavailable because it could terminate at a different definition. Execution
+bounds are caller-owned: desktop callers may select the explicit unbounded
+overload, while Browser/Wasm must supply
 `BrowserApiSurfacePolicy.Limits`. Bounded execution uses the resolution-aware
 `AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved` path over the requested
 package participants. Both modes use resolution-aware extraction so retained

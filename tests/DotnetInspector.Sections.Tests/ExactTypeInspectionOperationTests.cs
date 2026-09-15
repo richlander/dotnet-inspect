@@ -214,6 +214,72 @@ public sealed class ExactTypeInspectionOperationTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_UnresolvedMatchingRootMakesSelectionUnavailable()
+    {
+        const string typeNamespace = "Exact";
+        const string typeName = "Widget";
+        byte[] definition = BuildMetadataAssembly(
+            "Good",
+            Guid.NewGuid(),
+            definesType: true,
+            typeNamespace,
+            typeName);
+        byte[] unresolvedForwarder = BuildMetadataAssembly(
+            "Facade",
+            Guid.NewGuid(),
+            definesType: false,
+            typeNamespace,
+            typeName,
+            new AssemblyReferenceIdentity(
+                "Missing",
+                new Version(1, 0, 0, 0),
+                null,
+                null));
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Facade.dll", unresolvedForwarder),
+            ("lib/net11.0/Good.dll", definition));
+        using var client = new HttpClient(new FailingHandler());
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            $"{typeNamespace}.{typeName}");
+
+        InspectionEnvelope<ExactTypeInspectionResult> unbounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> bounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                new ApiSurfaceProjectionLimits(
+                    maxParticipants: 10,
+                    maxTypes: 100,
+                    maxMembers: 100,
+                    maxInspectionFailures: 100,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 10_000),
+                TestContext.Current.CancellationToken);
+
+        Assert.All(
+            new[] { unbounded, bounded },
+            envelope =>
+            {
+                Assert.Equal(
+                    ExactTypeInspectionOutcome.Unavailable,
+                    envelope.Content.Outcome);
+                Assert.Null(envelope.Content.Type);
+                Assert.Contains(
+                    envelope.Content.Failures,
+                    failure => failure.Kind
+                        == ExactTypeInspectionFailureKind
+                            .TypeResolutionUnavailable);
+            });
+    }
+
+    [Fact]
     public async Task ExecuteAsync_DistinctExactDefinitionsAreAmbiguous()
     {
         const string typeName = "Exact.Type.Ambiguous";

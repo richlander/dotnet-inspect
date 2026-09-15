@@ -529,7 +529,8 @@ internal static class ExactTypeInspectionQuery
                     .. incompleteness,
                 ]);
         }
-        if (resolved.Count == 0)
+        if (resolved.Count == 0
+            || resolutionFailures.Count > 0)
         {
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,
