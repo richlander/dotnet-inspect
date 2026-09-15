@@ -100,7 +100,7 @@ function render() {
         action: packageIdentityKey(pkg), package: pkg.id,
         version: pkg.version, framework: pkg.activeFramework,
       })),
-      demos: [], demoError: "", loading: params.has("loading"),
+      loading: params.has("loading"),
       error: params.has("failed-query") ? "Occurrence query unavailable" : "",
       escapeHtml,
     });

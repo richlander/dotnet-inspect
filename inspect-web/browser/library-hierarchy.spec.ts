@@ -1271,7 +1271,7 @@ test("Home keeps Search and curated demos ahead of artwork", async ({
   await expect(page.locator(".home-demos-copy"))
     .toContainText("Start from a curated package query.");
   await expect(page.locator(".data-bar"))
-    .toContainText("CLI tool · Agent skill · Diagnostics · Credits");
+    .toContainText("CLI tool · Agent skill · Demos · Diagnostics · Credits");
 
   const wideSearch = await page.locator(".home-search").boundingBox();
   const wideDemos = await page.locator(".home-demos").boundingBox();
@@ -2038,6 +2038,102 @@ async function openHomeDemo(
   return share;
 }
 
+test("Demos is a dedicated page reached from Home and the data bar", async ({
+  page,
+}, testInfo) => {
+  const id = await installHomeDemo(page, "Methods", "package");
+  await page.goto("/");
+  await page.locator("#home-demos").click();
+  await expect(page).toHaveURL("/demos");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeFocused();
+  await expect(page.locator(`[data-workspace-demo="${id}"]`)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
+    .toHaveCount(0);
+  await expect(page.locator("[data-workspace-add-package], [data-workspace-save]"))
+    .toHaveCount(0);
+  await expect(page.locator("html")).not.toHaveAttribute("data-home-demo-run");
+  await page.screenshot({ path: testInfo.outputPath("demos-wide.png") });
+
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await expect(page).toHaveURL("/");
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await expect(page).toHaveURL("/demos");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(`[data-workspace-demo="${id}"]`))
+    .toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+    .toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("demos-narrow.png") });
+  await page.keyboard.press("Control+p");
+  await expect(page.locator("#spotlight-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#spotlight-input")).toHaveCount(0);
+});
+
+test("Package navigation retains the shared System.Text.Json packet and Workspace stays separate from Demos", async ({
+  page,
+}) => {
+  const assembly = library(
+    "compile:lib/netstandard2.0/System.Text.Json.dll", "System.Text.Json", 1);
+  const jsonSurface: BrowserPackageSurface = {
+    ...surface,
+    package: "System.Text.Json",
+    version: platformVersion,
+    frameworks: ["net11.0", "netstandard2.0"],
+    activeFramework: "netstandard2.0",
+    defaultAssemblyId: assembly.id,
+    compileLibrary: { status: "Selected", targetFramework: "netstandard2.0", message: null },
+    assemblies: [assembly],
+    types: [type("System.Text.Json.JsonSerializer", assembly)],
+  };
+  await installFacades(page, jsonSurface);
+  await page.goto(`/?package=System.Text.Json&version=${platformVersion}&framework=netstandard2.0`);
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
+  const sharedLibraryUrl = page.url();
+  await page.reload();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(sharedLibraryUrl);
+
+  await chooseSubject(page, "package", "Package");
+  await expect.poll(() => page.evaluate((): unknown => {
+    const packet = new URL(location.href).searchParams.get("w");
+    return packet ? JSON.parse(atob(packet)) : null;
+  })).toMatchObject({
+    tabs: [{ source: "System.Text.Json", version: platformVersion, framework: "netstandard2.0" }],
+    view: { lens: "overview" },
+  });
+  const packageUrl = page.url();
+  expect([...new URL(packageUrl).searchParams.keys()]).toEqual(["package", "w"]);
+  await page.reload();
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#framework")).toHaveValue("netstandard2.0");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
+    .toBeVisible();
+  await expect(page.locator("[data-workspace-activate]")).toContainText("System.Text.Json");
+  await expect(page.locator("[data-workspace-activate]")).toContainText("netstandard2.0");
+  await expect(page.locator("[data-workspace-demo]")).toHaveCount(0);
+  await page.waitForFunction(() => location.hash === "#workspace");
+  const workspaceUrl = page.url();
+
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await expect(page).toHaveURL("/demos");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
+  await expect(page.locator("[data-workspace-activate]")).toHaveCount(0);
+  await page.goBack();
+  await expect(page).toHaveURL(workspaceUrl);
+  await expect(page.locator("[data-workspace-activate]")).toContainText("System.Text.Json");
+  await expect(page.locator("[data-workspace-activate]")).toContainText("netstandard2.0");
+  await expect(page.locator("[data-workspace-demo]")).toHaveCount(0);
+});
+
 test("package Methods demo retains all returned coordinates and publishes its exact type", async ({
   page,
 }) => {
@@ -2153,9 +2249,8 @@ test("home demo history failure restores the catalog without publication", async
   await expect(page.locator(".query-notice-text"))
     .toContainText("could not commit its destination");
   await expect(page).toHaveURL(/\/demos$/);
-  await expect(page.locator("#subject-panel")).toBeVisible();
-  await expect(page.locator("#subject-panel")
-    .getByRole("heading", { name: "Workspace", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Demos", exact: true })).toBeVisible();
+  await expect(page.locator(`[data-workspace-demo="${id}"]`)).toBeFocused();
   await expect(page.locator("[data-workspace-switch]"))
     .toHaveCount(retainedBefore);
 });

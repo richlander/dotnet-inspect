@@ -185,6 +185,31 @@ public static partial class AttributeReader
         return false;
     }
 
+    internal static TypeDeclarationDiscoveryAttributes ReadTypeDiscoveryAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes)
+    {
+        bool editorBrowsableNever = false;
+        bool obsolete = false;
+        foreach (var handle in attributes)
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            var name = GetAttributeTypeName(reader, attribute.Constructor);
+            if (name == EditorBrowsableAttributeName)
+            {
+                editorBrowsableNever |= IsEditorBrowsableNever(
+                    reader, attribute, beforeMaterialize: null,
+                    requireValidPrefix: true);
+            }
+            else if (name == ObsoleteAttributeName)
+            {
+                obsolete |= !IsCompilerCompatibilityObsolete(
+                    reader, attributes, attribute, beforeMaterialize: null);
+            }
+        }
+        return new(editorBrowsableNever, obsolete);
+    }
+
     /// <summary>
     /// Checks if the member has EditorBrowsable(Never) or [Obsolete] attribute.
     /// </summary>
@@ -405,7 +430,8 @@ public static partial class AttributeReader
     private static bool IsEditorBrowsableNever(
         MetadataReader reader,
         CustomAttribute attr,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        bool requireValidPrefix = false)
     {
         beforeMaterialize?.Invoke(
             Math.Min(reader.GetBlobReader(attr.Value).Length, 6));
@@ -414,10 +440,14 @@ public static partial class AttributeReader
         // Attribute blob format: 2-byte prolog (0x0001), then the enum value as int32
         if (value.Length >= 6)
         {
-            value.ReadUInt16();
+            ushort prolog = value.ReadUInt16();
+            if (requireValidPrefix && prolog != 1)
+                throw new BadImageFormatException("Invalid EditorBrowsable attribute prolog.");
             int enumValue = value.ReadInt32();
             return enumValue == 1; // EditorBrowsableState.Never
         }
+        if (requireValidPrefix)
+            throw new BadImageFormatException("Truncated EditorBrowsable attribute value.");
         return false;
     }
 

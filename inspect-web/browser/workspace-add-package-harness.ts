@@ -119,7 +119,7 @@ function render() {
       action: packageIdentityKey(pkg), package: pkg.id,
       version: pkg.version, framework: pkg.activeFramework,
     })),
-    demos: [], demoError: "", loading: false, error: "", escapeHtml,
+    loading: false, error: "", escapeHtml,
   });
   bindWorkspaceSubject(app, {
     onSelect: () => {}, onActivateWorkspace: () => {},
