@@ -109,7 +109,7 @@ public sealed partial class MethodBodySource
             }
 
             return new MethodBodyReadResult.Available(
-                new MethodBodyData(il, regions, catalog));
+                new MethodBodyData(il, catalog));
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
