@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -243,34 +244,20 @@ public static class LeakTriageAnalyzer
                     method.MetadataToken,
                     LeakTriageFailureKind.ControlFlowAnalysis,
                     "IncompleteReachingDefinitions");
-
-            var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
-            var exceptionPathCandidates = ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
-            var rents = ArrayPoolUseClassifier.FindRents(method, instructions, graph, reaching, calls, candidates).ToImmutableArray();
-            if (rents.Length == 0)
-                return new LeakTriageResult([], candidates.ToImmutable());
-
-            var findings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
-            foreach (var rent in rents)
-            {
-                AnalyzeRent(
-                    method,
-                    instructions,
-                    graph,
-                    reaching,
-                    calls,
-                    exceptionRegions,
-                    catchAllCleanup,
-                    rent,
-                    findings,
-                    candidates,
-                    exceptionPathCandidates);
-            }
-
-            return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable())
-            {
-                ExceptionPathCandidates = exceptionPathCandidates.ToImmutable(),
-            };
+            return AnalyzeDecoded(
+                method,
+                instructions,
+                graph,
+                reaching,
+                calls,
+                (releases, boundaries) =>
+                    ArrayPoolExceptionPathAnalyzer
+                        .UnprotectedThrowingBoundaries(
+                            graph,
+                            exceptionRegions,
+                            catchAllCleanup,
+                            releases,
+                            boundaries));
         }
         catch (Exception ex) when (IsRecoverable(ex))
         {
@@ -279,6 +266,195 @@ public static class LeakTriageAnalyzer
                 LeakTriageFailureKind.ControlFlowAnalysis,
                 ex);
         }
+    }
+
+    internal static LeakTriageResult AnalyzeMethodDetailed(
+        MethodIdentity method,
+        MethodBodyData body,
+        Func<int, MemberRef> resolveMethod,
+        Func<int, TypeRef?>? resolveCatchType)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(resolveMethod);
+
+        if (body.EvidenceId.Method.ModuleVersionId
+                != method.ModuleVersionId
+            || body.EvidenceId.Method.Token
+                != method.MetadataToken)
+        {
+            return Failed(
+                method.MetadataToken,
+                LeakTriageFailureKind.BodyAcquisition,
+                "BodyIdentityMismatch");
+        }
+
+        if (body.IL.IsEmpty)
+            return Empty;
+
+        MethodInstructions decoded = MethodInstructions.Decode(body);
+        if (!decoded.IsComplete)
+        {
+            return Failed(
+                method.MetadataToken,
+                decoded.Instructions.IsEmpty
+                    ? LeakTriageFailureKind.InstructionDecoding
+                    : LeakTriageFailureKind.ControlFlowAnalysis,
+                decoded.Blocks.IncompleteReason
+                    ?? "IncompleteControlFlow");
+        }
+
+        IReadOnlyDictionary<int, MemberRef> calls;
+        try
+        {
+            calls = ArrayPoolUseClassifier.BuildCallMap(
+                decoded.Instructions,
+                resolveMethod);
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            return Failed(
+                method,
+                LeakTriageFailureKind.MethodResolution,
+                ex);
+        }
+
+        if (!calls.Values.Any(
+                ArrayPoolUseClassifier.IsArrayPoolRent))
+        {
+            return Empty;
+        }
+
+        if (decoded.ExceptionFlow
+            is not InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available availableFlow)
+        {
+            string reason = decoded.ExceptionFlow switch
+            {
+                InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Unavailable unavailable =>
+                    $"ExceptionFlowUnavailable:{unavailable.Reason}",
+                InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Ambiguous =>
+                    "ExceptionFlowAmbiguous",
+                _ => "UnknownExceptionFlowResult",
+            };
+            return Failed(
+                method.MetadataToken,
+                LeakTriageFailureKind.ControlFlowAnalysis,
+                reason);
+        }
+
+        IReadOnlySet<MethodExceptionClauseId> catchAllCleanup;
+        try
+        {
+            catchAllCleanup =
+                ArrayPoolExceptionPathAnalyzer
+                    .ComputeCreditableCatchCleanup(
+                        body.ExceptionRegionCatalog,
+                        resolveCatchType);
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            return Failed(
+                method,
+                LeakTriageFailureKind.MethodResolution,
+                ex);
+        }
+
+        try
+        {
+            ReachingDefinitionsResult reaching =
+                ReachingDefinitions.Analyze(
+                    decoded,
+                    ArgumentSlotCount(method));
+            if (!reaching.IsComplete)
+            {
+                return Failed(
+                    method.MetadataToken,
+                    LeakTriageFailureKind.ControlFlowAnalysis,
+                    "IncompleteReachingDefinitions");
+            }
+
+            InstructionExceptionFlowFacts exceptionFlow =
+                availableFlow.Value;
+            return AnalyzeDecoded(
+                method,
+                decoded.Instructions,
+                decoded.Blocks,
+                reaching,
+                calls,
+                (releases, boundaries) =>
+                    ArrayPoolExceptionPathAnalyzer
+                        .UnprotectedThrowingBoundaries(
+                            decoded.Blocks,
+                            exceptionFlow,
+                            catchAllCleanup,
+                            releases,
+                            boundaries));
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            return Failed(
+                method,
+                LeakTriageFailureKind.ControlFlowAnalysis,
+                ex);
+        }
+    }
+
+    delegate ImmutableArray<ArrayPoolExceptionBoundary>
+        FindUnprotectedBoundaries(
+            ImmutableArray<int> releases,
+            ImmutableArray<ArrayPoolExceptionBoundary> boundaries);
+
+    static LeakTriageResult AnalyzeDecoded(
+        MethodIdentity method,
+        ImmutableArray<DecodedInstruction> instructions,
+        BlockGraph graph,
+        ReachingDefinitionsResult reaching,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        FindUnprotectedBoundaries findUnprotectedBoundaries)
+    {
+        var candidates =
+            ImmutableArray.CreateBuilder<LeakTriageCandidate>();
+        var exceptionPathCandidates =
+            ImmutableArray.CreateBuilder<
+                ArrayPoolExceptionPathCandidate>();
+        ImmutableArray<ArrayPoolUseClassifier.RentedLocal> rents =
+            ArrayPoolUseClassifier.FindRents(
+                method,
+                instructions,
+                graph,
+                reaching,
+                calls,
+                candidates).ToImmutableArray();
+        if (rents.IsEmpty)
+            return new LeakTriageResult([], candidates.ToImmutable());
+
+        var findings =
+            ImmutableArray.CreateBuilder<LeakTriageFinding>();
+        foreach (ArrayPoolUseClassifier.RentedLocal rent in rents)
+        {
+            AnalyzeRent(
+                method,
+                instructions,
+                graph,
+                reaching,
+                calls,
+                findUnprotectedBoundaries,
+                rent,
+                findings,
+                candidates,
+                exceptionPathCandidates);
+        }
+
+        return new LeakTriageResult(
+            findings.ToImmutable(),
+            candidates.ToImmutable())
+        {
+            ExceptionPathCandidates =
+                exceptionPathCandidates.ToImmutable(),
+        };
     }
 
     static LeakTriageResult Empty { get; } = new([], []);
@@ -327,8 +503,7 @@ public static class LeakTriageAnalyzer
         BlockGraph graph,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
-        IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
+        FindUnprotectedBoundaries findUnprotectedBoundaries,
         ArrayPoolUseClassifier.RentedLocal rent,
         ImmutableArray<LeakTriageFinding>.Builder findings,
         ImmutableArray<LeakTriageCandidate>.Builder candidates,
@@ -406,18 +581,12 @@ public static class LeakTriageAnalyzer
         if (firstAmbiguous is { } ambiguous)
         {
             if (ambiguous.Shape == "cross-method-suppressed"
-                && ArrayPoolExceptionPathAnalyzer.UnprotectedThrowingBoundaries(
-                    graph,
-                    exceptionRegions,
-                    catchAllCleanup,
+                && findUnprotectedBoundaries(
                     releaseOffsets,
                     throwingBoundaries.ToImmutable()) is { Length: > 0 } unprotectedBoundaries)
             {
                 var directUnprotectedBoundaries =
-                    ArrayPoolExceptionPathAnalyzer.UnprotectedThrowingBoundaries(
-                        graph,
-                        exceptionRegions,
-                        catchAllCleanup,
+                    findUnprotectedBoundaries(
                         releaseOffsets,
                         directThrowingBoundaries.ToImmutable());
                 if (directUnprotectedBoundaries is { Length: > 0 })
