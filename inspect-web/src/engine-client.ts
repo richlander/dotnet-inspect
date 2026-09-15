@@ -31,6 +31,7 @@ type PackageOperations =
   | "openPackageAssemblyQueryResult"
   | "packageCacheStats"
   | "prefetchPlatformPacks"
+  | "queryLibraryApi"
   | "queryMemberDocumentation"
   | "queryPackage"
   | "queryPackageDependencies"

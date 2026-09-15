@@ -64,6 +64,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
+    queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
     queryPackageDependencies: () =>
@@ -667,6 +668,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "openPackageAssemblyQueryResult",
       "packageCacheStats",
       "prefetchPlatformPacks",
+      "queryLibraryApi",
       "queryMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
@@ -732,7 +734,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 54);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 55);
 
   const state = fixture();
   const groups = [

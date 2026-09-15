@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -732,6 +734,9 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageQueryDocument))]
 [JsonSerializable(typeof(BrowserPackageQueryInspection))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<ExactLibraryApiInspectionResult>),
+    TypeInfoPropertyName = "ExactLibraryApiInspectionEnvelope")]
 [JsonSerializable(typeof(BrowserPackageQueryResult))]
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]

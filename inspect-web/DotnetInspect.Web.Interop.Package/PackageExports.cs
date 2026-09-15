@@ -5,6 +5,7 @@ using System.Text.Json;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
 using DotnetInspect.Web;
@@ -64,6 +65,61 @@ public static partial class PackageExports
         BrowserInspectionScope scope = scopeLease.Scope;
         return BrowserPackageWireProjection.Project(
             BrowserPackageSurfaceProjection.ProjectSurface(scope, scope.Coordinates[0]));
+    }
+
+    /// <summary>
+    /// Bounded public API summary for one exact package compile asset.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryLibraryApi(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId)
+    {
+        InspectionEnvelope<ExactLibraryApiInspectionResult> inspection =
+            await LibraryApiAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyId);
+        return JsonSerializer.Serialize(
+            inspection,
+            BrowserPackageJsonContext
+                .Default
+                .ExactLibraryApiInspectionEnvelope);
+    }
+
+    static async Task<InspectionEnvelope<ExactLibraryApiInspectionResult>>
+        LibraryApiAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        var request = new ExactLibraryApiInspectionRequest(
+            packageId,
+            version,
+            targetFramework,
+            assemblyId,
+            ExactLibraryApiSelectionKind.AssetId);
+        ExactLibraryApiInspectionExecution execution =
+            scope.UsePackageAssemblyRoles(
+            coordinate,
+            (package, realization) =>
+                ExactLibraryApiInspectionOperation.Execute(
+                    package,
+                    realization,
+                    request,
+                    BrowserApiSurfacePolicy.Limits));
+        return execution.Inspection;
     }
 
     /// <summary>
