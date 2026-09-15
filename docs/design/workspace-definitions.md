@@ -1659,11 +1659,11 @@ The version dispatch matrix is closed:
 
 | Input | Parse and lowering path |
 | --- | --- |
-| Packet with exact `f:1` | Strict format-1 decode, then Package-subject whole-composition lowering only when any query state has an exact Package facet; otherwise `LegacyCompatibilityRequired` |
+| Packet with exact `f:1` | Strict format-1 decode, then the closed direct-Package disposition table; present query state additionally requires an exact lowerable Package facet, and every non-lowering disposition retains the table's exact compatibility or failure result |
 | Packet with exact `f:2` | Strict format-2 decode and direct version-2 validation |
 | Packet with absent, unknown, or non-integer `f` | `UnsupportedFormat`; no shape sniffing or lowering |
 | Workspace-free definition scenario graph containing only version-1 records | Strict version-1 bind and existing workspace-free execution; no Workspace restoration |
-| Workspace-backed definition graph containing only version-1 records | Strict version-1 bind, then Package-subject whole-graph lowering only when the view requires no descendant active subject, has no `library` or `libraries`, and any query has an exact Package facet; otherwise `LegacyCompatibilityRequired` |
+| Workspace-backed definition graph containing only version-1 records | Strict version-1 bind, then the closed direct-Package disposition table when the view requires no descendant active subject and has no `library` or `libraries`; present query state additionally requires an exact lowerable Package facet, and every non-lowering disposition retains the table's exact compatibility or failure result |
 | Workspace-free definition scenario graph containing only version-2 records | Strict version-2 bind and direct workspace-free query validation; no Workspace restoration |
 | Workspace-backed definition graph containing only version-2 records | Strict version-2 bind requiring both view and navigation, then direct validation |
 | Definition scenario graph mixing record versions | `InvalidDefinitionSet`; no partial lowering |
