@@ -129,10 +129,30 @@ content-local loading path keeps coordinate focus through those result renders.
 version `10.0.1`, motivates this bounded behavior. The production-composition
 cases in `inspect-web/browser/library-hierarchy.spec.ts` gate both inspectors,
 both controls, pending/success, immediate return, failure/retry, and narrow
-layout. Initial package selection and Library-level coordinate controls keep
-their existing behavior. Library/Type/Member correspondence and filter retention
-are not part of this user-approved Package-view slice; #5511 retires this
-host-local mechanism when the Browser adopts product-issued Navigation results.
+layout. Initial package selection keeps its existing behavior. This Package-view
+slice does not establish Library/Type/Member correspondence or retain filters.
+
+A separately user-approved interim Browser slice carries Library-selection
+intent through the same coordinate controls and retry. It requests the selected
+Library's name through the existing library selector against the returned
+package. A unique resolution retains the Library inspector preference and uses
+the returned asset ID for fresh content, counts, and the Type inventory. Missing
+or ambiguous resolution selects Package Overview with a visible explanation;
+it never selects an arbitrary neighboring Library. A Library with no public
+Types remains selected when its descriptor is available. Initial package
+selection and explicit links are unchanged; Type/Member and filter retention
+remain out of scope.
+`System.Text.Json@10.0.0`, inspecting its Library Metadata while selecting
+`net9.0` or version `10.0.1`, motivates this behavior; the
+`library-hierarchy.spec.ts` production-composition gate includes changed asset
+IDs, missing and ambiguous names, empty Type inventories, and failed-load retry.
+
+This is a reissued selector preference, not proof of subject identity or
+cross-Workspace correspondence. The operator chose this bounded migration
+behavior instead of expanding the task into the Browser Navigation
+prerequisites. It does not alter the target reconciliation policy below.
+Browser adoption in #5511 retires these host-local preference mechanisms in
+favor of product-issued Navigation results.
 
 ## Consumer and complexity record
 
