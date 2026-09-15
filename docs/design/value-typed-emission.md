@@ -677,6 +677,35 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    raising pipeline used by CLI and Browser/Wasm consumers; no host-specific
    conversion or naming path is introduced.
 
+### Storage-rewrite validation
+
+Materialization preserves the ordered IR tree while replacing each converted
+outer slot web with one fresh local at its pre-rewrite testified type.
+Every occurrence of that web uses the same local; distinct webs use distinct
+locals, existing local types remain stable, and direct-copy components convert
+atomically. Non-slot nodes, including producers and nested function bodies,
+retain their identities and ordered child structure.
+
+`SlotMaterializationInvariant` checks that contract around completed rewrites
+when the existing `IrInvariants` switch is enabled. It derives correspondence
+from the before/after trees rather than trusting the admission plan or its
+replacement map. `SlotMaterializationInvariantTests` gates accepted compiler
+and real Roslyn cases plus faulty rewrites; its slow CoreLib sweep supplies
+broad activation evidence. Like `ControlFlowModelDifferentialTests`, this is a
+bounded comparison with explicit coverage, not a second optimizer. Tree arity
+and identity suffice here because materialization preserves shape; they would
+not suffice for a restructuring pass.
+
+The check does not prove eligibility, inspect every non-child metadata field,
+certify later inlining or printing, or establish whole-program equivalence.
+Existing admission, coercion, compile-back, and output gates retain those
+separate roles. Production adoption is inside the shared materialization pass,
+including direct, staged, and stepped callers in CLI and Browser/Wasm hosts.
+It inherits the existing validation switch and host policy, adds no new knob,
+and does not check a deliberately interrupted step as a completed rewrite.
+The next admission slices consume this gate before expanding semantic type
+categories; this slice itself changes neither admission nor printer output.
+
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender
 coverage grows, compile-back-affecting slices add the A/B evidence described in
