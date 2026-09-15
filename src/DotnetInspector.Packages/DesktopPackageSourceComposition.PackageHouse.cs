@@ -7,6 +7,29 @@ namespace DotnetInspector.Packages;
 public sealed partial class DesktopPackageSourceComposition
 {
     /// <summary>
+    /// Settles one typed version selection through PackageHouse without
+    /// acquiring package content.
+    /// </summary>
+    public async Task<PackageHouseResult> SettleVersionAsync(
+        PackageVersionSelectionRequest selection,
+        NuGetSourceOptions? sourceOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        PackageHouseRequest request = CreateHouseRequest(
+            new PackageHouseDemand.Selecting(selection),
+            PackageHouseOperationProfile.Settle);
+        PackageHouseSettlement settlement = await ExecuteHouseAsync(
+            request,
+            selection.PackageId,
+            sourceOptions,
+            payloadAcquisition: null,
+            cancellationToken,
+            requiredProducerKey: null).ConfigureAwait(false);
+        return settlement.Result;
+    }
+
+    /// <summary>
     /// Settles one exact coordinate through PackageHouse when the composition
     /// owns the operation lifetime.
     /// </summary>

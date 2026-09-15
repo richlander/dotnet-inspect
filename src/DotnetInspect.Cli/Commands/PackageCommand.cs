@@ -1433,19 +1433,52 @@ public class PackageCommand
             CommandError.Write($"Version '{requestedVersion}' is not an exact NuGet version.");
             return 1;
         }
+        if (latest
+            && PackageCoordinateResolver.Validate(new PackageCoordinate(packageId)) is { } invalid)
+        {
+            CommandError.Write(
+                $"Package '{packageId}' version discovery failed.",
+                [invalid.Message, "Correct the package command input and retry."]);
+            return 1;
+        }
 
         using var requestScope = RequestTelemetry.Scope($"package {packageId}", "package versions");
         await using DesktopPackageSourceComposition composition = context.CreatePackageSourceComposition();
-        PackageVersionDiscoveryResult discovery = await composition.GetVersionsAsync(
-            packageId,
-            pinned || options.IncludePrerelease || (range?.IncludesPrerelease ?? false),
-            options.VersionRowSelection is not null || isRange || pinned
-                ? null : latest ? 1 : options.Limit,
-            options.SourceOptions,
-            context.Logger.Log,
-            includeUnlisted: !latest && (pinned || options.IncludeUnlisted));
+        PackageVersionDiscoveryResult discovery;
+        string? selectedVersion = null;
+        if (latest)
+        {
+            PackageHouseResult settlement = await composition.SettleVersionAsync(
+                new PackageVersionSelectionRequest.AlwaysLatest(
+                    packageId, options.IncludePrerelease),
+                options.SourceOptions);
+            if (settlement is not PackageHouseResult.Settled)
+            {
+                WriteVersionSettlementFailure(packageId, packageReference, settlement);
+                return 1;
+            }
+            if (settlement.Decision?.VersionResolution
+                is not PackageVersionResolutionReceipt.Resolved resolved)
+            {
+                throw new InvalidOperationException(
+                    "Latest-version settlement did not retain its resolved version receipt.");
+            }
+            discovery = resolved.Discovery;
+            selectedVersion = resolved.Coordinate.Version;
+        }
+        else
+        {
+            discovery = await composition.GetVersionsAsync(
+                packageId,
+                pinned || options.IncludePrerelease || (range?.IncludesPrerelease ?? false),
+                options.VersionRowSelection is not null || isRange || pinned
+                    ? null : options.Limit,
+                options.SourceOptions,
+                context.Logger.Log,
+                includeUnlisted: pinned || options.IncludeUnlisted);
+        }
 
-        bool requiresCompleteEvidence = latest || isRange
+        bool requiresCompleteEvidence = isRange
             || (!pinned && options.SingleVersionQuery);
         if (discovery.State == PackageVersionDiscoveryState.Failed
             || (requiresCompleteEvidence && discovery.State != PackageVersionDiscoveryState.Authoritative))
@@ -1455,8 +1488,8 @@ public class PackageCommand
         }
 
         IReadOnlyList<PackageVersionInfo> listings = discovery.Listings;
-        if (latest)
-            listings = [.. listings.Take(1)];
+        if (selectedVersion is not null)
+            listings = [.. listings.Where(row => PackageVersionsEqual(row.Version, selectedVersion))];
         if (pinned)
         {
             listings = [.. listings.Where(row =>
@@ -1536,6 +1569,42 @@ public class PackageCommand
             WriteVersions(rows, options);
         }
         return 0;
+    }
+
+    private static void WriteVersionSettlementFailure(
+        string packageName,
+        string packageReference,
+        PackageHouseResult result)
+    {
+        if (result is PackageHouseResult.NotFound or PackageHouseResult.NoMatch)
+        {
+            CommandError.Write($"Package '{packageReference}' not found on eligible configured sources.");
+            return;
+        }
+
+        PackageAuthorityFailure[] failures =
+        [
+            .. result.Evidence.Failures
+                .OfType<PackageHouseFailure.Authority>()
+                .Select(failure => failure.Failure),
+        ];
+        if (failures.Length != 0)
+        {
+            WriteVersionDiscoveryFailure(packageName, failures);
+            return;
+        }
+
+        string reason = result switch
+        {
+            PackageHouseResult.Ambiguous ambiguous => ambiguous.Reason.ToString(),
+            PackageHouseResult.Rejected rejected => rejected.Reason.ToString(),
+            PackageHouseResult.Unavailable unavailable => unavailable.Reason.ToString(),
+            PackageHouseResult.Incomplete incomplete => incomplete.Reason.ToString(),
+            PackageHouseResult.Failed failed => failed.Reason.ToString(),
+            _ => throw new InvalidOperationException(
+                "Version settlement returned an unexpected outcome."),
+        };
+        CommandError.Write($"Package '{packageName}' version discovery failed.", [reason]);
     }
 
     private static void WriteVersions(

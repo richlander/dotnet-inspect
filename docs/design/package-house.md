@@ -39,6 +39,18 @@ execution applies that receipt before payload acquisition.
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
 candidate path, and candidate-manifest path now settle through PackageHouse.
+The CLI's online `package --latest-version` and equivalent `@latest` version
+queries also consume House selecting `Settle` through
+`DesktopPackageSourceComposition.SettleVersionAsync`. They render the exact
+version from its resolution receipt and preserve source listing evidence for
+feed projections; the command no longer chooses the latest row itself.
+`System.Text.Json` is the motivating production package. The
+`SourceScopedRoutingTests.LatestVersionSettlement_*` cases cover the detached
+receipt and explicit prerelease boundary, while the existing latest-version,
+source-failure, listing, and rendering cases preserve neighboring behavior.
+This is payload-free adoption: ordinary version listings, pinned and range
+queries, offline behavior, Browser settlement, and package-content/Workspace
+adoption remain separate slices.
 `Realize`, target-aware dependency-edge realization, Workspace admission, live
 Library construction, and broader host adoption remain later steps.
 [#4653](https://github.com/richlander/dotnet-inspect/pull/4653) remains useful
