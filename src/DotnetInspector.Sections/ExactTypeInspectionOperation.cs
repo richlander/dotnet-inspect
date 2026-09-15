@@ -214,8 +214,9 @@ public static class ExactTypeInspectionOperation
                 request.PackageId,
                 request.Version,
                 request.TargetFramework);
+        const int schemaVersion = InspectionDefinitionSchema.Version1;
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            schemaVersion,
             WorkspaceSharePacketTransposer.WorkspaceId,
             [
                 new WorkspaceContextDefinition(
@@ -224,7 +225,7 @@ public static class ExactTypeInspectionOperation
                     members: [coordinate]),
             ]);
         var navigation = new NavigationDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            schemaVersion,
             WorkspaceSharePacketTransposer.NavigationId,
             [
                 new NavigationTabDefinition(
@@ -233,12 +234,12 @@ public static class ExactTypeInspectionOperation
             ],
             "t0");
         var view = new ViewDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            schemaVersion,
             WorkspaceSharePacketTransposer.ViewId,
             lens: "api",
             type: result.MatchedType ?? request.Type);
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            schemaVersion,
             WorkspaceSharePacketTransposer.ScenarioId,
             workspace: workspace.Id,
             context: "g0",
