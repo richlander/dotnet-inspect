@@ -3686,11 +3686,6 @@ function activatePackage(
   return changed;
 }
 
-function isDefaultAccessibility(type: InspectedTypeSurface) {
-  return Boolean(state.package?.accessibility?.some(
-    descriptor => descriptor.isDefault && descriptor.id === type.accessibilityId));
-}
-
 // Multi-select chip toggle for the accessibility filter. An empty bucket
 // selects every bucket; otherwise, an empty result falls back to the "public"
 // default so the type list is never blanked out.
