@@ -2317,6 +2317,526 @@
         ]
       },
       "canonical": "{\"s\":[[\"top\",2147483647]]}"
+    },
+    {
+      "name": "field-key-2-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the key of field-list pair 2; bytes, not characters, are counted at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "éééééééééééééééééééééééééééééééé",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"éééééééééééééééééééééééééééééééé\",\"asc\"]]}"
+    },
+    {
+      "name": "string-rules-in-field-key-2",
+      "description": "The key of field-list pair 2 carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute: the whole string rule, and no normalization, at a later pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "k\"\\\t\u001b/é",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"k\\\"\\\\\\t\\u001b/é\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-3-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the key of field-list pair 3; bytes, not characters, are counted at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "éééééééééééééééééééééééééééééééé",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"éééééééééééééééééééééééééééééééé\",\"asc\"]]}"
+    },
+    {
+      "name": "string-rules-in-field-key-3",
+      "description": "The key of field-list pair 3 carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute: the whole string rule, and no normalization, at a later pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "k\"\\\t\u001b/é",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"k\\\"\\\\\\t\\u001b/é\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-4-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the key of field-list pair 4; bytes, not characters, are counted at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "éééééééééééééééééééééééééééééééé",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"éééééééééééééééééééééééééééééééé\",\"asc\"]]}"
+    },
+    {
+      "name": "string-rules-in-field-key-4",
+      "description": "The key of field-list pair 4 carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute: the whole string rule, and no normalization, at a later pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "k\"\\\t\u001b/é",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"k\\\"\\\\\\t\\u001b/é\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-5-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the key of field-list pair 5; bytes, not characters, are counted at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "éééééééééééééééééééééééééééééééé",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"éééééééééééééééééééééééééééééééé\",\"asc\"]]}"
+    },
+    {
+      "name": "string-rules-in-field-key-5",
+      "description": "The key of field-list pair 5 carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute: the whole string rule, and no normalization, at a later pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "k\"\\\t\u001b/é",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"k\\\"\\\\\\t\\u001b/é\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-6-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the key of field-list pair 6; bytes, not characters, are counted at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "éééééééééééééééééééééééééééééééé",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"éééééééééééééééééééééééééééééééé\",\"asc\"]]}"
+    },
+    {
+      "name": "string-rules-in-field-key-6",
+      "description": "The key of field-list pair 6 carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute: the whole string rule, and no normalization, at a later pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "k\"\\\t\u001b/é",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"k\\\"\\\\\\t\\u001b/é\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-7-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the key of field-list pair 7; bytes, not characters, are counted at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "éééééééééééééééééééééééééééééééé",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"éééééééééééééééééééééééééééééééé\",\"asc\"]]}"
+    },
+    {
+      "name": "string-rules-in-field-key-7",
+      "description": "The key of field-list pair 7 carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute: the whole string rule, and no normalization, at a later pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "k\"\\\t\u001b/é",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"k\\\"\\\\\\t\\u001b/é\",\"asc\"]]}"
+    },
+    {
+      "name": "field-key-8-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the key of field-list pair 8; bytes, not characters, are counted at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "éééééééééééééééééééééééééééééééé",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"éééééééééééééééééééééééééééééééé\",\"asc\"]]}"
+    },
+    {
+      "name": "string-rules-in-field-key-8",
+      "description": "The key of field-list pair 8 carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute: the whole string rule, and no normalization, at a later pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "k\"\\\t\u001b/é",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"k\\\"\\\\\\t\\u001b/é\",\"asc\"]]}"
+    },
+    {
+      "name": "field-direction-1-desc",
+      "description": "desc in field-list pair 1 is admissible; both direction identities are valid at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "k",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"k\",\"desc\"]]}"
+    },
+    {
+      "name": "field-direction-2-desc",
+      "description": "desc in field-list pair 2 is admissible; both direction identities are valid at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "k",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"k\",\"desc\"]]}"
+    },
+    {
+      "name": "field-direction-3-desc",
+      "description": "desc in field-list pair 3 is admissible; both direction identities are valid at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "k",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"k\",\"desc\"]]}"
+    },
+    {
+      "name": "field-direction-4-desc",
+      "description": "desc in field-list pair 4 is admissible; both direction identities are valid at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "k",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"k\",\"desc\"]]}"
+    },
+    {
+      "name": "field-direction-5-desc",
+      "description": "desc in field-list pair 5 is admissible; both direction identities are valid at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "k",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"k\",\"desc\"]]}"
+    },
+    {
+      "name": "field-direction-6-desc",
+      "description": "desc in field-list pair 6 is admissible; both direction identities are valid at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "k",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"k\",\"desc\"]]}"
+    },
+    {
+      "name": "field-direction-7-desc",
+      "description": "desc in field-list pair 7 is admissible; both direction identities are valid at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "k",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"k\",\"desc\"]]}"
+    },
+    {
+      "name": "field-direction-8-desc",
+      "description": "desc in field-list pair 8 is admissible; both direction identities are valid at every pair.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "k",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"k\",\"desc\"]]}"
     }
   ],
   "encode-reject": [
@@ -4271,6 +4791,319 @@
         ]
       },
       "reject": "bad-integer"
+    },
+    {
+      "name": "field-key-2-one-over-multibyte-in-intent",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 2; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "ééééééééééééééééééééééééééééééééa",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-3-one-over-multibyte-in-intent",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 3; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "ééééééééééééééééééééééééééééééééa",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-4-one-over-multibyte-in-intent",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 4; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "ééééééééééééééééééééééééééééééééa",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-5-one-over-multibyte-in-intent",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 5; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "ééééééééééééééééééééééééééééééééa",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-6-one-over-multibyte-in-intent",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 6; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "ééééééééééééééééééééééééééééééééa",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-7-one-over-multibyte-in-intent",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 7; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "ééééééééééééééééééééééééééééééééa",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-8-one-over-multibyte-in-intent",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 8; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "ééééééééééééééééééééééééééééééééa",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "term-overlong-in-intent",
+      "description": "A term is three slots; a fourth is a wrong arity on the intent side; an encoder that dropped the extra slot would map two intents to one payload.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "v",
+            "x"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-overlong-in-intent",
+      "description": "A bound is two slots; a third is a wrong arity on the intent side; an encoder that dropped the extra slot would map two intents to one payload.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            1,
+            2
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "window-overlong-in-intent",
+      "description": "A window is three slots; a fourth is a wrong arity on the intent side; an encoder that dropped the extra slot would map two intents to one payload.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            1,
+            2,
+            3
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "named-order-overlong-in-intent",
+      "description": "A named order operation is four slots; a fifth and sixth is a wrong arity on the intent side; an encoder that dropped the extra slot would map two intents to one payload.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            "n",
+            "asc",
+            "extra",
+            "desc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "count-bound-null-in-intent",
+      "description": "null in the bound count is refused on the intent side; only the two window slots admit null.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            null
+          ]
+        ]
+      },
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "count-bound-string-in-intent",
+      "description": "A count spelled as a JSON string in the bound position is not a Count on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            "5"
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-string-in-intent",
+      "description": "A count spelled as a JSON string in the head position is not a Count on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            "5"
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-null-in-intent",
+      "description": "null in the tail count is refused on the intent side; only the two window slots admit null.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            null
+          ]
+        ]
+      },
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "count-tail-string-in-intent",
+      "description": "A count spelled as a JSON string in the tail position is not a Count on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            "5"
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-null-in-intent",
+      "description": "null in the top count is refused on the intent side; only the two window slots admit null.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            null
+          ]
+        ]
+      },
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "count-top-string-in-intent",
+      "description": "A count spelled as a JSON string in the top position is not a Count on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            "5"
+          ]
+        ]
+      },
+      "reject": "bad-integer"
     }
   ],
   "reject": [
@@ -5749,6 +6582,372 @@
       "description": "The direction desc in a named operation with one escaped letter is not canonical.",
       "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"\\u0064esc\"]]}",
       "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 2; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"ééééééééééééééééééééééééééééééééa\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-2-quote-escaped-as-u0022",
+      "description": "A quote in the key of field-list pair 2 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\u0022b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-tab-long-form",
+      "description": "A tab in the key of field-list pair 2 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\u0009b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-uppercase-c0-hex",
+      "description": "An ESC in the key of field-list pair 2 spelled with uppercase hex is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\u001Bb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-escaped-solidus",
+      "description": "A solidus in the key of field-list pair 2 escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\/b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the key of field-list pair 2 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\ud83d\\ude00b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 3; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"ééééééééééééééééééééééééééééééééa\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-3-quote-escaped-as-u0022",
+      "description": "A quote in the key of field-list pair 3 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\u0022b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-tab-long-form",
+      "description": "A tab in the key of field-list pair 3 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\u0009b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-uppercase-c0-hex",
+      "description": "An ESC in the key of field-list pair 3 spelled with uppercase hex is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\u001Bb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-escaped-solidus",
+      "description": "A solidus in the key of field-list pair 3 escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\/b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the key of field-list pair 3 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\ud83d\\ude00b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 4; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"ééééééééééééééééééééééééééééééééa\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-4-quote-escaped-as-u0022",
+      "description": "A quote in the key of field-list pair 4 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\u0022b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-tab-long-form",
+      "description": "A tab in the key of field-list pair 4 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\u0009b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-uppercase-c0-hex",
+      "description": "An ESC in the key of field-list pair 4 spelled with uppercase hex is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\u001Bb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-escaped-solidus",
+      "description": "A solidus in the key of field-list pair 4 escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\/b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the key of field-list pair 4 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\ud83d\\ude00b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 5; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"ééééééééééééééééééééééééééééééééa\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-5-quote-escaped-as-u0022",
+      "description": "A quote in the key of field-list pair 5 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\u0022b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-tab-long-form",
+      "description": "A tab in the key of field-list pair 5 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\u0009b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-uppercase-c0-hex",
+      "description": "An ESC in the key of field-list pair 5 spelled with uppercase hex is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\u001Bb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-escaped-solidus",
+      "description": "A solidus in the key of field-list pair 5 escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\/b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the key of field-list pair 5 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\ud83d\\ude00b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 6; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"ééééééééééééééééééééééééééééééééa\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-6-quote-escaped-as-u0022",
+      "description": "A quote in the key of field-list pair 6 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\u0022b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-tab-long-form",
+      "description": "A tab in the key of field-list pair 6 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\u0009b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-uppercase-c0-hex",
+      "description": "An ESC in the key of field-list pair 6 spelled with uppercase hex is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\u001Bb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-escaped-solidus",
+      "description": "A solidus in the key of field-list pair 6 escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\/b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the key of field-list pair 6 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\ud83d\\ude00b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 7; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"ééééééééééééééééééééééééééééééééa\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-7-quote-escaped-as-u0022",
+      "description": "A quote in the key of field-list pair 7 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\u0022b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-tab-long-form",
+      "description": "A tab in the key of field-list pair 7 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\u0009b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-uppercase-c0-hex",
+      "description": "An ESC in the key of field-list pair 7 spelled with uppercase hex is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\u001Bb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-escaped-solidus",
+      "description": "A solidus in the key of field-list pair 7 escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\/b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the key of field-list pair 7 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\ud83d\\ude00b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the key of field-list pair 8; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"ééééééééééééééééééééééééééééééééa\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "field-key-8-quote-escaped-as-u0022",
+      "description": "A quote in the key of field-list pair 8 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\u0022b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-tab-long-form",
+      "description": "A tab in the key of field-list pair 8 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\u0009b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-uppercase-c0-hex",
+      "description": "An ESC in the key of field-list pair 8 spelled with uppercase hex is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\u001Bb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-escaped-solidus",
+      "description": "A solidus in the key of field-list pair 8 escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\/b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the key of field-list pair 8 is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\ud83d\\ude00b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-1-desc-escaped",
+      "description": "desc in field-list pair 1 spelled with an escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"k\",\"d\\u0065sc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-2-desc-escaped",
+      "description": "desc in field-list pair 2 spelled with an escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"k\",\"d\\u0065sc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-3-desc-escaped",
+      "description": "desc in field-list pair 3 spelled with an escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"k\",\"d\\u0065sc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-4-desc-escaped",
+      "description": "desc in field-list pair 4 spelled with an escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"k\",\"d\\u0065sc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-5-desc-escaped",
+      "description": "desc in field-list pair 5 spelled with an escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"k\",\"d\\u0065sc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-6-desc-escaped",
+      "description": "desc in field-list pair 6 spelled with an escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"k\",\"d\\u0065sc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-7-desc-escaped",
+      "description": "desc in field-list pair 7 spelled with an escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"k\",\"d\\u0065sc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-direction-8-desc-escaped",
+      "description": "desc in field-list pair 8 spelled with an escaped letter decodes to the token but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"k\",\"d\\u0065sc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-overlong",
+      "description": "A term is three slots; a fourth is a wrong arity on the wire.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\",\"x\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-overlong",
+      "description": "A bound is two slots; a third is a wrong arity on the wire.",
+      "bytes": "{\"b\":[[\"candidates\",1,2]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "window-overlong",
+      "description": "A window is three slots; a fourth is a wrong arity on the wire.",
+      "bytes": "{\"s\":[[\"window\",1,2,3]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "named-order-overlong",
+      "description": "A named order operation is four slots; a fifth and sixth is a wrong arity on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"asc\",\"extra\",\"desc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "count-bound-null",
+      "description": "null in the bound count is refused on the wire; only the two window slots admit null.",
+      "bytes": "{\"b\":[[\"candidates\",null]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "count-bound-string",
+      "description": "A count spelled as a JSON string in the bound position is not a Count on the wire.",
+      "bytes": "{\"b\":[[\"candidates\",\"5\"]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-string",
+      "description": "A count spelled as a JSON string in the head position is not a Count on the wire.",
+      "bytes": "{\"s\":[[\"head\",\"5\"]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-null",
+      "description": "null in the tail count is refused on the wire; only the two window slots admit null.",
+      "bytes": "{\"s\":[[\"tail\",null]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "count-tail-string",
+      "description": "A count spelled as a JSON string in the tail position is not a Count on the wire.",
+      "bytes": "{\"s\":[[\"tail\",\"5\"]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-null",
+      "description": "null in the top count is refused on the wire; only the two window slots admit null.",
+      "bytes": "{\"s\":[[\"top\",null]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "count-top-string",
+      "description": "A count spelled as a JSON string in the top position is not a Count on the wire.",
+      "bytes": "{\"s\":[[\"top\",\"5\"]]}",
+      "reject": "bad-integer"
     }
   ],
   "pair": [

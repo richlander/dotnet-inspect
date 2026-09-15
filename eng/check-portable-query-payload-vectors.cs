@@ -276,6 +276,7 @@ string? ValidateStructure(string text, out JsonDocument? doc, bool onTheWire)
                 if (bound.ValueKind != JsonValueKind.Array || bound.GetArrayLength() != 2) return "bad-arity";
                 string? r;
                 if ((r = SlotString(bound[0], Slot.Identity, out string dim)) is not null) return r;
+                if (bound[1].ValueKind == JsonValueKind.Null) return "null-outside-window";   // the same reason a null stage count gets
                 if (!IsCount(bound[1])) return "bad-integer";
                 if (!dims.Add(dim)) return "repeated-bound-dimension";
             }
