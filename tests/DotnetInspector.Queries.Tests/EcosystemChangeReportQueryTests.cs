@@ -602,6 +602,47 @@ public class EcosystemChangeReportQueryTests
     }
 
     [Fact]
+    public async Task AdvisoryDeadlineProducesTypedPartialCompletion()
+    {
+        var catalog = StandardCatalog(
+            Item(
+                Leaf("advisory-deadline"),
+                "Example.Deadline",
+                "1.0.0",
+                From + TimeSpan.FromDays(5)));
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(catalog);
+        using var advisoryClient = new HttpClient(
+            new SingleResponseHandler(HttpStatusCode.OK, "[]"));
+        var service = new GitHubNuGetAdvisoryService(advisoryClient);
+        EcosystemChangeReportPlan plan =
+            EcosystemChangeReportPlan.Resolve(
+                new EcosystemChangeReportRequest(
+                    PackageSet("Example.Deadline")),
+                new FixedTimeProvider(ReferenceTime));
+        using var deadline = new CancellationTokenSource();
+        deadline.Cancel();
+
+        IReadOnlyList<EcosystemChangeReportEvent> events =
+            await EcosystemChangeReportQuery.ExecuteToArrayAsync(
+                source,
+                service,
+                plan,
+                TestContext.Current.CancellationToken,
+                advisoryDeadlineCancellation: deadline.Token);
+
+        EcosystemChangeReportEvent.Failure.Advisory failure =
+            Assert.Single(events.OfType<
+                EcosystemChangeReportEvent.Failure.Advisory>());
+        Assert.Equal(
+            GitHubNuGetAdvisoryFailureKind.DeadlineReached,
+            failure.Kind);
+        Assert.Equal(
+            EcosystemChangeReportCompletionKind.Partial,
+            Summary(events).Completion);
+    }
+
+    [Fact]
     public async Task ConsumerCancellationAfterPartialRowsStaysCancellation()
     {
         var catalog = StandardCatalog(

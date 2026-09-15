@@ -24,6 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Inspector.Findings\Inspector.Findings.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Instructions\ILInspector.Instructions.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
   </ItemGroup>
 
 </Project>

@@ -87,6 +87,9 @@ public static class EcosystemPackIds
 
     public static EcosystemPackId Blazor { get; } =
         EcosystemPackId.Create("ecosystem.blazor");
+
+    public static EcosystemPackId Maui { get; } =
+        EcosystemPackId.Create("ecosystem.maui");
 }
 
 /// <summary>Stable scenario IDs for shipped product demos.</summary>

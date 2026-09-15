@@ -105,9 +105,21 @@ internal static class BrowserPackageWorkspace
         TimeSpan.FromSeconds(30);
     internal static TimeSpan GalleryOperationTimeout { get; } =
         PackageOperationTimeout - TimeSpan.FromSeconds(5);
+    internal static TimeSpan PackageChangesOperationTimeout { get; } =
+        TimeSpan.FromSeconds(120);
+    internal static TimeSpan PackageChangesSourceOperationTimeout { get; } =
+        PackageChangesOperationTimeout - TimeSpan.FromSeconds(5);
+    internal static TimeSpan PackageChangesRequestTimeout { get; } =
+        TimeSpan.FromSeconds(25);
 
     static readonly BrowserPublicEvidenceProxyHandler
         PublicEvidenceProxyHandler =
+            new(new HttpClientHandler());
+    static readonly BrowserPublicEvidenceProxyHandler
+        CatalogPublicEvidenceProxyHandler =
+            new(new HttpClientHandler());
+    static readonly BrowserPublicEvidenceProxyHandler
+        AdvisoryPublicEvidenceProxyHandler =
             new(new HttpClientHandler());
     static readonly BrowserMsdlProxyHandler MsdlProxyHandler =
         new(PublicEvidenceProxyHandler);
@@ -115,6 +127,11 @@ internal static class BrowserPackageWorkspace
     {
         Timeout = Timeout.InfiniteTimeSpan,
     };
+    static readonly HttpClient PackageChangesAdvisoryHttp =
+        new(AdvisoryPublicEvidenceProxyHandler)
+        {
+            Timeout = PackageChangesRequestTimeout,
+        };
     static readonly PackageSourceIdentity GalleryConfiguredIdentity =
         PackageSourceIdentity.NuGetOrg;
     static readonly ConcurrentDictionary<
@@ -130,6 +147,14 @@ internal static class BrowserPackageWorkspace
             {
                 RequestTimeout = GalleryOperationTimeout,
                 OperationTimeout = GalleryOperationTimeout,
+            });
+    internal static readonly INuGetCatalogPackageSourceClient Catalog =
+        CreateCatalogSource(
+            CatalogPublicEvidenceProxyHandler,
+            new NuGetFetchOptions
+            {
+                RequestTimeout = PackageChangesRequestTimeout,
+                OperationTimeout = PackageChangesSourceOperationTimeout,
             });
     static readonly ConditionalWeakTable<IPackageSourceClient, BrowserSessionPackageStore>
         SourceStores = new();
@@ -160,10 +185,14 @@ internal static class BrowserPackageWorkspace
     static long _clock;
 
     internal static HttpClient NetworkClient => Http;
+    internal static HttpClient PackageChangesAdvisoryClient =>
+        PackageChangesAdvisoryHttp;
     internal static void ConfigureHostProxies(string origin)
     {
         MsdlProxyHandler.Configure(origin);
         PublicEvidenceProxyHandler.Configure(origin);
+        CatalogPublicEvidenceProxyHandler.Configure(origin);
+        AdvisoryPublicEvidenceProxyHandler.Configure(origin);
     }
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorization;
@@ -409,6 +438,26 @@ internal static class BrowserPackageWorkspace
                 association,
                 ownedCredentialFreeTransport,
                 options));
+    }
+
+    /// <summary>
+    /// Creates the full NuGet.org V3 source used by Catalog-backed reports over
+    /// the Browser's fixed public-evidence bridge.
+    /// </summary>
+    internal static INuGetCatalogPackageSourceClient CreateCatalogSource(
+        HttpMessageHandler ownedCredentialFreeTransport,
+        NuGetFetchOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(ownedCredentialFreeTransport);
+        ArgumentNullException.ThrowIfNull(options);
+        IPackageSourceClient source = PackageSourceClientFactory.Create(
+            PackageSource.NuGetOrg,
+            PackageSourceAssociation.Create(),
+            ownedCredentialFreeTransport,
+            options);
+        return source as INuGetCatalogPackageSourceClient
+            ?? throw new InvalidOperationException(
+                "The built-in NuGet.org source does not expose Catalog activity.");
     }
 
     static IPackageSourceClient RegisterGallerySource(
