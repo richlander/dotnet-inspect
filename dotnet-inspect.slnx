@@ -136,6 +136,7 @@
     <Project Path="src/DotnetInspector.Platforms.Formats/DotnetInspector.Platforms.Formats.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Installed/DotnetInspector.Platforms.Installed.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Packages/DotnetInspector.Platforms.Packages.csproj" />
+    <Project Path="src/DotnetInspector.PortableQueries/DotnetInspector.PortableQueries.csproj" />
     <Project Path="src/DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
     <Project Path="src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
@@ -217,6 +218,7 @@
     <Project Path="tests/DotnetInspector.Presentation.Tests/DotnetInspector.Presentation.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Queries.Consumer/DotnetInspector.Queries.Consumer.csproj" />
     <Project Path="tests/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.PortableQueries.Tests/DotnetInspector.PortableQueries.Tests.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Tests/DotnetInspector.RowSelection.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Sections.Tests/DotnetInspector.Sections.Tests.csproj" />

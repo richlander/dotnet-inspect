@@ -151,6 +151,41 @@ public sealed class EcosystemWorkspaceConstructionTests
             "Microsoft.AspNetCore.Components.WebAssembly"));
         Assert.True(blazorAuthenticationPrefix.MatchesPackageId(
             "Microsoft.Authentication.WebAssembly.Msal"));
+        var maui = SelectKnown(EcosystemPackIds.Maui);
+        Assert.Equal(
+            [
+                "Microsoft.Maui.Controls",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "CommunityToolkit.Maui",
+                "Microsoft.Maui.Graphics.Skia",
+                "Microsoft.Maui.Graphics.Text.Markdig",
+            ],
+            maui.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Microsoft.Maui.",
+                "CommunityToolkit.Maui",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+            ],
+            maui.Populations.Select(item =>
+                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                    item).Prefix.Prefix));
+        PackagePrefixDeclaration mauiPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                maui.Populations[0]).Prefix;
+        PackagePrefixDeclaration communityToolkitMauiPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                maui.Populations[1]).Prefix;
+        PackagePrefixDeclaration mauiBlazorPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                maui.Populations[2]).Prefix;
+        Assert.True(mauiPrefix.MatchesPackageId("Microsoft.Maui.Controls"));
+        Assert.True(communityToolkitMauiPrefix.MatchesPackageId(
+            "CommunityToolkit.Maui"));
+        Assert.True(blazorComponentsPrefix.MatchesPackageId(
+            "Microsoft.AspNetCore.Components.WebView.Maui"));
+        Assert.True(mauiBlazorPrefix.MatchesPackageId(
+            "Microsoft.AspNetCore.Components.WebView.Maui"));
     }
 
     [Fact]

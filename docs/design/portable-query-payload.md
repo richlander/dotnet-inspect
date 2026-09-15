@@ -2,20 +2,20 @@
 
 ## Status
 
-**Unverified.** This is a design-only contract. Nothing here is implemented, and
-every gate in [Required gates](#required-gates) is a requirement on the
-implementation rather than a property enforced today.
-
-One thing does run. The exact shape of the payload and the vectors that witness
-it are not prose; they live in
+**Implemented.** `DotnetInspector.PortableQueries` carries the codec, and
+`DotnetInspector.PortableQueries.Tests` runs every vector in
 [`models/portable-query-payload/`](models/portable-query-payload/vectors.json)
-and are checked by `eng/check-portable-query-payload-vectors.cs`. The vectors
-come in four kinds — an intent and the bytes it must become, an intent that must
-be refused, bytes that must be refused, and a pair of states that are or are not
-one query — so both directions of the codec and its identity rule are witnessed.
-The checker is a design-stage probe, reproducible on demand, not yet a CI gate.
-When the product codec exists, its tests consume the same vectors file and the
-probe retires.
+against it in CI. The vectors come in four kinds — an intent and the bytes it
+must become, an intent that must be refused, bytes that must be refused, and a
+pair of states that are or are not one query — so both directions of the codec
+and its identity rule are witnessed. The design-stage probe that formerly ran
+from `eng/` has retired, as this document said it would: the file it checked now
+gates the product.
+
+Adoption is not complete. No vocabulary resolves an intent yet, Package Query
+still spells facets as `--where "facet=<opaque id>"`, and the packet's query arm
+carries no payload. Those are the remaining steps in
+[#6971](https://github.com/richlander/dotnet-inspect/issues/6971).
 
 This is **slice 2 of 2** under
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971), stacked on
@@ -49,12 +49,12 @@ Three artifacts, one normative location per rule:
 | Artifact | Owns |
 | --- | --- |
 | This document | The principles: what canonical form means, what identity is, what the codec may and may not know, how limits behave |
-| The `SHAPE` region of `eng/check-portable-query-payload-vectors.cs` | The exact structure: property order, tuple layouts and slot kinds, role encoding, integer grammar, the string rule, and every limit with its scope. Everything below that region is implementation and is not normative. |
+| `PortableQueryPayloadCodec` | The exact structure: property order, tuple layouts and slot kinds, role encoding, integer grammar, the string rule, and every limit with its scope. Its declared maxima are public constants and its layouts are the reader and writer themselves, so the structure cannot drift from what ships. |
 | [Portable query intent](portable-query-intent.md) | Everything this encoding carries but does not define: the parts, every identity text — operators, directions, stage kinds, order kinds, the `base` role — and the semantic orders with their comparator. |
 | `models/portable-query-payload/vectors.json` | The witnesses: every canonical form the contract promises and every rejection it requires |
 
 The prose never restates an identity text, an arity, or a maximum. If a
-sentence here seems to disagree with the shape region, the model, or a vector,
+sentence here seems to disagree with the codec, the model, or a vector,
 the sentence is wrong. Two things this encoding carries are not its to define:
 the identity texts, and the orders in which elements are emitted — the model's
 [semantic orders](portable-query-intent.md#semantic-order), including its
@@ -110,7 +110,7 @@ Three consequences follow, each with its own reason:
   would silently rewrite what was shared.
 
 Emission is compact, and a part the intent does not use has no presence on
-the wire at all — the shape region fixes that spelling. Whether a query with no
+the wire at all — the codec fixes that spelling. Whether a query with no
 parts means anything is the vocabulary's question, and never this codec's. Bytes
 that arrive in
 any other spelling — reordered, padded, or carrying a duplicate the canonical
@@ -146,7 +146,7 @@ A row query that selects and ranks fills all four parts; the vector
 that these bytes obey is fixed once, in the shape region, and witnessed in the
 vectors rather than restated here.
 
-Each part is an array of tuples whose layouts the shape region fixes. Every
+Each part is an array of tuples whose layouts the codec fixes. Every
 layout is fixed-arity except the field-list order operation, which has a fixed
 head and a repeating key-and-direction pair. The strings that name an operator,
 a direction, a stage kind, an order kind, or the baseline role are the model's
@@ -158,15 +158,15 @@ gap in place rather than a shorter tuple, so no window can be mistaken for
 another stage, and a closed window's bounds are ordered — that is the stage
 owner's construction precondition, and the parent slice makes it this codec's to
 enforce at decode, so no payload can reach a resolver carrying a stage it could
-not construct. Counts have one portable domain, fixed in the shape region so that
+not construct. Counts have one portable domain, fixed by the codec so that
 a host's native integer width never decides what another host must admit. An
 order operation carries its own role, kind, and boundary, so a
 baseline of `[a asc]` beside a ranking of `[b desc, c asc]` can never serialize
 identically to a baseline of `[a asc, b desc]` beside a ranking of `[c asc]` —
 the vectors `operation-boundary-a` and `operation-boundary-b` are that pair.
 
-Every string has exactly one spelling: the packet owner's, which the shape
-region carries for this codec so that no second convention is introduced here.
+Every string has exactly one spelling: the packet owner's, which the codec
+carries so that no second convention is introduced here.
 Inheriting that rule means inheriting its rejections: whatever the packet's
 writer refuses, this codec refuses before any vocabulary binder runs, and it
 repairs nothing.
@@ -192,7 +192,7 @@ such thing at this layer.
 ## Limits
 
 The packet owner delegates concrete payload limits to this codec, so they are
-pinned in the shape table rather than described as "bounded". They are a
+pinned as constants rather than described as "bounded". They are a
 compatibility surface with the same standing as tokens: a link one build emits
 must be admissible on another, so no vocabulary may relax them, though one may
 declare stricter limits for its own keys.
@@ -250,11 +250,12 @@ needs no evidence.
 | `DeclaredLimitsPrecedeBinding` | Every pinned maximum is enforced as parsed, before collapse and before any binder, on intent and on bytes. | `too-many-terms-as-parsed`, `nine-bounds`, `nine-stages`, `nine-order-operations`, `identity-one-over`, `too-many-terms`, `too-many-order-field-terms`, `value-too-long`, `identity-too-long`, `payload-too-large` |
 | `DeclaredMaximaAreAdmissible` | A payload at each exact maximum is admitted; the joint maximum produces exactly 204 values. | `joint-maximum`, `identity-at-maximum`, `value-at-maximum`, `payload-near-byte-maximum` |
 | `StringRuleIsThePacketOwners` | Short escapes, lowercase `\u00xx`, and raw UTF-8 above U+001F round-trip exactly; unpaired surrogates are refused; literal backslash text is text. | `quotes-backslash-and-short-escapes`, `c0-control-lowercase-hex`, `raw-scalars-above-ascii`, `literal-backslash-u-text`, `unpaired-high-surrogate`, `unpaired-low-surrogate` |
-| `VectorsAreTheGate` | The product codec's tests consume `vectors.json` directly, and the design-stage probe retires. | the file itself |
+| `VectorsAreTheGate` | The product codec's tests consume `vectors.json` directly, and the design-stage probe retires. | the file itself, embedded in `DotnetInspector.PortableQueries.Tests` |
 
 Two properties have no vector because no vector can witness them, and the
 codec's own tests must: that the limits are identical across builds and
 vocabularies, and that cancellation is observed before any binder runs.
+`PortableQueryCodecContractTests` carries both.
 
 ## Non-claims
 

@@ -2,11 +2,13 @@
 
 ## Status
 
-**Unverified.** This is a design-only contract. No part of it is implemented,
-and every gate in [Required gates](#required-gates) is a requirement on the
-implementation rather than a property enforced today. Statements about what a
-resolver does, admits, or refuses describe the contract an implementation must
-satisfy, not observed behavior.
+**Partly implemented.** `DotnetInspector.PortableQueries` carries the intent
+type, the identity texts, and the semantic orders, and the successor slice's
+codec serializes them. **Resolution is not implemented**: no vocabulary binds an
+intent yet, so every gate in [Required gates](#required-gates) remains a
+requirement on that work rather than a property enforced today, and statements
+below about what a resolver does, admits, or refuses describe the contract an
+implementation must satisfy, not observed behavior.
 
 This is **slice 1 of 2** under
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971). It owns the
@@ -148,10 +150,15 @@ Because composition is read from the vocabulary rather than the payload, family
 membership — combining or exclusive — is part of that vocabulary's compatibility
 surface: changing which keys combine or exclude changes what an already-shared
 link means, and is governed by the same replay rules as removing a key.
-A **value** is an inert value token: bounded text preserved exactly as
-supplied, constructed through the existing `InertText` containment shapes. This
-layer does not parse, normalize, case-fold, or interpret it. Interpretation
-belongs to the vocabulary's binder at resolution.
+A **value** is bounded text preserved exactly as supplied. This layer does not
+parse, normalize, case-fold, or interpret it. Interpretation belongs to the
+vocabulary's binder at resolution, and containment belongs to the sink: a value
+reaching a display surface is spelled there through the existing `InertText`
+shapes under that surface's policy. It cannot be contained here instead, because
+those shapes encode what they contain and a value must reach the far side of a
+share link as the same bytes it left with — the codec's round-trip is the whole
+point, and every policy `InertText` offers refuses scalars the payload's vectors
+require to survive.
 
 **Bounds** and **stages** are different kinds and never merge.
 
