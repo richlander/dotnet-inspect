@@ -98,9 +98,9 @@ another clause. Their rows need not be globally contiguous when a complete
 clause is nested in one handler. A clause's protected, filter, and handler
 extents share the same external enclosing-region context. The
 inner-before-outer metadata-order requirement applies to nested protected
-groups; a complete clause nested in another clause's handler is not reordered.
-The owner does not discard one clause and publish a smaller topology as
-complete.
+groups: every clause in the inner group precedes every clause in the enclosing
+group. A complete clause nested in another clause's handler is not reordered.
+The owner does not discard one clause and publish a smaller topology as complete.
 
 The existing `MethodInstructions` and `BlockGraph` are the implementation
 basis and first same-owner consumer. Adoption replaces their independently

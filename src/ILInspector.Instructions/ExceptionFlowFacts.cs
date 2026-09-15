@@ -658,17 +658,19 @@ internal sealed class ExceptionFlowTopology
         for (int left = 0; left < protectedGroups.Length; left++)
         {
             ExceptionFlowExtent leftExtent = protectedGroups[left].Key;
-            int leftOrdinal = protectedGroups[left].Min(clause => clause.Ordinal);
+            int leftFirst = protectedGroups[left].Min(clause => clause.Ordinal);
+            int leftLast = protectedGroups[left].Max(clause => clause.Ordinal);
             for (int right = left + 1; right < protectedGroups.Length; right++)
             {
                 ExceptionFlowExtent rightExtent = protectedGroups[right].Key;
-                int rightOrdinal = protectedGroups[right].Min(clause => clause.Ordinal);
+                int rightFirst = protectedGroups[right].Min(clause => clause.Ordinal);
+                int rightLast = protectedGroups[right].Max(clause => clause.Ordinal);
                 if (leftExtent.Contains(rightExtent)
                     && leftExtent != rightExtent
-                    && rightOrdinal > leftOrdinal
+                    && rightLast >= leftFirst
                     || rightExtent.Contains(leftExtent)
                     && rightExtent != leftExtent
-                    && leftOrdinal > rightOrdinal)
+                    && leftLast >= rightFirst)
                 {
                     return Invalid(
                         InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,

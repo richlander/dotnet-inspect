@@ -748,12 +748,47 @@ public class ExceptionFlowFactsTests
             body.ExceptionRegions[0].TryLength
                 < body.ExceptionRegions[1].TryLength);
 
-        int sectionOffset = ExceptionSectionOffset(image, token, out bool fat);
-        int clauseSize = fat ? 24 : 12;
-        byte[] first = image.AsSpan(sectionOffset + 4, clauseSize).ToArray();
-        image.AsSpan(sectionOffset + 4 + clauseSize, clauseSize)
-            .CopyTo(image.AsSpan(sectionOffset + 4, clauseSize));
-        first.CopyTo(image, sectionOffset + 4 + clauseSize);
+        SwapClauseRows(image, token, leftOrdinal: 0, rightOrdinal: 1);
+
+        MethodInstructions method = MethodInstructions.Decode(
+            ReadMutatedBody(image, token));
+
+        Assert.False(method.IsComplete);
+        var unavailable = Assert.IsType<
+            InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Unavailable>(
+                    method.ExceptionFlow);
+        Assert.Equal(
+            InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
+            unavailable.Reason);
+    }
+
+    [Fact]
+    public void MetadataBackedDecodeRejectsInnerGroupStraddlingOuterGroup()
+    {
+        byte[] image = File.ReadAllBytes(SelfPath);
+        int token = TokenOf(
+            nameof(ExceptionFlowFactsSamples.NestedSharedProtectedGroup));
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodBodyBlock body = ReadBody(pe, reader, token);
+        Assert.Equal(3, body.ExceptionRegions.Length);
+        Assert.Equal(
+            body.ExceptionRegions[0].TryOffset,
+            body.ExceptionRegions[1].TryOffset);
+        Assert.Equal(
+            body.ExceptionRegions[0].TryLength,
+            body.ExceptionRegions[1].TryLength);
+        Assert.True(
+            body.ExceptionRegions[0].TryOffset
+                >= body.ExceptionRegions[2].TryOffset);
+        Assert.True(
+            body.ExceptionRegions[0].TryOffset
+                + body.ExceptionRegions[0].TryLength
+                <= body.ExceptionRegions[2].TryOffset
+                    + body.ExceptionRegions[2].TryLength);
+
+        SwapClauseRows(image, token, leftOrdinal: 1, rightOrdinal: 2);
 
         MethodInstructions method = MethodInstructions.Decode(
             ReadMutatedBody(image, token));
@@ -969,6 +1004,25 @@ public class ExceptionFlowFactsTests
         }
     }
 
+    static void SwapClauseRows(
+        byte[] image,
+        int methodToken,
+        int leftOrdinal,
+        int rightOrdinal)
+    {
+        int sectionOffset = ExceptionSectionOffset(
+            image,
+            methodToken,
+            out bool fat);
+        int clauseSize = fat ? 24 : 12;
+        int leftOffset = sectionOffset + 4 + leftOrdinal * clauseSize;
+        int rightOffset = sectionOffset + 4 + rightOrdinal * clauseSize;
+        byte[] left = image.AsSpan(leftOffset, clauseSize).ToArray();
+        image.AsSpan(rightOffset, clauseSize)
+            .CopyTo(image.AsSpan(leftOffset, clauseSize));
+        left.CopyTo(image, rightOffset);
+    }
+
     static int MethodCodeOffset(byte[] image, int methodToken)
     {
         using var pe = new PEReader(new MemoryStream(image, writable: false));
@@ -1084,6 +1138,29 @@ public static class ExceptionFlowFactsSamples
         finally
         {
             Sink(value + 1);
+        }
+    }
+
+    public static int NestedSharedProtectedGroup(int value)
+    {
+        try
+        {
+            try
+            {
+                return checked(100 / value);
+            }
+            catch (DivideByZeroException)
+            {
+                return -1;
+            }
+            catch (OverflowException)
+            {
+                return -2;
+            }
+        }
+        finally
+        {
+            s_sink += value;
         }
     }
 
