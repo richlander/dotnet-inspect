@@ -111,6 +111,25 @@ test("package graph identity uses a bounded case-insensitive family prefix", () 
     dependencyGraphPresentationRole("Acme.\u03A3.Root", "ACME.\u03C2.Child"),
     "samePrefix",
   );
+  const greekSimpleUppercasePairs: Array<readonly [number, number]> = [
+    ...[0x1f80, 0x1f90, 0x1fa0].flatMap(start =>
+      Array.from(
+        { length: 8 },
+        (_, offset) => [start + offset, start + offset + 8] as const,
+      )),
+    [0x1fb3, 0x1fbc],
+    [0x1fc3, 0x1fcc],
+    [0x1ff3, 0x1ffc],
+  ];
+  for (const [lower, upper] of greekSimpleUppercasePairs) {
+    assert.equal(
+      dependencyGraphPresentationRole(
+        `Acme.${String.fromCodePoint(lower)}.Root`,
+        `ACME.${String.fromCodePoint(upper)}.Child`,
+      ),
+      "samePrefix",
+    );
+  }
 });
 
 test("package graph presentation roles remain independent from navigation kinds", async () => {

@@ -189,7 +189,16 @@ export function dependencyGraphFamilyPrefix(packageId: string): string {
 }
 
 function ordinalIgnoreCaseScalar(value: string): string {
-  // Mirror .NET's simple ordinal casing without compatibility folds or expansion.
+  // Use .NET's precomposed simple mappings before rejecting JS compatibility folds.
+  const codePoint = value.codePointAt(0)!;
+  if ((codePoint >= 0x1f80 && codePoint <= 0x1f87)
+      || (codePoint >= 0x1f90 && codePoint <= 0x1f97)
+      || (codePoint >= 0x1fa0 && codePoint <= 0x1fa7)) {
+    return String.fromCodePoint(codePoint + 8);
+  }
+  if (codePoint === 0x1fb3 || codePoint === 0x1fc3 || codePoint === 0x1ff3)
+    return String.fromCodePoint(codePoint + 9);
+
   const upper = value.toUpperCase();
   const upperCodePoint = upper.codePointAt(0);
   if (upperCodePoint === undefined
@@ -197,7 +206,7 @@ function ordinalIgnoreCaseScalar(value: string): string {
     || upper.length !== value.length) {
     return value;
   }
-  return value.codePointAt(0)! > 0x7f && upperCodePoint <= 0x7f
+  return codePoint > 0x7f && upperCodePoint <= 0x7f
     ? value
     : upper;
 }
