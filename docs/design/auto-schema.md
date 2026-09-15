@@ -9,8 +9,8 @@ maps to Markout-generated structural schema. That migration established the
 durable default:
 
 ```csharp
-DocumentSchema schema = ViewContext.Default
-    .GetSchemaInfo<ViewDocument>()!
+DocumentSchema schema = InspectionContext.Default
+    .GetSchemaInfo<LibraryInspectionView>()!
     .ToDocumentSchema();
 ```
 

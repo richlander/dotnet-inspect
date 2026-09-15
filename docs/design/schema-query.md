@@ -82,8 +82,8 @@ For a Markout view whose structure is fully declared by attributes, the
 generated schema is the structural source:
 
 ```csharp
-DocumentSchema schema = ViewContext.Default
-    .GetSchemaInfo<ViewDocument>()!
+DocumentSchema schema = InspectionContext.Default
+    .GetSchemaInfo<LibraryInspectionView>()!
     .ToDocumentSchema();
 ```
 
