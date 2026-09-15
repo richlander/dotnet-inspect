@@ -11,10 +11,11 @@ satisfy, not observed behavior.
 This is **slice 1 of 2** under
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971). It owns the
 intent model: what a query intent is, how it resolves, and what replaying one
-must guarantee. Slice 2, Portable query payload, owns the single byte spelling
-that model has — canonicalization, the closed JSON schema, pinned tokens,
-declared limits, and the packet projection — and adds the cross-references
-between the two documents when it lands. The model goes first because the
+must guarantee, including the semantic order of every part. Slice 2, Portable
+query payload, owns the single byte spelling that model has — how those orders
+are emitted, the closed shape, pinned tokens, declared limits, and the packet
+projection — and adds the cross-references between the two documents when it
+lands. The model goes first because the
 payload has nothing to encode without it, while a host can hold and resolve
 intent in process without ever serializing one.
 
@@ -103,7 +104,7 @@ One query intent is:
 | Part | Meaning |
 | --- | --- |
 | `vocabulary` | Owner-issued identity of the vocabulary the terms resolve against. It is part of an intent's identity; where an encoding carries it is the codec's. |
-| `terms` | A canonical set of `(key, operator, value)` triples. Composition follows the vocabulary's declared families. |
+| `terms` | A set of `(key, operator, value)` triples; membership is set-valued, so an identical triple present twice is one term. Composition follows the vocabulary's declared families. |
 | `bounds` | Declared execution bounds, each carrying an owner-issued dimension identity. Unordered. |
 | `stages` | The ordered selection-stage pipeline. Position-significant. |
 | `order` | Optional unresolved order operations, keyed by role: at most one baseline, plus at most one per ranking stage. |
@@ -181,47 +182,91 @@ baseline order would serialize identically and a restored link would answer a
 different question than the one shared, which is the failure this whole
 contract exists to prevent.
 
+### Semantic order
+
+Every part has a total order over its elements, and that order is the model's,
+not an encoding's. An intent held and resolved in process never touches a codec,
+yet two hosts must still agree on which of several defects is reported first; so
+the orders live here, and any encoding emits them rather than defining them.
+
+- **Terms** order by key, then operator, then value — each compared as text,
+  never as a resolved or normalized form.
+- **Bounds** order by dimension identity.
+
+Every text comparison in these orders is by **Unicode scalar value**, which is
+also UTF-8 byte order. It is not UTF-16 code-unit order — the default in .NET's
+`CompareOrdinal` and in JavaScript — because the two disagree above the Basic
+Multilingual Plane, and an intent's order must not depend on which host computed
+it.
+- **Stages** keep declaration sequence, because the sequence is the question.
+- **Order operations** place `base` first, then ranking operations by ascending
+  stage index; inside one field-list operation, field terms keep declaration
+  sequence, because they compose lexicographically.
+
 ## Resolution boundary
 
 Intent resolves exactly once, against exactly one vocabulary, producing either
 the owner's executable plan or one structured failure.
 
 - Resolution is **atomic**. The first failure returns no plan and no partial
-  binding, and which failure is first is fixed by the contract rather than by a
+  binding, and which failure is first is fixed by this contract rather than by a
   host's enumeration order: parts resolve in the order they appear in the
-  contract table — vocabulary, terms, bounds, stages, order — and within a part,
-  elements resolve in that part's canonical order. Every part therefore requires
-  a total order over its elements; the concrete orders belong to the codec. Two
-  hosts resolving one intent report the same failure.
+  contract table — vocabulary, terms, bounds, stages, order — elements within a
+  part resolve in that part's [semantic order](#semantic-order), and within one
+  element the checks run existence, then admissibility, then binding, then
+  collision, so a term with both an inadmissible operator and a value its binder
+  would reject reports the operator. Two hosts resolving one intent report the
+  same failure.
 - Resolution **starts no work**. A rejected intent issues no acquisition, no
   source request, and no package payload fetch. This matters more here than for
   row predicates: a package-query term can authorize archive downloads, so a
   malformed restored link must cost nothing.
+- **Stages are structurally valid before they reach resolution.** Positive
+  counts and ordered inclusive window bounds are
+  [semantic row selection](semantic-row-selection.md)'s construction
+  preconditions: enforced when a host constructs intent in process, and by the
+  codec when a payload is decoded. Violating them is misuse there, not a
+  resolution failure here, exactly as the row owner already states. Resolution
+  asks a stage one thing only — whether the vocabulary admits selection stages
+  at all. A vocabulary that does not select rows, as Package Query does not,
+  refuses any stage as not admitted.
 - A failure is **presentation-free**: the vocabulary identity, a typed location
-  naming the part and the element within it, the offending owner-issued identity
-  when the reason has one — a key, operator, dimension, or order reference — and
-  a typed reason. A reason with no offending identity, such as an unknown
-  vocabulary, carries none rather than an empty or invented one. No diagnostic
-  sentence, rendered value, localized text, or exception text enters the
-  contract.
-- The distinguishable reasons are at least: unknown vocabulary, unknown key,
-  operator not admitted for that key, value rejected by the key's binder,
-  duplicate-after-binding, unknown bound dimension, a bound value outside its
-  declared range, and an unknown or inadmissible order reference.
+  naming the part and the element within it, an owner-issued offending identity
+  when the reason has one, and a typed reason. No diagnostic sentence, rendered
+  value, localized text, or exception text enters the contract.
 
-Duplicate-after-binding is a **vocabulary-stage** outcome, not a codec-stage
-one. It rests on two rules the codec slice fixes and this one inherits:
-canonicalization collapses exactly duplicated terms, and it never normalizes a
-value, because package identifiers, framework names, and assembly names each
-have owner-specific equivalence rules that would make canonical form depend on a
-vocabulary's current semantics.
+The reason union is **closed**. A vocabulary cannot add to it; a new reason is a
+change to this contract. Each reason fixes its own location and offender, so two
+hosts produce the same failure and not merely the same reason:
 
-Resolution therefore never receives an exact duplicate. What it can receive is
-two syntactically distinct terms that the vocabulary's binder maps to one
-predicate. Whether that collision collapses idempotently or fails is the
-vocabulary's decision, declared by that owner. It follows that two links
+| Reason | Located at | Offending identity |
+| --- | --- | --- |
+| Unknown vocabulary | the vocabulary | none |
+| Unknown key | the term | the key |
+| Operator not admitted for the key | the term | the operator |
+| Value rejected by the key's binder | the term | the key whose binder rejected it |
+| Duplicate after binding | the later of the two terms in semantic order | the key |
+| Unknown dimension | the bound | the dimension |
+| Maximum outside the dimension's declared range | the bound | the dimension |
+| Stage not admitted | the stage | the stage kind |
+| Unknown order reference | the operation, and the field-term index within a field list | the reference |
+| Order reference not orderable | the operation, and the field-term index within a field list | the reference |
+
+A reason whose offender column reads *none* carries none rather than an empty or
+invented one.
+
+Duplicate-after-binding rests on two model invariants. Term membership is
+set-valued, so an identical triple present twice is one term and resolution
+never receives an exact duplicate. And a value is an exact token the model never
+normalizes: package identifiers, framework names, and assembly names each have
+owner-specific equivalence rules, and those rules apply only inside the
+vocabulary's binder, never to the intent itself.
+
+What resolution can receive, therefore, is two distinct terms that the binder
+maps to one predicate. Whether that collision collapses idempotently or fails is
+the vocabulary's decision, declared by that owner. It follows that two intents
 differing only in a spelling the vocabulary treats as equal may behave
-differently; that is the stated cost of keeping share identity independent of
+differently; that is the stated cost of keeping intent identity independent of
 vocabulary semantics.
 
 ## Replay and compatibility
@@ -320,13 +365,15 @@ successor slice.
 | Gate | Contract |
 | --- | --- |
 | `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, bound, stage, or order reference returns one structured failure with no plan and no partial binding. |
-| `FailurePrecedenceIsContractFixed` | An intent carrying several independent defects reports the same failure regardless of host enumeration or construction order, following part order and then each part's canonical order. |
+| `FailurePrecedenceIsContractFixed` | An intent carrying several independent defects reports the same failure — reason, location, and offender — regardless of host enumeration or construction order, following part order, then each part's semantic order, then existence, admissibility, binding, and collision within one element. |
 | `IntentResolutionStartsNoWork` | A rejected intent issues no acquisition, source request, or payload fetch; gated with a source capability that fails the test if invoked. |
 | `UnresolvableTermFailsVisibly` | An intent naming a key, operator, or dimension absent from the current build fails; it is never dropped, defaulted, narrowed, or widened. |
 | `IntentCarriesNoResolvedOrPresentationState` | Serialized intent contains no resolved identity, accessor, comparer, label, rendered value, or outcome. |
 | `BoundKindsRemainDistinct` | An execution bound never resolves as a selection stage or the reverse, and each retains its owner-issued dimension identity. |
 | `IntentFailureShapeIsPresentationFree` | Failures carry only the vocabulary identity, a typed part-and-element location, an optional owner-issued offending identity, and a typed reason; a reason without an offending identity carries none rather than an empty or invented one. |
-| `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two syntactically distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; no duplicate reaches resolution as canonical bytes. |
+| `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; an exact duplicate never reaches resolution, because membership is set-valued. |
+| `StagesCannotFailResolutionExceptByAdmission` | A structurally valid stage reaches resolution and is refused only when the vocabulary does not admit selection stages; structural violations are refused at construction or decode and never reach resolution. |
+| `FailureReasonUnionIsClosed` | Every failure carries one reason from the table, at that reason's location, with that reason's offender or none; no implementation or vocabulary emits a reason outside it. |
 
 ## Decisions
 
