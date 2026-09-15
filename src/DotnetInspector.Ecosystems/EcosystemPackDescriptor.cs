@@ -53,7 +53,7 @@ public sealed class EcosystemPackDescriptor
     /// <summary>Literal namespace-subtree hints in authored order, not an exhaustive inventory.</summary>
     public ImmutableArray<string> NamespaceRoots { get; }
 
-    /// <summary>Unversioned starting points in pack-local preference order, independent of curated membership.</summary>
+    /// <summary>Inert unversioned registered package roots in pack-local preference order.</summary>
     public ImmutableArray<PackageCoordinate> CorePackages { get; }
 
     /// <summary>Explicit unversioned .NET tool references in authored order, not installation requests.</summary>
