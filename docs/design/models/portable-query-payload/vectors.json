@@ -1675,6 +1675,177 @@
         ]
       },
       "canonical": "{\"s\":[[\"window\",2147483647,2147483647]]}"
+    },
+    {
+      "name": "string-rules-in-term-key",
+      "description": "An identity in the term-key slot carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute. Quote and backslash escape, the tab takes its short form, the ESC takes lowercase hex, the solidus is raw, and no normalization is applied — the same string rule as a value.",
+      "queryId": "row.query",
+      "intent": {
+        "t": [
+          [
+            "k\"\\\t\u001b/é",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\\\"\\\\\\t\\u001b/é\",\"eq\",\"v\"]]}"
+    },
+    {
+      "name": "string-rules-in-bound-dimension",
+      "description": "An identity in the bound-dimension slot carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute. Quote and backslash escape, the tab takes its short form, the ESC takes lowercase hex, the solidus is raw, and no normalization is applied — the same string rule as a value.",
+      "queryId": "row.query",
+      "intent": {
+        "b": [
+          [
+            "k\"\\\t\u001b/é",
+            1
+          ]
+        ]
+      },
+      "canonical": "{\"b\":[[\"k\\\"\\\\\\t\\u001b/é\",1]]}"
+    },
+    {
+      "name": "string-rules-in-order-reference",
+      "description": "An identity in the order-reference slot carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute. Quote and backslash escape, the tab takes its short form, the ESC takes lowercase hex, the solidus is raw, and no normalization is applied — the same string rule as a value.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "k\"\\\t\u001b/é",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"k\\\"\\\\\\t\\u001b/é\",\"desc\"]]}"
+    },
+    {
+      "name": "string-rules-in-field-key",
+      "description": "An identity in the field-key slot carrying a quote, a backslash, a tab, an ESC, a solidus, and a decomposed e-acute. Quote and backslash escape, the tab takes its short form, the ESC takes lowercase hex, the solidus is raw, and no normalization is applied — the same string rule as a value.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "k\"\\\t\u001b/é",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"k\\\"\\\\\\t\\u001b/é\",\"asc\"]]}"
+    },
+    {
+      "name": "empty-b-part-omitted-on-encode",
+      "description": "An empty b part in an intent is omitted from canonical form.",
+      "queryId": "row.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "v"
+          ]
+        ],
+        "b": []
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"v\"]]}"
+    },
+    {
+      "name": "empty-s-part-omitted-on-encode",
+      "description": "An empty s part in an intent is omitted from canonical form.",
+      "queryId": "row.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "v"
+          ]
+        ],
+        "s": []
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"v\"]]}"
+    },
+    {
+      "name": "empty-o-part-omitted-on-encode",
+      "description": "An empty o part in an intent is omitted from canonical form.",
+      "queryId": "row.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "v"
+          ]
+        ],
+        "o": []
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"v\"]]}"
+    },
+    {
+      "name": "role-index-at-maximum",
+      "description": "Eight top stages and a ranking operation naming stage 7: the highest RoleIndex the stage limit permits is admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "named",
+            "n",
+            "asc"
+          ],
+          [
+            7,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1]],\"o\":[[\"base\",\"named\",\"n\",\"asc\"],[7,\"named\",\"x\",\"asc\"]]}"
     }
   ],
   "encode-reject": [
@@ -3357,6 +3528,264 @@
       "name": "count-window-over-domain",
       "description": "2147483648 in the window position is outside the Count domain on the wire.",
       "bytes": "{\"s\":[[\"window\",2147483648,2147483648]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "term-key-quote-escaped-as-u0022",
+      "description": "A quote in the term-key slot spelled as a hex escape decodes correctly but is not canonical.",
+      "bytes": "{\"t\":[[\"a\\u0022b\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-key-tab-long-form",
+      "description": "A tab in the term-key slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"t\":[[\"a\\u0009b\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-key-uppercase-c0-hex",
+      "description": "An ESC in the term-key slot spelled with uppercase hex is not the packet's spelling.",
+      "bytes": "{\"t\":[[\"a\\u001Bb\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-key-escaped-solidus",
+      "description": "A solidus in the term-key slot escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"t\":[[\"a\\/b\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-key-unpaired-surrogate",
+      "description": "A lone surrogate escape in the term-key slot is refused, never repaired.",
+      "bytes": "{\"t\":[[\"a\\ud800b\",\"eq\",\"v\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "bound-dimension-quote-escaped-as-u0022",
+      "description": "A quote in the bound-dimension slot spelled as a hex escape decodes correctly but is not canonical.",
+      "bytes": "{\"b\":[[\"a\\u0022b\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-tab-long-form",
+      "description": "A tab in the bound-dimension slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"b\":[[\"a\\u0009b\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-uppercase-c0-hex",
+      "description": "An ESC in the bound-dimension slot spelled with uppercase hex is not the packet's spelling.",
+      "bytes": "{\"b\":[[\"a\\u001Bb\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-escaped-solidus",
+      "description": "A solidus in the bound-dimension slot escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"b\":[[\"a\\/b\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-unpaired-surrogate",
+      "description": "A lone surrogate escape in the bound-dimension slot is refused, never repaired.",
+      "bytes": "{\"b\":[[\"a\\ud800b\",1]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "order-reference-quote-escaped-as-u0022",
+      "description": "A quote in the order-reference slot spelled as a hex escape decodes correctly but is not canonical.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\u0022b\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-tab-long-form",
+      "description": "A tab in the order-reference slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\u0009b\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-uppercase-c0-hex",
+      "description": "An ESC in the order-reference slot spelled with uppercase hex is not the packet's spelling.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\u001Bb\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-escaped-solidus",
+      "description": "A solidus in the order-reference slot escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\/b\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-unpaired-surrogate",
+      "description": "A lone surrogate escape in the order-reference slot is refused, never repaired.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\ud800b\",\"desc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-key-quote-escaped-as-u0022",
+      "description": "A quote in the field-key slot spelled as a hex escape decodes correctly but is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\u0022b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-tab-long-form",
+      "description": "A tab in the field-key slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\u0009b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-uppercase-c0-hex",
+      "description": "An ESC in the field-key slot spelled with uppercase hex is not the packet's spelling.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\u001Bb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-escaped-solidus",
+      "description": "A solidus in the field-key slot escaped as backslash-solidus is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\/b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-unpaired-surrogate",
+      "description": "A lone surrogate escape in the field-key slot is refused, never repaired.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\ud800b\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "empty-t-part-on-the-wire",
+      "description": "An empty t array on the wire is refused; canonical form never contains one.",
+      "bytes": "{\"t\":[],\"s\":[[\"head\",1]]}",
+      "reject": "empty-part"
+    },
+    {
+      "name": "empty-b-part-on-the-wire",
+      "description": "An empty b array on the wire is refused; canonical form never contains one.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\"]],\"b\":[]}",
+      "reject": "empty-part"
+    },
+    {
+      "name": "empty-o-part-on-the-wire",
+      "description": "An empty o array on the wire is refused; canonical form never contains one.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\"]],\"o\":[]}",
+      "reject": "empty-part"
+    },
+    {
+      "name": "null-instead-of-t-array",
+      "description": "null in place of the t array is not a part.",
+      "bytes": "{\"t\":null}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "null-row-in-t",
+      "description": "null in place of a tuple inside t is not a tuple.",
+      "bytes": "{\"t\":[null]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "null-instead-of-b-array",
+      "description": "null in place of the b array is not a part.",
+      "bytes": "{\"b\":null}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "null-row-in-b",
+      "description": "null in place of a tuple inside b is not a tuple.",
+      "bytes": "{\"b\":[null]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "null-instead-of-s-array",
+      "description": "null in place of the s array is not a part.",
+      "bytes": "{\"s\":null}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "null-row-in-s",
+      "description": "null in place of a tuple inside s is not a tuple.",
+      "bytes": "{\"s\":[null]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "null-instead-of-o-array",
+      "description": "null in place of the o array is not a part.",
+      "bytes": "{\"o\":null}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "null-row-in-o",
+      "description": "null in place of a tuple inside o is not a tuple.",
+      "bytes": "{\"o\":[null]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "head-with-extra-slot",
+      "description": "A head stage carries exactly one count; a third slot is a wrong arity.",
+      "bytes": "{\"s\":[[\"head\",1,2]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "tail-with-extra-slot",
+      "description": "A tail stage carries exactly one count; a third slot is a wrong arity.",
+      "bytes": "{\"s\":[[\"tail\",1,2]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "top-with-extra-slot",
+      "description": "A top stage carries exactly one count; a third slot is a wrong arity.",
+      "bytes": "{\"s\":[[\"top\",1,2]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "count-bound-fraction",
+      "description": "A bound count spelled 1.0 is not a canonical Count.",
+      "bytes": "{\"b\":[[\"candidates\",1.0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-bound-exponent",
+      "description": "A bound count spelled 1e2 is not a canonical Count.",
+      "bytes": "{\"b\":[[\"candidates\",1e2]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-bound-negative",
+      "description": "A bound count spelled -1 is not a canonical Count.",
+      "bytes": "{\"b\":[[\"candidates\",-1]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-stage-fraction",
+      "description": "A stage count spelled 1.0 is not a canonical Count.",
+      "bytes": "{\"s\":[[\"head\",1.0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-stage-exponent",
+      "description": "A stage count spelled 1e2 is not a canonical Count.",
+      "bytes": "{\"s\":[[\"head\",1e2]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-stage-negative",
+      "description": "A stage count spelled -1 is not a canonical Count.",
+      "bytes": "{\"s\":[[\"head\",-1]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-fraction",
+      "description": "A window count spelled 1.0 is not a canonical Count.",
+      "bytes": "{\"s\":[[\"window\",1.0,1.0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-exponent",
+      "description": "A window count spelled 1e2 is not a canonical Count.",
+      "bytes": "{\"s\":[[\"window\",1e2,1e2]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-negative",
+      "description": "A window count spelled -1 is not a canonical Count.",
+      "bytes": "{\"s\":[[\"window\",-1,-1]]}",
       "reject": "bad-integer"
     }
   ],
