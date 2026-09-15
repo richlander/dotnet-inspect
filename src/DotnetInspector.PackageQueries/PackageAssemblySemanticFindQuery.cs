@@ -223,9 +223,9 @@ public abstract record PackageAssemblySemanticFindCandidateOutcome
 /// <summary>
 /// One occurrence in candidate-population order and semantic-producer order.
 /// </summary>
-public sealed record PackageAssemblySemanticFindOccurrence
+public sealed record PackageAssemblySemanticFindResult
 {
-    internal PackageAssemblySemanticFindOccurrence(
+    internal PackageAssemblySemanticFindResult(
         int candidateOrdinal,
         PackageAcquisitionCandidate candidate,
         PackageAssemblySelectedAssetContext selectedAsset,
@@ -288,22 +288,22 @@ public sealed class PackageAssemblySemanticFindCompletion
 /// Completed resource-free semantic evidence over one admitted package
 /// population.
 /// </summary>
-public sealed class PackageAssemblySemanticFindResult
+public sealed class PackageAssemblySemanticFindDocument
 {
-    internal PackageAssemblySemanticFindResult(
+    internal PackageAssemblySemanticFindDocument(
         PackageAcquisitionPopulation population,
         ImmutableArray<PackageAssemblySemanticFindCandidateOutcome> outcomes,
-        ImmutableArray<PackageAssemblySemanticFindOccurrence> occurrences)
+        ImmutableArray<PackageAssemblySemanticFindResult> results)
     {
         ArgumentNullException.ThrowIfNull(population);
         if (outcomes.IsDefault)
             throw new ArgumentException(
                 "Candidate outcomes must be initialized.",
                 nameof(outcomes));
-        if (occurrences.IsDefault)
+        if (results.IsDefault)
             throw new ArgumentException(
-                "Occurrence evidence must be initialized.",
-                nameof(occurrences));
+                "Find results must be initialized.",
+                nameof(results));
         if (outcomes.Length != population.Candidates.Length)
         {
             throw new ArgumentException(
@@ -329,13 +329,13 @@ public sealed class PackageAssemblySemanticFindResult
 
         Population = population;
         CandidateOutcomes = outcomes;
-        Occurrences = occurrences;
+        Results = results;
         CandidateCount = outcomes.Length;
         MatchedCandidateCount =
             outcomes.Count(static outcome =>
                 outcome
                     is PackageAssemblySemanticFindCandidateOutcome.Matched);
-        OccurrenceCount = occurrences.Length;
+        OccurrenceCount = results.Length;
         SemanticMissCount =
             outcomes.Count(static outcome =>
                 outcome
@@ -359,7 +359,7 @@ public sealed class PackageAssemblySemanticFindResult
     public ImmutableArray<PackageAssemblySemanticFindCandidateOutcome>
         CandidateOutcomes { get; }
 
-    public ImmutableArray<PackageAssemblySemanticFindOccurrence> Occurrences
+    public ImmutableArray<PackageAssemblySemanticFindResult> Results
         { get; }
 
     public int CandidateCount { get; }
@@ -378,12 +378,12 @@ public sealed class PackageAssemblySemanticFindResult
 }
 
 /// <summary>
-/// Optional progress sink for a host presenting terminal candidate outcomes
-/// while the completed inspection envelope is being produced.
+/// Optional nonterminal sink for a host presenting candidate outcomes while
+/// the completed Find Document is being produced.
 /// </summary>
-public interface IPackageAssemblySemanticFindObserver
+public interface IPackageAssemblySemanticFindNonterminalSink
 {
-    ValueTask ObserveAsync(
+    ValueTask ReportAsync(
         PackageAssemblySemanticFindCandidateOutcome outcome,
         CancellationToken cancellationToken);
 }
@@ -393,12 +393,12 @@ public interface IPackageAssemblySemanticFindObserver
 /// </summary>
 internal static class PackageAssemblySemanticFindQuery
 {
-    internal static Task<PackageAssemblySemanticFindResult>
-        ExecuteToResultAsync(
+    internal static Task<PackageAssemblySemanticFindDocument>
+        ExecuteToDocumentAsync(
             PackageAssemblySemanticFindRequest request,
             PackageSourceOperationLease sourceOperation,
             PackagePayloadAcquisitionPlan payloadAcquisition,
-            IPackageAssemblySemanticFindObserver? observer = null,
+            IPackageAssemblySemanticFindNonterminalSink? nonterminalSink = null,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(sourceOperation);
@@ -406,16 +406,16 @@ internal static class PackageAssemblySemanticFindQuery
             request,
             sourceOperation,
             payloadAcquisition,
-            observer,
+            nonterminalSink,
             cancellationToken);
     }
 
-    private static async Task<PackageAssemblySemanticFindResult>
+    private static async Task<PackageAssemblySemanticFindDocument>
         ExecuteCoreAsync(
             PackageAssemblySemanticFindRequest request,
             PackageSourceOperationLease sourceOperation,
             PackagePayloadAcquisitionPlan payloadAcquisition,
-            IPackageAssemblySemanticFindObserver? observer,
+            IPackageAssemblySemanticFindNonterminalSink? nonterminalSink,
             CancellationToken cancellationToken)
     {
         using (sourceOperation)
@@ -451,9 +451,9 @@ internal static class PackageAssemblySemanticFindQuery
                 ImmutableArray.CreateBuilder<
                     PackageAssemblySemanticFindCandidateOutcome>(
                     request.Population.Candidates.Length);
-            var occurrences =
+            var results =
                 ImmutableArray.CreateBuilder<
-                    PackageAssemblySemanticFindOccurrence>();
+                    PackageAssemblySemanticFindResult>();
 
             try
             {
@@ -505,7 +505,7 @@ internal static class PackageAssemblySemanticFindQuery
                         foreach (StringLiteralUseOccurrence occurrence in
                                  matched.Evaluation.Evidence.Occurrences)
                         {
-                            occurrences.Add(
+                            results.Add(
                                 new(
                                     index + 1,
                                     candidate,
@@ -514,11 +514,11 @@ internal static class PackageAssemblySemanticFindQuery
                         }
                     }
 
-                    if (observer is not null)
+                    if (nonterminalSink is not null)
                     {
                         try
                         {
-                            await observer.ObserveAsync(
+                            await nonterminalSink.ReportAsync(
                                 outcome,
                                 operationCancellation).ConfigureAwait(false);
                         }
@@ -551,7 +551,7 @@ internal static class PackageAssemblySemanticFindQuery
             return new(
                 request.Population,
                 outcomes.MoveToImmutable(),
-                occurrences.ToImmutable());
+                results.ToImmutable());
 
             void ObserveCancellation()
             {
