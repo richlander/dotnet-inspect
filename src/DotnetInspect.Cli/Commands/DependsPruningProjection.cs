@@ -51,12 +51,7 @@ public partial class DependsCommand
             {
                 notEvaluated++;
                 if (root.Declaration
-                        is PackageDependencyEvidenceDeclarationResult.Failed
-                    || root.Declaration
-                        is PackageDependencyEvidenceDeclarationResult.Available
-                        {
-                            IsComplete: false,
-                        })
+                        is PackageDependencyEvidenceDeclarationResult.Failed)
                 {
                     failed++;
                 }
@@ -66,6 +61,10 @@ public partial class DependsCommand
                 }
                 continue;
             }
+
+            bool declarationsIncomplete = !available.IsComplete;
+            if (declarationsIncomplete)
+                failed++;
 
             bool hasSelectedGroup =
                 root.Selection.Status
@@ -155,7 +154,8 @@ public partial class DependsCommand
             if (!producedOutcome)
             {
                 notEvaluated++;
-                successful++;
+                if (!declarationsIncomplete)
+                    successful++;
                 continue;
             }
         }

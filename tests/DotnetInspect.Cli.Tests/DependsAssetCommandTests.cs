@@ -1901,7 +1901,7 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task Pruning_RowWindowRetainsFailuresAndFailureCount()
+    public async Task Pruning_RowWindowRetainsFailures()
     {
         string source = CreateTemporaryDirectory();
         WriteLocalSourcePackage(
@@ -1963,6 +1963,71 @@ public sealed class DependsAssetCommandTests
                 "Pruning",
                 failure.GetProperty("phase").GetString());
         }
+    }
+
+    [Fact]
+    public async Task Pruning_IncompleteDeclarationsCannotProduceAnExactCount()
+    {
+        string path = WriteTemporaryFile(
+            "conflicting-pruning.nuspec",
+            Manifest(
+                "Contoso.Conflicting",
+                "1.0.0",
+                """
+                <group targetFramework="net11.0">
+                  <dependency id="System.Runtime" version="[4.3.1]" />
+                  <dependency id="System.Runtime" version="[4.3.2]" />
+                </group>
+                """));
+
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            "depends",
+            "--nuspec",
+            path,
+            "--tfm",
+            "net11.0",
+            "-S",
+            "Pruning,Failures",
+            "--json",
+            "--compact",
+        ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("typed failure", error, StringComparison.Ordinal);
+        using (JsonDocument document = JsonDocument.Parse(output))
+        {
+            JsonElement summary = document.RootElement
+                .GetProperty("summary");
+            Assert.Equal(
+                "Partial",
+                summary.GetProperty("declaration_completion").GetString());
+            JsonElement pruning = summary.GetProperty("pruning");
+            Assert.Equal(
+                "Failed",
+                pruning.GetProperty("completion").GetString());
+            Assert.Equal(1, pruning.GetProperty("failed").GetInt32());
+        }
+
+        (int countExitCode, string countOutput, string countError) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--nuspec",
+                path,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Pruning",
+                "--count",
+            ]);
+
+        Assert.Equal(1, countExitCode);
+        Assert.Empty(countOutput);
+        Assert.Contains(
+            "--count cannot report an exact 'Pruning' count",
+            countError,
+            StringComparison.Ordinal);
     }
 
     [Fact]
