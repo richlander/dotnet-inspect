@@ -18,16 +18,45 @@ public static class MarkdownContent
             || path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase);
 
     public static string ApplyScope(string content, PackageFileContentScope scope)
+        => ApplyScope(content, scope, out _);
+
+    public static string ApplyScope(
+        string content,
+        PackageFileContentScope scope,
+        out int sourceLineOffset)
     {
+        sourceLineOffset = 0;
         if (scope == PackageFileContentScope.Full)
             return content;
 
         if (!TryFindYamlFrontmatter(content, out var frontmatterEnd, out var bodyStart))
             return scope == PackageFileContentScope.Frontmatter ? "" : content;
 
-        return scope == PackageFileContentScope.Frontmatter
-            ? content[..frontmatterEnd]
-            : content[bodyStart..];
+        if (scope == PackageFileContentScope.Frontmatter)
+            return content[..frontmatterEnd];
+
+        sourceLineOffset = CountLineBreaks(content.AsSpan(0, bodyStart));
+        return content[bodyStart..];
+    }
+
+    private static int CountLineBreaks(ReadOnlySpan<char> content)
+    {
+        int count = 0;
+        for (var index = 0; index < content.Length; index++)
+        {
+            if (content[index] == '\r')
+            {
+                if (index + 1 < content.Length && content[index + 1] == '\n')
+                    index++;
+                count++;
+            }
+            else if (content[index] is '\n' or '\u2028' or '\u2029')
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     public static IReadOnlyDictionary<string, string> ParseYamlFrontmatter(string content)
