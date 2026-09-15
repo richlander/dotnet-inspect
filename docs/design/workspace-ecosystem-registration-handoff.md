@@ -252,7 +252,7 @@ Browser/Wasm-safe. Conceptually it carries:
 WorkspaceEcosystemRegistrationDeclaration
   Id                 WorkspaceEcosystemRegistrationId
   NamespaceRoots     immutable authored-order namespace hints
-  CorePackages       immutable authored-order PackageCoordinate priorities
+  CorePackages       immutable authored-order PackageCoordinate roots
   Populations        immutable authored-order population declarations
   IntegrationScanner optional EcosystemIntegrationScannerBinding
 ```
@@ -272,7 +272,7 @@ namespace roots into package names, turn core packages into curated
 membership, lower prefixes into query requests, inspect scanner targets, or
 translate platform populations into package coordinates.
 
-### Retrieval knowledge
+### Namespace hints and registered packages
 
 `NamespaceRoots` and `CorePackages` preserve the exact immutable contributions
 already owned by Static Ecosystem Packs. Their validation, authored order,

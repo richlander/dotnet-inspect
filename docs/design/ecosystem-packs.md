@@ -670,14 +670,15 @@ namespace/type correspondence requires evidence outside the catalog.
 
 ### Registration is not traversal execution
 
-These additions do not create actions or satisfy the manifest's requirement
-for at least one contributed capability by themselves. Existing action
-selection, missing-capability results, and discovery materialization remain
-unchanged. Catalog reads, projection, plan construction, and Workspace
-construction do not resolve or acquire a core package. Traversal begins only
-when an operation selects the ecosystem and supplies the required finite
-policies. Namespace and package-prefix matches never substitute for a concrete
-registered package root.
+These additions do not create catalog actions or satisfy the application pack
+registry's requirement for at least one contributed capability by themselves.
+Separately, a nonempty core sequence is sufficient to make a projected
+Workspace registration useful. Existing action selection, missing-capability
+results, and discovery materialization remain unchanged. Catalog reads,
+projection, plan construction, and Workspace construction do not resolve or
+acquire a core package. Traversal begins only when an operation selects the
+ecosystem and supplies the required finite policies. Namespace and
+package-prefix matches never substitute for a concrete registered package root.
 
 Ecosystem grouping and source provenance are orthogonal. `ecosystem.platform`
 groups Runtime Platform demos, while `ecosystem.microsoft-extensions` retains
