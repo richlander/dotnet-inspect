@@ -11,6 +11,116 @@ namespace DotnetInspect.Cli.Tests;
 public sealed partial class ConfiguredPayloadAcquisitionTests
 {
     [Fact]
+    public async Task HousePopulationBridge_OneDiscoveryServesMultipleCells()
+    {
+        const string Id = "house.population.discovery";
+        var requests = new ConcurrentQueue<string>();
+        await using var composition = CreateComposition((source, _) =>
+            new SelectionFeedHandler(
+                source.Url,
+                Id,
+                source.Url == FirstFeed
+                    ? ["1.0.0", "2.0.0"]
+                    : ["2.0.0", "3.0.0"],
+                _ => throw new InvalidOperationException(
+                    "Population settlement requested a payload."),
+                requests));
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [SecondFeed, FirstFeed],
+        };
+        var request = new PackageHouseVersionPopulationRequest(
+            ParseRange($"{Id}@1.0.0..3.0.0"),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle));
+
+        var available = Assert.IsType<
+            PackageHouseVersionPopulationResult.Available>(
+                await composition.SettleVersionPopulationAsync(
+                    request,
+                    sourceOptions,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            ["1.0.0", "2.0.0", "3.0.0"],
+            available.Vector.Addresses.Select(
+                address => address.Version.ToNormalizedString()));
+        foreach (PackageVersionAddress address
+            in available.Vector.Addresses)
+        {
+            PackageHouseSettlement settlement =
+                await composition.ExecuteVersionPopulationCellAsync(
+                    available.SelectCell(address),
+                    PackageHouseOperation.Create(
+                        PackageHouseOperationProfile.Settle),
+                    sourceOptions: sourceOptions,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+            Assert.IsType<PackageHouseResult.Settled>(
+                settlement.Result);
+        }
+
+        Assert.Equal(
+            2,
+            requests.Count(url => url.EndsWith(
+                $"/{Id}/index.json",
+                StringComparison.Ordinal)));
+        Assert.DoesNotContain(
+            requests,
+            url => url.EndsWith(
+                ".nupkg",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task HousePopulationBridge_ReappliesCurrentSourceAuthorization()
+    {
+        const string Id = "house.population.authorization";
+        var requests = new ConcurrentQueue<string>();
+        await using var composition = CreateComposition((source, _) =>
+            new SelectionFeedHandler(
+                source.Url,
+                Id,
+                [Version],
+                _ => throw new InvalidOperationException(
+                    "Settle-only population cell requested a payload."),
+                requests));
+        var request = new PackageHouseVersionPopulationRequest(
+            ParseRange($"{Id}@{Version}..{Version}"),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle));
+        var available = Assert.IsType<
+            PackageHouseVersionPopulationResult.Available>(
+                await composition.SettleVersionPopulationAsync(
+                    request,
+                    new NuGetSourceOptions { Sources = [FirstFeed] },
+                    TestContext.Current.CancellationToken));
+
+        PackageHouseSettlement settlement =
+            await composition.ExecuteVersionPopulationCellAsync(
+                available.SelectCell(available.Vector.Addresses[0]),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Settle),
+                sourceOptions:
+                    new NuGetSourceOptions { Sources = [SecondFeed] },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackageHouseResult.Rejected>(
+            settlement.Result);
+        Assert.Single(
+            requests,
+            url => url.EndsWith(
+                $"/{Id}/index.json",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            requests,
+            url => url.EndsWith(
+                ".nupkg",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task OpenRange_OneMetadataDiscoveryServesMultipleAddressesAndReporters()
     {
         const string Id = "range.discovery";
