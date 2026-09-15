@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using InertText;
@@ -57,10 +58,41 @@ public class PackageQueryCliTests
         }
     }
 
+    [Fact]
+    public void DependsTerm_LowersToTheProductPlan()
+    {
+        Assert.Equal(
+            PackageQuery.DependsTermKey,
+            PackageQueryOptions.DependsTerm.Name);
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Microsoft.Extensions.*",
+                ["depends=Microsoft.Extensions.DependencyInjection"],
+                nuspecOnly: false,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
+        Assert.Equal(PackageQuery.DependsTermKey, term.Key);
+        Assert.Equal(PortableQueryOperator.Equal, term.Operator);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection",
+            term.Value);
+        Assert.Empty(options.Plan.Facets);
+        Assert.Equal(
+            PackageQuery.DefaultMaximumCandidates,
+            options.Plan.MaximumCandidates);
+    }
+
     [Theory]
-    [InlineData("facet!=package.query.dotnet-tool", "supports --where")]
-    [InlineData("downloads>=1000000", "supports --where")]
+    [InlineData("facet!=package.query.dotnet-tool", "support equality")]
+    [InlineData("downloads>=1000000", "support equality")]
     [InlineData("facet=package.query.unknown", "not available")]
+    [InlineData("depends=not/a/package", "term value is invalid")]
     [InlineData("", "Empty")]
     public void InvalidSelections_FailBeforeExecution(string expression, string message)
     {
@@ -282,6 +314,153 @@ public class PackageQueryCliTests
         Assert.Contains("Contoso.Second", result.Output);
         Assert.DoesNotContain("Contoso.Third", result.Output);
         Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task DependsTerms_AndAcrossManifestDependenciesWithoutPackageContent()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                [
+                    "depends=Dependency.One",
+                    "depends=Dependency.Two",
+                ],
+                nuspecOnly: false,
+                take: 3,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        using var source = Source(out var fixture);
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                options! with
+                {
+                    Tabular = true,
+                    Tsv = true,
+                },
+                source,
+                null));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Contoso.Second", result.Output);
+        Assert.DoesNotContain("Contoso.First", result.Output);
+        Assert.DoesNotContain("Contoso.Third", result.Output);
+        Assert.Contains("Dependency.One 1.0.0", result.Output);
+        Assert.Contains("Dependency.Two 2.0.0", result.Output);
+        Assert.Equal(3, fixture.ManifestRequests);
+        Assert.Equal(0, fixture.PackageRequests);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task DependsTerm_HeadStopsAfterItsWitnessAndCountEvaluatesThePopulation()
+    {
+        RowSelectionIntent<string> head = Head(1);
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                ["depends=Dependency.One"],
+                nuspecOnly: false,
+                take: null,
+                rowSelection: head,
+                includePrerelease: false,
+                out PackageQueryOptions? headOptions,
+                out OptionError headError),
+            headError.ToString());
+
+        using (var headSource = Source(out var headFixture))
+        {
+            var headResult = await ConsoleCapture.RunAsync(() =>
+                PackageQueryCommand.ExecuteAsync(
+                    headOptions! with
+                    {
+                        RowSelection = head,
+                        Tabular = true,
+                        Tsv = true,
+                    },
+                    headSource,
+                    null));
+            Assert.Equal(0, headResult.ExitCode);
+            Assert.Contains("Contoso.Second", headResult.Output);
+            Assert.DoesNotContain("Contoso.Third", headResult.Output);
+            Assert.Equal(2, headFixture.ManifestRequests);
+            Assert.Empty(headResult.Error);
+        }
+
+        using (var headCountSource = Source(out var headCountFixture))
+        {
+            var headCountResult = await ConsoleCapture.RunAsync(() =>
+                PackageQueryCommand.ExecuteAsync(
+                    headOptions! with
+                    {
+                        RowSelection = head,
+                        Count = true,
+                    },
+                    headCountSource,
+                    null));
+            Assert.Equal(0, headCountResult.ExitCode);
+            Assert.Equal("1", headCountResult.Output.Trim());
+            Assert.Equal(2, headCountFixture.ManifestRequests);
+            Assert.Empty(headCountResult.Error);
+        }
+
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                ["depends=Dependency.One"],
+                nuspecOnly: false,
+                take: 2,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? boundedCountOptions,
+                out OptionError boundedCountError),
+            boundedCountError.ToString());
+
+        using (var boundedCountSource = Source(out var boundedCountFixture))
+        {
+            var boundedCountResult = await ConsoleCapture.RunAsync(() =>
+                PackageQueryCommand.ExecuteAsync(
+                    boundedCountOptions! with { Count = true },
+                    boundedCountSource,
+                    null));
+            Assert.Equal(1, boundedCountResult.ExitCode);
+            Assert.Empty(boundedCountResult.Output);
+            Assert.Equal(2, boundedCountFixture.ManifestRequests);
+            Assert.Contains(
+                "Cannot count Package Query rows",
+                boundedCountResult.Error);
+            Assert.Contains(
+                "CandidateLimitReached",
+                boundedCountResult.Error);
+        }
+
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                ["depends=Dependency.One"],
+                nuspecOnly: false,
+                take: 3,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? countOptions,
+                out OptionError countError),
+            countError.ToString());
+
+        using var countSource = Source(out var countFixture);
+        var countResult = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                countOptions! with { Count = true },
+                countSource,
+                null));
+        Assert.Equal(0, countResult.ExitCode);
+        Assert.Equal("2", countResult.Output.Trim());
+        Assert.Equal(3, countFixture.ManifestRequests);
+        Assert.Equal(0, countFixture.PackageRequests);
+        Assert.Empty(countResult.Error);
     }
 
     [Fact]
@@ -735,8 +914,15 @@ public class PackageQueryCliTests
 
         private static byte[] Manifest(string id)
         {
-            string dependencies = id.Equals("Contoso.First", StringComparison.OrdinalIgnoreCase) ? ""
-                : "<dependency id=\"Dependency.One\" version=\"1.0.0\"/><dependency id=\"Dependency.Two\" version=\"2.0.0\"/>";
+            string dependencies = id.Equals(
+                    "Contoso.First",
+                    StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : id.Equals(
+                    "Contoso.Third",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? "<dependency id=\"Dependency.One\" version=\"1.0.0\"/>"
+                    : "<dependency id=\"Dependency.One\" version=\"1.0.0\"/><dependency id=\"Dependency.Two\" version=\"2.0.0\"/>";
             return Encoding.UTF8.GetBytes($"""
                 <package><metadata><id>{id}</id><version>1.0.0</version><authors>Contoso</authors>
                 <description>CLI query fixture</description><dependencies>{dependencies}</dependencies>
