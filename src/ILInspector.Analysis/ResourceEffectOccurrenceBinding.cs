@@ -580,8 +580,14 @@ internal static class ResourceEffectOccurrenceBinder
 
                 MethodDefinition method =
                     reader.GetMethodDefinition(invoke[0]);
-                if (method.GetGenericParameters().Count != 0
-                    || !SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                if (method.GetGenericParameters().Count != 0)
+                {
+                    FailUnsupported(
+                        ResourceEffectOccurrenceBindingGapKind
+                            .CallbackContract);
+                    return null;
+                }
+                if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
                         reader,
                         method.Signature,
                         SignatureBlobGuard.Kind.Method))
@@ -891,12 +897,18 @@ internal static class ResourceEffectOccurrenceBinder
                                     & (FieldAttributes.SpecialName
                                         | FieldAttributes.RTSpecialName))
                                     != (FieldAttributes.SpecialName
-                                        | FieldAttributes.RTSpecialName)
-                                || !SignatureBlobGuard
-                                    .IsSafeAndCompleteToDecode(
-                                        reader,
-                                        field.Signature,
-                                        SignatureBlobGuard.Kind.Field))
+                                        | FieldAttributes.RTSpecialName))
+                            {
+                                FailUnsupported(
+                                    ResourceEffectOccurrenceBindingGapKind
+                                        .OutcomeType);
+                                return null;
+                            }
+                            if (!SignatureBlobGuard
+                                .IsSafeAndCompleteToDecode(
+                                    reader,
+                                    field.Signature,
+                                    SignatureBlobGuard.Kind.Field))
                             {
                                 FailUnsupported(
                                     ResourceEffectOccurrenceBindingGapKind
