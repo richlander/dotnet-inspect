@@ -42,6 +42,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Inspection Plan Projections](design/inspection-plan-projections.md) | Shared resolved inspection basis with distinct typed plans for section execution, effective-section discovery, and portable sharing. |
 | [Inspection Operation Composition](design/inspection-operation-composition.md) | Cross-host sequencing of semantic intent, House and Workspace resolution, terminal purpose, query/section/row/work plans, typed results, and host-specific projection. |
 | [Inspection Envelope](design/inspection-envelope.md) | Shared terminal wrapper that preserves owner-issued primary content while carrying typed cross-host diagnostics and supporting broader host composition. |
+| [Host-observable Content Kinds](design/host-observable-content-kinds.md) | Result, Document, and owner-specific Outcome semantics for serialized content carried by completed inspection envelopes. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
 | [CLI Option-Value Validation](design/cli-option-value-validation.md) | Shared zero-arity diagnostics that preserve positional ownership and command-owned capacity. |
@@ -180,6 +181,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Package Query Assembly-Pattern Evaluation](design/package-query-assembly-evaluation.md) | Implemented bounded one-candidate primary-assembly selection, semantic confirmation, resource-free evidence, and candidate-scoped release. |
 | [Find Assembly-Semantic Query](design/find-assembly-semantic-query.md) | Target host-neutral composition of a finite source-authorized exact-package population into ordered body-occurrence matches, per-candidate outcomes, and completion for CLI and Browser/Wasm consumers. |
 | [Ecosystem Change Report](design/ecosystem-change-report.md) | Proposed shared query contract for a bounded six-week package-activity report, evidence-qualified security overlay, selection, and honest source/evaluation coverage across CLI and browser. |
+| [Inspect Web Public-Evidence Bridge](design/inspect-web-public-evidence-bridge.md) | Fixed-provider Browser rewrites and bounded same-origin managed-API acquisition for public JSON providers that do not permit browser CORS. |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
 | [Inspection Layers](design/inspection-layers.md) | Layering and consumer-boundary rules between Metadata, Analysis, CSharpText, CSharp, Research, and the CLI. |

@@ -9,6 +9,11 @@ diagnostics. The CLI consumes that baseline envelope. Broader hosts consume the
 same baseline and may compose additional owner-issued content or host-owned
 experience state around it without changing the baseline.
 
+The
+[host-observable content kinds](host-observable-content-kinds.md)
+contract classifies that owner-issued value as a Result, Document, or
+owner-specific Outcome and defines its serialization-ready boundary.
+
 The implementation tracker is
 [#6710](https://github.com/richlander/dotnet-inspect/issues/6710).
 The prerequisite content/share plan is
@@ -28,9 +33,9 @@ InspectionEnvelope<TContent>
   Diagnostics
 ```
 
-`TContent` remains the result type issued by the inspection owner. The envelope
-does not replace that type, reinterpret its facts, or become a universal
-inspection-content model.
+`TContent` remains the content type issued by the inspection owner. The
+envelope does not replace that type, reinterpret its facts, or become a
+universal inspection-content model.
 
 The envelope owns:
 
@@ -125,6 +130,11 @@ Wrapping content does not change its equality, row count, ordering,
 serialization meaning, or resource ownership. A host may lower or render the
 value, but it may not add facts to it after the envelope crosses the shared
 boundary.
+
+The content contract requires a settled, serialization-ready snapshot, not a
+particular CLR collection implementation. Arrays and other ordinary collection
+types may represent serialized sequences; `ImmutableArray<T>` is not required
+merely because content crosses the host boundary.
 
 ## Share outcome
 
