@@ -39,7 +39,8 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
     }
 
     internal AssemblyReferenceIdentity AssemblyIdentity { get; }
-    internal Guid SourceValue => _source.Value;
+    internal string SourceReceiptEvidence =>
+        MetadataReceiptEvidence.For(_source);
     public Guid ModuleVersionId { get; }
     public GraphNodeStorageKind Kind { get; }
     public int MethodToken { get; }
@@ -266,9 +267,9 @@ public sealed class GraphNodeEvidence
             when issued.Evidence.Any(static evidence =>
                 evidence
                     is MemberCorrespondenceEvidence.UnresolvedBinding
-                    {
-                        Outcome: TypeResolutionOutcome.Unavailable,
-                    }) =>
+                {
+                    Outcome: TypeResolutionOutcome.Unavailable,
+                }) =>
             GraphCorrespondenceKind.Incomplete,
         CatalogMemberJoinProjection.Issued issued
             when issued.Key.Kind == CatalogMemberCorrespondenceKind.Exact =>
