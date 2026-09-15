@@ -73,6 +73,22 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
             }
         }
 
+        if (request.PlatformAssemblies.Count > 0
+            && (!PlatformResolver.TryGetFrameworkSpecsForTargetFramework(
+                    targetFramework,
+                    out IReadOnlyList<string> frameworkSpecs)
+                || !frameworkSpecs.Any(
+                    static frameworkSpec =>
+                        frameworkSpec.StartsWith(
+                            "runtime@",
+                            StringComparison.OrdinalIgnoreCase)
+                        || frameworkSpec.StartsWith(
+                            "aspnetcore@",
+                            StringComparison.OrdinalIgnoreCase))))
+        {
+            return false;
+        }
+
         return true;
     }
 
@@ -131,8 +147,8 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                             loadOptions,
                             cancellationToken).ConfigureAwait(false);
                 sourceNames.Add(context.Receipt.Order, packageId);
-                hasFailures |= context.ContextLoadOutcome
-                    is WorkspaceContextLoadOutcome.Failed;
+                hasFailures |= WriteLoadFailures(
+                    context.ContextLoadOutcome);
             }
 
             foreach (string assembly in options.PlatformAssemblies)
@@ -169,8 +185,8 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                             loadOptions,
                             cancellationToken).ConfigureAwait(false);
                 sourceNames.Add(context.Receipt.Order, platform.Family);
-                hasFailures |= context.ContextLoadOutcome
-                    is WorkspaceContextLoadOutcome.Failed;
+                hasFailures |= WriteLoadFailures(
+                    context.ContextLoadOutcome);
             }
 
             return new(
@@ -236,6 +252,17 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
             return;
         _closed = true;
         await _workspace.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private static bool WriteLoadFailures(
+        WorkspaceContextLoadOutcome? outcome)
+    {
+        if (outcome is not WorkspaceContextLoadOutcome.Failed failed)
+            return false;
+
+        foreach (WorkspaceContextLoadFailure failure in failed.Failures)
+            CommandError.WriteWarning(failure.Message);
+        return true;
     }
 
     private static async Task<PlatformContext?> ResolvePlatformContextAsync(

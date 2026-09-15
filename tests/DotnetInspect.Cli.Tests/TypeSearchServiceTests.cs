@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 using DotnetInspector.Queries;
 
@@ -152,6 +153,51 @@ public class TypeSearchServiceTests
             "System.Text.Json.JsonSerializer.Serialize",
             memberOutput,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task FindTypesAsync_LocatorPreservesGenericMetadataNames()
+    {
+        using var httpClient = new HttpClient();
+        var options = new FindOptions
+        {
+            Pattern =
+                "System.Text.Json.Serialization.JsonConverter*",
+            Packages = ["System.Text.Json@10.0.0"],
+            Tfm = "net10.0",
+        };
+
+        FindSearchResult<TypeFindResult> result =
+            await TypeSearchService.FindTypesAsync(
+                options,
+                [options.Pattern],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.HasFailures);
+        TypeFindResult generic = Assert.Single(
+            result.Rows,
+            static row => row.Type == "JsonConverter`1");
+        Assert.Equal(
+            "System.Text.Json.Serialization.JsonConverter`1",
+            generic.FullName);
+        Assert.NotNull(generic.Location);
+    }
+
+    [Fact]
+    public void DeclarationLocatorEligibility_ExcludesNetStandardPlatform()
+    {
+        var request = new AssemblySetRequest
+        {
+            PlatformAssemblies = ["netstandard"],
+        };
+
+        Assert.False(
+            ConfiguredDeclarationLocatorWorkspace.IsEligible(
+                request,
+                "netstandard2.1"));
     }
 
     [Fact]

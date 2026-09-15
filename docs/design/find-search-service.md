@@ -307,6 +307,10 @@ collection and source behavior:
   package-relative implementation asset;
 - selected-compatible-TFM replay when the request targets a newer framework;
 - staged namespace-prefix fallback without an unrelated wildcard census;
+- established metadata-arity spelling for generic locator rows;
+- visible Package locator acquisition failures;
+- compatibility routing for Platform families without an implementation-view
+  locator adapter;
 - visible Platform implementation-view handoff and command decline;
 - configured-source command decline; and
 - separate `System.Object` definition and forwarder choices.

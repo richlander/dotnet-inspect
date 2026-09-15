@@ -352,6 +352,46 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task Find_PackageLocatorAcquisitionFailureIsVisible()
+    {
+        string id =
+            $"Workspace.Search.NotFound.{Guid.NewGuid():N}";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetAuthenticationDecorator(
+            _ => new NotFoundPayloadFeedHandler(
+                FirstFeed,
+                id,
+                requests));
+        CoreHttpClientFactory.ResetSharedForTesting();
+
+        var result = await RunCommandAsync(
+            [
+                "find", "No.Such.Type",
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Equal("[]", result.Output.Trim());
+        Assert.Contains(
+            $"Package '{id.ToLowerInvariant()}' version '{Version}'",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "was not supplied by any authorized source",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Find_PackageLocatorUsesAssemblyIdentityFromImplementationUniverse()
     {
         string id =

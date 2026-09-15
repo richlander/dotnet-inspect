@@ -462,11 +462,9 @@ internal static class TypeSearchService
             results.Add(
                 new TypeSearchResult
                 {
-                    TypeName = MetadataTypeNameFormatter
-                        .FormatGenericTypeName(typeName),
+                    TypeName = typeName,
                     Namespace = candidate.Name.Namespace,
-                    FullName = MetadataTypeNameFormatter
-                        .FormatGenericTypeName(fullName),
+                    FullName = fullName,
                     Kind = !includeAll && attributes is null
                         ? ""
                         : DisplayTypeKind(definitionKind),
