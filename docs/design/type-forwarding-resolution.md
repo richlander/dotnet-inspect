@@ -708,7 +708,8 @@ append maintenance belong to [Workspace Live Locator](workspace-live-locator.md)
 not this facet.
 
 Each discoverable entry preserves a `MetadataTypeDefinitionName`, a
-`Definition`, `Forwarder`, or `ModuleExport` kind, and `IsPublicSurface`.
+`Definition`, `Forwarder`, or `ModuleExport` kind, `IsPublicSurface`, and
+definition-local `DiscoveryAttributes`.
 `Declarations` contains all entries; `GetDeclarations()` selects the public
 discovery view and `GetDeclarations(includeAll: true)` includes nonpublic
 entries without rereading. Neither view includes the special top-level
@@ -760,6 +761,55 @@ complete emptiness. `StructuredPattern_PreservesNestedGenericBoundaries`
 covers the structured matcher. The Slow gate
 `PinnedReferencePack_BorrowedAndDescriptorInventoriesPreserveDeclarations`
 hash-pins the real package and checks both entry points.
+
+##### Definition discovery attributes
+
+The Metadata prerequisite [#7101](https://github.com/richlander/dotnet-inspect/issues/7101)
+adds `TypeDeclarationDiscoveryAttributes` to the detached inventory. Its claim
+is deliberately narrower than discoverability policy: retain the definition's
+`IsEditorBrowsableNever` and `IsObsolete` facts without hiding a declaration or
+choosing how a consumer should present it.
+
+Every included definition has these facts, including nonpublic definitions.
+They are local to that definition, not inherited from an enclosing type.
+`IsEditorBrowsableNever` identifies the declared enum value `1`; Always,
+Advanced, and other enum values are not Never. `IsObsolete` follows the
+existing `AttributeReader.HasHiddenAttribute` interpretation: an Obsolete
+occurrence counts unless Metadata recognizes its paired compiler-compatibility
+message and `CompilerFeatureRequired` marker. Recognized required-member and
+ref-struct compiler guards are not deprecation. Multiple occurrences contribute
+their facts without selecting one attribute as a winner.
+
+An unreadable EditorBrowsable prolog or enum prefix rejects the whole
+inventory as `InvalidImage`; it must not manufacture a negative fact.
+This stricter inventory read does not change the existing permissive attribute
+helpers or claim full custom-attribute validation. Obsolete interpretation
+reuses the existing marker recognition rather than retaining display messages.
+Unrelated attribute values are not decoded for these two facts.
+
+Forwarders and module exports have null `DiscoveryAttributes`: their defining
+image has not been inspected. Null is unavailable evidence, not two negative
+facts. Neither exported rows nor enclosing definitions supply guessed target
+attributes. Public/all selection, meaningful-public-type counts, name matching,
+and forwarder discovery keep their existing meanings.
+
+The [locator adoption map](reverse-type-locator-adoption.md) carries these
+owner-issued facts through Queries and Sections for CLI and Browser consumers.
+Default Find filtering remains CLI-owned; supplying these facts alone does not
+claim that the default collector has migrated.
+
+The same pinned reference pack motivates these facts: `System.Object` is an
+ordinary definition, `System.Runtime.CompilerServices.IsExternalInit` carries
+EditorBrowsable(Never), and `System.ExecutionEngineException` is deprecated.
+`System.Span<T>` carries the recognized RefStructs compiler guard and must not
+be mistaken for a deprecated type. The pack's netstandard forwarders retain
+unavailable target-attribute evidence.
+
+The bounded discovery-attribute cases in the same test class are PR-fast:
+definition-local facts and unchanged views, paired compiler guards, detached
+lifetime, unavailable export facts, and whole-inventory rejection for malformed
+EditorBrowsable prefixes. The pinned real-package case also compares attribute
+facts between both entry points and remains `Speed=Slow`.
 
 #### Single-name probe
 

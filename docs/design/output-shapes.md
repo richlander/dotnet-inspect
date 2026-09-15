@@ -51,6 +51,12 @@ the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-
 It does not claim that current commands already implement the option or the
 content-JSON alignment below.
 
+The envelope owner's proposed
+[service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
+adds a typed companion without changing that content boundary. Its planned
+`--evidence-envelope` consumer is additional adoption work for #6719, not a
+new rung in this ladder or an already available output option.
+
 ### Two serialization boundaries
 
 For the same completed operation, with no additional content-output selection
@@ -359,6 +365,18 @@ and image-selection provenance as separate typed values. Equal logical
 coordinates observed through different feeds, targets, views, or occurrences
 therefore remain different rows. Selection never unwraps a singleton, groups
 away an observation, prefers an origin, or changes query completeness.
+
+Rows retain Metadata's
+[definition discovery attributes](type-forwarding-resolution.md#definition-discovery-attributes)
+without applying visibility policy. Typed JSON emits `discovery_attributes`
+with `is_editor_browsable_never` and `is_obsolete` for definitions; the field is
+omitted for exports whose target attributes are unavailable. Omission is not a
+pair of false facts. These facts do not add default Markout columns.
+The PR-fast `TypeLocator_DiscoveryAttributesSurviveResidentAppendAndProjection`
+gate checks cold/resident equivalence, append reuse, occurrence preservation,
+detached lifetime, and both source-generated JSON forms. Its neighboring
+`TypeLocator_MalformedDiscoveryAttributesKeepAttributedIncompleteEvidence`
+gate preserves Metadata rejection as attributed incomplete discovery.
 
 `Head`, `Tail`, and `Window` apply independently to every answer through the
 shared rows-cohort semantics. The locator declares stable sequence order but
