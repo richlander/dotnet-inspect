@@ -340,6 +340,7 @@ PR CI only when daily Deep Inspect or a focused pre-merge gate owns them. See
 | --- | --- |
 | CLI and product output | `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release` |
 | Artifact contracts | `dotnet run --project tests/Inspector.Artifacts.Tests -c Release` |
+| Portable query codec | `dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release` |
 | Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
 | Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
 | Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |
