@@ -49,7 +49,9 @@ rendering remain with each host.
 This document is the normative owner of one joined experience claim:
 
 > A Workspace registration identifies a relevant exact library, package
-> prefix, or ecosystem without granting reachability. A call-graph request
+> prefix, or ecosystem without granting reachability. An ecosystem contributes
+> finite concrete package roots separately from its discovery prefixes. A
+> call-graph request
 > independently chooses how far beyond its focal subject to traverse. The
 > Workspace API defaults to no registrations, while the Ecosystems API may
 > supply a product-curated plan for explicit live construction. Call graphs default to every
@@ -137,13 +139,17 @@ source and work policies.
 ### Ecosystem
 
 An ecosystem registration names one product-owned ecosystem contribution.
-Ecosystem Packs may provide namespace hints, core-package priorities, package
+Ecosystem Packs may provide namespace hints, concrete registered packages, package
 sets, package prefixes, platform bindings, and Integration-owned knowledge.
 Those contributions retain their owners' semantics.
 
 Registering an ecosystem makes its contribution available to a consumer that
-selects registered ecosystems. It does not execute a scanner, add curated
-packages, or load an entire ecosystem.
+selects registered ecosystems. Its core packages are inert finite roots: the
+selecting operation may resolve them under explicit source, version, target,
+prerelease, and work bounds, then follow ordinary package dependencies to find
+candidate libraries and joins. Prefixes remain discovery scope and are not
+substituted for those roots. Registration does not execute a scanner, add
+curated packages, or load an entire ecosystem.
 
 The application catalog also authors the platform and all-known manifests
 adopted by the shared ecosystem-registration handoff. The latter construction
@@ -342,12 +348,23 @@ Future peer-member requests may use the existing peer-seed contract, but a
 prefix or ecosystem registration does not itself manufacture those member
 seeds.
 
+When an ecosystem is selected, its concrete registered packages are resolved
+as the finite initial package roots. Package-derived dependency traversal may
+then admit additional libraries under the resolution owner's evidence and the
+request's bounds. The ecosystem's prefixes are not enumerated to choose those
+roots.
+
 ### Self + registered ecosystems
 
 This focal length starts with `Self` and adds all ecosystem registrations from
 the exact Workspace revision bound to the request. A curated Workspace
 initially contributes its three ecosystem registrations; a raw Workspace
 contributes none until its caller or user adds them.
+
+For each added ecosystem, concrete registered packages and any exact or
+Platform populations form its operation-relevant starting population.
+Package-prefix contributions remain available for explicit prefix selection;
+they are not automatically expanded by this focal length.
 
 Other exact-library and package-prefix registrations do not join this mode
 merely because they are registered. A request may select one of them as
@@ -536,9 +553,9 @@ The following are required future outcome-level scenarios:
 | Change the curated manifest in a later product build | Later curated construction uses the new complete manifest; existing and restored Workspaces retain their exact registrations |
 | Run `find` for the real `System.Text.Json` overlap | The command explicitly chooses curated construction and can discover the Platform library without making curation intrinsic to Workspace |
 | Run a raw package-focused operation | The operation receives no ambient ecosystem registration and adds only its explicit scope |
-| Register an exact library, package prefix, or ecosystem | Registration is visible and inert until selected operation demand |
+| Register an exact library, package prefix, or ecosystem | Registration is visible and inert until selected operation demand; ecosystem package roots remain concrete and prefixes remain discovery scope |
 | Adopt Inspect Web Spotlight destination activation | Current-Workspace coverage classification and external-package restoration conform to their focused owner without making registration eager |
-| Run one member-seeded graph at all three focal lengths | The seed stays fixed; `Self` remains local, the middle mode adds registered ecosystems, and `Everything` admits all Workspace populations |
+| Run one member-seeded graph at all three focal lengths | The seed stays fixed; `Self` remains local, the middle mode resolves concrete package roots from registered ecosystems without expanding their prefixes, and `Everything` admits all Workspace populations |
 | Run the same graph without an explicit focal length in either host | The request uses `Everything` |
 | Start with no admitted libraries and use a package prefix or ecosystem as `Self` | Discovery and realization are bounded; the result is an induced graph with no fabricated focal member |
 | Induce a graph over a registration population with disconnected libraries | Every selected input remains represented, or its bounded omission or acquisition failure remains visible |
