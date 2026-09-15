@@ -1091,6 +1091,18 @@ public sealed class ApiSurfaceExtractorBoundsTests
             type.Members,
             member => member.Name == "One");
         Assert.Equal("1", value.EnumValueLiteral);
+
+        using var summaryStream = new MemoryStream(image, writable: false);
+        using var summaryReader = new PEReader(summaryStream);
+        ApiType summaryType = Assert.Single(
+            ApiSurfaceExtractor.ExtractSummary(summaryReader).Types,
+            candidate => candidate.Name == "TargetEnum");
+        Assert.DoesNotContain(
+            summaryType.Members,
+            member => member.Name == "value__");
+        Assert.Single(
+            summaryType.Members,
+            member => member.Name == "One");
     }
 
     [Fact]

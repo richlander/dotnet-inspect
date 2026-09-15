@@ -2006,6 +2006,7 @@ public static class ApiSurfaceExtractor
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
         var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
+        bool isEnum = IsEnum(reader, typeDef);
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
@@ -2101,7 +2102,8 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string fieldName = reader.GetString(field.Name);
-            if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
+            if ((isEnum && fieldName == "value__")
+                || !IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
                 || AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
             {
                 continue;
