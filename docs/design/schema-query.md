@@ -70,8 +70,9 @@ its producer is authorized, or that data exists for the current subject.
 Names use the product's stable section, field, and column vocabulary. Schema
 owners must not derive identity from a rendered heading after formatting or
 invent item names that do not correspond to an addressable projection.
-Composition preserves authored order. Resolution uses ordinal,
-case-insensitive name matching.
+Composition preserves the owner-issued schema sequence. Final section
+presentation follows Markout's default order or an explicit presentation-owner
+override. Resolution uses ordinal, case-insensitive name matching.
 
 ## Structural schema construction
 
@@ -206,6 +207,8 @@ Only eligible implicit table presentation or Markdown may promote to a tree.
 Section patterns and category doors are resolved against the complete
 owner-issued section vocabulary. Categories, costs, and visibility remain
 section-catalog metadata; they do not become `DocumentSchema` item kinds.
+Bare catalog presentation groups category doors before regular sections and
+opt-in sections, with alphabetical order inside each group.
 
 ## Projection behavior
 
@@ -246,7 +249,8 @@ same text does not.
 | --- | --- |
 | Structural schema types and generated projection | Markout; dotnet-inspect consumes the public owner-issued model. |
 | Product schema composition | The command or section owner whose document merges views or adds dynamic structure. |
-| Section order, categories, verbosity, explicit-only policy, costs, applicability, and execution | [Progressive disclosure](progressive-disclosure.md), section-pipeline, and operation owners; schema query consumes their section identities and effective outcomes. |
+| Section order | Markout's default order plus explicit presentation-owner overrides; schema composition retains owner-issued sequence but does not own final presentation order. |
+| Categories, verbosity, explicit-only policy, costs, applicability, and execution | [Progressive disclosure](progressive-disclosure.md), section-pipeline, and operation owners; schema query consumes their section identities and effective outcomes. |
 | Discovery request binding and presentation | The CLI host; `DiscoveryOutputRequest` preserves the chosen format, tree eligibility, projection, row selection, and destination. |
 | Rendering and format lowering | Markout and [output shapes](output-shapes.md). Schema query supplies structural vocabulary, not serialized output. |
 | Row predicates and row ordering | [Row query and order](row-query-order.md) and row-selection owners; discovery may consume their selected row window without redefining their semantics. |
@@ -308,6 +312,7 @@ The current Release CLI suite owns the executable contract:
 | `ProjectionDiagnosticsTests.ValidateProjection_FieldResolvingInNoSection_FailsWithError` and `ValidateProjection_MixedValidAndUnknown_WarnsOnUnknownButSucceeds` | Complete structural misses fail; partial requests preserve valid work and report only unresolved names. |
 | `ProjectionDiagnosticsTests.DiagnoseRendered_WildcardUsesResolvedNames` and `DiagnoseRendered_OverlappingPatternsUseResolvedNames` | Post-render pattern diagnosis follows resolved structural names. |
 | `CommandExecutionTests.Project_Discover_ExplicitTableDoesNotPromoteToTree`, `Project_Discover_TsvNoHeaderOmitsHeader`, and `Project_Discover_JsonOutWritesOnlyToFile` | Discovery preserves explicit format, header, and destination intent. |
+| `CommandExecutionTests.Member_DiscoverEffective_ListsCategoriesBeforeSections` | Bare effective discovery presents category doors before regular sections. |
 | `PackageQueryCliTests.DataDiscovery_UsesPackageQuerySchemaWithoutAcquisition` and `LibraryIntegrationQueryTests.StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget` | Structural discovery uses owner-issued schema without triggering domain acquisition or scanner execution. |
 | `CommandExecutionTests.Package_DiscoverSchema_ListsPublishedPackageInfoField` | Package structural discovery samples one runtime field; complete renderer/schema vocabulary equivalence remains unverified under #7140. |
 | `CloneCandidatesSectionTests.Type_JsonProjectionSupportsFieldsColumnsAndRows` and `Library_JsonProjectionSupportsSummaryFields` | Clone-candidate projection samples overlapping field and column names; complete discovery/validation/render equivalence remains unverified under #7141. |
