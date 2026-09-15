@@ -23,8 +23,8 @@ The operator explicitly approved this bounded cross-owner replacement:
 - the Workspace API defaults to an empty Workspace and has no curated option;
 - the Ecosystems API owns product curation: the initial platform composition
   contains Platform, ASP.NET Core, and Microsoft.Extensions; #6763 subsequently
-  approved separate all-known construction, now including Aspire, AI, and
-  Azure, and Blazor, and #7001 adds construction from an explicit ordered ecosystem
+  approved separate all-known construction, now including Aspire, AI, Azure,
+  and Blazor, and #7001 adds construction from an explicit ordered ecosystem
   selection;
 - callers explicitly choose raw or curated construction according to their
   operation;
