@@ -190,9 +190,9 @@ entry points report the same refusal through `NotSupportedException`.
 
 Properties, events, accessors, whole delegate or enum type forms, and
 primary-constructor syntax remain explicitly unavailable in this opt-in slice.
-A standalone selected enum value is narrower: it emits only the escaped member
-name and exact metadata constant after verifying that the member carries no
-caller contract or pointer shape. The enum's special `value__` storage slot
+A standalone selected enum value is narrower: it emits only the
+declaration-contained member name and exact metadata constant after verifying
+that the member carries no caller contract or pointer shape. The enum's special `value__` storage slot
 supplies the underlying type but is not a declarable member and does not enter
 the API surface. A caller can select the supported members or supply the
 product-selected explicit-field and ordinary-constructor shape. The printer

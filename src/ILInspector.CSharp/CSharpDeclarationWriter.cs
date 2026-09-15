@@ -1311,7 +1311,7 @@ internal static class CSharpDeclarationWriter
             lines.AddRange(member.Attributes.Select(attribute => $"[{attribute}]"));
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
             lines.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
-        lines.Add($"{EscapeIdentifier(member.Name)} = {value}");
+        lines.Add($"{SanitizeIdentifier(member.Name)} = {value}");
         return string.Join("\n", lines);
     }
 
