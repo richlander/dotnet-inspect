@@ -7,7 +7,7 @@ namespace DotnetInspector.Presentation;
 /// <summary>Completes one selected-Library API comparison for either host.</summary>
 public static class LibraryApiDiffInspection
 {
-    public static InspectionEnvelope<LibraryApiDiffPresentationResult> Execute(
+    public static InspectionEnvelope<LibraryApiDiffOutcome> Execute(
         AssemblyContextGroup beforeGroup,
         AssemblyContextParticipant before,
         AssemblyContextGroup afterGroup,

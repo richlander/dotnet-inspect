@@ -361,7 +361,7 @@ public abstract record RealizedMemberCoordinate
                     nameof(version));
             }
 
-            if (!IsCanonicalProducer(producer))
+            if (!IsCanonicalPackageProducer(producer))
             {
                 throw new ArgumentException(
                     "A realized package producer is a canonical content-cache producer key.",
@@ -456,7 +456,7 @@ public abstract record RealizedMemberCoordinate
                 ? "a realized package id must be a canonical NuGet package id in its normalized lowercase spelling"
                 : !IsCanonicalPackageVersion(version)
                     ? "a realized package version must be one exact NuGet version in its normalized lowercase spelling"
-                    : !IsCanonicalProducer(producer)
+                    : !IsCanonicalPackageProducer(producer)
                         ? "a realized package producer must be a canonical content-cache producer key"
                         : framework is not null
                             && !IsCanonicalFramework(framework)
@@ -705,6 +705,14 @@ public abstract record RealizedMemberCoordinate
                 || character is '-');
 
     /// <summary>
+    /// True when <paramref name="value"/> is a current portable Package Source
+    /// producer token or an already-supported producer spelling.
+    /// </summary>
+    public static bool IsCanonicalPackageProducer(string? value) =>
+        PackageProducerIdentity.IsCanonicalPortableKey(value)
+        || IsCanonicalProducer(value);
+
+    /// <summary>
     /// True when <paramref name="value"/> names a product-owned platform
     /// implementation-pack family.
     /// </summary>
@@ -892,6 +900,7 @@ public abstract record WorkspaceContextLoadOutcome
     public sealed record Loaded : WorkspaceContextLoadOutcome
     {
         internal Loaded(
+            InspectionWorkspaceIdentity workspace,
             AssemblyContextGroup group,
             ImmutableArray<WorkspaceContextMember> members,
             ImmutableArray<RealizedMemberCoordinate.Platform>
@@ -899,6 +908,7 @@ public abstract record WorkspaceContextLoadOutcome
             string? framework,
             string? runtimeIdentifier)
             : this(
+                workspace,
                 group,
                 members,
                 [],
@@ -909,6 +919,7 @@ public abstract record WorkspaceContextLoadOutcome
         }
 
         internal Loaded(
+            InspectionWorkspaceIdentity workspace,
             AssemblyContextGroup group,
             ImmutableArray<WorkspaceContextMember> members,
             ImmutableArray<PackageRootBinding> packageRoots,
@@ -917,6 +928,7 @@ public abstract record WorkspaceContextLoadOutcome
             string? framework,
             string? runtimeIdentifier)
         {
+            Workspace = workspace;
             Group = group;
             Members = members;
             PackageRoots = packageRoots;
@@ -924,6 +936,8 @@ public abstract record WorkspaceContextLoadOutcome
             Framework = framework;
             RuntimeIdentifier = runtimeIdentifier;
         }
+
+        public InspectionWorkspaceIdentity Workspace { get; }
 
         public AssemblyContextGroup Group { get; }
 

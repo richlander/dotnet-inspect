@@ -675,7 +675,7 @@ public sealed class BrowserProductHomeDemosTests
         string? navigationRuntimeIdentifier = null,
         bool includeFocusedPackageInContext = true)
     {
-        const int version = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int version = InspectionDefinitionSchema.Version1;
         var first = new DefinitionMemberCoordinate.PackageCoordinate(
             "Demo.First",
             "1.0.0",
@@ -736,7 +736,7 @@ public sealed class BrowserProductHomeDemosTests
         bool focusSecond = false)
     {
         const int schemaVersion =
-            InspectionDefinitionJson.CurrentSchemaVersion;
+            InspectionDefinitionSchema.Version1;
         var platform = new DefinitionMemberCoordinate.PlatformCoordinate(
             family,
             "System.Text.Json",

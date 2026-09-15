@@ -1934,7 +1934,7 @@ public sealed partial class WorkspaceContextLoaderTests
         var pinned = new RealizedMemberCoordinate.Package(
             PackageId,
             Version,
-            Producer(FeedB),
+            PortableProducer(FeedB),
             Framework,
             runtimeIdentifier: null);
 
@@ -3938,6 +3938,16 @@ public sealed partial class WorkspaceContextLoaderTests
 
         Assert.Equal(first, second);
 
+        var portablePackage = new RealizedMemberCoordinate.Package(
+            PackageId,
+            Version,
+            PackageProducerIdentity.NuGetOrg.PortableKey,
+            Framework,
+            runtimeIdentifier: null);
+        Assert.Equal(
+            PackageProducerIdentity.NuGetOrg.PortableKey,
+            portablePackage.Producer);
+
         // The producer is part of the identity: the same id, version, target,
         // and runtime identifier served by another feed is another coordinate,
         // because it is not the same bytes.
@@ -3999,6 +4009,13 @@ public sealed partial class WorkspaceContextLoaderTests
             Producer(NuGetOrg),
             Framework,
             assembly: null);
+        Assert.Throws<ArgumentException>(
+            () => new RealizedMemberCoordinate.Platform(
+                "runtime",
+                RuntimePackVersion,
+                PackageProducerIdentity.NuGetOrg.PortableKey,
+                Framework,
+                assembly: null));
         Assert.Equal(
             platform,
             new RealizedMemberCoordinate.Platform(
@@ -4073,6 +4090,15 @@ public sealed partial class WorkspaceContextLoaderTests
 
     static string Producer(PackageSource source) =>
         NuGetCache.GetSourceKey(source.Url);
+
+    static string PortableProducer(PackageSource source)
+    {
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                source,
+                PackageSourceAssociation.Create());
+        return client.Source.Producer.PortableKey;
+    }
 
     static WorkspaceMemberCoordinate PackageMember(string? version) =>
         WorkspaceMemberCoordinate.Package(PackageId, version);

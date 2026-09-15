@@ -11,7 +11,7 @@ public sealed class ProductEcosystemPackTests
     public void AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding()
     {
         Assert.Equal(
-            [false, false, false, true, false, false],
+            [false, false, false, true, false, false, false],
             EcosystemPackCatalog.Discover().Select(pack => pack.HasScanner));
         var selected = Assert.IsType<EcosystemScannerSelectionResult.Known>(
             EcosystemPackCatalog.SelectScanner(EcosystemPackIds.Aspire));
@@ -24,6 +24,7 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.AspNetCore,
                 EcosystemPackIds.AI,
                 EcosystemPackIds.Azure,
+                EcosystemPackIds.Blazor,
             },
             id => Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
                 EcosystemPackCatalog.SelectScanner(id)));
@@ -81,6 +82,12 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.Azure,
                 "Azure",
                 600,
+                packageSet: null),
+            blazor => AssertPack(
+                blazor,
+                EcosystemPackIds.Blazor,
+                "Blazor",
+                700,
                 packageSet: null));
     }
 
@@ -182,6 +189,18 @@ public sealed class ProductEcosystemPackTests
                     "Azure.Security.KeyVault.Secrets",
                     "Azure.Storage.Blobs",
                     "Azure.Messaging.ServiceBus",
+                ]),
+            blazor => AssertKnowledge(
+                blazor,
+                [
+                    "Microsoft.AspNetCore.Components",
+                    "Microsoft.Authentication.WebAssembly",
+                ],
+                [
+                    "Microsoft.AspNetCore.Components.WebAssembly",
+                    "Microsoft.AspNetCore.Components.WebView.Maui",
+                    "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter",
+                    "Microsoft.Authentication.WebAssembly.Msal",
                 ]));
 
         static void AssertKnowledge(
@@ -213,7 +232,8 @@ public sealed class ProductEcosystemPackTests
                 new PackageCoordinate("Aspire.Cli"),
                 Assert.Single(aspire.ToolPackages)),
             ai => Assert.Empty(ai.ToolPackages),
-            azure => Assert.Empty(azure.ToolPackages));
+            azure => Assert.Empty(azure.ToolPackages),
+            blazor => Assert.Empty(blazor.ToolPackages));
     }
 
     [Fact]

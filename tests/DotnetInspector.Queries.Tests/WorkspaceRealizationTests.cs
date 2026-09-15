@@ -762,6 +762,34 @@ public sealed class WorkspaceRealizationTests
         await coordinator.DisposeAsync();
     }
 
+    [Fact]
+    public async Task Close_WaitsForInFlightUseAfterLeaseDisposal()
+    {
+        var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        _ = await WorkspaceRealizationConsumer.ActivateAsync(
+            coordinator,
+            candidate);
+        WorkspaceRealizationOperationLease operation =
+            await WorkspaceRealizationConsumer.EnterAsync(coordinator);
+        WorkspaceRealizationOperationUse use =
+            operation.EnterUse();
+
+        Task<WorkspaceRealizationCoordinatorCloseReport> close =
+            coordinator.CloseAsync();
+        operation.Dispose();
+
+        Assert.False(close.IsCompleted);
+
+        use.Dispose();
+        WorkspaceRealizationCoordinatorCloseReport report = await close;
+        Assert.True(Assert.Single(report.Settlements).Succeeded);
+        await coordinator.DisposeAsync();
+    }
+
     sealed class ThrowingResource : IDisposable
     {
         public void Dispose() =>

@@ -81,6 +81,11 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     public string? Tfm { get; init; }
 
     /// <summary>
+    /// Platform family used by the asset-mode Pruning projection.
+    /// </summary>
+    public string? PruningPlatformFamily { get; init; }
+
+    /// <summary>
     /// Output as JSON.
     /// </summary>
     public bool JsonOutput { get; init; }

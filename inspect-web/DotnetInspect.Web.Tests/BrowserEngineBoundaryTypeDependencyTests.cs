@@ -97,6 +97,44 @@ public sealed partial class BrowserEngineBoundaryTests
                 && edge.Kind == "implements");
         Assert.Empty(workspace.InspectionFailures);
         Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            workspace.ExactTypeInspection.Content.Outcome);
+        Assert.Equal(
+            typeName,
+            workspace.ExactTypeInspection.Content.Type?.FullName);
+        Assert.IsType<InspectionShare.Available>(
+            workspace.ExactTypeInspection.Share);
+        InspectionEnvelope<ExactTypeInspectionResult> direct =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    rootPackageId,
+                    "1.0.0",
+                    "net11.0",
+                    typeName),
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = BrowserPackageWorkspace.NetworkClient,
+                    SourceAuthorization =
+                        BrowserPackageWorkspace.PackageSourceAuthorization,
+                    PackageStore =
+                        BrowserPackageWorkspace.SessionPackageStore,
+                    PackageTransferPolicy =
+                        BrowserPackageWorkspace.PackageTransferPolicy,
+                    PayloadLimits =
+                        BrowserPackageWorkspace.PackageLimits,
+                },
+                BrowserApiSurfacePolicy.Limits,
+                TestContext.Current.CancellationToken);
+        Assert.Equal(
+            JsonSerializer.Serialize(
+                direct,
+                BrowserMetadataJsonContext.Default
+                    .ExactTypeInspectionEnvelope),
+            JsonSerializer.Serialize(
+                workspace.ExactTypeInspection,
+                BrowserMetadataJsonContext.Default
+                    .ExactTypeInspectionEnvelope));
+        Assert.Equal(
             typeName,
             workspace.TypeDependencyInspection.Content
                 .QueryResult.Dependency.MatchedType);
@@ -109,6 +147,83 @@ public sealed partial class BrowserEngineBoundaryTests
             StringComparison.Ordinal);
         Assert.NotEmpty(share.Packet);
         Assert.Empty(workspace.TypeDependencyInspection.Diagnostics);
+    }
+
+    [Fact]
+    public async Task ExactTypeInspection_BoundedProjectionMakesSelectionUnavailable()
+    {
+        const string packageId = "Browser.ExactType.Bounds";
+        const string selectedType = "Browser.Bounds.Selected";
+        const string omittedType = "Browser.Bounds.Omitted";
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+                ("lib/net11.0/First.dll",
+                    BuildTypeDependencyImage(
+                        "Browser.Bounds.First",
+                        selectedType,
+                        typeof(IDisposable))),
+                ("lib/net11.0/Second.dll",
+                    BuildTypeDependencyImage(
+                        "Browser.Bounds.Second",
+                        omittedType,
+                        typeof(IAsyncDisposable)))));
+        var limits = new ApiSurfaceProjectionLimits(
+            maxParticipants: 2,
+            maxTypes: 1,
+            maxMembers: 100,
+            maxInspectionFailures: 100,
+            maxTypeForwarders: 100,
+            maxMetadataRows: 10_000);
+        WorkspaceContextLoadOptions capabilities = new()
+        {
+            HttpClient = BrowserPackageWorkspace.NetworkClient,
+            SourceAuthorization =
+                BrowserPackageWorkspace.PackageSourceAuthorization,
+            PackageStore =
+                BrowserPackageWorkspace.SessionPackageStore,
+            PackageTransferPolicy =
+                BrowserPackageWorkspace.PackageTransferPolicy,
+            PayloadLimits =
+                BrowserPackageWorkspace.PackageLimits,
+        };
+
+        InspectionEnvelope<ExactTypeInspectionResult> selected =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    selectedType),
+                capabilities,
+                limits,
+                TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> unavailable =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    omittedType),
+                capabilities,
+                limits,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Unavailable,
+            selected.Content.Outcome);
+        Assert.Null(selected.Content.Type);
+        Assert.False(selected.Content.IsComplete);
+        Assert.Contains(
+            selected.Diagnostics,
+            diagnostic => diagnostic.Code
+                == "exact-type.projection-truncated");
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Unavailable,
+            unavailable.Content.Outcome);
+        Assert.DoesNotContain(
+            unavailable.Diagnostics,
+            diagnostic => diagnostic.Code == "exact-type.not-found");
     }
 
     [Fact]
@@ -162,6 +277,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "net11.0",
                     $"{rootAssemblyName}.dll",
                     typeName,
+                    typeName,
                     WorkspaceJson,
                     Resolve(RowQueryIntent.Empty));
         BrowserTypeMetadata bounded =
@@ -171,6 +287,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "1.0.0",
                     "net11.0",
                     $"{rootAssemblyName}.dll",
+                    typeName,
                     typeName,
                     WorkspaceJson,
                     Resolve(
@@ -204,6 +321,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "1.0.0",
                     "net11.0",
                     $"{rootAssemblyName}.dll",
+                    typeName,
                     typeName,
                     WorkspaceJson,
                     Resolve(
@@ -418,6 +536,133 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryTypeProjection_UsesSelectedNestedDefinitionIdentity()
+    {
+        const string packageId =
+            "Browser.TypeDependencies.NestedIdentity";
+        const string nestedAssemblyName =
+            "Browser.TypeDependencies.NestedIdentity.Selected";
+        const string topLevelAssemblyName =
+            "Browser.TypeDependencies.NestedIdentity.Other";
+        const string outerTypeName =
+            "Browser.TypeDependencies.NestedIdentity.Outer";
+        const string typeQueryId =
+            "Browser.TypeDependencies.NestedIdentity.Outer.Inner";
+        const string typeDefinitionId =
+            "Browser.TypeDependencies.NestedIdentity.Outer+Inner";
+
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+                (
+                    $"lib/net11.0/{nestedAssemblyName}.dll",
+                    BuildNestedTypeDependencyImage(
+                        nestedAssemblyName,
+                        outerTypeName,
+                        "Inner",
+                        typeof(IDisposable))),
+                (
+                    $"lib/net11.0/{topLevelAssemblyName}.dll",
+                    BuildTypeDependencyImage(
+                        topLevelAssemblyName,
+                        typeQueryId,
+                        typeof(IAsyncDisposable)))));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{nestedAssemblyName}.dll",
+            typeQueryId,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """,
+            typeDefinitionId);
+
+        ExactTypeApi exactType =
+            Assert.IsType<ExactTypeApi>(
+                metadata.ExactTypeInspection.Content.Type);
+        Assert.Equal(typeQueryId, exactType.FullName);
+        Assert.Equal(
+            nestedAssemblyName,
+            metadata.ExactTypeInspection.Content
+                .RequestedAssembly?.Identity.Name);
+        Assert.Equal(
+            nestedAssemblyName,
+            metadata.ExactTypeInspection.Content
+                .SupplierAssembly?.Identity.Name);
+        Assert.Contains(typeof(IDisposable).FullName!, exactType.Interfaces);
+        Assert.DoesNotContain(
+            typeof(IAsyncDisposable).FullName!,
+            exactType.Interfaces);
+    }
+
+    [Fact]
+    public async Task QueryTypeProjection_UsesOrdinalDefinitionIdentity()
+    {
+        const string packageId =
+            "Browser.TypeDependencies.CaseIdentity";
+        const string selectedAssemblyName =
+            "Browser.TypeDependencies.CaseIdentity.Selected";
+        const string otherAssemblyName =
+            "Browser.TypeDependencies.CaseIdentity.Other";
+        const string selectedType =
+            "Browser.TypeDependencies.CaseIdentity.Widget";
+        const string otherType =
+            "Browser.TypeDependencies.CaseIdentity.widget";
+
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+                (
+                    $"lib/net11.0/{selectedAssemblyName}.dll",
+                    BuildTypeDependencyImage(
+                        selectedAssemblyName,
+                        selectedType,
+                        typeof(IDisposable))),
+                (
+                    $"lib/net11.0/{otherAssemblyName}.dll",
+                    BuildTypeDependencyImage(
+                        otherAssemblyName,
+                        otherType,
+                        typeof(IAsyncDisposable)))));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{selectedAssemblyName}.dll",
+            selectedType,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """,
+            selectedType);
+
+        ExactTypeApi exactType =
+            Assert.IsType<ExactTypeApi>(
+                metadata.ExactTypeInspection.Content.Type);
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            metadata.ExactTypeInspection.Content.Outcome);
+        Assert.Equal(
+            "Browser.TypeDependencies.CaseIdentity",
+            exactType.DefinitionIdentity.Namespace);
+        Assert.Equal(["Widget"], exactType.DefinitionIdentity.Segments);
+        Assert.Contains(typeof(IDisposable).FullName!, exactType.Interfaces);
+        Assert.DoesNotContain(
+            typeof(IAsyncDisposable).FullName!,
+            exactType.Interfaces);
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_DoesNotUseFuzzyDependencyRoot()
     {
         const string packageId =
@@ -451,11 +696,14 @@ public sealed partial class BrowserEngineBoundaryTests
             ]
             """);
 
-        Assert.Equal(typeName, metadata.FullName);
-        Assert.Contains(typeof(IDisposable).FullName!, metadata.Interfaces);
+        ExactTypeApi exactType =
+            Assert.IsType<ExactTypeApi>(
+                metadata.ExactTypeInspection.Content.Type);
+        Assert.Equal(typeName, exactType.FullName);
+        Assert.Contains(typeof(IDisposable).FullName!, exactType.Interfaces);
         Assert.DoesNotContain(
             typeof(IAsyncDisposable).FullName!,
-            metadata.Interfaces);
+            exactType.Interfaces);
         Assert.Empty(metadata.GraphEdges);
         Assert.Contains(
             metadata.InspectionFailures,
@@ -494,7 +742,8 @@ public sealed partial class BrowserEngineBoundaryTests
         string packageId,
         string assemblyName,
         string typeName,
-        string workspaceJson)
+        string workspaceJson,
+        string? typeDefinitionId = null)
     {
         string json =
             await DotnetInspect.Web.Interop.Metadata.MetadataExports
@@ -504,6 +753,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "net11.0",
                     assemblyName,
                     typeName,
+                    typeDefinitionId ?? typeName,
                     workspaceJson);
         var options = new JsonSerializerOptions(
             BrowserMetadataJsonContext.Default.Options);
@@ -626,6 +876,36 @@ public sealed partial class BrowserEngineBoundaryTests
         foreach (Type dependency in dependencies)
             type.AddInterfaceImplementation(dependency);
         type.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildNestedTypeDependencyImage(
+        string assemblyName,
+        string outerTypeName,
+        string nestedTypeName,
+        params Type[] dependencies)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder outer = module.DefineType(
+            outerTypeName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        TypeBuilder nested = outer.DefineNestedType(
+            nestedTypeName,
+            TypeAttributes.NestedPublic
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        foreach (Type dependency in dependencies)
+            nested.AddInterfaceImplementation(dependency);
+        nested.CreateType();
+        outer.CreateType();
 
         using var stream = new MemoryStream();
         assembly.Save(stream);

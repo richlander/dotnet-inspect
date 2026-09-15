@@ -2,19 +2,23 @@
 
 ## Unreleased
 
-- **Breaking:** Plain type-search `find --json` now emits an operation document
-  with `complete`, `results`, and `locator_sections` instead of a root result
-  array. Machine consumers should read result rows from `.results`; the
-  envelope preserves whether the search completed and the typed locator
-  evidence behind zero-candidate, incomplete, and selected answers (#6844).
+- Records Package Source-issued portable producer tokens in fresh package Root
+  coordinates, enabling configured HTTP and local Roots to round-trip through
+  current destination authorization while preserving existing content and
+  cache producer keys and legacy NuGet.org requests (#6946).
+- Routes eligible exact-Package and explicit-Platform type Find operations
+  through the Workspace declaration locator while preserving established
+  Markdown, tips, table formats, and root-array JSON. Internal Package
+  Type/Member handoff retains the selected implementation asset and compatible
+  target framework (#6844).
 - Adds a bounded, credential-free portable token to every Package Source
   producer identity for later exact package Root correspondence without
   carrying endpoint, path, or source authority (#6995).
 - Adds a receipt-preserving PackageHouse compile-realization adapter that issues
   the existing package Root binding without repeating asset selection, retains
-  Root-only explicit-empty and no-match outcomes, and reports unsupported
-  configured producers or Unicode package IDs as typed coordinate
-  no-contribution evidence (#6942).
+  Root-only explicit-empty and no-match outcomes, and reports Unicode package
+  IDs outside the Root grammar as typed coordinate no-contribution evidence
+  (#6942).
 - Implements target-aware PackageHouse `Realize` execution over the existing
   compile/runtime selector receipts, preserving acquired package shape,
   optional Library handoffs, and terminal timeout evidence (#6880).
