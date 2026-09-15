@@ -299,21 +299,10 @@ public static class AssemblyReader
             publicTypes.Add(reader.GetFullTypeName(typeDef));
         }
 
-        var normalizedLookup = normalized.Replace('+', '.');
-        var exactMatches = publicTypes.Where(fullName =>
-        {
-            var normalizedFullName =
-                FqnParser.NormalizeTypeName(fullName).Replace('+', '.');
-            return normalizedFullName.Equals(
-                       normalizedLookup,
-                       StringComparison.OrdinalIgnoreCase)
-                   || (normalizedFullName.Length > normalizedLookup.Length
-                       && normalizedFullName[
-                           normalizedFullName.Length - normalizedLookup.Length - 1] == '.'
-                       && normalizedFullName.EndsWith(
-                           normalizedLookup,
-                           StringComparison.OrdinalIgnoreCase));
-        }).ToList();
+        var exactMatches = publicTypes
+            .Where(fullName =>
+                TypeMatcher.MatchesExactTypeName(fullName, normalized))
+            .ToList();
         if (exactMatches.Count == 1)
             return exactMatches[0];
         if (exactMatches.Count > 1)

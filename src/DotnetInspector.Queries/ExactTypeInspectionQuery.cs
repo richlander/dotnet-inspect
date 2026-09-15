@@ -208,10 +208,17 @@ public static class ExactTypeInspectionQuery
 
         WorkspaceContextInput planned =
             operation.Definition.Plan.Contexts[request.ContextIndex];
+        string? plannedFramework =
+            planned.Framework is { } framework
+            && NuGetTargetFrameworkIdentity.TryNormalize(
+                framework,
+                out string canonicalFramework)
+                ? canonicalFramework
+                : null;
         if (planned.Members is not [WorkspaceMemberCoordinate.PackageMember package]
             || !string.Equals(package.PackageId, binding.Coordinate.PackageId, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(package.Version, binding.Coordinate.Version, StringComparison.Ordinal)
-            || !string.Equals(planned.Framework, binding.Coordinate.Framework, StringComparison.Ordinal)
+            || !string.Equals(plannedFramework, binding.Coordinate.Framework, StringComparison.Ordinal)
             || !string.Equals(planned.RuntimeIdentifier, binding.Coordinate.RuntimeIdentifier, StringComparison.Ordinal)
             || realization.SurfaceParticipants.Any(participant =>
                 !ReferenceEquals(participant.Package, binding.Root.Identity)))
@@ -238,17 +245,19 @@ public static class ExactTypeInspectionQuery
 
         WorkspaceDeclarationPopulation selectedPopulation =
             ((WorkspaceDeclarationPopulationCapture.Captured)capture).Population;
-        TypeDeclarationLocatorResult located =
+        ImmutableArray<TypeDeclarationLocatorRequest> locatorRequests =
+        [
+            new TypeDeclarationLocatorRequest.Pattern(
+                request.TypeSelector),
+            new TypeDeclarationLocatorRequest.Pattern("*"),
+        ];
+        TypeDeclarationLocatorResult allLocated =
             TypeDeclarationLocatorQuery.Execute(
                 selectedPopulation,
-                [
-                    new TypeDeclarationLocatorRequest.Pattern(
-                        request.TypeSelector),
-                    new TypeDeclarationLocatorRequest.Pattern("*"),
-                ],
-                includeAll: request.Scope == ApiSurfaceScope.IncludeAll,
+                locatorRequests,
+                includeAll: true,
                 cancellationToken: cancellationToken);
-        if (located is TypeDeclarationLocatorResult.Rejected locatorRejected)
+        if (allLocated is TypeDeclarationLocatorResult.Rejected locatorRejected)
         {
             return new ExactTypeInspectionResult.Rejected(
                 request,
@@ -261,11 +270,35 @@ public static class ExactTypeInspectionQuery
                 ]);
         }
 
-        var evaluated = (TypeDeclarationLocatorResult.Evaluated)located;
+        var allEvaluated =
+            (TypeDeclarationLocatorResult.Evaluated)allLocated;
+        TypeDeclarationLocatorResult located =
+            request.Scope == ApiSurfaceScope.IncludeAll
+                ? allLocated
+                : TypeDeclarationLocatorQuery.Execute(
+                    selectedPopulation,
+                    locatorRequests,
+                    includeAll: false,
+                    cancellationToken: cancellationToken);
+        if (located is TypeDeclarationLocatorResult.Rejected scopedRejected)
+        {
+            return new ExactTypeInspectionResult.Rejected(
+                request,
+                definition,
+                [
+                    new(
+                        ExactTypeInspectionFailureKind.PopulationUnavailable,
+                        PopulationFailure:
+                            scopedRejected.PopulationFailure),
+                ]);
+        }
+
+        var evaluated =
+            (TypeDeclarationLocatorResult.Evaluated)located;
         var contextOccurrences = selectedPopulation.Receipt.Members
             .Select(static member => member.Occurrence).ToHashSet();
         TypeDeclarationLocatorMemberOutcome[] contextOutcomes =
-            [.. evaluated.Members.Where(member => contextOccurrences.Contains(member.Member.Occurrence))];
+            [.. allEvaluated.Members.Where(member => contextOccurrences.Contains(member.Member.Occurrence))];
         var occurrences = selectedPopulation.Receipt.Members
             .Where(member =>
                 (request.Library is null
@@ -300,10 +333,10 @@ public static class ExactTypeInspectionQuery
             [.. evaluated.Answers[0].Candidates.Where(candidate =>
                 occurrences.Contains(candidate.Observation.Occurrence))];
         ImmutableArray<TypeDeclarationLocatorCandidate> exactNames =
-            [.. candidates.Where(candidate => string.Equals(
+            [.. candidates.Where(candidate =>
+                TypeMatcher.MatchesExactTypeName(
                 candidate.Name.ToMetadataFullName(),
-                request.TypeSelector,
-                StringComparison.Ordinal))];
+                request.TypeSelector))];
         if (!exactNames.IsEmpty)
             candidates = exactNames;
         if (candidates.IsEmpty)
@@ -545,7 +578,7 @@ public static class ExactTypeInspectionQuery
             request,
             definition,
             Detach(selected),
-            evaluated.Answers[1].Candidates.Count(candidate =>
+            allEvaluated.Answers[1].Candidates.Count(candidate =>
                 candidate.Kind == AssemblyTypeDeclarationKind.Definition
                 && candidate.Name.Equals(selected.Resolution.Definition.Type)
                 && contextOccurrences.Contains(candidate.Observation.Occurrence)) == 1

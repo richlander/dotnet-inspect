@@ -277,6 +277,10 @@ types and async facts through Metadata's existing method-selection query,
 then clears path-only type, member and failure fields. No Workspace, locator,
 reader, lease, snapshot, callback or acquired payload crosses this boundary.
 
+The operation compares the admitted and acquired target frameworks through
+NuGet's canonical framework identity. Lookup preserves generic arity while
+preferring an exact full or short name before Metadata's broader base-name
+matching.
 The optional exact `PackageCompileAsset.Id`, Metadata-issued assembly identity
 (or bounded exact assembly-name selector for callers that have only a name)
 narrows declaration discovery within the surface role;
@@ -286,10 +290,12 @@ existing asset-id/name gesture through the package owner and passes the
 participant's assembly identity and exact compile asset ID as request evidence;
 CLI may omit both. Reference-only packages remain inspectable, and ref/lib
 assets sharing an assembly identity cannot substitute for each other.
-Share is derived only for Available
-content, using the canonical definition and source-issued exact package
-coordinate. Misses, ambiguity, incomplete inspection and rejection remain
-non-projectable. A successful assembly-selected collision is also
+Share is derived only for Available content, using the escaped owner-issued
+definition identity that Browser restoration consumes and the source-issued
+exact package coordinate. Package-wide uniqueness is evaluated over all
+declarations independently of the requested public/API visibility. Misses,
+ambiguity, incomplete inspection and rejection remain non-projectable. A
+successful assembly-selected collision is also
 non-projectable when the package-wide canonical type is not unique: this
 slice preserves the source-issued declaration and supplier asset IDs rather
 than inventing a package-asset key from an assembly name.

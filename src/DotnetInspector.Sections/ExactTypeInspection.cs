@@ -104,7 +104,7 @@ public static class ExactTypeInspection
         var view = new ViewDefinition(
             InspectionDefinitionJson.CurrentSchemaVersion,
             WorkspaceSharePacketTransposer.ViewId,
-            type: available.Candidate.Definition.ToMetadataFullName());
+            type: available.Candidate.Definition.ToEscapedFullName());
         var scenario = new ScenarioDefinition(
             InspectionDefinitionJson.CurrentSchemaVersion,
             WorkspaceSharePacketTransposer.ScenarioId,

@@ -136,6 +136,57 @@ public sealed class ExactTypeInspectionCommandTests
             result.Output);
     }
 
+    [Theory]
+    [InlineData(
+        "JsonConverter",
+        "net10.0",
+        "abstract class System.Text.Json.Serialization.JsonConverter")]
+    [InlineData(
+        "JsonSerializer",
+        "NET10.0",
+        "static class System.Text.Json.JsonSerializer")]
+    public async Task PinnedPackageExactType_PreservesNormalizedExactSelection(
+        string typeName,
+        string framework,
+        string expectedDeclaration)
+    {
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url),
+            new MemoryStream(Package()),
+            TestContext.Current.CancellationToken);
+        using var http = new HttpClient(new NoNetworkHandler());
+        TypeOptions options =
+            await Parsers.TypeOptionsParserTests.ParseSuccessAsync(
+                "type", typeName,
+                "--package", $"{PackageId}@{Version}",
+                "--tfm", framework);
+        options = options with { TipLevel = TipLevel.Quiet };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteExactAsync(
+                options,
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = http,
+                    SourceAuthorization =
+                        new UniformPackageSourceAuthorization(
+                            [PackageSource.NuGetOrg]),
+                    PackageStore = store,
+                    UseVersionCache = false,
+                    IncludePackageRootBindings = true,
+                }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("", result.Error);
+        Assert.Contains(
+            expectedDeclaration,
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task PinnedPackageExactType_PresentsAssemblyIdentityWithoutInventingPath()
     {

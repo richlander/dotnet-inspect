@@ -51,12 +51,7 @@ public static class TypeMatcher
         string normalizedCandidate,
         string normalizedTarget)
     {
-        // Exact match
-        if (normalizedCandidate.Equals(normalizedTarget, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // Match without namespace (e.g., "HttpClient" matches "System.Net.Http.HttpClient")
-        if (EndsWithDottedSuffix(normalizedCandidate, normalizedTarget))
+        if (MatchesExactNormalized(normalizedCandidate, normalizedTarget))
             return true;
 
         // Extract base names (before generic arity suffix)
@@ -70,6 +65,28 @@ public static class TypeMatcher
 
         return false;
     }
+
+    /// <summary>
+    /// Checks whether a candidate is an exact full-name or namespace-qualified
+    /// suffix match while preserving generic arity.
+    /// </summary>
+    public static bool MatchesExactTypeName(string candidate, string target)
+    {
+        if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(target))
+            return false;
+
+        return MatchesExactNormalized(
+            NormalizeForLookup(candidate),
+            NormalizeForLookup(target));
+    }
+
+    static bool MatchesExactNormalized(
+        string normalizedCandidate,
+        string normalizedTarget) =>
+        normalizedCandidate.Equals(
+            normalizedTarget,
+            StringComparison.OrdinalIgnoreCase)
+        || EndsWithDottedSuffix(normalizedCandidate, normalizedTarget);
 
     /// <summary>
     /// True when <paramref name="candidate"/> ends with ".<paramref name="suffix"/>" (case-insensitive)

@@ -68,6 +68,117 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task ExactTypeInspection_PrefersExactShortNameOverGenericFallback()
+    {
+        byte[] image = ApiAssembly(
+            "Exact.Name",
+            ("N.Widget", []),
+            ("N.Widget`1", []));
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExecuteExactAsync(
+                await CachedStoreAsync(
+                    Version,
+                    Archive(
+                        ($"ref/{Framework}/Exact.Name.dll", image))),
+                PackageContext(Version),
+                "Widget");
+
+        var available =
+            Assert.IsType<ExactTypeInspectionResult.Available>(
+                envelope.Content);
+        Assert.Equal("N.Widget", available.Type.FullName);
+        Assert.Equal(
+            "N.Widget",
+            available.Candidate.Definition.ToMetadataFullName());
+    }
+
+    [Fact]
+    public async Task ExactTypeInspection_ShareUsesEscapedNestedDefinitionIdentity()
+    {
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExecuteExactAsync(
+                await CachedStoreAsync(
+                    Version,
+                    Archive(
+                        ($"ref/{Framework}/Nested.dll",
+                            NestedApiAssembly()))),
+                PackageContext(Version),
+                "N.Outer.Inner");
+
+        var available =
+            Assert.IsType<ExactTypeInspectionResult.Available>(
+                envelope.Content);
+        Assert.Equal(
+            "N.Outer+Inner",
+            available.Candidate.Definition.ToEscapedFullName());
+        WorkspaceSharePacket packet =
+            WorkspaceSharePacketCodec.Decode(
+                Assert.IsType<InspectionShare.Available>(
+                    envelope.Share).Packet,
+                TestContext.Current.CancellationToken);
+        Assert.Equal("N.Outer+Inner", packet.Type);
+    }
+
+    [Fact]
+    public async Task ExactTypeInspection_PublicShareRequiresAllVisibilityUniqueness()
+    {
+        byte[] publicImage = ApiAssembly(
+            "Public.Collision",
+            TypeAttributes.Public,
+            ("N.Collision", []));
+        byte[] internalImage = ApiAssembly(
+            "Internal.Collision",
+            TypeAttributes.NotPublic,
+            ("N.Collision", []));
+        IPackageStore store =
+            await CachedStoreAsync(
+                Version,
+                Archive(
+                    ($"ref/{Framework}/Public.Collision.dll", publicImage),
+                    ($"ref/{Framework}/Internal.Collision.dll",
+                        internalImage)));
+
+        InspectionEnvelope<ExactTypeInspectionResult> publicEnvelope =
+            await ExecuteExactAsync(
+                store,
+                PackageContext(Version),
+                "N.Collision");
+        var available =
+            Assert.IsType<ExactTypeInspectionResult.Available>(
+                publicEnvelope.Content);
+        Assert.False(available.IsContextUnique);
+        Assert.IsType<InspectionShare.NonProjectable>(
+            publicEnvelope.Share);
+
+        InspectionEnvelope<ExactTypeInspectionResult> allEnvelope =
+            await ExecuteExactAsync(
+                store,
+                PackageContext(Version),
+                "N.Collision",
+                scope: ApiSurfaceScope.IncludeAll);
+        Assert.IsType<ExactTypeInspectionResult.Ambiguous>(
+            allEnvelope.Content);
+    }
+
+    [Fact]
+    public async Task ExactTypeInspection_NormalizesFrameworkAssociation()
+    {
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExecuteExactAsync(
+                await CachedStoreAsync(Version, LibraryPackage()),
+                new WorkspaceContextInput
+                {
+                    Framework = Framework.ToUpperInvariant(),
+                    Members = [PackageMember(Version)],
+                },
+                "Target.Api");
+
+        Assert.IsType<ExactTypeInspectionResult.Available>(
+            envelope.Content);
+    }
+
+    [Fact]
     public async Task ExactTypeInspection_ResolvesForwarderToSupplierIdentity()
     {
         AssemblyName targetName = AssemblyName.GetAssemblyName(TargetPath);
@@ -752,7 +863,8 @@ public sealed partial class WorkspaceContextLoaderTests
             string selector,
             string? assemblyName = null,
             string? compileAssetId = null,
-            ApiSurfaceProjectionLimits? limits = null)
+            ApiSurfaceProjectionLimits? limits = null,
+            ApiSurfaceScope scope = ApiSurfaceScope.Public)
     {
         using var client = new HttpClient(new FailingHandler());
         await using var coordinator = new WorkspaceRealizationCoordinator();
@@ -769,6 +881,7 @@ public sealed partial class WorkspaceContextLoaderTests
             return await ExactTypeInspection.ExecuteAsync(
                 Request(selector) with
                 {
+                    Scope = scope,
                     AssemblyName = assemblyName,
                     CompileAssetId = compileAssetId,
                     SurfaceLimits = limits ?? ExactTypeLimits,
@@ -851,6 +964,15 @@ public sealed partial class WorkspaceContextLoaderTests
     static byte[] ApiAssembly(
         string assemblyName,
         params (string TypeName, string[] Members)[] declarations)
+        => ApiAssembly(
+            assemblyName,
+            TypeAttributes.Public,
+            declarations);
+
+    static byte[] ApiAssembly(
+        string assemblyName,
+        TypeAttributes visibility,
+        params (string TypeName, string[] Members)[] declarations)
     {
         var assemblyBuilder = new PersistedAssemblyBuilder(
             new AssemblyName(assemblyName),
@@ -861,7 +983,20 @@ public sealed partial class WorkspaceContextLoaderTests
         {
             TypeBuilder type = module.DefineType(
                 typeName,
-                TypeAttributes.Public | TypeAttributes.Class);
+                visibility | TypeAttributes.Class);
+            int aritySeparator = typeName.LastIndexOf('`');
+            if (aritySeparator >= 0
+                && int.TryParse(
+                    typeName.AsSpan(aritySeparator + 1),
+                    out int arity)
+                && arity > 0)
+            {
+                type.DefineGenericParameters(
+                    [
+                        .. Enumerable.Range(0, arity)
+                            .Select(index => "T" + index),
+                    ]);
+            }
             type.DefineDefaultConstructor(MethodAttributes.Public);
             foreach (string name in members)
             {
@@ -874,6 +1009,29 @@ public sealed partial class WorkspaceContextLoaderTests
             }
             type.CreateType();
         }
+
+        using var stream = new MemoryStream();
+        assemblyBuilder.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] NestedApiAssembly()
+    {
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            new AssemblyName("Nested"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assemblyBuilder.DefineDynamicModule("Nested");
+        TypeBuilder outer = module.DefineType(
+            "N.Outer",
+            TypeAttributes.Public | TypeAttributes.Class);
+        TypeBuilder nested = outer.DefineNestedType(
+            "Inner",
+            TypeAttributes.NestedPublic | TypeAttributes.Class);
+        nested.DefineDefaultConstructor(MethodAttributes.Public);
+        outer.DefineDefaultConstructor(MethodAttributes.Public);
+        nested.CreateType();
+        outer.CreateType();
 
         using var stream = new MemoryStream();
         assemblyBuilder.Save(stream);
