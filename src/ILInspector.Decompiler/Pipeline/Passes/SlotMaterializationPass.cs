@@ -191,7 +191,8 @@ public sealed class SlotMaterializationPass : IIrPass
                     && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
                         || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
                 || slotType is { Kind: TypeRefKind.SzArray, ElementType: { Kind: TypeRefKind.Definition } element }
-                    && MemberIdentity.IsCoreLibraryType(element, "System", "Byte"))
+                    && (MemberIdentity.IsCoreLibraryType(element, "System", "Byte")
+                        || MemberIdentity.IsCoreLibraryType(element, "System", "String")))
                 && candidate.Stores.All(store => CoercionDomain.IsAtTarget(store.Value, slotType));
             if (exactReference && candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
                 candidate.Vetoes |= SlotMaterializationVeto.PendingReferenceSwap;
