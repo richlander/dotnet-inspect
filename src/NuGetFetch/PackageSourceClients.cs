@@ -375,6 +375,33 @@ public static partial class PackageSourceClientFactory
     internal static PackageProducerIdentity NuGetOrgProducer =>
         CanonicalNuGetOrgProducer;
 
+    /// <summary>
+    /// Projects the producer identity for an existing desktop package-source
+    /// value without creating a runtime client.
+    /// </summary>
+    public static PackageProducerIdentity GetProducerIdentity(
+        PackageSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (LocalPackageSourceIdentity.IsLocalSource(source.Url))
+        {
+            return GetProducerIdentity(
+                LocalPackageSourceIdentity.CreateAbsolute(source.Url));
+        }
+        if (!Uri.TryCreate(
+                source.Url,
+                UriKind.Absolute,
+                out Uri? endpoint)
+            || endpoint.IsFile)
+        {
+            throw new PackageSourceClientUnavailableException(
+                PackageSourceKind.LocalFolder);
+        }
+
+        return CreateHttpProducer(
+            NuGetSourceRequest.ProjectEndpoint(endpoint));
+    }
+
     internal static void RequireOwnerCapability(object? capability)
     {
         if (!ReferenceEquals(capability, OwnerCapability))

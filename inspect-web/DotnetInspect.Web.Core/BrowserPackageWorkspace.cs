@@ -1411,11 +1411,7 @@ internal static class BrowserPackageWorkspace
             IPackagePayloadTransferPolicy? transferPolicy = null)
     {
         if (requiredProducerKey is not null
-            && !NuGetCache.GetSourceKey(
-                    PackageSource.NuGetOrg.Url)
-                .Equals(
-                requiredProducerKey,
-                StringComparison.Ordinal))
+            && !MatchesGalleryProducer(requiredProducerKey))
         {
             return new PackageRootPayloadResult.Unavailable(
                 Gallery.Source.Producer.Display,
@@ -1452,6 +1448,19 @@ internal static class BrowserPackageWorkspace
                 "Package payload acquisition returned an unknown outcome."),
         };
     }
+
+    static bool MatchesGalleryProducer(string requiredProducer) =>
+        Gallery.Source.Producer.PortableKey.Equals(
+            requiredProducer,
+            StringComparison.Ordinal)
+        || Gallery.Source.Producer.Key.Equals(
+            requiredProducer,
+            StringComparison.Ordinal)
+        || NuGetCache.GetSourceKey(
+                PackageSource.NuGetOrg.Url)
+            .Equals(
+                requiredProducer,
+                StringComparison.Ordinal);
 
     static void ObserveAndRemovePendingAcquisition(
         PendingAcquisitionKey key,

@@ -126,6 +126,22 @@ public sealed class PackagePayloadAcquisitionTests
             PackageSourceClientFactory.CreateGallery(
                 PackageSourceAssociation.Create(),
                 new FailingHandler());
+        var configuredSourceIdentity =
+            PackageSourceIdentity.NuGetOrg;
+        AcquiredPackageSourcePayload acquired =
+            Assert.IsType<PackageSourcePayloadResult.Acquired>(
+                await PackagePayloadAcquisition.AcquireAsync(
+                    source,
+                    configuredSourceIdentity,
+                    PackageSourceCoordinate.Create(PackageId, Version),
+                    store,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+                .Payload;
+        Assert.Equal(source.Source.Producer, acquired.Producer);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            acquired.ProducerKey);
         var options = new NuGetFetchOptions
         {
             RequestTimeout = TimeSpan.FromSeconds(1),
@@ -143,7 +159,7 @@ public sealed class PackagePayloadAcquisitionTests
             await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
                 () => PackagePayloadAcquisition.AcquireAsync(
                     source,
-                    PackageSourceIdentity.NuGetOrg,
+                    configuredSourceIdentity,
                     PackageSourceCoordinate.Create(PackageId, Version),
                     store,
                     cancellationToken:
@@ -2222,6 +2238,21 @@ public sealed class PackagePayloadAcquisitionTests
                     () => new StreamContent(
                         new StallingStream())),
                 options);
+        var configuredSourceIdentity =
+            PackageSourceIdentity.NuGetOrg;
+        using IPackageSourceClient otherSource =
+            PackageSourceClientFactory.Create(
+                Primary,
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => PackagePayloadAcquisition.AcquireAsync(
+                otherSource,
+                configuredSourceIdentity,
+                PackageSourceCoordinate.Create(PackageId, Version),
+                new InMemoryPackageStore(),
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
         using var operation = new NuGetOperationContext(
                 options.RequestTimeout,
                 options.OperationTimeout,
@@ -2231,7 +2262,7 @@ public sealed class PackagePayloadAcquisitionTests
             await Assert.ThrowsAsync<PackageSourceStreamException>(
                 () => PackagePayloadAcquisition.AcquireAsync(
                     source,
-                    PackageSourceIdentity.NuGetOrg,
+                    configuredSourceIdentity,
                     PackageSourceCoordinate.Create(PackageId, Version),
                     store,
                     cancellationToken:
@@ -2727,14 +2758,20 @@ public sealed class PackagePayloadAcquisitionTests
                 PackageSourceClientFactory.CreateGallery(
                     PackageSourceAssociation.Create(),
                     new GalleryPayloadHandler(Content));
-            Assert.IsType<PackageSourcePayloadResult.Acquired>(
-                await PackagePayloadAcquisition.AcquireAsync(
-                    source,
-                    PackageSourceIdentity.NuGetOrg,
-                    PackageSourceCoordinate.Create(PackageId, Version),
-                    store,
-                    cancellationToken: cancellationToken,
-                    transferPolicy: policy));
+            AcquiredPackageSourcePayload acquired =
+                Assert.IsType<PackageSourcePayloadResult.Acquired>(
+                    await PackagePayloadAcquisition.AcquireAsync(
+                        source,
+                        PackageSourceIdentity.NuGetOrg,
+                        PackageSourceCoordinate.Create(PackageId, Version),
+                        store,
+                        cancellationToken: cancellationToken,
+                        transferPolicy: policy))
+                    .Payload;
+            Assert.Equal(source.Source.Producer, acquired.Producer);
+            Assert.Equal(
+                NuGetCache.GetSourceKey(NuGetOrg.Url),
+                acquired.ProducerKey);
         }
         else
         {

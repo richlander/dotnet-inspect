@@ -7,6 +7,17 @@ namespace NuGetFetch;
 public static partial class PackageSourceClientFactory
 {
     /// <summary>
+    /// Projects the producer identity for one canonical local-folder source
+    /// without creating a runtime client.
+    /// </summary>
+    public static PackageProducerIdentity GetProducerIdentity(
+        LocalPackageSourceIdentity source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return CreateLocalProducer(source);
+    }
+
+    /// <summary>
     /// Creates a bounded client for one canonical local-folder source.
     /// </summary>
     public static IPackageSourceClient Create(

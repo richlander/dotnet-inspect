@@ -444,6 +444,11 @@ tokens issued from producer identities authorized by the current host. If one
 token matches multiple distinct full keys, the consumer fails visibly rather
 than choosing by source order. The token cannot recover an endpoint, local
 path, credential, association, or configured authority.
+`PackageSourceClientFactory.GetProducerIdentity` projects the same owner-issued
+identity from an already authorized desktop `PackageSource` without creating a
+runtime client. This is a compatibility adapter for destination authorization;
+it grants no authority and keeps HTTP and local-path interpretation inside the
+Package Source owner.
 
 `PortableProducerKeyPinsCanonicalCredentialFreeIdentity` pins representative
 exact output and canonical grammar.
@@ -451,6 +456,8 @@ exact output and canonical grammar.
 `ProducerIdentityRedactsPathBeforeKeyAndDisplay`, and
 `LocalFolderSource_ConsumesCanonicalIdentityWithoutReparsing` gate equal and
 distinct HTTP identities, credential rotation, and local identity issuance.
+`DesktopSourceProjectionUsesTheRuntimeProducerIdentity` gates the compatibility
+projection against the runtime HTTP and local clients.
 
 ### Result propagation
 

@@ -218,6 +218,30 @@ public sealed class PackageSourceResultIdentityTests
     }
 
     [Fact]
+    public void DesktopSourceProjectionUsesTheRuntimeProducerIdentity()
+    {
+        const string endpoint =
+            "https://feed.example/v3/index.json";
+        var httpSource = new PackageSource("http", endpoint);
+        Assert.Equal(
+            Producer(endpoint),
+            PackageSourceClientFactory.GetProducerIdentity(httpSource));
+
+        string localPath =
+            Path.GetFullPath("projected-local-package-source");
+        LocalPackageSourceIdentity local =
+            LocalPackageSourceIdentity.CreateAbsolute(localPath);
+        using IPackageSourceClient localClient =
+            PackageSourceClientFactory.Create(
+                local,
+                PackageSourceAssociation.Create());
+        Assert.Equal(
+            localClient.Source.Producer,
+            PackageSourceClientFactory.GetProducerIdentity(
+                new PackageSource("local", localPath)));
+    }
+
+    [Fact]
     public void ProducerIdentityRedactsPathBeforeKeyAndDisplay()
     {
         const string firstSecret = "alpha-secret";

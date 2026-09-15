@@ -34,10 +34,16 @@ public sealed class ConfiguredPackagePayloadResult
                 "The configured payload source must belong to its authority.",
                 nameof(source));
         }
+        if (payload is not null)
+        {
+            payload = payload.WithLegacyProducerKey(
+                NuGetCache.GetSourceKey(authority!.Source.Url));
+        }
         if (payload is not null
-            && !payload.ProducerKey.Equals(
-                source!.Producer.Key,
-                StringComparison.Ordinal))
+            && (!payload.ProducerKey.Equals(
+                    source!.Producer.Key,
+                    StringComparison.Ordinal)
+                || payload.Producer != source.Producer))
         {
             throw new ArgumentException(
                 "The configured payload and source identify different producers.",
@@ -179,6 +185,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 AcquiredPackageSourcePayload? cached =
                     await PackagePayloadAcquisition.TryGetCachedAsync(
                         candidate.Coordinate,
+                        client.Source.Producer,
                         client.Source.Producer.Key,
                         store,
                         limits,

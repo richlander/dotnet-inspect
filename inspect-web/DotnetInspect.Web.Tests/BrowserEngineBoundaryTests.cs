@@ -7036,8 +7036,11 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("net11.0", binding.Coordinate.Framework);
         Assert.Null(binding.Coordinate.RuntimeIdentifier);
         Assert.Equal(
-            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            PackageProducerIdentity.NuGetOrg.PortableKey,
             binding.Coordinate.Producer);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            binding.Root.ProducerKey);
         Assert.True(binding.Root.ReferencesContent(coordinate.Package.Content));
     }
 
