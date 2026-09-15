@@ -9,10 +9,13 @@ implementation rather than a property enforced today.
 One thing does run. The exact shape of the payload and the vectors that witness
 it are not prose; they live in
 [`models/portable-query-payload/`](models/portable-query-payload/vectors.json)
-and are checked by `eng/check-portable-query-payload-vectors.cs`. That checker
-is a design-stage probe, reproducible on demand, not yet a CI gate. When the
-product codec exists, its tests consume the same vectors file and the probe
-retires.
+and are checked by `eng/check-portable-query-payload-vectors.cs`. The vectors
+come in four kinds — an intent and the bytes it must become, an intent that must
+be refused, bytes that must be refused, and a pair of states that are or are not
+one query — so both directions of the codec and its identity rule are witnessed.
+The checker is a design-stage probe, reproducible on demand, not yet a CI gate.
+When the product codec exists, its tests consume the same vectors file and the
+probe retires.
 
 This is **slice 2 of 2** under
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971), stacked on
@@ -46,11 +49,15 @@ Three artifacts, one normative location per rule:
 | Artifact | Owns |
 | --- | --- |
 | This document | The principles: what canonical form means, what identity is, what the codec may and may not know, how limits behave |
-| `eng/check-portable-query-payload-vectors.cs`, its shape table | The exact structure: property order, tokens, tuple arity, declared maxima |
+| The `SHAPE` region of `eng/check-portable-query-payload-vectors.cs` | The exact structure: property order, tuple layouts and slot kinds, tokens, role encoding, integer grammar, the string rule, and every limit with its scope. Everything below that region is implementation and is not normative. |
 | `models/portable-query-payload/vectors.json` | The witnesses: every canonical form the contract promises and every rejection it requires |
 
 The prose never restates a token, an arity, or a maximum. If a sentence here
-seems to disagree with the shape table or a vector, the sentence is wrong.
+seems to disagree with the shape region or a vector, the sentence is wrong. The
+orders in which elements are emitted are not this document's either: they are
+the model's [semantic orders](portable-query-intent.md#semantic-order), including
+its comparator — Unicode scalar value, which is UTF-8 byte order — and this codec
+emits them without defining them.
 
 ## Identity
 
@@ -75,9 +82,12 @@ The stage pipeline is a sequence, because each stage consumes the output of the
 one before it. The field terms inside one order operation are a sequence,
 because they compose lexicographically. Everywhere else — conjoined terms,
 independent execution bounds, order operations that each already name their own
-role — sequence carries nothing, so canonical form supplies one. The vectors
-`order-operations-supplied-out-of-role-order` and `row-query-reversed-pipeline`
-show the two sides of that line.
+role — sequence carries nothing, so canonical form supplies the model's semantic
+order. The vectors `order-operations-supplied-out-of-role-order`,
+`bounds-entered-in-another-order`, and `row-query-reversed-pipeline` show the two
+sides of that line, and `scalar-order-not-utf16-order` shows why the comparator
+had to be named: two keys above and below the surrogate range sort one way by
+UTF-8 bytes and the other by UTF-16 code units.
 
 Three consequences follow, each with its own reason:
 
@@ -106,42 +116,39 @@ the same.
 
 ## Shape
 
-The payload is one closed JSON object whose properties abbreviate the four
-serializable parts of the intent contract:
+The payload is one closed JSON object with one property per serializable part
+of the intent contract, each an abbreviation of that part's name. The long name
+is how documents and consumers refer to a part; the short one is the only form
+that appears on the wire, and the shape region binds each to the other. The
+abbreviations exist because the payload's budget is small and the packet family
+already spells its own fields this way. Note that the packet's top-level `t` is
+its coordinate-tuple table while this payload's `t` is the term set; the two live
+at different scopes and a parser never sees both in one object, but a reader of
+both documents should not assume they mean the same thing.
 
-| Property | Part |
-| --- | --- |
-| `t` | `terms` |
-| `b` | `bounds` |
-| `s` | `stages` |
-| `o` | `order` |
+Each part is an array of tuples whose layouts the shape region fixes. Every
+layout is fixed-arity except the field-list order operation, which has a fixed
+head and a repeating key-and-direction pair. Every token is a fixed string that
+no implementation derives from a .NET enum name, a CLI spelling, or a display
+label; the operator set is exactly the four identities the row predicate syntax
+already admits, so there is no strict `lt` or `gt`. An omitted window bound is a
+gap in place rather than a shorter tuple, so no window can be mistaken for
+another stage. An order operation carries its own role, kind, and boundary, so a
+baseline of `[a asc]` beside a ranking of `[b desc, c asc]` can never serialize
+identically to a baseline of `[a asc, b desc]` beside a ranking of `[c asc]` —
+the vectors `operation-boundary-a` and `operation-boundary-b` are that pair.
 
-The long name is how documents and consumers refer to a part; the short one is
-the only form that appears on the wire. The abbreviations exist because the
-payload's budget is small and the packet family already spells its own fields
-this way. Note that the packet's top-level `t` is its coordinate-tuple table
-while this payload's `t` is the term set; the two live at different scopes and a
-parser never sees both in one object, but a reader of both documents should not
-assume they mean the same thing.
-
-Each part is an array of fixed-arity tuples. Every token — operator, direction,
-stage, order role, order kind — is a fixed string that no implementation derives
-from a .NET enum name, a CLI spelling, or a display label. The operator set is
-exactly the four identities the row predicate syntax already admits; there is no
-strict `lt` or `gt`. `window` alone may carry `null`, in its two endpoint slots,
-so that an omitted bound is a positional gap rather than a shorter tuple. An
-order operation carries its own role, kind, and boundary, so a baseline of
-`[a asc]` beside a ranking of `[b desc, c asc]` can never serialize identically
-to a baseline of `[a asc, b desc]` beside a ranking of `[c asc]` — the vectors
-`split-a` and `split-b` are that pair.
-
-The exact tokens, arities, and integer grammar are the shape table in the
-checker. Strings use the packet's pinned canonical scalar escaping rather than a
-second convention, and inheriting that escaping means inheriting its
-rejections: an unpaired surrogate is refused before any vocabulary binder runs
-and is never repaired to U+FFFD. The escaping rules pin lowercase hex for
-control characters where general-purpose serializers emit uppercase, so the
-codec must reuse the packet's canonical writer rather than a general serializer.
+Strings follow the packet owner's rule, not a second convention: escape only
+quote, backslash, and C0 controls, in their short forms where one exists and as
+lowercase `\u00xx` otherwise, and emit every other scalar as raw UTF-8.
+Inheriting that rule means inheriting its rejections: an unpaired surrogate is
+refused before any vocabulary binder runs and is never repaired to U+FFFD.
+Measured, no `System.Text.Json` encoder implements the rule — each uppercases
+the hex, escapes U+007F, U+0085, U+2028, and U+2029, and turns a supplementary
+character into a surrogate-pair escape — so the codec must reuse the packet's
+writer, and the checker carries its own. The vectors `c0-control-lowercase-hex`,
+`raw-scalars-above-ascii`, and `literal-backslash-u-text` are the cases that
+distinguish the two.
 
 ## What the codec does not know
 
@@ -167,10 +174,11 @@ Three properties of the limits matter more than their values:
 
 - **Every text maximum counts UTF-8 bytes**, not scalars or grapheme clusters, so
   non-ASCII values count unambiguously.
-- **Limits are charged as parsed, before duplicate collapse.** A payload
-  declaring thirty terms that would collapse to three is refused on the
-  twenty-fifth, so collapse can never be used to force unbounded parse work. The
-  vector `too-many-terms` is that case.
+- **Limits are charged as parsed, before duplicate collapse**, on both sides of
+  the codec. An intent declaring twenty-five identical terms is refused before
+  it is canonicalized, and bytes carrying twenty-five terms are refused before
+  they are decoded; collapse can never be used to force unbounded parse work.
+  The vectors `too-many-terms-as-parsed` and `too-many-terms` are the two sides.
 - **The per-part maxima are not jointly achievable, and which limit binds first
   depends on shape.** A term-heavy payload hits the byte limit long before the
   part counts; the payload with the most JSON values — the vector
@@ -204,18 +212,22 @@ needs no evidence.
 
 | Gate | Contract | Witnesses |
 | --- | --- | --- |
-| `QueryIdentityIsThePair` | Identical payload bytes under different vocabularies remain distinct through canonicalization, ordering, and deduplication. | any encode vector under two `queryId` values |
+| `QueryIdentityIsThePair` | Identical payload bytes under different vocabularies remain distinct; the same vocabulary and bytes are one query. | `same-bytes-two-vocabularies`, `same-query-two-entries` |
 | `CanonicalFormRoundTripsByteForByte` | Every canonical vector decodes and re-emits to exactly its own bytes. | every `encode` vector |
-| `CanonicalFormIsIndependentOfMeaninglessSequence` | Term sequence, exact duplicate terms, bound declaration sequence, and outer order-operation sequence do not change canonical bytes. | `package-query-entered-in-another-order`, `package-query-with-exact-duplicate`, `order-operations-supplied-out-of-role-order` |
-| `MeaningfulSequenceSurvives` | Stage sequence and field-term sequence inside one operation survive exactly; two intents differing only there have different bytes. | `row-query-reversed-pipeline`, `split-a`, `split-b` |
-| `RepeatedBoundDimensionIsRefused` | One dimension twice is refused before binding, whether the maxima differ or match. | `repeated-bound-dimension-*` |
-| `NonCanonicalBytesAreRefused` | Reordered, padded, or duplicate-bearing bytes are refused, never repaired. | `pretty-printed`, `terms-unsorted`, `properties-out-of-order`, `exact-duplicate-terms-on-the-wire`, `order-operations-out-of-role-order-on-the-wire` |
-| `ShapeIsClosed` | Unknown or duplicate properties, empty parts, wrong arity, unknown tokens, and `null` outside a window endpoint are refused. | the structural `reject` vectors |
-| `DeclaredLimitsPrecedeBinding` | Every pinned maximum is enforced as parsed, before collapse and before any binder, with cancellation observed. | `too-many-terms`, `too-many-order-field-terms`, `value-too-long` |
-| `DeclaredLimitsAreBuildInvariant` | The maxima are identical across vocabularies and builds; the joint maximum is admissible and produces exactly 204 values. | `joint-maximum` |
-| `NonCanonicalTextIsRefusedBeforeBinding` | Unpaired surrogates and other non-canonical scalar forms are refused at decode and never repaired. | `unpaired-surrogate` |
-| `HostileTextRemainsContained` | Valid scalar sequences carrying quotes, backslashes, and controls round-trip without escaping containment. | `quotes-and-backslash-in-value`, plus C0 and non-ASCII vectors once the codec adopts the packet writer |
+| `CanonicalFormIsIndependentOfMeaninglessSequence` | Term sequence, exact duplicate terms, bound sequence, and outer order-operation sequence do not change canonical bytes. | `package-query-entered-in-another-order`, `package-query-with-exact-duplicate`, `bounds-entered-in-another-order`, `order-operations-supplied-out-of-role-order` |
+| `MeaningfulSequenceSurvives` | Stage sequence and field-term sequence inside one operation survive exactly; intents differing only there have different bytes. | `row-query-reversed-pipeline`, `field-sequence-a`, `field-sequence-b`, `operation-boundary-a`, `operation-boundary-b` |
+| `TextOrderIsScalarOrder` | Every sort compares by Unicode scalar value, never UTF-16 code units. | `scalar-order-not-utf16-order` |
+| `RepeatedBoundDimensionIsRefused` | One dimension twice is refused in intent and on the wire, whether the maxima differ or match. | `repeated-dimension-in-intent`, `repeated-bound-dimension-*` |
+| `NonCanonicalBytesAreRefused` | Reordered, padded, duplicate-bearing, or non-canonically escaped bytes are refused, never repaired. | `pretty-printed`, `terms-unsorted`, `bounds-unsorted`, `properties-out-of-order`, `exact-duplicate-terms-on-the-wire`, `order-operations-out-of-role-order-on-the-wire`, `escaped-ascii`, `uppercase-c0-hex`, `escaped-non-ascii`, `surrogate-pair-escape` |
+| `ShapeIsClosed` | Anything not JSON, not an object, or carrying an unknown or duplicate property, an empty part, a wrong arity, an unknown token, a bad integer, or `null` outside a window bound is refused. | `malformed`, `not-an-object`, and the structural `reject` vectors |
+| `DeclaredLimitsPrecedeBinding` | Every pinned maximum is enforced as parsed, before collapse and before any binder, on intent and on bytes. | `too-many-terms-as-parsed`, `nine-bounds`, `nine-stages`, `nine-order-operations`, `identity-one-over`, `too-many-terms`, `too-many-order-field-terms`, `value-too-long`, `identity-too-long`, `payload-too-large` |
+| `DeclaredMaximaAreAdmissible` | A payload at each exact maximum is admitted; the joint maximum produces exactly 204 values. | `joint-maximum`, `identity-at-maximum`, `value-at-maximum`, `payload-near-byte-maximum` |
+| `StringRuleIsThePacketOwners` | Short escapes, lowercase `\u00xx`, and raw UTF-8 above U+001F round-trip exactly; unpaired surrogates are refused; literal backslash text is text. | `quotes-backslash-and-short-escapes`, `c0-control-lowercase-hex`, `raw-scalars-above-ascii`, `literal-backslash-u-text`, `unpaired-high-surrogate`, `unpaired-low-surrogate` |
 | `VectorsAreTheGate` | The product codec's tests consume `vectors.json` directly, and the design-stage probe retires. | the file itself |
+
+Two properties have no vector because no vector can witness them, and the
+codec's own tests must: that the limits are identical across builds and
+vocabularies, and that cancellation is observed before any binder runs.
 
 ## Non-claims
 

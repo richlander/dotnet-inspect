@@ -1,9 +1,10 @@
 {
-  "$comment": "Normative vectors for docs/design/portable-query-payload.md. Checked by eng/check-portable-query-payload-vectors.cs. Every encode vector must canonicalize from its intent to exactly its canonical bytes, and those bytes must decode and re-emit unchanged. Every reject vector must be refused with exactly the named reason. Keys, dimensions, and named orders are illustrative; the vocabulary owner defines the real ones.",
+  "$comment": "Normative vectors for docs/design/portable-query-payload.md, checked by eng/check-portable-query-payload-vectors.cs. encode: intent -> canonical bytes, which must also decode and re-emit unchanged. encode-reject: intent refused before canonicalizing, with reason. reject: bytes refused at decode, with reason. pair: two (queryId, canonical) states and whether they are the same query. Keys, dimensions, and named orders are illustrative.",
   "encode": [
     {
       "name": "package-query",
-      "description": "A package query: three terms including the typed prefix, one execution bound, no stages, no order. The scope travels as a term; the value is the typed prefix, not the host spelling with its terminal star.",
+      "description": "A package query: three terms including the typed prefix, one execution bound, no stages, no order. Scope travels as a term; its value is the typed prefix, not the host spelling with its terminal star.",
+      "queryId": "package.query",
       "intent": {
         "t": [
           [
@@ -33,7 +34,8 @@
     },
     {
       "name": "package-query-entered-in-another-order",
-      "description": "The same query with terms supplied in a different sequence and properties in a different order. Canonical bytes are identical to package-query, so both share one link and one packet state.",
+      "description": "The same query with terms and properties supplied in a different sequence. Identical bytes to package-query: both share one link and one packet state.",
+      "queryId": "package.query",
       "intent": {
         "b": [
           [
@@ -63,7 +65,8 @@
     },
     {
       "name": "package-query-with-exact-duplicate",
-      "description": "An exact duplicate term collapses; conjunction is idempotent. The canonical bytes equal package-query. The 4 parsed terms are still charged against the term limit before collapse.",
+      "description": "An exact duplicate term collapses because conjunction is idempotent; bytes equal package-query. The four parsed terms were still charged against the term limit before collapse.",
+      "queryId": "package.query",
       "intent": {
         "t": [
           [
@@ -97,8 +100,27 @@
       "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
     },
     {
+      "name": "bounds-entered-in-another-order",
+      "description": "Two bounds supplied in the opposite sequence sort by dimension; declaration sequence carries no meaning between independent dimensions.",
+      "queryId": "package.query",
+      "intent": {
+        "b": [
+          [
+            "matches",
+            100
+          ],
+          [
+            "candidates",
+            200
+          ]
+        ]
+      },
+      "canonical": "{\"b\":[[\"candidates\",200],[\"matches\",100]]}"
+    },
+    {
       "name": "all-four-parts",
-      "description": "Every part present once, illustrating property order t, b, s, o and a field-list baseline order.",
+      "description": "Every part present once, showing property order t, b, s, o and a field-list baseline order.",
+      "queryId": "row.query",
       "intent": {
         "t": [
           [
@@ -132,7 +154,8 @@
     },
     {
       "name": "row-query-baseline-and-ranking",
-      "description": "A row query: rows of at least medium confidence, baseline order by name, first twenty, then the five worst by triage. The ranking operation names stage index 1, the top.",
+      "description": "Rows of at least medium confidence, baseline by name, first twenty, then the five worst by triage. The ranking operation names stage index 1, the top.",
+      "queryId": "row.query",
       "intent": {
         "t": [
           [
@@ -170,7 +193,8 @@
     },
     {
       "name": "row-query-reversed-pipeline",
-      "description": "The same parts with the stage pipeline reversed. A different question: bytes differ from row-query-baseline-and-ranking whether or not a given input distinguishes the results.",
+      "description": "The same parts with the stage pipeline reversed: a different question, so different bytes whether or not a given input distinguishes the results.",
+      "queryId": "row.query",
       "intent": {
         "t": [
           [
@@ -208,7 +232,8 @@
     },
     {
       "name": "order-operations-supplied-out-of-role-order",
-      "description": "Operations supplied ranking-first canonicalize to base first, then ascending stage index. Outer operation order carries no meaning once each operation names its role.",
+      "description": "Operations supplied ranking-first canonicalize to base first then ascending stage index; outer sequence carries nothing once each operation names its role.",
+      "queryId": "row.query",
       "intent": {
         "s": [
           [
@@ -236,8 +261,9 @@
       "canonical": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"a\",\"asc\"],[0,\"fields\",\"b\",\"desc\",\"c\",\"asc\"]]}"
     },
     {
-      "name": "split-a-baseline-a-ranking-bc",
-      "description": "Baseline [a asc], ranking [b desc, c asc]. Must not share bytes with split-b; each operation array is its own boundary.",
+      "name": "operation-boundary-a",
+      "description": "Baseline [a asc], ranking [b desc, c asc]. Must not share bytes with operation-boundary-b: each operation array is its own boundary.",
+      "queryId": "row.query",
       "intent": {
         "s": [
           [
@@ -265,8 +291,9 @@
       "canonical": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"a\",\"asc\"],[0,\"fields\",\"b\",\"desc\",\"c\",\"asc\"]]}"
     },
     {
-      "name": "split-b-baseline-ab-ranking-c",
-      "description": "Baseline [a asc, b desc], ranking [c asc]. Same field terms as split-a divided differently; different bytes.",
+      "name": "operation-boundary-b",
+      "description": "Baseline [a asc, b desc], ranking [c asc]. Same field terms as operation-boundary-a divided differently; different bytes.",
+      "queryId": "row.query",
       "intent": {
         "s": [
           [
@@ -294,8 +321,45 @@
       "canonical": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"a\",\"asc\",\"b\",\"desc\"],[0,\"fields\",\"c\",\"asc\"]]}"
     },
     {
+      "name": "field-sequence-a",
+      "description": "A field-list operation ordering by a then b. Field terms compose lexicographically, so their sequence is meaning and is preserved.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "a",
+            "asc",
+            "b",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"a\",\"asc\",\"b\",\"asc\"]]}"
+    },
+    {
+      "name": "field-sequence-b",
+      "description": "The same two field terms, b then a. A different order, so different bytes from field-sequence-a.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "b",
+            "asc",
+            "a",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"b\",\"asc\",\"a\",\"asc\"]]}"
+    },
+    {
       "name": "window-with-open-bounds",
-      "description": "Window keeps arity 3 with positional null for an omitted bound; the only slot anywhere permitted to carry null.",
+      "description": "Window keeps three slots with null for an omitted bound: a gap in place, never a shorter tuple.",
+      "queryId": "row.query",
       "intent": {
         "s": [
           [
@@ -318,22 +382,89 @@
       "canonical": "{\"s\":[[\"window\",null,50],[\"window\",10,null],[\"window\",null,null]]}"
     },
     {
-      "name": "quotes-and-backslash-in-value",
-      "description": "A value carrying a quote and a backslash round-trips with standard escapes and stays contained as text.",
+      "name": "scalar-order-not-utf16-order",
+      "description": "Keys U+E000 and U+10000. Scalar (UTF-8 byte) order places U+E000 first; UTF-16 code-unit order would place U+10000 first. The bytes follow scalar order.",
+      "queryId": "package.query",
       "intent": {
         "t": [
           [
-            "depends",
+            "𐀀",
             "eq",
-            "a\"b\\c"
+            "x"
+          ],
+          [
+            "",
+            "eq",
+            "x"
           ]
         ]
       },
-      "canonical": "{\"t\":[[\"depends\",\"eq\",\"a\\\"b\\\\c\"]]}"
+      "canonical": "{\"t\":[[\"\",\"eq\",\"x\"],[\"𐀀\",\"eq\",\"x\"]]}"
+    },
+    {
+      "name": "quotes-backslash-and-short-escapes",
+      "description": "Quote, backslash, and the five C0 controls with short escapes round-trip in their short forms.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "a\"b\\c\b\t\n\f\r"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"a\\\"b\\\\c\\b\\t\\n\\f\\r\"]]}"
+    },
+    {
+      "name": "c0-control-lowercase-hex",
+      "description": "A C0 control without a short escape emits as lowercase u00xx, the packet owner's spelling. System.Text.Json's encoders emit uppercase here.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "\u001b"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"\\u001b\"]]}"
+    },
+    {
+      "name": "raw-scalars-above-ascii",
+      "description": "U+007F, U+0085, U+2028, U+2029, e-acute, and an emoji all emit as raw UTF-8. System.Text.Json's encoders escape every one of these.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "  é😀"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"  é😀\"]]}"
+    },
+    {
+      "name": "literal-backslash-u-text",
+      "description": "A value whose text is the six characters backslash u d 8 0 0. It is ordinary text, escapes its backslash, and is not an unpaired surrogate.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "\\ud800"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"\\\\ud800\"]]}"
     },
     {
       "name": "joint-maximum",
-      "description": "The admissible payload with the most JSON values: 24 terms, 8 bounds, seven top stages plus one window, and one eight-field baseline operation plus seven named rankings. 204 values, well under 3 KiB, so for this shape the value count binds before the byte count.",
+      "description": "The admissible payload with the most JSON values: 24 terms, 8 bounds, seven top stages plus one window, one eight-field baseline plus seven named rankings. 204 values, far under 3 KiB, so here the value count binds before the byte count.",
+      "queryId": "row.query",
       "intent": {
         "t": [
           [
@@ -593,19 +724,580 @@
       },
       "canonical": "{\"t\":[[\"k00\",\"eq\",\"v\"],[\"k01\",\"eq\",\"v\"],[\"k02\",\"eq\",\"v\"],[\"k03\",\"eq\",\"v\"],[\"k04\",\"eq\",\"v\"],[\"k05\",\"eq\",\"v\"],[\"k06\",\"eq\",\"v\"],[\"k07\",\"eq\",\"v\"],[\"k08\",\"eq\",\"v\"],[\"k09\",\"eq\",\"v\"],[\"k10\",\"eq\",\"v\"],[\"k11\",\"eq\",\"v\"],[\"k12\",\"eq\",\"v\"],[\"k13\",\"eq\",\"v\"],[\"k14\",\"eq\",\"v\"],[\"k15\",\"eq\",\"v\"],[\"k16\",\"eq\",\"v\"],[\"k17\",\"eq\",\"v\"],[\"k18\",\"eq\",\"v\"],[\"k19\",\"eq\",\"v\"],[\"k20\",\"eq\",\"v\"],[\"k21\",\"eq\",\"v\"],[\"k22\",\"eq\",\"v\"],[\"k23\",\"eq\",\"v\"]],\"b\":[[\"d0\",200],[\"d1\",200],[\"d2\",200],[\"d3\",200],[\"d4\",200],[\"d5\",200],[\"d6\",200],[\"d7\",200]],\"s\":[[\"top\",5],[\"top\",5],[\"top\",5],[\"top\",5],[\"top\",5],[\"top\",5],[\"top\",5],[\"window\",1,9]],\"o\":[[\"base\",\"fields\",\"f0\",\"asc\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\"],[0,\"named\",\"triage\",\"desc\"],[1,\"named\",\"triage\",\"desc\"],[2,\"named\",\"triage\",\"desc\"],[3,\"named\",\"triage\",\"desc\"],[4,\"named\",\"triage\",\"desc\"],[5,\"named\",\"triage\",\"desc\"],[6,\"named\",\"triage\",\"desc\"]]}",
       "expectValues": 204
+    },
+    {
+      "name": "identity-at-maximum",
+      "description": "A 64-byte key and a 64-byte dimension: each exact identity maximum is admissible.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "eq",
+            "v"
+          ]
+        ],
+        "b": [
+          [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            1
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"eq\",\"v\"]],\"b\":[[\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",1]]}"
+    },
+    {
+      "name": "value-at-maximum",
+      "description": "A 256-byte value: the exact value maximum is admissible.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"]]}"
+    },
+    {
+      "name": "payload-near-byte-maximum",
+      "description": "Twenty-four terms with 99-byte values and eight bounds: a term-heavy payload close to the 3 KiB limit, showing the byte count binding before the part counts.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k00",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k01",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k02",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k03",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k04",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k05",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k06",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k07",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k08",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k09",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k10",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k11",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k12",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k13",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k14",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k15",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k16",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k17",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k18",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k19",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k20",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k21",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k22",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k23",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ]
+        ],
+        "b": [
+          [
+            "d0",
+            1
+          ],
+          [
+            "d1",
+            1
+          ],
+          [
+            "d2",
+            1
+          ],
+          [
+            "d3",
+            1
+          ],
+          [
+            "d4",
+            1
+          ],
+          [
+            "d5",
+            1
+          ],
+          [
+            "d6",
+            1
+          ],
+          [
+            "d7",
+            1
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k00\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k01\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k02\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k03\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k04\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k05\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k06\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k07\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k08\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k09\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k10\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k11\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k12\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k13\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k14\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k15\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k16\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k17\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k18\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k19\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k20\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k21\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k22\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k23\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"]],\"b\":[[\"d0\",1],[\"d1\",1],[\"d2\",1],[\"d3\",1],[\"d4\",1],[\"d5\",1],[\"d6\",1],[\"d7\",1]]}",
+      "expectBytes": 2845
+    }
+  ],
+  "encode-reject": [
+    {
+      "name": "too-many-terms-as-parsed",
+      "description": "Twenty-five identical terms would collapse to one, but limits are charged as parsed: the intent is refused on the twenty-fifth. Collapse can never buy unbounded parse work.",
+      "intent": {
+        "t": [
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "repeated-dimension-in-intent",
+      "description": "Two bounds on one dimension are refused at intent construction, before any encoding.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            100
+          ],
+          [
+            "candidates",
+            200
+          ]
+        ]
+      },
+      "reject": "repeated-bound-dimension"
+    },
+    {
+      "name": "nine-bounds",
+      "description": "Nine bounds exceed the limit of eight.",
+      "intent": {
+        "b": [
+          [
+            "d0",
+            1
+          ],
+          [
+            "d1",
+            1
+          ],
+          [
+            "d2",
+            1
+          ],
+          [
+            "d3",
+            1
+          ],
+          [
+            "d4",
+            1
+          ],
+          [
+            "d5",
+            1
+          ],
+          [
+            "d6",
+            1
+          ],
+          [
+            "d7",
+            1
+          ],
+          [
+            "d8",
+            1
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "nine-stages",
+      "description": "Nine stages exceed the limit of eight.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "nine-order-operations",
+      "description": "Nine operations exceed the limit of eight, even with stages to bind to.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            0,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            1,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            2,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            3,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            4,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            5,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            6,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            7,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-one-over",
+      "description": "A 65-byte key exceeds the identity limit.",
+      "intent": {
+        "t": [
+          [
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
     }
   ],
   "reject": [
     {
       "name": "pretty-printed",
-      "description": "Whitespace between tokens is not canonical. The packet rejects insignificant whitespace; so does this payload.",
+      "description": "Whitespace between tokens is not canonical.",
       "bytes": "{\"t\": [[\"depends\", \"eq\", \"Serilog\"]]}",
       "reject": "non-canonical"
     },
     {
       "name": "terms-unsorted",
-      "description": "Terms out of ordinal order are not canonical bytes.",
+      "description": "Terms out of scalar order are not canonical bytes.",
       "bytes": "{\"t\":[[\"prefix\",\"eq\",\"x\"],[\"depends\",\"eq\",\"Serilog\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bounds-unsorted",
+      "description": "Bounds out of dimension order are not canonical bytes.",
+      "bytes": "{\"b\":[[\"matches\",1],[\"candidates\",1]]}",
       "reject": "non-canonical"
     },
     {
@@ -616,14 +1308,38 @@
     },
     {
       "name": "exact-duplicate-terms-on-the-wire",
-      "description": "Canonical form has already collapsed exact duplicates; bytes still carrying one are not canonical.",
+      "description": "Canonical form has already collapsed exact duplicates.",
       "bytes": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"depends\",\"eq\",\"Serilog\"]]}",
       "reject": "non-canonical"
     },
     {
       "name": "order-operations-out-of-role-order-on-the-wire",
-      "description": "Operations must be emitted base first, then ascending stage index.",
+      "description": "Operations emit base first then ascending stage index.",
       "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"x\",\"asc\"],[\"base\",\"named\",\"y\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "escaped-ascii",
+      "description": "An escaped ASCII letter decodes to the same value as the raw letter but is not the canonical spelling.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"\\u0041\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "uppercase-c0-hex",
+      "description": "An uppercase hex escape for a C0 control is the System.Text.Json spelling, not the packet's.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"\\u001B\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "escaped-non-ascii",
+      "description": "An escaped non-ASCII scalar is not canonical; the packet emits it raw.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"\\u00e9\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape decodes correctly but is not canonical; the packet emits four raw bytes.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"\\ud83d\\ude00\"]]}",
       "reject": "non-canonical"
     },
     {
@@ -645,8 +1361,20 @@
       "reject": "duplicate-property"
     },
     {
+      "name": "not-an-object",
+      "description": "The payload is one object, never an array or scalar.",
+      "bytes": "[[\"depends\",\"eq\",\"Serilog\"]]",
+      "reject": "not-an-object"
+    },
+    {
+      "name": "malformed",
+      "description": "Text that is not JSON is refused before any shape rule applies.",
+      "bytes": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"]",
+      "reject": "malformed"
+    },
+    {
       "name": "repeated-bound-dimension-different-maxima",
-      "description": "One dimension may carry at most one bound; two maxima are a contradiction, not a narrower request.",
+      "description": "One dimension carries at most one bound; two maxima are a contradiction, not a narrower request.",
       "bytes": "{\"b\":[[\"candidates\",100],[\"candidates\",200]]}",
       "reject": "repeated-bound-dimension"
     },
@@ -681,9 +1409,21 @@
       "reject": "unknown-token"
     },
     {
+      "name": "unknown-role-string",
+      "description": "The only string role is base.",
+      "bytes": "{\"o\":[[\"baseline\",\"named\",\"x\",\"asc\"]]}",
+      "reject": "unknown-token"
+    },
+    {
       "name": "head-with-null",
-      "description": "Positional null is permitted only in the two window endpoint slots.",
+      "description": "null is permitted only in the two window bound slots.",
       "bytes": "{\"s\":[[\"head\",null]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "null-identity",
+      "description": "null is not an identity.",
+      "bytes": "{\"t\":[[null,\"eq\",\"v\"]]}",
       "reject": "null-outside-window"
     },
     {
@@ -694,13 +1434,19 @@
     },
     {
       "name": "term-wrong-arity",
-      "description": "A term is exactly three strings.",
+      "description": "A term is exactly three slots.",
       "bytes": "{\"t\":[[\"depends\",\"eq\"]]}",
       "reject": "bad-arity"
     },
     {
+      "name": "bound-wrong-arity",
+      "description": "A bound is exactly two slots.",
+      "bytes": "{\"b\":[[\"candidates\"]]}",
+      "reject": "bad-arity"
+    },
+    {
       "name": "named-order-wrong-arity",
-      "description": "A named operation is role, kind, identity, direction.",
+      "description": "A named operation is role, kind, reference, direction.",
       "bytes": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"named\",\"x\"]]}",
       "reject": "bad-arity"
     },
@@ -708,6 +1454,12 @@
       "name": "fields-order-odd-terms",
       "description": "A field-list operation pairs every key with a direction.",
       "bytes": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"a\",\"asc\",\"b\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "fields-order-no-terms",
+      "description": "A field-list operation carries at least one pair.",
+      "bytes": "{\"o\":[[\"base\",\"fields\"]]}",
       "reject": "bad-arity"
     },
     {
@@ -742,39 +1494,97 @@
     },
     {
       "name": "bound-maximum-negative",
-      "description": "Maxima are positive and unsigned.",
+      "description": "Counts are positive and unsigned.",
       "bytes": "{\"b\":[[\"candidates\",-1]]}",
       "reject": "bad-integer"
     },
     {
+      "name": "bound-maximum-zero",
+      "description": "Counts are positive.",
+      "bytes": "{\"b\":[[\"candidates\",0]]}",
+      "reject": "bad-integer"
+    },
+    {
       "name": "count-with-leading-zero",
-      "description": "No leading zeros.",
+      "description": "A leading zero is not JSON at all.",
       "bytes": "{\"s\":[[\"head\",007]]}",
+      "reject": "malformed"
+    },
+    {
+      "name": "count-with-exponent",
+      "description": "No exponent form.",
+      "bytes": "{\"s\":[[\"head\",1e2]]}",
       "reject": "bad-integer"
     },
     {
       "name": "too-many-terms",
-      "description": "Twenty-five terms exceed the limit of 24, charged as parsed, before any collapse.",
+      "description": "Twenty-five terms exceed the limit of 24.",
       "bytes": "{\"t\":[[\"k00\",\"eq\",\"v\"],[\"k01\",\"eq\",\"v\"],[\"k02\",\"eq\",\"v\"],[\"k03\",\"eq\",\"v\"],[\"k04\",\"eq\",\"v\"],[\"k05\",\"eq\",\"v\"],[\"k06\",\"eq\",\"v\"],[\"k07\",\"eq\",\"v\"],[\"k08\",\"eq\",\"v\"],[\"k09\",\"eq\",\"v\"],[\"k10\",\"eq\",\"v\"],[\"k11\",\"eq\",\"v\"],[\"k12\",\"eq\",\"v\"],[\"k13\",\"eq\",\"v\"],[\"k14\",\"eq\",\"v\"],[\"k15\",\"eq\",\"v\"],[\"k16\",\"eq\",\"v\"],[\"k17\",\"eq\",\"v\"],[\"k18\",\"eq\",\"v\"],[\"k19\",\"eq\",\"v\"],[\"k20\",\"eq\",\"v\"],[\"k21\",\"eq\",\"v\"],[\"k22\",\"eq\",\"v\"],[\"k23\",\"eq\",\"v\"],[\"k24\",\"eq\",\"v\"]]}",
       "reject": "limit-exceeded"
     },
     {
       "name": "too-many-order-field-terms",
-      "description": "Nine field terms across operations exceed the eight-term budget.",
+      "description": "Nine field terms across operations exceed the eight-term aggregate.",
       "bytes": "{\"o\":[[\"base\",\"fields\",\"f0\",\"asc\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"f8\",\"asc\"]]}",
       "reject": "limit-exceeded"
     },
     {
       "name": "value-too-long",
-      "description": "A 257-byte value exceeds the 256-byte limit, counted in UTF-8 bytes.",
+      "description": "A 257-byte value exceeds the 256-byte limit.",
       "bytes": "{\"t\":[[\"k\",\"eq\",\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"]]}",
       "reject": "limit-exceeded"
     },
     {
-      "name": "unpaired-surrogate",
-      "description": "Inherited from the packet's canonical escaping: an unpaired surrogate is refused, never repaired to U+FFFD.",
+      "name": "identity-too-long",
+      "description": "A 65-byte dimension exceeds the 64-byte identity limit.",
+      "bytes": "{\"b\":[[\"ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",1]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "payload-too-large",
+      "description": "Twenty-four terms with 128-byte values: every part within its count and every text within its length, yet over 3 KiB. The byte limit binds.",
+      "bytes": "{\"t\":[[\"k00\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k01\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k02\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k03\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k04\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k05\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k06\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k07\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k08\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k09\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k10\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k11\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k12\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k13\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k14\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k15\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k16\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k17\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k18\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k19\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k20\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k21\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k22\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k23\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "unpaired-high-surrogate",
+      "description": "A lone high surrogate escape is refused, never repaired to U+FFFD.",
       "bytes": "{\"t\":[[\"k\",\"eq\",\"\\ud800\"]]}",
       "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "unpaired-low-surrogate",
+      "description": "A lone low surrogate escape is refused.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"\\udc00\"]]}",
+      "reject": "unpaired-surrogate"
+    }
+  ],
+  "pair": [
+    {
+      "name": "same-bytes-two-vocabularies",
+      "description": "Identical payload bytes under two vocabularies are two different queries; the keys resolve against different namespaces.",
+      "a": {
+        "queryId": "package.query",
+        "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
+      },
+      "b": {
+        "queryId": "row.query",
+        "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
+      },
+      "same": false
+    },
+    {
+      "name": "same-query-two-entries",
+      "description": "The same query entered in two orders is one query: same vocabulary, same canonical bytes.",
+      "a": {
+        "queryId": "package.query",
+        "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
+      },
+      "b": {
+        "queryId": "package.query",
+        "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
+      },
+      "same": true
     }
   ]
 }

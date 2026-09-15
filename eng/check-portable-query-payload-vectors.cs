@@ -1,176 +1,206 @@
 // Checks the normative vectors behind docs/design/portable-query-payload.md.
 //
 // The design document states the principles of the canonical query payload in
-// prose. The exact shape — property order, tokens, tuple arity, limits — is not
-// prose: it is the shape table below, and the vectors file witnesses it. This
-// probe keeps the three in agreement until the product codec exists, at which
-// point the codec's own tests consume the same vectors file and this file
-// retires.
+// prose. The exact shape is not prose: it is the SHAPE region below, and the
+// vectors file witnesses it. Everything after the SHAPE region is
+// implementation, and is not normative; if it disagrees with the region or a
+// vector, the implementation is wrong.
 //
 //   dotnet run eng/check-portable-query-payload-vectors.cs
 //
-// Every encode vector must canonicalize from its (possibly unordered) intent to
-// exactly its canonical bytes; those bytes must validate, decode, and re-emit
-// unchanged; and the vector's value count and byte size must sit under the
-// declared limits. Every reject vector must be refused with exactly the reason
-// it names. Exit code 0 means every vector holds; 2 means at least one did not.
+// Vector categories:
+//   encode        — an intent, possibly unordered, and the one canonical byte
+//                   string it must produce; those bytes must also decode and
+//                   re-emit unchanged.
+//   encode-reject — an intent the codec must refuse before canonicalizing,
+//                   with the reason. Limits are charged here, as parsed,
+//                   before any duplicate collapses.
+//   reject        — bytes the decoder must refuse, with the reason.
+//   pair          — two (queryId, canonical) states and whether they are the
+//                   same query. Identity is the pair, never bytes alone.
 //
-// What this checker deliberately does not know: what any key, dimension, or
-// order identity means, whether a value is a valid package identifier, or how
-// terms compose. Those belong to the vocabulary and the intent model. The codec
-// validates structure and canonical form; it never interprets a value.
+// Exit 0 means every vector holds; 2 means at least one did not.
 //
-// Escaping note for the eventual codec: this probe keeps every canonical vector
-// to ASCII plus the two unambiguous escapes (quote and backslash), because the
-// full scalar escaping rules are inherited from the packet owner and pin
-// lowercase hex for C0 controls, while general-purpose serializers emit
-// uppercase. The product codec must reuse the packet's canonical writer rather
-// than a general serializer for exactly that reason.
+// What this checker does not know: what any key, dimension, or order identity
+// means, whether a value is a valid package identifier, or how terms compose.
+// The codec validates structure and canonical form; it never interprets a value.
 
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
-// ─── Shape table ──────────────────────────────────────────────────────────────
-// The normative structure of the payload. Change here, then add a vector.
+// ═══════════════════════════════════════════════════════════════════════════════
+// SHAPE — the normative structure. Change here, then add a vector.
+// ═══════════════════════════════════════════════════════════════════════════════
 
-string[] propertyOrder = ["t", "b", "s", "o"];
-HashSet<string> operators = ["eq", "ne", "gte", "lte"];
-HashSet<string> directions = ["asc", "desc"];
-Dictionary<string, int> stageArity = new()
+// Wire properties in canonical order, and the intent part each one carries.
+// An absent or empty part is omitted, never emitted as null or [].
+(string Property, string Part)[] properties =
+    [("t", "terms"), ("b", "bounds"), ("s", "stages"), ("o", "order")];
+
+// What one tuple slot may hold.
+//   Identity    a key, dimension, or order reference: string, ≤ MaxIdentityBytes
+//   Text        a term value: string, ≤ MaxValueBytes, never interpreted
+//   Count       a positive integer: no sign, leading zero, fraction, or exponent
+//   WindowBound a Count, or null meaning "no bound on this side"
+//   Role        the string "base", or an integer index into s naming a top stage
+//   Direction   asc | desc
+// Token slots are fixed by their layout and listed with it.
+
+// Tuple layouts. A term, a bound, and each stage kind are fixed-arity.
+// An order operation is [Role, kind, ...]: the kind selects the tail.
+//   term   [Identity(key), operator, Text(value)]
+//   bound  [Identity(dimension), Count(maximum)]        one bound per dimension
+//   stage  [stage token, ...slots listed below]
+string[] operators  = ["eq", "ne", "gte", "lte"];           // slot 1 of a term
+string[] directions = ["asc", "desc"];
+Dictionary<string, Slot[]> stageLayouts = new()
 {
-    ["head"] = 2, ["tail"] = 2, ["top"] = 2, ["window"] = 3,
+    ["head"]   = [Slot.Count],
+    ["tail"]   = [Slot.Count],
+    ["top"]    = [Slot.Count],                        // its ranking binds through o
+    ["window"] = [Slot.WindowBound, Slot.WindowBound],// always three slots total
 };
-HashSet<string> orderKinds = ["named", "fields"];
+// Order operations:
+//   named   [Role, "named",  Identity(reference), Direction]
+//   fields  [Role, "fields", Identity(key), Direction, Identity(key), Direction, ...]  ≥ 1 pair
+string[] orderKinds = ["named", "fields"];
 
-const int MaxPayloadBytes = 3 * 1024;
-const int MaxDepth = 4;
-const int MaxTerms = 24;
-const int MaxBounds = 8;
-const int MaxStages = 8;
-const int MaxOrderOperations = 8;
-const int MaxOrderFieldTerms = 8;
-const int MaxIdentityBytes = 64;
-const int MaxValueBytes = 256;
-const int PacketMaxValues = 256;   // the packet owner's per-payload allowance
+// Limits. Text limits count UTF-8 bytes. Depth counts the object as 1.
+// Count limits are charged as parsed, before exact duplicates collapse.
+const int MaxPayloadBytes     = 3 * 1024;
+const int MaxDepth            = 4;
+const int MaxTerms            = 24;
+const int MaxBounds           = 8;
+const int MaxStages           = 8;
+const int MaxOrderOperations  = 8;
+const int MaxOrderFieldTerms  = 8;   // aggregate across every operation
+const int MaxIdentityBytes    = 64;  // keys, dimensions, order references
+const int MaxValueBytes       = 256; // term values
+const int PacketMaxValues     = 256; // the packet owner's per-payload allowance
 
-// ─── End shape table ──────────────────────────────────────────────────────────
+// Text order, for every sort this codec performs: Unicode scalar value, which is
+// UTF-8 byte order. Not UTF-16 code-unit order (string.CompareOrdinal). Defined
+// by the intent model; emitted here.
+Comparer<string> scalarOrder = Comparer<string>.Create((x, y) =>
+    Encoding.UTF8.GetBytes(x).AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(y)));
+
+// Strings, inherited from the packet owner: escape only quote, backslash, and
+// C0 controls; \b \t \n \f \r where defined; lowercase \u00xx for other C0;
+// every other scalar raw UTF-8, including U+007F and above; unpaired
+// surrogates refused. No System.Text.Json encoder implements this rule.
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// End of SHAPE. Everything below is implementation.
+// ═══════════════════════════════════════════════════════════════════════════════
 
 string root = FindRepoRoot();
-string vectorsPath = Path.Combine(
-    root, "docs", "design", "models", "portable-query-payload", "vectors.json");
-if (!File.Exists(vectorsPath))
-{
-    Console.Error.WriteLine($"vectors file not found: {vectorsPath}");
-    return 2;
-}
+string vectorsPath = Path.Combine(root, "docs", "design", "models", "portable-query-payload", "vectors.json");
+if (!File.Exists(vectorsPath)) { Console.Error.WriteLine($"vectors file not found: {vectorsPath}"); return 2; }
 
 using JsonDocument vectors = JsonDocument.Parse(File.ReadAllText(vectorsPath));
-int failures = 0;
-int encodeCount = 0;
-int rejectCount = 0;
+int failures = 0, nEncode = 0, nEncodeReject = 0, nReject = 0, nPair = 0;
 
 foreach (JsonElement v in vectors.RootElement.GetProperty("encode").EnumerateArray())
 {
-    encodeCount++;
+    nEncode++;
     string name = v.GetProperty("name").GetString()!;
     string expected = v.GetProperty("canonical").GetString()!;
     string intentText = v.GetProperty("intent").GetRawText();
 
-    string? canonical = Canonicalize(intentText, out string? encodeError);
-    if (canonical is null)
-    {
-        Fail(name, $"intent did not canonicalize: {encodeError}");
-        continue;
-    }
-    if (canonical != expected)
-    {
-        Fail(name, $"canonical bytes differ\n    expected {expected}\n    actual   {canonical}");
-        continue;
-    }
+    string? reason = ValidateStructure(intentText, out JsonDocument? intentDoc);
+    if (reason is not null) { Fail(name, $"intent refused as {reason}"); continue; }
+    string canonical = Canonicalize(intentDoc!);
+    if (canonical != expected) { Fail(name, $"canonical bytes differ\n    expected {expected}\n    actual   {canonical}"); continue; }
 
-    string? reason = Validate(expected);
-    if (reason is not null)
-    {
-        Fail(name, $"canonical bytes were rejected as {reason}");
-        continue;
-    }
-
-    string? reemitted = Canonicalize(expected, out _);
-    if (reemitted != expected)
-    {
-        Fail(name, "decode then canonical write did not reproduce the bytes");
-        continue;
-    }
+    string? decodeReason = ValidateBytes(expected);
+    if (decodeReason is not null) { Fail(name, $"canonical bytes rejected as {decodeReason}"); continue; }
 
     int bytes = Encoding.UTF8.GetByteCount(expected);
-    int values = CountValues(JsonDocument.Parse(expected).RootElement);
-    if (bytes > MaxPayloadBytes)
-        Fail(name, $"{bytes} bytes exceeds {MaxPayloadBytes}");
-    if (values > PacketMaxValues)
-        Fail(name, $"{values} JSON values exceeds the packet allowance of {PacketMaxValues}");
-    if (v.TryGetProperty("expectValues", out JsonElement ev) && ev.GetInt32() != values)
-        Fail(name, $"expected {ev.GetInt32()} JSON values, counted {values}");
+    using JsonDocument canonDoc = JsonDocument.Parse(expected);
+    int values = CountValues(canonDoc.RootElement);
+    if (bytes > MaxPayloadBytes) Fail(name, $"{bytes} bytes exceeds {MaxPayloadBytes}");
+    if (values > PacketMaxValues) Fail(name, $"{values} JSON values exceeds the packet allowance of {PacketMaxValues}");
+    if (v.TryGetProperty("expectValues", out JsonElement ev) && ev.GetInt32() != values) Fail(name, $"expected {ev.GetInt32()} JSON values, counted {values}");
+    if (v.TryGetProperty("expectBytes", out JsonElement eb) && eb.GetInt32() != bytes) Fail(name, $"expected {eb.GetInt32()} bytes, counted {bytes}");
+}
+
+foreach (JsonElement v in vectors.RootElement.GetProperty("encode-reject").EnumerateArray())
+{
+    nEncodeReject++;
+    string name = v.GetProperty("name").GetString()!;
+    string expectedReason = v.GetProperty("reject").GetString()!;
+    string? reason = ValidateStructure(v.GetProperty("intent").GetRawText(), out _);
+    if (reason != expectedReason) Fail(name, $"expected intent rejection '{expectedReason}', got '{reason ?? "accepted"}'");
 }
 
 foreach (JsonElement v in vectors.RootElement.GetProperty("reject").EnumerateArray())
 {
-    rejectCount++;
+    nReject++;
     string name = v.GetProperty("name").GetString()!;
-    string bytes = v.GetProperty("bytes").GetString()!;
     string expectedReason = v.GetProperty("reject").GetString()!;
-    string? reason = Validate(bytes);
-    if (reason != expectedReason)
-        Fail(name, $"expected rejection '{expectedReason}', got '{reason ?? "accepted"}'");
+    string? reason = ValidateBytes(v.GetProperty("bytes").GetString()!);
+    if (reason != expectedReason) Fail(name, $"expected rejection '{expectedReason}', got '{reason ?? "accepted"}'");
 }
 
-Console.WriteLine(
-    $"{encodeCount} encode vectors, {rejectCount} reject vectors, {failures} failure(s)");
+foreach (JsonElement v in vectors.RootElement.GetProperty("pair").EnumerateArray())
+{
+    nPair++;
+    string name = v.GetProperty("name").GetString()!;
+    JsonElement a = v.GetProperty("a"), b = v.GetProperty("b");
+    bool same = a.GetProperty("queryId").GetString() == b.GetProperty("queryId").GetString()
+             && a.GetProperty("canonical").GetString() == b.GetProperty("canonical").GetString();
+    if (same != v.GetProperty("same").GetBoolean()) Fail(name, $"expected same={v.GetProperty("same").GetBoolean()}, identity says {same}");
+}
+
+Console.WriteLine($"{nEncode} encode, {nEncodeReject} encode-reject, {nReject} reject, {nPair} pair vectors; {failures} failure(s)");
 return failures == 0 ? 0 : 2;
 
-// ─── Validation: bytes → reason or null ───────────────────────────────────────
+// ─── Decode: bytes → reason or null ──────────────────────────────────────────
 
-string? Validate(string text)
+string? ValidateBytes(string text)
 {
-    // Inherited escaping rejection, checked on the raw text before parsing.
-    if (Regex.IsMatch(text, @"\\u[dD][89abAB][0-9a-fA-F]{2}(?!\\u[dD][c-fC-F][0-9a-fA-F]{2})")
-        || Regex.IsMatch(text, @"(?<!\\u[dD][89abAB][0-9a-fA-F]{2})\\u[dD][c-fC-F][0-9a-fA-F]{2}"))
-        return "unpaired-surrogate";
-
-    JsonDocument doc;
-    try
-    {
-        doc = JsonDocument.Parse(text, new JsonDocumentOptions
-        {
-            AllowTrailingCommas = false,
-            CommentHandling = JsonCommentHandling.Disallow,
-        });
-    }
-    catch (JsonException)
-    {
-        // Leading zeros and similar are lexically invalid JSON.
-        return Regex.IsMatch(text, @"[\[,]\s*0\d") ? "bad-integer" : "malformed";
-    }
-
+    string? reason = ValidateStructure(text, out JsonDocument? doc);
+    if (reason is not null) return reason;
     using (doc)
     {
-        JsonElement obj = doc.RootElement;
+        if (Encoding.UTF8.GetByteCount(text) > MaxPayloadBytes) return "limit-exceeded";
+        // Structure holds; the bytes must be the one canonical spelling.
+        return Canonicalize(doc!) == text ? null : "non-canonical";
+    }
+}
+
+// ─── Structure: any JSON text → reason or null, plus the parsed document ──────
+// Shared by decode and encode. Does not require canonical order or spelling;
+// does require every layout, token, role, uniqueness, and limit rule.
+
+string? ValidateStructure(string text, out JsonDocument? doc)
+{
+    doc = null;
+    JsonDocument parsed;
+    try
+    {
+        parsed = JsonDocument.Parse(text, new JsonDocumentOptions { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow });
+    }
+    catch (JsonException) { return "malformed"; }
+
+    string? result = Check(parsed.RootElement);
+    if (result is null) doc = parsed; else parsed.Dispose();
+    return result;
+
+    string? Check(JsonElement obj)
+    {
         if (obj.ValueKind != JsonValueKind.Object) return "not-an-object";
 
         var names = new List<string>();
         foreach (JsonProperty p in obj.EnumerateObject()) names.Add(p.Name);
         if (names.Distinct().Count() != names.Count) return "duplicate-property";
-        foreach (string n in names)
-            if (!propertyOrder.Contains(n)) return "unknown-property";
-
+        foreach (string n in names) if (!properties.Any(x => x.Property == n)) return "unknown-property";
         foreach (JsonProperty p in obj.EnumerateObject())
         {
             if (p.Value.ValueKind != JsonValueKind.Array) return "bad-arity";
             if (p.Value.GetArrayLength() == 0) return "empty-part";
         }
 
-        int stageCount = 0;
         string[] stageTokens = [];
 
         if (obj.TryGetProperty("t", out JsonElement t))
@@ -179,10 +209,11 @@ string? Validate(string text)
             foreach (JsonElement term in t.EnumerateArray())
             {
                 if (term.ValueKind != JsonValueKind.Array || term.GetArrayLength() != 3) return "bad-arity";
-                foreach (JsonElement slot in term.EnumerateArray())
-                    if (slot.ValueKind != JsonValueKind.String) return slot.ValueKind == JsonValueKind.Null ? "null-outside-window" : "bad-arity";
-                if (!operators.Contains(term[1].GetString()!)) return "unknown-token";
-                if (Utf8(term[0]) > MaxIdentityBytes || Utf8(term[2]) > MaxValueBytes) return "limit-exceeded";
+                string? r;
+                if ((r = SlotString(term[0], Slot.Identity, out _)) is not null) return r;
+                if ((r = SlotString(term[1], Slot.Token, out string op)) is not null) return r;
+                if (!operators.Contains(op)) return "unknown-token";
+                if ((r = SlotString(term[2], Slot.Text, out _)) is not null) return r;
             }
         }
 
@@ -193,35 +224,31 @@ string? Validate(string text)
             foreach (JsonElement bound in b.EnumerateArray())
             {
                 if (bound.ValueKind != JsonValueKind.Array || bound.GetArrayLength() != 2) return "bad-arity";
-                if (bound[0].ValueKind != JsonValueKind.String) return "bad-arity";
-                if (!IsCanonicalPositiveInteger(bound[1])) return "bad-integer";
-                if (Utf8(bound[0]) > MaxIdentityBytes) return "limit-exceeded";
-                if (!dims.Add(bound[0].GetString()!)) return "repeated-bound-dimension";
+                string? r;
+                if ((r = SlotString(bound[0], Slot.Identity, out string dim)) is not null) return r;
+                if (!IsCount(bound[1])) return "bad-integer";
+                if (!dims.Add(dim)) return "repeated-bound-dimension";
             }
         }
 
         if (obj.TryGetProperty("s", out JsonElement s))
         {
-            stageCount = s.GetArrayLength();
-            if (stageCount > MaxStages) return "limit-exceeded";
-            stageTokens = new string[stageCount];
+            int n = s.GetArrayLength();
+            if (n > MaxStages) return "limit-exceeded";
+            stageTokens = new string[n];
             int i = 0;
             foreach (JsonElement stage in s.EnumerateArray())
             {
                 if (stage.ValueKind != JsonValueKind.Array || stage.GetArrayLength() < 1) return "bad-arity";
-                if (stage[0].ValueKind != JsonValueKind.String) return "bad-arity";
-                string tok = stage[0].GetString()!;
-                if (!stageArity.TryGetValue(tok, out int arity)) return "unknown-token";
-                if (stage.GetArrayLength() != arity) return "bad-arity";
-                for (int k = 1; k < arity; k++)
+                string? r;
+                if ((r = SlotString(stage[0], Slot.Token, out string tok)) is not null) return r;
+                if (!stageLayouts.TryGetValue(tok, out Slot[]? layout)) return "unknown-token";
+                if (stage.GetArrayLength() != 1 + layout.Length) return "bad-arity";
+                for (int k = 0; k < layout.Length; k++)
                 {
-                    JsonElement slot = stage[k];
-                    if (slot.ValueKind == JsonValueKind.Null)
-                    {
-                        if (tok != "window") return "null-outside-window";
-                        continue;
-                    }
-                    if (!IsCanonicalPositiveInteger(slot)) return "bad-integer";
+                    JsonElement slot = stage[k + 1];
+                    if (slot.ValueKind == JsonValueKind.Null) { if (layout[k] != Slot.WindowBound) return "null-outside-window"; continue; }
+                    if (!IsCount(slot)) return "bad-integer";
                 }
                 stageTokens[i++] = tok;
             }
@@ -230,175 +257,185 @@ string? Validate(string text)
         if (obj.TryGetProperty("o", out JsonElement o))
         {
             if (o.GetArrayLength() > MaxOrderOperations) return "limit-exceeded";
-            int fieldTerms = 0;
-            bool sawBase = false;
-            var stageRoles = new HashSet<int>();
+            int fieldTerms = 0; bool sawBase = false; var stageRoles = new HashSet<int>();
             foreach (JsonElement op in o.EnumerateArray())
             {
                 if (op.ValueKind != JsonValueKind.Array || op.GetArrayLength() < 2) return "bad-arity";
                 JsonElement role = op[0];
                 if (role.ValueKind == JsonValueKind.String)
                 {
-                    if (role.GetString() != "base") return "unknown-token";
+                    string? r;
+                    if ((r = SlotString(role, Slot.Token, out string rs)) is not null) return r;
+                    if (rs != "base") return "unknown-token";
                     if (sawBase) return "duplicate-role";
                     sawBase = true;
                 }
-                else if (role.ValueKind == JsonValueKind.Number && role.TryGetInt32(out int idx))
+                else if (role.ValueKind == JsonValueKind.Number && role.TryGetInt32(out int idx) && IsCanonicalInteger(role))
                 {
-                    if (idx < 0 || idx >= stageCount || stageTokens[idx] != "top") return "role-not-top";
+                    if (idx < 0 || idx >= stageTokens.Length || stageTokens[idx] != "top") return "role-not-top";
                     if (!stageRoles.Add(idx)) return "duplicate-role";
                 }
-                else return "bad-arity";
+                else return role.ValueKind == JsonValueKind.Null ? "null-outside-window" : "bad-arity";
 
-                if (op[1].ValueKind != JsonValueKind.String) return "bad-arity";
-                string kind = op[1].GetString()!;
+                string? kr;
+                if ((kr = SlotString(op[1], Slot.Token, out string kind)) is not null) return kr;
                 if (!orderKinds.Contains(kind)) return "unknown-token";
                 int rest = op.GetArrayLength() - 2;
-                if (kind == "named")
+                if (kind == "named") { if (rest != 2) return "bad-arity"; }
+                else { if (rest == 0 || rest % 2 != 0) return "bad-arity"; fieldTerms += rest / 2; }
+                for (int k = 2; k < op.GetArrayLength(); k += 2)
                 {
-                    if (rest != 2) return "bad-arity";
+                    string? r;
+                    if ((r = SlotString(op[k], Slot.Identity, out _)) is not null) return r;
+                    if ((r = SlotString(op[k + 1], Slot.Token, out string dir)) is not null) return r;
+                    if (!directions.Contains(dir)) return "unknown-token";
                 }
-                else
-                {
-                    if (rest == 0 || rest % 2 != 0) return "bad-arity";
-                    fieldTerms += rest / 2;
-                }
-                for (int k = 2; k < op.GetArrayLength(); k++)
-                {
-                    if (op[k].ValueKind != JsonValueKind.String)
-                        return op[k].ValueKind == JsonValueKind.Null ? "null-outside-window" : "bad-arity";
-                    if (Utf8(op[k]) > MaxIdentityBytes) return "limit-exceeded";
-                }
-                for (int k = 3; k < op.GetArrayLength(); k += 2)
-                    if (!directions.Contains(op[k].GetString()!)) return "unknown-token";
             }
             if (fieldTerms > MaxOrderFieldTerms) return "limit-exceeded";
         }
 
         if (Depth(obj) > MaxDepth) return "limit-exceeded";
-        if (Encoding.UTF8.GetByteCount(text) > MaxPayloadBytes) return "limit-exceeded";
-
-        // Structure is valid; now the bytes must be the one canonical spelling.
-        string? canonical = Canonicalize(text, out _);
-        return canonical == text ? null : "non-canonical";
+        return null;
     }
 }
 
-// ─── Canonicalization: any structurally valid JSON → the one canonical spelling
-
-string? Canonicalize(string text, out string? error)
+// Reads a string slot, applying the slot's byte limit and refusing unpaired surrogates.
+string? SlotString(JsonElement e, Slot slot, out string value)
 {
-    error = null;
-    JsonDocument doc;
-    try { doc = JsonDocument.Parse(text); }
-    catch (JsonException e) { error = e.Message; return null; }
+    value = "";
+    if (e.ValueKind == JsonValueKind.Null) return "null-outside-window";
+    if (e.ValueKind != JsonValueKind.String) return "bad-arity";
+    try { value = e.GetString()!; }
+    catch (InvalidOperationException) { return "unpaired-surrogate"; }   // lone surrogate escape
+    int limit = slot switch { Slot.Identity => MaxIdentityBytes, Slot.Text => MaxValueBytes, _ => int.MaxValue };
+    return Encoding.UTF8.GetByteCount(value) > limit ? "limit-exceeded" : null;
+}
 
-    using (doc)
+// ─── Canonical write: a structurally valid document → the one canonical spelling
+
+string Canonicalize(JsonDocument doc)
+{
+    JsonElement obj = doc.RootElement;
+    var sb = new StringBuilder();
+    sb.Append('{');
+    bool first = true;
+    void Prop(string name) { if (!first) sb.Append(','); first = false; WriteString(sb, name); sb.Append(':'); }
+
+    if (obj.TryGetProperty("t", out JsonElement t) && t.GetArrayLength() > 0)
     {
-        JsonElement obj = doc.RootElement;
-        var buffer = new MemoryStream();
-        using (var w = new Utf8JsonWriter(buffer, new JsonWriterOptions
-        {
-            Indented = false,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        }))
-        {
-            w.WriteStartObject();
-
-            if (obj.TryGetProperty("t", out JsonElement t) && t.GetArrayLength() > 0)
-            {
-                var terms = t.EnumerateArray()
-                    .Select(x => (k: x[0].GetString()!, op: x[1].GetString()!, v: x[2].GetString()!))
-                    .Distinct()
-                    .OrderBy(x => x.k, StringComparer.Ordinal)
-                    .ThenBy(x => x.op, StringComparer.Ordinal)
-                    .ThenBy(x => x.v, StringComparer.Ordinal);
-                w.WritePropertyName("t");
-                w.WriteStartArray();
-                foreach (var x in terms)
-                {
-                    w.WriteStartArray(); w.WriteStringValue(x.k); w.WriteStringValue(x.op); w.WriteStringValue(x.v); w.WriteEndArray();
-                }
-                w.WriteEndArray();
-            }
-
-            if (obj.TryGetProperty("b", out JsonElement b) && b.GetArrayLength() > 0)
-            {
-                var bounds = b.EnumerateArray()
-                    .Select(x => (d: x[0].GetString()!, m: x[1].GetInt64()))
-                    .OrderBy(x => x.d, StringComparer.Ordinal);
-                w.WritePropertyName("b");
-                w.WriteStartArray();
-                foreach (var x in bounds)
-                {
-                    w.WriteStartArray(); w.WriteStringValue(x.d); w.WriteNumberValue(x.m); w.WriteEndArray();
-                }
-                w.WriteEndArray();
-            }
-
-            if (obj.TryGetProperty("s", out JsonElement s) && s.GetArrayLength() > 0)
-            {
-                w.WritePropertyName("s");
-                w.WriteStartArray();
-                foreach (JsonElement stage in s.EnumerateArray()) stage.WriteTo(w);
-                w.WriteEndArray();
-            }
-
-            if (obj.TryGetProperty("o", out JsonElement o) && o.GetArrayLength() > 0)
-            {
-                var ops = o.EnumerateArray()
-                    .OrderBy(x => x[0].ValueKind == JsonValueKind.String ? -1 : x[0].GetInt32());
-                w.WritePropertyName("o");
-                w.WriteStartArray();
-                foreach (JsonElement op in ops) op.WriteTo(w);
-                w.WriteEndArray();
-            }
-
-            w.WriteEndObject();
-        }
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        var terms = t.EnumerateArray()
+            .Select(x => (k: x[0].GetString()!, op: x[1].GetString()!, v: x[2].GetString()!))
+            .Distinct()
+            .OrderBy(x => x.k, scalarOrder).ThenBy(x => x.op, scalarOrder).ThenBy(x => x.v, scalarOrder);
+        Prop("t"); sb.Append('[');
+        bool f = true;
+        foreach (var x in terms) { if (!f) sb.Append(','); f = false; sb.Append('['); WriteString(sb, x.k); sb.Append(','); WriteString(sb, x.op); sb.Append(','); WriteString(sb, x.v); sb.Append(']'); }
+        sb.Append(']');
     }
+    if (obj.TryGetProperty("b", out JsonElement b) && b.GetArrayLength() > 0)
+    {
+        var bounds = b.EnumerateArray().Select(x => (d: x[0].GetString()!, m: x[1].GetRawText())).OrderBy(x => x.d, scalarOrder);
+        Prop("b"); sb.Append('[');
+        bool f = true;
+        foreach (var x in bounds) { if (!f) sb.Append(','); f = false; sb.Append('['); WriteString(sb, x.d); sb.Append(',').Append(x.m).Append(']'); }
+        sb.Append(']');
+    }
+    if (obj.TryGetProperty("s", out JsonElement s) && s.GetArrayLength() > 0)
+    {
+        Prop("s"); sb.Append('[');
+        bool f = true;
+        foreach (JsonElement stage in s.EnumerateArray()) { if (!f) sb.Append(','); f = false; WriteTuple(sb, stage); }
+        sb.Append(']');
+    }
+    if (obj.TryGetProperty("o", out JsonElement o) && o.GetArrayLength() > 0)
+    {
+        var ops = o.EnumerateArray().OrderBy(x => x[0].ValueKind == JsonValueKind.String ? -1 : x[0].GetInt32());
+        Prop("o"); sb.Append('[');
+        bool f = true;
+        foreach (JsonElement op in ops) { if (!f) sb.Append(','); f = false; WriteTuple(sb, op); }
+        sb.Append(']');
+    }
+    sb.Append('}');
+    return sb.ToString();
+}
+
+// Writes a tuple of scalars in declared sequence, in canonical spelling.
+static void WriteTuple(StringBuilder sb, JsonElement tuple)
+{
+    sb.Append('[');
+    bool f = true;
+    foreach (JsonElement e in tuple.EnumerateArray())
+    {
+        if (!f) sb.Append(','); f = false;
+        switch (e.ValueKind)
+        {
+            case JsonValueKind.String: WriteString(sb, e.GetString()!); break;
+            case JsonValueKind.Number: sb.Append(e.GetRawText()); break;
+            case JsonValueKind.Null: sb.Append("null"); break;
+            default: throw new InvalidOperationException("nested structure inside a tuple");
+        }
+    }
+    sb.Append(']');
+}
+
+// The packet owner's string rule. Not any System.Text.Json encoder.
+static void WriteString(StringBuilder sb, string s)
+{
+    sb.Append('"');
+    foreach (Rune r in s.EnumerateRunes())
+    {
+        switch (r.Value)
+        {
+            case '"':  sb.Append("\\\""); break;
+            case '\\': sb.Append("\\\\"); break;
+            case '\b': sb.Append("\\b"); break;
+            case '\t': sb.Append("\\t"); break;
+            case '\n': sb.Append("\\n"); break;
+            case '\f': sb.Append("\\f"); break;
+            case '\r': sb.Append("\\r"); break;
+            case < 0x20: sb.Append("\\u").Append(r.Value.ToString("x4")); break;
+            default: sb.Append(r.ToString()); break;   // raw UTF-8 on output, U+007F and above included
+        }
+    }
+    sb.Append('"');
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-static bool IsCanonicalPositiveInteger(JsonElement e)
+static bool IsCanonicalInteger(JsonElement e)
 {
     if (e.ValueKind != JsonValueKind.Number) return false;
     string raw = e.GetRawText();
     if (raw.Contains('.') || raw.Contains('e') || raw.Contains('E') || raw.StartsWith('-') || raw.StartsWith('+')) return false;
     if (raw.Length > 1 && raw[0] == '0') return false;
-    return e.TryGetInt64(out long n) && n > 0;
+    return e.TryGetInt64(out _);
 }
 
-static int Utf8(JsonElement s) => Encoding.UTF8.GetByteCount(s.GetString()!);
+static bool IsCount(JsonElement e) => IsCanonicalInteger(e) && e.GetInt64() > 0;
 
 static int Depth(JsonElement e) => e.ValueKind switch
 {
     JsonValueKind.Object => 1 + e.EnumerateObject().Select(p => Depth(p.Value)).DefaultIfEmpty(0).Max(),
-    JsonValueKind.Array => 1 + e.EnumerateArray().Select(Depth).DefaultIfEmpty(0).Max(),
+    JsonValueKind.Array  => 1 + e.EnumerateArray().Select(Depth).DefaultIfEmpty(0).Max(),
     _ => 1,
 };
 
 static int CountValues(JsonElement e) => e.ValueKind switch
 {
     JsonValueKind.Object => 1 + e.EnumerateObject().Sum(p => CountValues(p.Value)),
-    JsonValueKind.Array => 1 + e.EnumerateArray().Sum(CountValues),
+    JsonValueKind.Array  => 1 + e.EnumerateArray().Sum(CountValues),
     _ => 1,
 };
 
-void Fail(string vector, string message)
-{
-    failures++;
-    Console.Error.WriteLine($"FAIL {vector}: {message}");
-}
+void Fail(string vector, string message) { failures++; Console.Error.WriteLine($"FAIL {vector}: {message}"); }
 
 static string FindRepoRoot()
 {
-    string? dir = AppContext.BaseDirectory;
-    // File-based apps build under a temp path; walk from the current directory instead.
-    dir = Directory.GetCurrentDirectory();
-    while (dir is not null && !File.Exists(Path.Combine(dir, "AGENTS.md")))
-        dir = Path.GetDirectoryName(dir);
+    string? dir = Directory.GetCurrentDirectory();
+    while (dir is not null && !File.Exists(Path.Combine(dir, "AGENTS.md"))) dir = Path.GetDirectoryName(dir);
     return dir ?? throw new InvalidOperationException("Run from inside the repository.");
 }
+
+// Slot kinds named by the SHAPE region. Declared last because a top-level
+// program must place type declarations after every statement.
+enum Slot { Identity, Token, Text, Count, WindowBound }
