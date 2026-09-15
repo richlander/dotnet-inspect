@@ -1711,6 +1711,7 @@ public sealed class PackageHouseContractTests
             typeof(PackageHouseLibraryHandoff),
             typeof(PackageHouseFailure),
             typeof(PackageHouseResult),
+            typeof(PackageHouseVersionPopulationResult),
         ];
 
         Assert.All(
@@ -1782,6 +1783,12 @@ public sealed class PackageHouseContractTests
             typeof(PackageHouseLibraryHandoff),
             typeof(PackageHouseFailure),
             typeof(PackageHouseEvidence),
+            typeof(PackageHouseVersionPopulationRequest),
+            typeof(PackageHouseVersionPopulationEvidence),
+            typeof(PackageHouseVersionPopulationCell),
+            typeof(PackageHouseVersionPopulationResult),
+            .. typeof(PackageHouseVersionPopulationResult)
+                .GetNestedTypes(BindingFlags.Public),
             typeof(PlatformDelegation),
             .. result.GetNestedTypes(BindingFlags.Public),
         ];
@@ -1799,6 +1806,46 @@ public sealed class PackageHouseContractTests
                         "DotnetInspector.Queries",
                         StringComparison.Ordinal)
                     is true);
+    }
+
+    [Fact]
+    public void VersionPopulationTerminalFamilyIsClosedAndRejectsEmptyReason()
+    {
+        Type result = typeof(PackageHouseVersionPopulationResult);
+        string[] expected =
+        [
+            "Available",
+            "Failed",
+            "Incomplete",
+            "NoMatch",
+            "NotFound",
+            "Rejected",
+            "Unavailable",
+        ];
+        Assert.Equal(
+            expected,
+            result.GetNestedTypes(BindingFlags.Public)
+                .Select(type => type.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+
+        Assert.True(
+            PackageVersionRange.TryParse(
+                "contoso.json@1.0.0..2.0.0",
+                out PackageVersionRange? range,
+                out string? error),
+            error);
+        var request = new PackageHouseVersionPopulationRequest(
+            range!,
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle));
+        var evidence = new PackageHouseVersionPopulationEvidence(
+            request);
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseVersionPopulationResult.Failed(
+                evidence,
+                default));
     }
 
     [Fact]

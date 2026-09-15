@@ -34,6 +34,7 @@ type PackageOperations =
   | "queryMemberDocumentation"
   | "queryPackage"
   | "queryPackageDependencies"
+  | "queryPackagePruning"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion"

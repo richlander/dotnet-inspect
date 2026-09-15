@@ -1983,6 +1983,30 @@ kbd {
 .dep-name.as-link { border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; color: var(--blue); }
 .dep-name.as-link:hover { text-decoration: underline; }
 .dep-version { flex: 0 0 auto; font: 13px var(--mono); color: var(--dim); white-space: nowrap; }
+.package-pruning-section { overflow-wrap: anywhere; }
+.package-pruning-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.package-pruning-controls label { display: grid; gap: 5px; color: var(--dim); font: 10px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+.package-pruning-controls select,
+.package-pruning-controls button { min-height: 30px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); }
+.package-pruning-controls select { min-width: 180px; padding: 4px 28px 4px 8px; }
+.package-pruning-controls button { padding: 4px 12px; cursor: pointer; }
+.package-pruning-controls button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.package-pruning-controls button:disabled,
+.package-pruning-controls select:disabled { cursor: wait; opacity: .65; }
+.package-pruning-intro,
+.package-pruning-result > p { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+.package-pruning-status { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 12px; }
+.package-pruning-status.package-pruning-error { display: grid; gap: 4px; color: var(--danger); }
+.package-pruning-error ul { margin: 0; padding-left: 18px; }
+.package-pruning-table-scroll { margin-top: 10px; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.package-pruning-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.package-pruning-table th,
+.package-pruning-table td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.package-pruning-table th { color: var(--dim); font: 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; background: var(--chrome); }
+.package-pruning-table tbody tr:last-child td { border-bottom: 0; }
+.package-pruning-table td:first-child,
+.package-pruning-table td:last-child { min-width: 180px; }
+.package-pruning-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 400; }
 .library-references-scroll { overflow-wrap: anywhere; }
 .library-references-scroll > .dep-list { border-top: 0; }
 .library-references-scroll .dep-list li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-inline: 16px; }

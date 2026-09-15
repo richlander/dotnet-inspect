@@ -132,6 +132,21 @@ public sealed class PackageHouse
     }
 
     /// <summary>
+    /// Consumes one source operation lease to settle a complete, resource-free
+    /// package version population.
+    /// </summary>
+    public Task<PackageHouseVersionPopulationResult>
+        SettleVersionPopulationAsync(
+            PackageHouseVersionPopulationRequest request,
+            PackageSourceOperationLease sourceOperation)
+    {
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        return SettleVersionPopulationCoreAsync(
+            request,
+            sourceOperation);
+    }
+
+    /// <summary>
     /// Consumes one source operation lease to settle a candidate-bound
     /// dependency request with its PackageHouse-issued pruning receipt.
     /// </summary>
@@ -606,6 +621,182 @@ public sealed class PackageHouse
         }
     }
 
+    private async Task<PackageHouseVersionPopulationResult>
+        SettleVersionPopulationCoreAsync(
+            PackageHouseVersionPopulationRequest request,
+            PackageSourceOperationLease sourceOperation)
+    {
+        using (sourceOperation)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (sourceOperation.RequestTimeout
+                    != request.Operation.RequestTimeout
+                || sourceOperation.OperationTimeout
+                    != request.Operation.OperationTimeout)
+            {
+                throw new ArgumentException(
+                    "The Package Source operation deadlines must match the PackageHouse version-population request.",
+                    nameof(sourceOperation));
+            }
+
+            try
+            {
+                sourceOperation.ThrowIfExpired();
+                PackageSourceAuthorization authorization =
+                    _sourceAuthorization.AuthorizeSourcesFor(
+                        request.Range.PackageId);
+                sourceOperation.ThrowIfExpired();
+                PackageVersionDiscoveryResult discovery =
+                    await sourceOperation.DiscoverVersionsAsync(
+                        request.Range.PackageId,
+                        authorization,
+                        PackageVersionDiscoveryContract
+                            .CompleteVersionEnumeration)
+                    .ConfigureAwait(false);
+                List<PackageHouseFailure> failures =
+                    AdaptFailures(
+                        request.Operation,
+                        discovery.Failures);
+                if (failures.Any(IsOperationTimeout))
+                {
+                    return PopulationOperationTimedOut(
+                        request,
+                        discovery,
+                        failures);
+                }
+                try
+                {
+                    sourceOperation.ThrowIfExpired();
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    return PopulationOperationTimedOut(
+                        request,
+                        discovery,
+                        failures);
+                }
+
+                PackageHouseVersionPopulationEvidence evidence =
+                    new(request, discovery, failures);
+                PackageHouseVersionPopulationResult result;
+                if (!discovery.Contract
+                        .SupportsCompleteVersionEnumeration)
+                {
+                    result = new PackageHouseVersionPopulationResult
+                        .Rejected(
+                            evidence,
+                            Reason(
+                                "Configured-authority evidence does not contain a complete package version enumeration."));
+                }
+                else if (discovery.State
+                    == PackageVersionDiscoveryState.Authoritative)
+                {
+                    if (!discovery.HasAnyCandidate)
+                    {
+                        result = new PackageHouseVersionPopulationResult
+                            .NotFound(
+                                evidence,
+                                Reason(
+                                    "No configured authority reported the package."));
+                    }
+                    else if (!PackageVersionVector.ContainsVersion(
+                            discovery.Versions,
+                            request.Range.Start)
+                        || !PackageVersionVector.ContainsVersion(
+                            discovery.Versions,
+                            request.Range.End))
+                    {
+                        result = new PackageHouseVersionPopulationResult
+                            .NoMatch(
+                                evidence,
+                                Reason(
+                                    "The configured package version population does not contain both requested range endpoints."));
+                    }
+                    else
+                    {
+                        try
+                        {
+                            result = new PackageHouseVersionPopulationResult
+                                .Available(evidence);
+                        }
+                        catch (ArgumentException)
+                        {
+                            result = new PackageHouseVersionPopulationResult
+                                .Rejected(
+                                    evidence,
+                                    Reason(
+                                        "Configured-authority version evidence is unusable for population settlement."));
+                        }
+                    }
+                }
+                else
+                {
+                    result = PackageVersionSelectionResolver
+                        .ClassifyNonAuthoritativeDiscovery(discovery) switch
+                    {
+                        PackageVersionDiscoveryTerminalKind.Incomplete =>
+                            new PackageHouseVersionPopulationResult
+                                .Incomplete(
+                                    evidence,
+                                    Reason(
+                                        "Required configured-authority discovery is incomplete.")),
+                        PackageVersionDiscoveryTerminalKind.Failed =>
+                            new PackageHouseVersionPopulationResult
+                                .Failed(
+                                    evidence,
+                                    Reason(
+                                        "Version discovery failed before the package population could be settled.")),
+                        PackageVersionDiscoveryTerminalKind.Rejected =>
+                            new PackageHouseVersionPopulationResult
+                                .Rejected(
+                                    evidence,
+                                    Reason(
+                                        "Configured-authority evidence is unusable for package population settlement.")),
+                        PackageVersionDiscoveryTerminalKind.Unavailable =>
+                            new PackageHouseVersionPopulationResult
+                                .Unavailable(
+                                    evidence,
+                                    Reason(
+                                        "Required package version population capability is unavailable.")),
+                        _ => throw new InvalidOperationException(
+                            "Version discovery returned an unknown terminal classification."),
+                    };
+                }
+
+                try
+                {
+                    sourceOperation.ThrowIfExpired();
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    return PopulationOperationTimedOut(
+                        request,
+                        discovery,
+                        failures);
+                }
+
+                return result;
+            }
+            catch (NuGetOperationTimeoutException)
+            {
+                return PopulationOperationTimedOut(request);
+            }
+            catch (OperationCanceledException)
+            {
+                try
+                {
+                    sourceOperation.ThrowIfExpired();
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    return PopulationOperationTimedOut(request);
+                }
+
+                throw;
+            }
+        }
+    }
+
     private static bool CandidateRemainsAuthorized(
         PackageAcquisitionCandidate candidate,
         PackageSourceAuthorization authorization) =>
@@ -748,10 +939,15 @@ public sealed class PackageHouse
     private static List<PackageHouseFailure> AdaptFailures(
         PackageHouseRequest request,
         IEnumerable<PackageAuthorityFailure> failures) =>
+        AdaptFailures(request.Operation, failures);
+
+    private static List<PackageHouseFailure> AdaptFailures(
+        PackageHouseOperation operation,
+        IEnumerable<PackageAuthorityFailure> failures) =>
         [
             .. failures.Select(failure =>
                 new PackageHouseFailure.Authority(
-                    request.Operation.Identity,
+                    operation.Identity,
                     failure)),
         ];
 
@@ -875,6 +1071,29 @@ public sealed class PackageHouse
             new PackageHouseResult.Failed(
                 evidence,
                 Reason("The PackageHouse operation deadline expired.")));
+    }
+
+    private static PackageHouseVersionPopulationResult
+        PopulationOperationTimedOut(
+            PackageHouseVersionPopulationRequest request,
+            PackageVersionDiscoveryResult? discovery = null,
+            IEnumerable<PackageHouseFailure>? existingFailures = null)
+    {
+        var failures = existingFailures is null
+            ? new List<PackageHouseFailure>()
+            : [.. existingFailures];
+        failures.Add(
+            new PackageHouseFailure.Timeout(
+                request.Operation.Identity,
+                PackageHouseTimeoutKind.Operation,
+                request.Operation.OperationTimeout));
+        return new PackageHouseVersionPopulationResult.Failed(
+            new PackageHouseVersionPopulationEvidence(
+                request,
+                discovery,
+                failures),
+            Reason(
+                "The PackageHouse version-population operation deadline expired."));
     }
 
     private static PackageHouseSettlement OperationTimedOut(

@@ -6047,7 +6047,7 @@ test("Dependencies adopts the shared graph viewer without moving the package lis
     /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
   assert.match(
     appSource,
-    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{depList\}/);
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{pruningSection\}\$\{depList\}/);
   assert.match(
     appSource,
     /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);

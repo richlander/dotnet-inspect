@@ -336,9 +336,10 @@ values; they may choose different views over them.
 
 The user-selected planned CLI spelling is `--evidence-envelope`, paired with
 ordinary `--envelope`. It selects the evidence-enabled service form and its
-complete JSON delivery. The CLI output owner in #6719 must bind capture before
-execution and specify option interactions and framing; this generic pattern
-does not define that parser or transport. Unprojected content JSON still
+complete JSON delivery. The CLI output owner's
+[transport contract](output-shapes.md#envelope-transport) in #6719 binds capture
+before execution and specifies option interactions and framing; this generic
+pattern does not define that parser or transport. Unprojected content JSON still
 represents the baseline Content value, not Evidence.
 
 ### Motivation and production adoption

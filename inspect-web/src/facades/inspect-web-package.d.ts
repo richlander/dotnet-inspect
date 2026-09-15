@@ -6,7 +6,10 @@ export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" |
 export type BrowserPackageChangesCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserPackageChangesOperationFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserPackageChangesResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+export type BrowserPackageDependencyDeclarationFailureKind = "ConflictingPackageDeclaration" | "InvalidPackageDeclaration" | "RestoredProject" | "AuthoredProject" | "AuthoredProjectUnresolvedSyntax" | number;
 export type BrowserPackageGraphIdentityRole = "Inspected" | "SamePrefix" | "External" | number;
+export type BrowserPackagePruningCompletion = "Complete" | "Partial" | "Failed" | "NotApplicable" | number;
+export type BrowserPackagePruningDisposition = "PlatformDelegation" | "PackageRetained" | "CandidateUnavailable" | "NotEvaluated" | number;
 export type BrowserPackageQueryCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "ExactPackageComplete" | "ExplicitCandidatesComplete" | number;
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | "Assessment" | number;
@@ -139,6 +142,7 @@ export interface BrowserPackageCacheStats {
     readonly maxPackageEntries: number;
     readonly workspaces: number;
     readonly maxWorkspaces: number;
+    readonly maxWorkspaceAssembliesPerRole: number;
     readonly residentBytes: number;
     readonly maxResidentBytes: number;
     readonly maxWorkspaceRetainedImageBytes: number;
@@ -311,6 +315,7 @@ export interface BrowserPackageDependencies {
     readonly activeFramework: string;
     readonly assembly: string | null;
     readonly dependencyGroups: ReadonlyArray<BrowserPackageDependencyGroup>;
+    readonly declarationFailures: ReadonlyArray<BrowserPackageDependencyDeclarationFailure>;
     readonly assemblyReferences: BrowserAssemblyReferenceResult;
     readonly dependencyGroupError: string | null;
     readonly compileLibrary: BrowserCompileLibraryAvailability;
@@ -318,6 +323,12 @@ export interface BrowserPackageDependencies {
 export interface BrowserPackageDependency {
     readonly id: string;
     readonly versionRange: string;
+}
+export interface BrowserPackageDependencyDeclarationFailure {
+    readonly kind: BrowserPackageDependencyDeclarationFailureKind;
+    readonly framework: string | null;
+    readonly package: string | null;
+    readonly sourceOccurrenceCount: number | null;
 }
 export interface BrowserPackageDependencyGroup {
     readonly index: number;
@@ -340,6 +351,50 @@ export interface BrowserPackageDocumentContent {
 export interface BrowserPackageIcon {
     readonly mediaType: string;
     readonly base64: string;
+}
+export interface BrowserPackagePruningRequest {
+    readonly schemaVersion: number;
+    readonly family: string;
+    readonly targetFramework: string;
+    readonly platformVersion: string;
+    readonly supplies: ReadonlyArray<BrowserPackagePruningSupply>;
+}
+export interface BrowserPackagePruningResult {
+    readonly schemaVersion: number;
+    readonly package: string;
+    readonly version: string;
+    readonly targetFramework: string;
+    readonly selectedFramework: string | null;
+    readonly family: string;
+    readonly platformVersion: string;
+    readonly completion: BrowserPackagePruningCompletion;
+    readonly rows: ReadonlyArray<BrowserPackagePruningRow>;
+    readonly declarationFailures: ReadonlyArray<BrowserPackageDependencyDeclarationFailure>;
+    readonly summary: BrowserPackagePruningSummary;
+    readonly message: string | null;
+}
+export interface BrowserPackagePruningRow {
+    readonly package: string;
+    readonly requestedRange: string;
+    readonly candidateVersion: string | null;
+    readonly platformSuppliedVersion: string | null;
+    readonly disposition: BrowserPackagePruningDisposition;
+    readonly reason: string;
+}
+export interface BrowserPackagePruningSummary {
+    readonly declarations: number;
+    readonly evaluated: number;
+    readonly delegated: number;
+    readonly retained: number;
+    readonly notEvaluated: number;
+    readonly failed: number;
+    readonly declarationFailures: number;
+}
+export interface BrowserPackagePruningSupply {
+    readonly pack: string;
+    readonly family: string;
+    readonly package: string;
+    readonly version: string;
 }
 export interface BrowserPackageQueryCancellation {
     readonly kind: BrowserPackageQueryCancellationKind;
@@ -609,6 +664,7 @@ export declare function prefetchPlatformPacks(targetFramework: string, platformV
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
+export declare function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: string): Promise<BrowserPackagePruningResult>;
 export declare function queryPackageVersions(packageId: string, currentVersion: string): Promise<BrowserPackageVersions>;
 export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function requestPackageQueryMatches(operationId: string, additionalMatchCredit: number): BrowserPackageQueryMatchCreditResponse;
