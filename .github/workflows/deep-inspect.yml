@@ -146,6 +146,9 @@ jobs:
       - name: Run analysis tests (including slow)
         run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release
 
+      - name: Run package-backed Platform tests (including real reference packs)
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Packages.Tests -c Release
+
       - name: Restore vendored ILAssembler
         run: bash eng/restore-ilassembler.sh
 
