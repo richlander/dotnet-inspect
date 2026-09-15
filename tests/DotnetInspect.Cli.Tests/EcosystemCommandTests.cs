@@ -185,7 +185,7 @@ public sealed class EcosystemCommandTests
     }
 
     [Fact]
-    public async Task AzureCorePackagesExposeCurrentSupportedStartingPoints()
+    public async Task AzureCorePackagesExposeRegisteredCallGraphRoots()
     {
         var result = await ExecuteCommandLineAsync(
             "ecosystem",
@@ -200,6 +200,10 @@ public sealed class EcosystemCommandTests
             """
             package
             Microsoft.Extensions.Azure
+            Azure.AI.OpenAI
+            Microsoft.Azure.SignalR
+            Aspire.Azure.AI.OpenAI
+            Aspire.Hosting.Azure.SignalR
             Azure.Identity
             Azure.Security.KeyVault.Secrets
             Azure.Storage.Blobs

@@ -1347,8 +1347,9 @@ installed implementation closure owned by
 and its installed PlatformHouse contribution. Both sub-slices are implemented;
 step 5 is staged by
 [Package-backed Platform realization](package-backed-platform-realization.md).
-Step 5a adds package-backed target discovery, reference-pack realization, and
-the package PlatformHouse adapter. Step 5b adds RID-specific runtime-pack
+Step 5a implements package-backed target discovery, reference-pack realization,
+and the package PlatformHouse adapter. It supplies source contributions, not
+completed House receipts or a target-selection executor. Step 5b adds RID-specific runtime-pack
 acquisition and manifest-defined implementation closure through the same
 adapter. The two sub-slices preserve the ten-step count. Step 6 follows after
 both and the concrete Library owner in #6621 slice 3 are implemented.

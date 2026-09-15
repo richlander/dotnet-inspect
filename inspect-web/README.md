@@ -723,6 +723,16 @@ Each Free Static Web App deploys the small anonymous managed Function in
 keep it from becoming a caller-directed proxy. The function enforces the same
 8 MiB portable-PDB ceiling as the Browser consumer.
 
+The same managed Function app hosts the separately owned
+[public-evidence bridge](../docs/design/inspect-web-public-evidence-bridge.md)
+for Package Changes. Its Browser transport rewrites only canonical NuGet.org
+service-index/Catalog and GitHub reviewed-advisory requests to fixed
+same-origin routes. The Function reconstructs those requests from closed path
+and query grammars, follows no redirects, forwards no caller credentials or
+headers, and returns only bounded JSON. Product-owned source and advisory code
+continues to observe the original provider request identity after the transport
+hop.
+
 Source operations are exclusive across the Browser process: a new request
 cancels the previous request, and leaving every source view cancels hidden work.
 The operation holds its workspace and package archives until its fresh bounded
@@ -2373,13 +2383,10 @@ npm run benchmark:published -- \
 
 Comparative reports require the sites to serve the same product commit.
 `--allow-mismatched-commits` permits a diagnostic run but leaves the report
-explicitly non-comparable. The daily
-`inspect-web-performance-nightly.yml` workflow runs the comparison on one
-runner, retains raw evidence for 90 days, and emits a trend point only for a
+explicitly non-comparable. The controlled runtime cohort owns nightly
+performance evidence. `inspect-web-performance-nightly.yml` remains manually
+dispatchable for public-path diagnostics and emits a trend point only for a
 fully successful, matched-head, semantically equivalent report.
-The Mono control uses the promoted production site because it and CoreCLR
-advance from the same promotion SHA. The continuously deployed Mono staging
-site is not a stable comparison peer.
 
 `.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
 archives the resulting `wwwroot` and prebuilt managed API as the run-scoped
@@ -2395,58 +2402,65 @@ runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
-After `.github/workflows/promote-inspect-web.yml` successfully deploys a staged
-artifact to production, it calls
-`.github/workflows/deploy-inspect-web-coreclr.yml` with that promotion's exact
-product SHA, staging run ID, and staged artifact ID. The CoreCLR workflow checks
-out that SHA and downloads the same `inspect-web-site` artifact before
-publishing the matching commit to the isolated comparison site at
-`https://coreclr.dotnet-inspect.ca`. It therefore advances at the production
-promotion cadence rather than for every `main` staging build. It uses a third
-Azure Static Web App, the main-only `inspect-web-coreclr-staging` environment, a
-distinct deployment token, and the non-promotable `inspect-web-coreclr-site`
-artifact. The site is
-interpreter-only while CoreCLR native relinking remains outside the comparison
-scope. Mono staging stays on the repository's .NET 11 Preview 7 SDK. The
-CoreCLR workflow instead installs the exact runtime-main daily cohort from
-`runtime-cohort-pin.json`. The workflow verifies that the SDK, runtime,
-workload packs, and workload package provenance identify the same
-dotnet/dotnet VMR commit before publication.
+`.github/workflows/deploy-inspect-web-runtime-sites.yml` runs nightly at
+00:47 UTC from one exact green `main` commit. It calls the controlled runtime
+cohort to build Mono, CoreCLR IL, and non-composite CoreCLR ReadyToRun with one
+shared frontend, then publishes the exact accepted CoreCLR artifacts to:
+
+| Site | Runtime artifact | GitHub environment |
+| --- | --- | --- |
+| <https://coreclr.dotnet-inspect.ca> | CoreCLR IL | `inspect-web-coreclr-staging` |
+| <https://coreclr-r2r.dotnet-inspect.ca> | CoreCLR ReadyToRun | `inspect-web-coreclr-r2r-staging` |
+
+The two public sites are diagnostic and collaboration surfaces. They advance
+nightly rather than with Mono production promotion, so
+`https://dotnet-inspect.net` is not normally a matched-head comparison peer.
+The controlled cohort remains authoritative for performance.
+
+Both sites install the exact runtime-main daily cohort from
+`runtime-cohort-pin.json`. The cohort verifies that the SDK, runtime, workload
+packs, and workload package provenance identify the same dotnet/dotnet VMR
+commit before publication.
 That cohort's browser workload still targets `net11.0`; the runtime is .NET 12
 CoreCLR even though the application graph retains its current target framework.
 The workflow enables `runtime-async=on` across this application graph and
-applies the `UseMonoRuntime=false`, `PublishReadyToRun=false`,
-`WasmBuildNative=false`, `WasmNestedPublishAppDependsOn=`, and
-`WasmEnableExceptionHandling=true`
-overrides. This exercises runtime async only in the CoreCLR comparison
-deployment; Mono staging and ordinary non-AOT builds retain classic async
-lowering. The non-composite ReadyToRun trial is rejected because the first real
-package operation fatally entered a mismatched CoreCLR-Wasm R2R thunk even
-though build identity and the async-lowering canary succeeded. The deployment
-therefore runs a focused package-adoption test through the published production
-Worker before upload; it opens a deterministic local package through
-`QueryPackage`, so a runtime that initializes but cannot execute product work
-never reaches Azure deployment.
+applies `UseMonoRuntime=false`, `WasmBuildNative=false`,
+`WasmNestedPublishAppDependsOn=`, and `WasmEnableExceptionHandling=true`.
+The IL variant sets `PublishReadyToRun=false`; the R2R variant sets
+`PublishReadyToRun=true` and `PublishReadyToRunComposite=false`. This exercises
+runtime async only in the CoreCLR deployments; Mono staging and ordinary
+non-AOT builds retain classic async lowering.
 
-The artifact carries exact `dotnet --info`, the installed workload list, and a
+Both variants run a focused package-adoption test through the published
+production Worker before preparation. IL must pass. R2R must either pass or
+reproduce the exact retained dotnet/runtime#129622 and #129857 product
+rejection. The latter is deployable only to the R2R diagnostic site so
+contributors can share a failing product URL; an unfamiliar failure, missing
+evidence, or infrastructure failure leaves the prior site in place.
+The error detail preserves the first managed/Wasm operation diagnostic and
+stack before any secondary cleanup failure such as
+`The runtime is not running`.
+
+Each artifact carries exact `dotnet --info`, the installed workload list, and a
 machine-readable SDK/runtime/workload receipt. That receipt identifies the
 CoreCLR browser runtime asset bytes, which must match the published native
-JavaScript and Wasm, and records `PublishReadyToRun=false`. Before the CoreCLR
-artifact crosses the upload boundary, the workflow compares its schema-5
-runtime receipt with the triggering Mono run's schema-5 compiler receipt. This
-comparison is intentionally cross-toolchain: generated facade contracts and
-async-lowering evidence must remain equivalent between the .NET 11 Mono build
-and .NET 12 CoreCLR build.
+JavaScript and Wasm, and records the exact ReadyToRun configuration. Before
+either CoreCLR artifact crosses the upload boundary, preparation validates its
+publication receipt and accepted cohort membership. This comparison is
+intentionally cross-toolchain: generated facade contracts and async-lowering
+evidence must remain equivalent between the .NET 11 Mono build and .NET 12
+CoreCLR builds.
 
-Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
-project that reaches `CoreCompile` fails unless its exact `Features` property
-selects the deployment's expected lowering, then emits a project-path receipt.
+Every cohort variant build imports `InspectWebAsyncLoweringReceipt.targets`.
+Every project that reaches `CoreCompile` fails unless its exact `Features`
+property selects the deployment's expected lowering, then emits a project-path
+receipt.
 `verify-async-project-graph.ts` requires those receipts to equal the evaluated
 transitive repository project graph rooted at `DotnetInspect.Web.csproj`;
 framework/runtime-pack binaries, the separately published MSDL server API, and
 unrelated repository projects are outside that set.
 
-Both builds then run `verify-inspect-web-async-deployment.sh` immediately after
+Each build then runs `verify-inspect-web-async-deployment.sh` immediately after
 their clean engine publish. The gate derives the seven export assemblies from
 the compiled `InspectWebJsExportContext`, enumerates every public async export
 as compiler async for Mono and runtime async for CoreCLR, and requires the
@@ -2465,18 +2479,17 @@ authoritative product `VersionPrefix` used by the deployment build into
 `ts-jsexport`, so the compiled context and generator authenticate the same exact
 `TsJsExport.Contracts` assembly identity.
 
-The schema-5 receipt preserves each facade's assembly, generated source,
+Each schema-5 receipt preserves every facade's assembly, generated source,
 declaration, published JavaScript, and shipped WebCIL identity and digest beside
 its export and lowering counts. It also records the exact sorted repository
 project identities, their count and digest, and the successful initialization
-and canary outcome. Paired receipt validation requires both deployments to
-describe the same facade and project domains and treats only the inverse
-compiler-async/runtime-async counts as mode-specific. Build, staging, and
-production checks recompute every transferred digest without executing
-candidate code in an environment-gated deployment job.
-`PromotionWorkflowContract` gates both expected-lowering properties, exact
-facade domains, both browser invocations, graph receipts, and post-transfer
-evidence checks with close mutations.
+and canary outcome. Every variant is checked against the same facade and
+project authorities; compiler-async and runtime-async counts are
+mode-specific. Build, staging, and production checks recompute every
+transferred digest without executing candidate code in an environment-gated
+deployment job.
+The cohort gates both expected-lowering properties, exact facade domains,
+browser invocations, graph receipts, and transferred evidence.
 
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The
@@ -2491,8 +2504,8 @@ attempt, commit, artifact identity, and digest, downloads the exact artifact ID
 with digest mismatch configured as an error, and deploys the archived staging
 files. `validate-inspect-web-promotion.cs --self-test`, run by inspect-web CI,
 gates the default rejection, explicit exception, and other close negative cases;
-the CI change-detection workflow contract gate keeps all deployment jobs free
-of candidate code, closes the CoreCLR runtime and credential contract, keeps
+the CI change-detection workflow contract gate keeps the Mono deployment jobs
+free of candidate code, keeps
 production revalidation on the trusted dispatch revision, and orders each
 artifact download before only verification and deployment.
 
@@ -2506,13 +2519,12 @@ repository-scoped token. Token rotation invalidates credentials already copied
 into queued parent-era jobs; deleting both old secret locations makes later
 reruns fail closed.
 
-All three deployment workflows pin the Azure deployment action to an exact
-commit and pin their checkout, SDK setup, and artifact actions to exact
-commits. The workflow contract gate enforces those references. Azure's pinned
+Deployment workflows pin the Azure deployment action to an exact commit and pin
+their checkout, SDK setup, and artifact actions to exact commits. Azure's pinned
 action still pulls Microsoft's `staticappsclient:stable` image; that
 vendor-controlled deployment dependency is not immutable and remains inside
-the Azure trust boundary. All three workflows disable Azure's own app and API
-builds and require the published artifact to contain
+the Azure trust boundary. The workflows disable Azure's own app and API builds
+and require the published artifact to contain
 `staticwebapp.config.json`, `host.json`, `functions.metadata`, and
 `worker.config.json`.
 Trusted build and deployment steps also verify that Vite preserved the authored
@@ -2534,9 +2546,9 @@ halves.
 The Azure resources, custom-domain assignments, GitHub environments, branch
 restrictions, required production reviewer, and environment-scoped deployment
 tokens live outside this repository and are **not** verified by anything in it.
-Treat successful staging and promotion runs, not this file, as evidence that
-the corresponding deployed site is current. Both staging domains are public
-infrastructure and are not confidentiality boundaries.
+Treat successful deployment and promotion runs, not this file, as evidence
+that the corresponding deployed site is current. All staging and diagnostic
+domains are public infrastructure and are not confidentiality boundaries.
 
 See [architecture-spike.md](architecture-spike.md) for the proposed .NET 11
 browser engine and the NativeAOT decision.
