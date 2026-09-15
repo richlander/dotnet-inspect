@@ -99,6 +99,18 @@ test("package graph identity uses a bounded case-insensitive family prefix", () 
     ),
     "inspected",
   );
+  assert.equal(
+    dependencyGraphPresentationRole("Acme.\u212A.Root", "Acme.K.Child"),
+    "external",
+  );
+  assert.equal(
+    dependencyGraphPresentationRole("Acme.\u017F.Root", "Acme.S.Child"),
+    "external",
+  );
+  assert.equal(
+    dependencyGraphPresentationRole("Acme.\u03A3.Root", "ACME.\u03C2.Child"),
+    "samePrefix",
+  );
 });
 
 test("package graph presentation roles remain independent from navigation kinds", async () => {

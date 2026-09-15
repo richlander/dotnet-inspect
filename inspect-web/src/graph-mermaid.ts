@@ -188,15 +188,46 @@ export function dependencyGraphFamilyPrefix(packageId: string): string {
   return secondDot < 0 ? packageId : packageId.slice(0, secondDot);
 }
 
+function ordinalIgnoreCaseScalar(value: string): string {
+  // Mirror .NET's simple ordinal casing without compatibility folds or expansion.
+  const upper = value.toUpperCase();
+  const upperCodePoint = upper.codePointAt(0);
+  if (upperCodePoint === undefined
+    || String.fromCodePoint(upperCodePoint) !== upper
+    || upper.length !== value.length) {
+    return value;
+  }
+  return value.codePointAt(0)! > 0x7f && upperCodePoint <= 0x7f
+    ? value
+    : upper;
+}
+
+function ordinalIgnoreCaseEquals(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  const leftScalars = left[Symbol.iterator]();
+  const rightScalars = right[Symbol.iterator]();
+  while (true) {
+    const leftScalar = leftScalars.next();
+    const rightScalar = rightScalars.next();
+    if (leftScalar.done || rightScalar.done)
+      return leftScalar.done === rightScalar.done;
+    if (ordinalIgnoreCaseScalar(leftScalar.value)
+        !== ordinalIgnoreCaseScalar(rightScalar.value)) {
+      return false;
+    }
+  }
+}
+
 export function dependencyGraphPresentationRole(
   inspectedPackageId: string,
   packageId: string,
 ): DependencyGraphPresentationRole {
-  const inspected = inspectedPackageId.toLowerCase();
-  const candidate = packageId.toLowerCase();
-  if (candidate === inspected) return "inspected";
-  const prefix = dependencyGraphFamilyPrefix(inspectedPackageId).toLowerCase();
-  return candidate === prefix || candidate.startsWith(`${prefix}.`)
+  if (ordinalIgnoreCaseEquals(packageId, inspectedPackageId)) return "inspected";
+  const prefix = dependencyGraphFamilyPrefix(inspectedPackageId);
+  return ordinalIgnoreCaseEquals(packageId, prefix)
+    || (packageId.length > prefix.length
+      && packageId[prefix.length] === "."
+      && ordinalIgnoreCaseEquals(packageId.slice(0, prefix.length), prefix))
     ? "samePrefix"
     : "external";
 }
