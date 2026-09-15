@@ -290,7 +290,7 @@ public static class DiffOutputFormatter
                 }));
         }
 
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     private static void WriteDocumentSection(
@@ -339,7 +339,7 @@ public static class DiffOutputFormatter
     {
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     public static DiffFullView BuildFullView(
@@ -409,7 +409,7 @@ public static class DiffOutputFormatter
         var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     public static string RenderFullMarkdown(
@@ -431,7 +431,7 @@ public static class DiffOutputFormatter
                 new MarkdownFormatter(),
                 options);
         DiffViewContext.Default.Serialize(view, writer);
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     static List<DiffInspectionFailureRow>? BuildInspectionFailureRows(
@@ -493,7 +493,7 @@ public static class DiffOutputFormatter
     {
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     public static string RenderAnalysisDiffMarkdown(string name, IReadOnlyList<AnalysisDiffRow> rows, string fromVersion, string toVersion)
@@ -1148,7 +1148,7 @@ public static class DiffOutputFormatter
     {
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     internal static string FormatSummaryCounts(int breaking, int additive, int potentiallyBreaking)
