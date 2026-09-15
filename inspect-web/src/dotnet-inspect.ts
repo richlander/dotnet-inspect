@@ -10327,8 +10327,9 @@ function friendlyLoadError(
   packageId: string,
   version: string | null | undefined,
 ) {
-  const raw = errorMessage(error);
-  if (/\b404\b|not\s*found/i.test(raw)) {
+  const detail = errorMessage(error);
+  const summary = detail.split(/\r?\n/u, 1)[0]?.trim() || detail.trim();
+  if (/\b404\b|not\s*found/i.test(summary)) {
     const suffix = version && version !== "latest" ? `@${version}` : "";
     return {
       notFound: true,
@@ -10339,7 +10340,7 @@ function friendlyLoadError(
   return {
     notFound: false,
     title: "Inspection query failed",
-    message: `Couldn’t load “${packageId}”: ${raw || "unknown error"}`
+    message: `Couldn’t load “${packageId}”: ${summary || "unknown error"}`
   };
 }
 
