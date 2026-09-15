@@ -216,6 +216,77 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
+### Reverse type-declaration locator projection
+
+The shared reverse-locator projection implemented under
+[#6846](https://github.com/richlander/dotnet-inspect/issues/6846) is the L2
+owner for this claim:
+
+> Project each evaluated locator answer as one independently selected row set
+> whose row is one exact Library coordinate plus one attached origin and
+> observation context, without changing upstream candidate or coverage facts.
+
+`TypeDeclarationLocatorSection.Project` consumes the owner-issued Queries
+result. Rejected query admission remains a typed `Rejected` section result.
+An evaluated query produces one `TypeDeclarationLocatorSectionAnswer` per
+original request in request order. Every answer retains:
+
+- an owner-issued row-set identity, separate from request text;
+- the typed exact or pattern request;
+- the number of known candidates before output row selection;
+- an always-present selected candidate array;
+- realization and evaluation completeness independently; and
+- the combined query-completeness fact.
+
+The row unit is one `TypeDeclarationLocatorSectionCandidate`: a typed
+four-arm Package/Platform/Project/Local coordinate, structured Metadata name,
+declaration kind, and one detached observation. The observation retains
+population-issued context/member order, assembly identity, source realization,
+and image-selection provenance as separate typed values. Equal logical
+coordinates observed through different feeds, targets, views, or occurrences
+therefore remain different rows. Selection never unwraps a singleton, groups
+away an observation, prefers an origin, or changes query completeness.
+
+`Head`, `Tail`, and `Window` apply independently to every answer through the
+shared rows-cohort semantics. The locator declares stable sequence order but
+no ranking order, so `Top` is refused rather than treating source order as
+preference. A strict Window failure is atomic across answers: no selected
+candidate array is published. The result still retains every answer's known
+candidate count, request and completeness, plus all context/member coverage,
+so the failure cannot become a scoped miss or a uniqueness claim.
+
+Typed JSON is source-generated from the same section result. It preserves the
+request and coordinate unions, structured Metadata name, declaration kind,
+realization, selection context, per-context and per-member coverage, selected
+candidate arrays, pre-selection candidate counts, and any row-selection
+failure. Zero, one, and many candidates use the same array shape. It does not
+serialize live Workspace handles or configured package-source authorities.
+
+`TypeDeclarationLocatorView` is the common Markout lowering. Its result rows
+contain request, Type, declaration kind, source arm, Library, origin and
+context display columns; separate Coverage and Gaps sections keep incomplete
+or failed evidence visible when Results has zero rows. Dynamic display text
+crosses `InertString` field containment. Package and Platform origins use the
+credential-free producer identity already carried by realization, never raw
+configured source URLs. Projected JSON, JSONL, TSV and Markdown are therefore
+one-way display projections, not identity codecs or reopening authority.
+
+The Release gates
+`TypeLocatorSection_VectorsRetainCoverageAndTypedIdentity`,
+`TypeLocatorSection_StrictWindowFailureIsAtomicButKeepsCoverage`, and
+`TypeLocatorSection_TopRequiresASeparateRankingContract`, plus
+`TypeLocatorSection_RejectedAdmissionRemainsTyped`, enforce the typed vector,
+identity/context, coverage, source-generated JSON, Markout correspondence,
+atomic failure, admission-failure, and ranking-refusal boundaries.
+`ProjectionRetainsEveryCoordinateArmAndOwnerEquality` additionally gates all
+four coordinate arms and preserves Source Selection's assembly-equivalence
+semantics. The CLI and Browser/Wasm production consumers remain
+[#6844](https://github.com/richlander/dotnet-inspect/issues/6844) and
+[#6851](https://github.com/richlander/dotnet-inspect/issues/6851);
+`InspectionEnvelope<TypeDeclarationLocatorSectionResult>` is formed at those
+completed-operation host boundaries rather than around this prerequisite
+projection.
+
 ### Approved `extensions --json` compatibility boundary
 
 The CLI host's `extensions --json` path is an approved bounded exception to
