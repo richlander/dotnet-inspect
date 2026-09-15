@@ -678,85 +678,104 @@ public sealed class PackageHouse
 
                 PackageHouseVersionPopulationEvidence evidence =
                     new(request, discovery, failures);
+                PackageHouseVersionPopulationResult result;
                 if (!discovery.Contract
                         .SupportsCompleteVersionEnumeration)
                 {
-                    return new PackageHouseVersionPopulationResult
+                    result = new PackageHouseVersionPopulationResult
                         .Rejected(
                             evidence,
                             Reason(
                                 "Configured-authority evidence does not contain a complete package version enumeration."));
                 }
-                if (discovery.State
+                else if (discovery.State
                     == PackageVersionDiscoveryState.Authoritative)
                 {
                     if (!discovery.HasAnyCandidate)
                     {
-                        return new PackageHouseVersionPopulationResult
+                        result = new PackageHouseVersionPopulationResult
                             .NotFound(
                                 evidence,
                                 Reason(
                                     "No configured authority reported the package."));
                     }
-                    if (!PackageVersionVector.ContainsVersion(
+                    else if (!PackageVersionVector.ContainsVersion(
                             discovery.Versions,
                             request.Range.Start)
                         || !PackageVersionVector.ContainsVersion(
                             discovery.Versions,
                             request.Range.End))
                     {
-                        return new PackageHouseVersionPopulationResult
+                        result = new PackageHouseVersionPopulationResult
                             .NoMatch(
                                 evidence,
                                 Reason(
                                     "The configured package version population does not contain both requested range endpoints."));
                     }
-
-                    try
+                    else
                     {
-                        return new PackageHouseVersionPopulationResult
-                            .Available(evidence);
-                    }
-                    catch (ArgumentException)
-                    {
-                        return new PackageHouseVersionPopulationResult
-                            .Rejected(
-                                evidence,
-                                Reason(
-                                    "Configured-authority version evidence is unusable for population settlement."));
+                        try
+                        {
+                            result = new PackageHouseVersionPopulationResult
+                                .Available(evidence);
+                        }
+                        catch (ArgumentException)
+                        {
+                            result = new PackageHouseVersionPopulationResult
+                                .Rejected(
+                                    evidence,
+                                    Reason(
+                                        "Configured-authority version evidence is unusable for population settlement."));
+                        }
                     }
                 }
-
-                return PackageVersionSelectionResolver
-                    .ClassifyNonAuthoritativeDiscovery(discovery) switch
+                else
                 {
-                    PackageVersionDiscoveryTerminalKind.Incomplete =>
-                        new PackageHouseVersionPopulationResult
-                            .Incomplete(
-                                evidence,
-                                Reason(
-                                    "Required configured-authority discovery is incomplete.")),
-                    PackageVersionDiscoveryTerminalKind.Failed =>
-                        new PackageHouseVersionPopulationResult
-                            .Failed(
-                                evidence,
-                                Reason(
-                                    "Version discovery failed before the package population could be settled.")),
-                    PackageVersionDiscoveryTerminalKind.Rejected =>
-                        new PackageHouseVersionPopulationResult
-                            .Rejected(
-                                evidence,
-                                Reason(
-                                    "Configured-authority evidence is unusable for package population settlement.")),
-                    PackageVersionDiscoveryTerminalKind.Unavailable =>
-                        new PackageHouseVersionPopulationResult
-                            .Unavailable(
-                                evidence,
-                                Reason(
-                                    "Required package version population capability is unavailable.")),
-                    _ => throw new InvalidOperationException(
-                        "Version discovery returned an unknown terminal classification."),
-                };
+                    result = PackageVersionSelectionResolver
+                        .ClassifyNonAuthoritativeDiscovery(discovery) switch
+                    {
+                        PackageVersionDiscoveryTerminalKind.Incomplete =>
+                            new PackageHouseVersionPopulationResult
+                                .Incomplete(
+                                    evidence,
+                                    Reason(
+                                        "Required configured-authority discovery is incomplete.")),
+                        PackageVersionDiscoveryTerminalKind.Failed =>
+                            new PackageHouseVersionPopulationResult
+                                .Failed(
+                                    evidence,
+                                    Reason(
+                                        "Version discovery failed before the package population could be settled.")),
+                        PackageVersionDiscoveryTerminalKind.Rejected =>
+                            new PackageHouseVersionPopulationResult
+                                .Rejected(
+                                    evidence,
+                                    Reason(
+                                        "Configured-authority evidence is unusable for package population settlement.")),
+                        PackageVersionDiscoveryTerminalKind.Unavailable =>
+                            new PackageHouseVersionPopulationResult
+                                .Unavailable(
+                                    evidence,
+                                    Reason(
+                                        "Required package version population capability is unavailable.")),
+                        _ => throw new InvalidOperationException(
+                            "Version discovery returned an unknown terminal classification."),
+                    };
+                }
+
+                try
+                {
+                    sourceOperation.ThrowIfExpired();
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    return PopulationOperationTimedOut(
+                        request,
+                        discovery,
+                        failures);
+                }
+
+                return result;
             }
             catch (NuGetOperationTimeoutException)
             {

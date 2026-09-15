@@ -381,6 +381,39 @@ public sealed class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task VersionPopulationOperationTimeoutDuringVectorConstructionRetainsDiscovery()
+    {
+        const int versionCount = 8_000;
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(VersionPopulation(versionCount)));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest(
+                $"1.0.0..1.0.{versionCount - 1}",
+                operationTimeout: TimeSpan.FromMilliseconds(150));
+
+        PackageHouseVersionPopulationResult result =
+            await environment.CreateHouse()
+                .SettleVersionPopulationAsync(
+                    request,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        request.Operation.RequestTimeout,
+                        request.Operation.OperationTimeout));
+
+        Assert.IsType<PackageHouseVersionPopulationResult.Failed>(
+            result);
+        Assert.Equal(
+            PackageVersionDiscoveryState.Authoritative,
+            result.Evidence.Discovery?.State);
+        Assert.Equal(
+            versionCount,
+            result.Evidence.Discovery?.Versions.Count);
+        Assert.IsType<PackageHouseFailure.Timeout>(
+            result.Evidence.Failures.Last());
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task VersionPopulationOperationDeadlinesMustMatchRequest()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
@@ -439,6 +472,33 @@ public sealed class PackageHouseExecutionTests
                 }));
         PackageHouseVersionPopulationRequest request =
             PopulationRequest("1.0.0..2.0.0");
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => environment.CreateHouse()
+                    .SettleVersionPopulationAsync(
+                        request,
+                        environment.Root.IssueOperationLease(
+                            cancellation.Token,
+                            request.Operation.RequestTimeout,
+                            request.Operation.OperationTimeout)));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationCallerCancellationDuringVectorConstructionRemainsCancellation()
+    {
+        const int versionCount = 8_000;
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromMilliseconds(150));
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(VersionPopulation(versionCount)));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest($"1.0.0..1.0.{versionCount - 1}");
 
         OperationCanceledException exception =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -2266,6 +2326,12 @@ public sealed class PackageHouseExecutionTests
                 operationTimeout: operationTimeout),
             includePrerelease);
     }
+
+    private static string[] VersionPopulation(int count) =>
+    [
+        .. Enumerable.Range(0, count).Select(
+            index => $"1.0.{index}"),
+    ];
 
     private static PackageAcquisitionCandidate ResolveCandidate(
         HouseEnvironment environment,
