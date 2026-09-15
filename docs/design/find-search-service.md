@@ -44,6 +44,13 @@ may reuse it only from a same-name definition selected in the same answer;
 otherwise Find uses the compatibility inventory rather than guessing a
 category or leaking the declaration role into the result.
 
+Default discovery likewise consumes Metadata's definition-local
+`DiscoveryAttributes`: known `EditorBrowsable(Never)` and obsolete definitions
+are suppressed unless `--all` is selected. A same-name forwarder may reuse
+those facts from a definition in the same answer. When default visibility
+cannot be established, Find uses the compatibility inventory rather than
+publishing a candidate under a guessed visibility policy.
+
 This service deliberately remains inside the CLI project. It consumes
 `FindOptions`, a host `HttpClient`, and the CLI diagnostic path, so it is not an
 L1 query, a host-neutral API, or a browser/Wasm contract. The service boundary

@@ -392,6 +392,61 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Find_LocatorPreservesDefaultDiscoveryVisibility()
+    {
+        string id =
+            $"Workspace.Search.Visibility.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "locator visibility package",
+            library: assembly,
+            libraryName: "DotnetInspect.Cli.Tests.dll");
+        ConfigureCommandFeed(id, package);
+
+        async Task<string[]> SearchAsync(bool includeAll)
+        {
+            var arguments = new List<string>
+            {
+                "find",
+                "DotnetInspect.Cli.Tests.LocatorDiscovery*",
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+            };
+            if (includeAll)
+                arguments.Add("--all");
+
+            var result = await RunCommandAsync([.. arguments]);
+            Assert.Equal(0, result.Exit);
+            using System.Text.Json.JsonDocument document =
+                System.Text.Json.JsonDocument.Parse(result.Output);
+            return
+            [
+                .. document.RootElement.EnumerateArray().Select(
+                    static row =>
+                        row.GetProperty("full_name").GetString()!),
+            ];
+        }
+
+        Assert.Equal(
+            ["DotnetInspect.Cli.Tests.LocatorDiscoveryVisible"],
+            await SearchAsync(includeAll: false));
+        Assert.Equal(
+            [
+                "DotnetInspect.Cli.Tests.LocatorDiscoveryHidden",
+                "DotnetInspect.Cli.Tests.LocatorDiscoveryObsolete",
+                "DotnetInspect.Cli.Tests.LocatorDiscoveryVisible",
+            ],
+            (await SearchAsync(includeAll: true))
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+    }
+
     private static void ConfigureCommandFeed(
         string packageId,
         byte[] package,
@@ -406,3 +461,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         CoreHttpClientFactory.ResetSharedForTesting();
     }
 }
+
+public sealed class LocatorDiscoveryVisible;
+
+[System.ComponentModel.EditorBrowsable(
+    System.ComponentModel.EditorBrowsableState.Never)]
+public sealed class LocatorDiscoveryHidden;
+
+[Obsolete]
+public sealed class LocatorDiscoveryObsolete;

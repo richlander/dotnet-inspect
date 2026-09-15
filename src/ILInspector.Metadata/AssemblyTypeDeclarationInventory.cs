@@ -63,19 +63,35 @@ public sealed class AssemblyTypeDeclaration
         MetadataTypeDefinitionName name,
         AssemblyTypeDeclarationKind kind,
         AssemblyTypeDefinitionKind? definitionKind,
-        bool isPublicSurface)
+        bool isPublicSurface,
+        TypeDeclarationDiscoveryAttributes? discoveryAttributes = null)
     {
         Name = name;
         Kind = kind;
         DefinitionKind = definitionKind;
         IsPublicSurface = isPublicSurface;
+        DiscoveryAttributes = discoveryAttributes;
     }
 
     public MetadataTypeDefinitionName Name { get; }
     public AssemblyTypeDeclarationKind Kind { get; }
     public AssemblyTypeDefinitionKind? DefinitionKind { get; }
     public bool IsPublicSurface { get; }
+
+    /// <summary>
+    /// Attributes declared on this definition, without inheritance or filtering.
+    /// Null for exports: their target definition has not been inspected.
+    /// </summary>
+    public TypeDeclarationDiscoveryAttributes? DiscoveryAttributes { get; }
 }
+
+/// <summary>
+/// Detached attribute facts for type discovery. Compiler-compatibility obsolete
+/// markers recognized by Metadata are not deprecation.
+/// </summary>
+public sealed record TypeDeclarationDiscoveryAttributes(
+    bool IsEditorBrowsableNever,
+    bool IsObsolete);
 
 /// <summary>The typed result of reading one declaration inventory.</summary>
 public abstract class AssemblyTypeDeclarationInventoryOutcome
@@ -301,7 +317,9 @@ public static class AssemblyTypeDeclarationInventoryReader
             declarations.Add(new AssemblyTypeDeclaration(
                 read.Name, AssemblyTypeDeclarationKind.Definition,
                 GetDefinitionKind(reader, definition),
-                IsPublicDefinition(reader, handle)));
+                IsPublicDefinition(reader, handle),
+                AttributeReader.ReadTypeDiscoveryAttributes(
+                    reader, definition.GetCustomAttributes())));
         }
 
         var referenceProjection = new AssemblyReferenceProjectionCache(reader);

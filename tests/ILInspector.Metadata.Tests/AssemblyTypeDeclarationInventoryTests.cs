@@ -8,7 +8,7 @@ using NuGetFetch;
 
 namespace ILInspector.Metadata.Tests;
 
-public sealed class AssemblyTypeDeclarationInventoryTests
+public sealed partial class AssemblyTypeDeclarationInventoryTests
 {
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
 
@@ -16,7 +16,13 @@ public sealed class AssemblyTypeDeclarationInventoryTests
     public void BorrowedInventory_ReusesOwnerAndSurvivesDisposal()
     {
         byte[] image = BuildImage(metadata =>
-            AddDefinition(metadata, TypeAttributes.Public, "N", "Type"));
+        {
+            DiscoveryAttributeConstructors attributes =
+                AddDiscoveryAttributeConstructors(metadata);
+            TypeDefinitionHandle type =
+                AddDefinition(metadata, TypeAttributes.Public, "N", "Type");
+            AddEditorBrowsable(metadata, type, attributes.EditorBrowsable, 1);
+        });
         int opens = 0;
         var descriptor = Descriptor(image, () =>
         {
@@ -29,7 +35,14 @@ public sealed class AssemblyTypeDeclarationInventoryTests
             using var session = AssemblyInspectionSession.Borrow(context);
             inventory = Read(session);
             Assert.Equal(descriptor.Identity, inventory.Identity);
-            Assert.Equal("Type", Assert.Single(inventory.GetDeclarations()).Name.Segments[0]);
+            AssemblyTypeDeclaration declaration =
+                Assert.Single(inventory.GetDeclarations());
+            Assert.Equal("Type", declaration.Name.Segments[0]);
+            Assert.Equal(
+                new TypeDeclarationDiscoveryAttributes(
+                    IsEditorBrowsableNever: true,
+                    IsObsolete: false),
+                declaration.DiscoveryAttributes);
 
             session.Dispose();
             Assert.True(context.HasMetadata);
@@ -37,7 +50,9 @@ public sealed class AssemblyTypeDeclarationInventoryTests
         }
 
         Assert.Equal(1, opens);
-        Assert.Equal(Name("N", "Type"), Assert.Single(inventory.GetDeclarations()).Name);
+        AssemblyTypeDeclaration detached = Assert.Single(inventory.GetDeclarations());
+        Assert.Equal(Name("N", "Type"), detached.Name);
+        Assert.True(detached.DiscoveryAttributes!.IsEditorBrowsableNever);
         Assert.Equal(
             AssemblyTypeDeclarationKind.Definition,
             Assert.Single(inventory.Declarations).Kind);
@@ -193,6 +208,7 @@ public sealed class AssemblyTypeDeclarationInventoryTests
             Assert.Equal(AssemblyTypeDeclarationKind.Forwarder, declaration.Kind);
             Assert.Null(declaration.DefinitionKind);
             Assert.True(declaration.IsPublicSurface);
+            Assert.Null(declaration.DiscoveryAttributes);
         });
         Assert.Equal(
             [Name("N", "Outer`1"), Name("N", "Outer`1", "Inner`2")],
@@ -224,6 +240,7 @@ public sealed class AssemblyTypeDeclarationInventoryTests
                 AssemblyTypeDeclarationKind.ModuleExport,
                 declaration.Kind);
             Assert.Null(declaration.DefinitionKind);
+            Assert.Null(declaration.DiscoveryAttributes);
         });
         Assert.Equal(Name("N", "Outer", "Inner"), inventory.Declarations[1].Name);
     }
@@ -349,6 +366,38 @@ public sealed class AssemblyTypeDeclarationInventoryTests
             Assert.Contains(inventory.GetDeclarations(), declaration =>
                 declaration.Name == Name("System", "Environment", "SpecialFolder")
                 && declaration.Kind == kind);
+            if (kind == AssemblyTypeDeclarationKind.Forwarder)
+            {
+                Assert.All(inventory.Declarations, declaration =>
+                    Assert.Null(declaration.DiscoveryAttributes));
+            }
+            else
+            {
+                Assert.All(inventory.Declarations, declaration =>
+                    Assert.NotNull(declaration.DiscoveryAttributes));
+                Assert.Equal(
+                    new TypeDeclarationDiscoveryAttributes(false, false),
+                    objectDeclaration.DiscoveryAttributes);
+                Assert.Equal(
+                    new TypeDeclarationDiscoveryAttributes(true, false),
+                    Assert.Single(inventory.Declarations, declaration =>
+                        declaration.Name == Name(
+                            "System.Runtime.CompilerServices",
+                            "IsExternalInit")).DiscoveryAttributes);
+                Assert.Equal(
+                    new TypeDeclarationDiscoveryAttributes(false, true),
+                    Assert.Single(inventory.Declarations, declaration =>
+                        declaration.Name == Name(
+                            "System",
+                            "ExecutionEngineException")).DiscoveryAttributes);
+                var span = Assert.Single(inventory.Declarations, declaration =>
+                    declaration.Name == Name("System", "Span`1"));
+                Assert.Equal(
+                    new TypeDeclarationDiscoveryAttributes(false, false),
+                    span.DiscoveryAttributes);
+                AssertCompilerCompatibilityAttributes(
+                    bytes.ToArray(), "System", "Span`1");
+            }
             Assert.Equal(
                 Project(Assert.IsType<AssemblyTypeDeclarationInventoryOutcome.Read>(
                     AssemblyTypeDeclarationInventoryReader.Read(descriptor)).Inventory),
@@ -360,14 +409,16 @@ public sealed class AssemblyTypeDeclarationInventoryTests
         MetadataTypeDefinitionName Name,
         AssemblyTypeDeclarationKind Kind,
         AssemblyTypeDefinitionKind? DefinitionKind,
-        bool Public)>
+        bool Public,
+        TypeDeclarationDiscoveryAttributes? DiscoveryAttributes)>
         Project(AssemblyTypeDeclarationInventory inventory) =>
         inventory.Declarations.Select(declaration =>
             (
                 declaration.Name,
                 declaration.Kind,
                 declaration.DefinitionKind,
-                declaration.IsPublicSurface));
+                declaration.IsPublicSurface,
+                declaration.DiscoveryAttributes));
 
     static AssemblyTypeDeclarationInventory Read(AssemblyInspectionSession session) =>
         Assert.IsType<AssemblyTypeDeclarationInventoryOutcome.Read>(

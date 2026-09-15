@@ -169,6 +169,7 @@ internal static class TypeSearchService
                 ProjectCandidates(
                     direct.Answers[index].Candidates,
                     options.TypeFilter,
+                    options.IncludeAll,
                     workspace);
             if (options.Limit is { } directLimit
                 && candidates.Count > directLimit)
@@ -225,6 +226,7 @@ internal static class TypeSearchService
                     ProjectCandidates(
                         prefixSection.Answers[index].Candidates,
                         options.TypeFilter,
+                        options.IncludeAll,
                         workspace);
                 prefixCompletion[prefixRequests[index]] =
                     prefixSection.Answers[index].IsComplete;
@@ -258,6 +260,7 @@ internal static class TypeSearchService
                 ? ProjectCandidates(
                     censusAnswer.Candidates,
                     options.TypeFilter,
+                    options.IncludeAll,
                     workspace)
                 : [];
         List<string> typeNames =
@@ -362,6 +365,7 @@ internal static class TypeSearchService
     private static List<TypeSearchResult> ProjectCandidates(
         ImmutableArray<TypeDeclarationLocatorSectionCandidate> candidates,
         string? typeFilter,
+        bool includeAll,
         ConfiguredDeclarationLocatorWorkspace workspace)
     {
         Dictionary<MetadataTypeDefinitionName, AssemblyTypeDefinitionKind?>
@@ -385,6 +389,30 @@ internal static class TypeSearchService
                             ];
                             return kinds.Length == 1
                                 ? (AssemblyTypeDefinitionKind?)kinds[0]
+                                : null;
+                        });
+        Dictionary<
+            MetadataTypeDefinitionName,
+            TypeDeclarationDiscoveryAttributes?> discoveryAttributes =
+                candidates
+                    .Where(
+                        static candidate =>
+                            candidate.DiscoveryAttributes is not null)
+                    .GroupBy(static candidate => candidate.Name)
+                    .ToDictionary(
+                        static group => group.Key,
+                        static group =>
+                        {
+                            TypeDeclarationDiscoveryAttributes[] attributes =
+                            [
+                                .. group
+                                    .Select(
+                                        static candidate =>
+                                            candidate.DiscoveryAttributes!)
+                                    .Distinct(),
+                            ];
+                            return attributes.Length == 1
+                                ? attributes[0]
                                 : null;
                         });
         var results = new List<TypeSearchResult>(candidates.Length);
@@ -421,6 +449,16 @@ internal static class TypeSearchService
             AssemblyTypeDefinitionKind? definitionKind =
                 candidate.DefinitionKind
                 ?? definitionKinds.GetValueOrDefault(candidate.Name);
+            TypeDeclarationDiscoveryAttributes? attributes =
+                candidate.DiscoveryAttributes
+                ?? discoveryAttributes.GetValueOrDefault(candidate.Name);
+            if (!includeAll
+                && attributes
+                    is { IsEditorBrowsableNever: true }
+                        or { IsObsolete: true })
+            {
+                continue;
+            }
             results.Add(
                 new TypeSearchResult
                 {
@@ -429,7 +467,9 @@ internal static class TypeSearchService
                     Namespace = candidate.Name.Namespace,
                     FullName = MetadataTypeNameFormatter
                         .FormatGenericTypeName(fullName),
-                    Kind = DisplayTypeKind(definitionKind),
+                    Kind = !includeAll && attributes is null
+                        ? ""
+                        : DisplayTypeKind(definitionKind),
                     Assembly =
                         candidate.Observation.AssemblyIdentity.Name,
                     Source = source,

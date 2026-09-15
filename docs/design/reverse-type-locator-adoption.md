@@ -73,6 +73,17 @@ classification, source authorization and defaults remain Find-owned; any
 fallback is a separately identified request, and `FindOptions.Limit` cannot
 silently stand in for the query's inventory-read bound.
 
+[#7101](https://github.com/richlander/dotnet-inspect/issues/7101) supplies the
+Metadata-owned [definition discovery attributes](type-forwarding-resolution.md#definition-discovery-attributes)
+needed for default-visibility adoption. Locator candidates and Sections rows
+carry `DiscoveryAttributes` unchanged, including unavailable target evidence
+for exports. The existing public/all locator views do not apply attribute
+suppression. Step 7 applies the established default Find policy only when those
+facts are known, reuses same-name definition facts for a forwarder in the same
+answer, and uses the compatibility inventory when target evidence remains
+unavailable. Step 8 consumes the same typed facts rather than reopening
+metadata or parsing display text to discover them.
+
 The remaining production step is step 8's TypeScript consumer of the same
 typed operation, followed by step 9's duplicate Platform lookup retirement.
 Additional source producers remain independently owned adapter work rather
