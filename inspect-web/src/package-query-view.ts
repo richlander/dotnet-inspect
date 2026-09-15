@@ -16,6 +16,11 @@ import {
 } from "./package-query-window.ts";
 import { renderBrand } from "./brand.ts";
 import { focusRenderedElement } from "./scope-bar.ts";
+import {
+  bindQueryModeSelector,
+  renderQueryModeSelector,
+  type QueryMode,
+} from "./query-mode.ts";
 
 const PACKAGE_QUERY_PRESSURE_DISTANCE_PX = 600;
 const DEFAULT_ASSEMBLY_QUERY_TARGET_FRAMEWORK = "net10.0";
@@ -24,6 +29,7 @@ const MAX_ASSEMBLY_QUERY_PACKAGES = 5;
 export interface PackageQueryBindingActions {
   onBack: () => void;
   onCancel: () => void;
+  onModeChange?: (mode: QueryMode) => void;
   onAssemblyRun?: (request: QueryRequest) => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
@@ -222,6 +228,9 @@ export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,
 ) {
+  if (actions.onModeChange) {
+    bindQueryModeSelector(root, actions.onModeChange);
+  }
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
   root.querySelector("#package-query-back")
@@ -917,6 +926,7 @@ export function renderPackageQueryView(
         </div>
       </header>
       <main class="query-main">
+        ${renderQueryModeSelector("packages")}
         <div class="query-heading">
           <p class="query-kicker">Exact package + literal prefix · nuget.org</p>
           <h1 id="package-query-heading" tabindex="-1">Package query</h1>
