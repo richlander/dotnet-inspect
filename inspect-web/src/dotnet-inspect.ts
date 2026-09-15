@@ -8911,6 +8911,20 @@ function updateVersionSelect(pkg: CatalogPackage) {
   updatePackageComparisonControls();
 }
 
+function capturePackageCoordinateView(): Pick<
+  LoadPackageOptions, "packageLens" | "librarySelection"
+> {
+  return {
+    packageLens: state.atPackageRoot ? state.packageLens : "overview",
+    ...(state.atLibraryRoot ? {
+      librarySelection: {
+        selector: selectedLibraryName(),
+        lens: state.libraryLens,
+      },
+    } : {}),
+  };
+}
+
 // Switch the current package to a different published version. Replaces the current tab in
 // place (drops the previous version's entry) so the selector mutates this package rather than
 // spawning a second tab, mirroring a browser's version picker.
@@ -8923,7 +8937,7 @@ async function switchPackageVersion(newVersion: string) {
   const framework = pkg.activeFramework;
   await loadPackage(id, newVersion, framework, {
     replacePackage: pkg,
-    packageLens: state.atPackageRoot ? state.packageLens : "overview",
+    ...capturePackageCoordinateView(),
     invalidateWorkspaceShareBasis: true,
     loadingPresentation: "content",
   });
@@ -8940,7 +8954,7 @@ async function switchPackageFramework(newFramework: string) {
     newFramework,
     {
       replacePackage: pkg,
-      packageLens: state.atPackageRoot ? state.packageLens : "overview",
+      ...capturePackageCoordinateView(),
       invalidateWorkspaceShareBasis: true,
       loadingPresentation: "content",
     });
@@ -14159,6 +14173,7 @@ interface LoadPackageOptions {
   queryNotice?: string;
   replacePackage?: AppPackage | null;
   packageLens?: PackageLens;
+  librarySelection?: { selector: string; lens: LibraryLens };
   location?: ParsedLocation;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
@@ -14245,6 +14260,21 @@ async function loadPackage(
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
       state.packageLens = options.packageLens ?? "overview";
+      if (options.librarySelection) {
+        const { selector, lens } = options.librarySelection;
+        const library = resolvePackageLibrary(packageModel.assemblies, selector);
+        if (library) {
+          state.libraryScope = new Set([library.id]);
+          state.atPackageRoot = false;
+          state.atLibraryRoot = true;
+          state.libraryLens = lens;
+        } else {
+          appendQueryNotice(
+            `The library '${selector}' is not uniquely available in `
+            + `${packageModel.id}@${packageModel.version} (${packageModel.activeFramework}). `
+            + "Showing Package Overview.");
+        }
+      }
     }
     if (deep) {
       applyDeepLink(deep);
