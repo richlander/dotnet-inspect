@@ -15052,7 +15052,7 @@ public partial class CommandExecutionTests
         {
             Assert.Equal(
                 2,
-                document.RootElement.GetProperty("edges")
+                document.RootElement.GetProperty("rowSelection").GetProperty("relationships")
                     .GetArrayLength());
         }
         Assert.Equal(
@@ -15136,7 +15136,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Depends_TypeJsonUsesTypedGraphDocument()
+    public async Task Depends_TypeJsonRetainsQueryAndSelectedRows()
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.Int128",
@@ -15147,19 +15147,18 @@ public partial class CommandExecutionTests
         using JsonDocument document = JsonDocument.Parse(output);
         Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
         Assert.Single(
-            document.RootElement.GetProperty("edges")
+            document.RootElement.GetProperty("rowSelection").GetProperty("relationships")
                 .EnumerateArray());
         Assert.Equal(
-            2,
-            document.RootElement.GetProperty("nodes")
-                .GetArrayLength());
-        Assert.Empty(
-            document.RootElement.GetProperty("package_projections")
-                .EnumerateArray());
+            "System.Int128",
+            document.RootElement.GetProperty("queryResult").GetProperty("dependency")
+                .GetProperty("matchedType").GetString());
+        Assert.True(document.RootElement.GetProperty("queryResult").GetProperty("dependency")
+            .GetProperty("relationships").GetArrayLength() > 1);
     }
 
     [Fact]
-    public async Task Depends_RootOnlyTypeJsonRetainsTheSelectedNode()
+    public async Task Depends_RootOnlyTypeJsonRetainsTheSelectedType()
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.IDisposable",
@@ -15168,21 +15167,13 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement node = Assert.Single(
-            document.RootElement.GetProperty("nodes")
-                .EnumerateArray());
+        JsonElement dependency = document.RootElement.GetProperty("queryResult").GetProperty("dependency");
         Assert.Equal(
             "System.IDisposable",
-            node.GetProperty("identity")
-                .GetProperty("type")
-                .GetString());
-        Assert.Equal(
-            [1],
-            node.GetProperty("root_occurrences")
-                .EnumerateArray()
-                .Select(static occurrence => occurrence.GetInt32()));
+            dependency.GetProperty("matchedType").GetString());
+        Assert.Empty(dependency.GetProperty("tree").EnumerateArray());
         Assert.Empty(
-            document.RootElement.GetProperty("edges")
+            document.RootElement.GetProperty("rowSelection").GetProperty("relationships")
                 .EnumerateArray());
     }
 
