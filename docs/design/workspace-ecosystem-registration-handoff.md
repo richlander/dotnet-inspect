@@ -29,10 +29,13 @@ Workspace-Scope-owned `WorkspacePlan` and retires the four live factories.
 Persistence and host activation remain in their separately owned slices.
 
 [Subject Relations](subject-relations-workflows.md#broad-discovery-by-default),
-approved in #6763, supplies the two construction intents adopted here. The
-platform composition keeps its narrower meaning; all-known construction adds
-every shipped ecosystem, including Aspire and AI. This replaces the earlier
-one-composition restriction without adding product policy to Workspace.
+approved in #6763, supplies the platform and all-known construction intents
+adopted here. #7001 adds selected-set construction from an explicit ordered
+ecosystem identity sequence. The platform composition keeps its narrower
+meaning; all-known construction adds every shipped ecosystem, including Aspire
+and AI; selected-set construction adds exactly the requested registrations in
+caller order. These application-owned choices add no product policy to
+Workspace.
 
 ## Authority and exact claim
 
@@ -42,9 +45,10 @@ one-composition restriction without adding product policy to Workspace.
 > immutable set of owner-issued Workspace-relevant contributions, construct
 > one resource-free lower-layer ecosystem-registration declaration or one
 > typed rejection. The application catalog may project a selected pack and use
-> either separately authored ordered product manifest to construct a complete
-> resource-free WorkspacePlan through the neutral plan API, without lower
-> layers referencing or rediscovering the catalog.
+> either separately authored ordered product manifest or an explicit ordered
+> ecosystem selection to construct a complete resource-free WorkspacePlan
+> through the neutral plan API, without lower layers referencing or
+> rediscovering the catalog.
 
 The owner defines:
 
@@ -54,7 +58,8 @@ The owner defines:
 - the closed version-1 contribution slots crossing this boundary;
 - complete declaration, correspondence, and product-manifest validation;
 - single-pack projection outcomes; and
-- curated Workspace plan construction and the non-action rules for projection.
+- curated and selected-set Workspace plan construction and the non-action
+  rules for projection.
 
 It consumes without redefining:
 
@@ -133,6 +138,13 @@ The contrasting high-fidelity scenario deliberately bypasses this curated
 factory. Package-mode `depends` constructs raw and keeps package-authored
 dependency routes as evidence. Both scenarios use the same neutral Workspace
 API; only the caller's construction choice differs.
+
+Find uses all-known construction when the caller supplies no ecosystem
+selection. A caller-selected ecosystem sequence uses selected-set construction
+instead. Both choices register inert declarations only: Find searches concrete
+content presented to its Workspace and does not execute registered package-
+prefix populations. Prefix expansion remains a separately authorized
+package-service or graph operation.
 
 ## Boundary shape
 
@@ -665,6 +677,12 @@ CreateWorkspacePlan()
        4. ecosystem.aspire
        5. ecosystem.ai
 
+CreateWorkspacePlan([ecosystem.aspire, ecosystem.platform])
+  -> WorkspacePlan
+     Registrations
+       1. ecosystem.aspire
+       2. ecosystem.platform
+
 ```
 
 Direct `new WorkspacePlan()` instead returns an empty registration set.
@@ -686,6 +704,7 @@ membership.
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
 | Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required population contributions are enforced without filtering ordinary pack discovery. |
 | All-known product Workspace | The separate current five-row order includes Aspire and AI and every known pack; missing or unavailable projections cannot be silently omitted. |
+| Selected product Workspace | A nonempty unique selected identity sequence produces exactly those retained registrations in caller order; null, duplicate, unknown, unavailable, and hints-only entries fail without a partial plan. |
 | Independent construction | One curated plan can seed distinct live Workspace identities; edits and close preserve the original plan and other owners. |
 | Lifetime preservation | Plans require no disposal; explicit live construction consumes the single Workspace awaited lifetime without an Ecosystems-owned variant. |
 | Empty lower-layer default | Direct Workspace construction without explicit registrations is empty and has no path that consults Ecosystems or requests curation. |
@@ -705,10 +724,12 @@ are ownership rules enforced by design review. Required future positive Release
 gates instead prove empty default construction, complete explicit
 initialization, Ecosystems-owned construction, and both host call paths.
 `EcosystemWorkspaceConstructionTests` gates the implemented projection,
-manifest, exact-value retention, independent construction, inherited lifetime,
-empty Package membership and explicit-state preservation outcomes in Release.
+manifest and selected-set validation, exact-value retention, independent
+construction, inherited lifetime, empty Package membership and explicit-state
+preservation outcomes in Release.
 `EcosystemWorkspaceConstructionConsumerTests` in the existing non-friend consumer
-suite exercises public construction, selection and result pattern matching.
+suite exercises public preset and selected-set construction, selection and
+result pattern matching.
 Existing catalog suites retain
 their discovery, demo and scanner gates. CLI and Browser activation and portable
 restoration remain unverified future adoption, not evidence manufactured by

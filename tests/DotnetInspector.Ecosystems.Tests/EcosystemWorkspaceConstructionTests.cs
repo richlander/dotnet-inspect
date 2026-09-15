@@ -99,6 +99,50 @@ public sealed class EcosystemWorkspaceConstructionTests
     }
 
     [Fact]
+    public void PublicSelectedPlanPreservesExactCallerOrderWithoutAddingNeighbors()
+    {
+        EcosystemPackId[] selected =
+        [
+            EcosystemPackIds.AI,
+            EcosystemPackIds.Platform,
+        ];
+
+        WorkspacePlan plan =
+            EcosystemPackCatalog.CreateWorkspacePlan(selected);
+        WorkspaceEcosystemRegistrationDeclaration[] declarations =
+        [
+            .. plan.Registrations.Select(item =>
+                Assert.IsType<WorkspaceRegistration.Ecosystem>(item)
+                    .Declaration),
+        ];
+
+        Assert.Equal(
+            selected.Select(id => id.Value),
+            declarations.Select(declaration => declaration.Id.Value));
+        Assert.Same(SelectKnown(EcosystemPackIds.AI), declarations[0]);
+        Assert.Same(SelectKnown(EcosystemPackIds.Platform), declarations[1]);
+    }
+
+    [Fact]
+    public void PublicSelectedPlanRejectsIncompleteSelections()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            EcosystemPackCatalog.CreateWorkspacePlan(null!));
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemPackCatalog.CreateWorkspacePlan([]));
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemPackCatalog.CreateWorkspacePlan([null!]));
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemPackCatalog.CreateWorkspacePlan(
+                [EcosystemPackIds.Platform, EcosystemPackIds.Platform]));
+        Assert.True(EcosystemPackId.TryCreate(
+            "ecosystem.not-shipped",
+            out EcosystemPackId? unknown));
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemPackCatalog.CreateWorkspacePlan([unknown]));
+    }
+
+    [Fact]
     public void EqualTextWithoutAnAuthoredPairIsUnavailableRatherThanInferred()
     {
         WorkspaceEcosystemRegistrationDeclaration unpaired = Declaration(EcosystemPackIds.Aspire);
