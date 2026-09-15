@@ -24,6 +24,7 @@ type PackageOperations =
   | "getPlatformVersions"
   | "getPackageDocument"
   | "listPackageAssemblyQueryPatterns"
+  | "listPackageChangesPackageSets"
   | "listPackageQueryFacets"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"

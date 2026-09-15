@@ -514,6 +514,27 @@ import {
   type PackageQueryViewportSnapshot,
 } from "./package-query-window.ts";
 import {
+  createPackageChangesController,
+  createPackageChangesRequest,
+  initialPackageChangesState,
+  type PackageChangesState,
+} from "./package-changes.ts";
+import {
+  createBrowserPackageChangesDataSource,
+  packageChangesPackageSets,
+} from "./package-changes-source.ts";
+import {
+  bindPackageChangesView,
+  patchPackageChangesStream,
+  renderPackageChangesView,
+} from "./package-changes-view.ts";
+import {
+  capturePackageChangesViewport,
+  restorePackageChangesViewport,
+  type PackageChangesViewportSnapshot,
+} from "./package-changes-window.ts";
+import type { QueryMode } from "./query-mode.ts";
+import {
   historyEntryId,
   isPackageQueryPath,
   isPackageQueryPredecessor,
@@ -526,6 +547,7 @@ import {
 } from "./package-query-route.ts";
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
+  BrowserPackageChangesPackageSetDescriptor,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
@@ -552,6 +574,7 @@ type ProductionEngineWorkerModule =
 
 let startEngine: (origin: string) => Promise<void>;
 let engineClient: EngineClient;
+let cancelPackageChanges: EngineClient["package"]["cancelPackageChanges"];
 let cancelPackageQuery: EngineClient["package"]["cancelPackageQuery"];
 let inspectPackageDocument: EngineClient["package"]["getPackageDocument"];
 let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
@@ -573,6 +596,7 @@ let resolveDependencyVersion:
 let inspectRequestPackageQueryMatches:
   EngineClient["package"]["requestPackageQueryMatches"];
 let inspectRunPackageQuery: EngineClient["package"]["runPackageQuery"];
+let inspectRunPackageChanges: EngineClient["package"]["runPackageChanges"];
 let inspectRunPackageAssemblyQuery:
   EngineClient["package"]["runPackageAssemblyQuery"];
 let inspectOpenPackageAssemblyQueryResult:
@@ -680,6 +704,8 @@ async function loadEngineModule() {
     );
     cancelPackageQuery = (...args) =>
       engineClient.package.cancelPackageQuery(...args);
+    cancelPackageChanges = (...args) =>
+      engineClient.package.cancelPackageChanges(...args);
     inspectRequestPackageQueryMatches = (...args) =>
       engineClient.package.requestPackageQueryMatches(...args);
     cancelTypeSourceInspection = (...args) =>
@@ -697,6 +723,7 @@ async function loadEngineModule() {
       queryPackageDependencies: inspectPackageDependencies,
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
+      runPackageChanges: inspectRunPackageChanges,
       runPackageQuery: inspectRunPackageQuery,
       runPackageAssemblyQuery: inspectRunPackageAssemblyQuery,
       openPackageAssemblyQueryResult: inspectOpenPackageAssemblyQueryResult,
@@ -915,6 +942,8 @@ const initialState = {
   packageQueryPrefix: "",
   packageQueryNavigationError: "",
   packageQueryCatalogError: "",
+  packageChangesCatalogError: "",
+  packageQueryMode: "packages" as QueryMode,
   packageQueryOpenedFromApp: false,
   packageQueryPredecessorEntryId: null,
   packageQueryReturnFocus: null,
@@ -923,6 +952,8 @@ const initialState = {
   packageQueryInspection: null,
   packageQueryFacets: [],
   packageQueryAssemblyPatterns: [],
+  packageChangesPackageSets: [],
+  packageChangesState: initialPackageChangesState(),
   platformIndex: null,
   rootKind: "package" as "package" | "platform",
   platformSelection: null,
@@ -1130,6 +1161,10 @@ interface StateOverrides {
   packageCacheStatsStatus: "idle" | "loading" | "ready" | "failed";
   diagnosticsCapturedAtUtc: string | null;
   packageQueryState: PackageQueryState;
+  packageQueryMode: QueryMode;
+  packageChangesCatalogError: string;
+  packageChangesPackageSets: BrowserPackageChangesPackageSetDescriptor[];
+  packageChangesState: PackageChangesState;
   packageQueryInspection: BrowserPackageQueryInspection | null;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
@@ -1450,6 +1485,8 @@ function captureRetainedHostState() {
     packageQueryPrefix: state.packageQueryPrefix,
     packageQueryNavigationError: state.packageQueryNavigationError,
     packageQueryCatalogError: state.packageQueryCatalogError,
+    packageChangesCatalogError: state.packageChangesCatalogError,
+    packageQueryMode: state.packageQueryMode,
     packageQueryOpenedFromApp: state.packageQueryOpenedFromApp,
     packageQueryPredecessorEntryId: state.packageQueryPredecessorEntryId,
     packageQueryReturnFocus: state.packageQueryReturnFocus,
@@ -1458,6 +1495,8 @@ function captureRetainedHostState() {
     packageQueryInspection: state.packageQueryInspection,
     packageQueryFacets: state.packageQueryFacets,
     packageQueryAssemblyPatterns: state.packageQueryAssemblyPatterns,
+    packageChangesPackageSets: state.packageChangesPackageSets,
+    packageChangesState: state.packageChangesState,
     platformIndex: state.platformIndex,
     platformRecent: state.platformRecent,
     recentPackages: state.recentPackages,
@@ -1935,6 +1974,19 @@ const packageQueryController = createPackageQueryController(
       return;
     }
     if (!state.packageQueryOpen) return;
+    schedulePackageQueryStreamRender();
+  },
+);
+const packageChangesController = createPackageChangesController(
+  state.packageChangesState,
+  createBrowserPackageChangesDataSource({
+    cancel: (operationId, reason) =>
+      cancelPackageChanges(operationId, reason),
+    run: (operationId, requestJson, eventSink) =>
+      inspectRunPackageChanges(operationId, requestJson, eventSink),
+  }),
+  () => {
+    if (!state.packageQueryOpen || state.packageQueryMode !== "changes") return;
     schedulePackageQueryStreamRender();
   },
 );
@@ -10602,6 +10654,7 @@ function openProductDemos(): void {
   state.credits = false;
   state.packageQueryOpen = false;
   packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
   spotlight.reset();
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
@@ -11056,6 +11109,7 @@ function goHome() {
   }
   state.packageQueryOpen = false;
   packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -11072,6 +11126,7 @@ function openCredits() {
   state.loading = false;
   state.packageQueryOpen = false;
   packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
   state.credits = true;
   state.home = true;
   spotlight.reset();
@@ -11200,6 +11255,7 @@ function openDiagnosticsRoute() {
   dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
   state.packageQueryOpen = false;
   state.credits = false;
   state.home = false;
@@ -11245,6 +11301,7 @@ function replaceDiagnosticsWithHome() {
   }
   state.packageQueryOpen = false;
   packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -11253,8 +11310,12 @@ function replaceDiagnosticsWithHome() {
 }
 
 function focusPackageQueryInput() {
-  afterCurrentNavigationFrame(() =>
-    document.querySelector<HTMLInputElement>("#package-query-prefix")?.focus());
+  afterCurrentNavigationFrame(() => {
+    const selector = state.packageQueryMode === "changes"
+      ? "#package-changes-package-set"
+      : "#package-query-prefix";
+    document.querySelector<HTMLElement>(selector)?.focus();
+  });
 }
 
 function afterCurrentNavigationFrame(action: () => void) {
@@ -11356,7 +11417,15 @@ function resetPackageQueryState() {
   state.packageQueryState.request = fresh.request;
   state.packageQueryState.outcome = fresh.outcome;
   state.packageQueryInspection = null;
+  state.packageQueryMode = "packages";
+  const freshChanges = initialPackageChangesState();
+  state.packageChangesState.request = freshChanges.request;
+  state.packageChangesState.progress = freshChanges.progress;
+  state.packageChangesState.rows = freshChanges.rows;
+  state.packageChangesState.failures = freshChanges.failures;
+  state.packageChangesState.settlement = freshChanges.settlement;
   packageQueryViewport = null;
+  packageChangesViewport = null;
 }
 
 function resetPackageQueryAnnouncements() {
@@ -11407,6 +11476,7 @@ function openPackageQueryRoute(
   dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
+  packageChangesController.cancel("superseded");
   packageQueryHandoffNavigationSeq = null;
   if (!options.preserveState) {
     resetPackageQueryState();
@@ -11483,6 +11553,8 @@ async function selectWorkspaceApplicationScope() {
 
 function closePackageQueryRoute() {
   navigationSequence.begin();
+  packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
   if (state.packageQueryOpenedFromApp) {
     state.packageQueryReturnFocusPending =
       state.packageQueryReturnFocus !== null;
@@ -11490,7 +11562,6 @@ function closePackageQueryRoute() {
     return;
   }
   state.packageQueryOpen = false;
-  packageQueryController.cancel();
   state.packageQueryOpenedFromApp = false;
   state.packageQueryPredecessorEntryId = null;
   state.packageQueryReturnFocus = null;
@@ -11526,6 +11597,45 @@ function submitPackageQueryRequest(request: QueryRequest) {
 function runPackageQuery(text: string) {
   const request = preparePackageQueryRequest(text);
   submitPackageQueryRequest(request);
+}
+
+function switchPackageQueryMode(mode: QueryMode) {
+  if (state.packageQueryMode === mode) return;
+  if (mode === "changes") {
+    packageQueryController.cancel();
+  } else {
+    packageChangesController.cancel("disposed");
+  }
+  state.packageQueryMode = mode;
+  render();
+  afterCurrentNavigationFrame(() =>
+    document.querySelector<HTMLElement>(
+      `[data-query-mode="${mode}"]`)?.focus());
+}
+
+function runPackageChanges(
+  packageSetId: string,
+  fromExclusive: string | null,
+  throughInclusive: string | null,
+  securityOnly: boolean,
+  maximumRows: number,
+) {
+  if (!state.packageChangesPackageSets.some(
+    packageSet => packageSet.id === packageSetId)) {
+    state.packageChangesCatalogError =
+      "The selected product package set is unavailable.";
+    render();
+    return;
+  }
+  state.packageChangesCatalogError = "";
+  void packageChangesController.run(createPackageChangesRequest(
+    packageSetId,
+    {
+      fromExclusive,
+      throughInclusive,
+      securityOnly,
+      maximumRows,
+    }));
 }
 
 function preparePackageQueryControlRequest(
@@ -11570,6 +11680,7 @@ async function openPackageQueryRow(
     return;
   }
   packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
   state.packageQueryOpen = false;
   const navigationSeq = navigationSequence.begin();
   const { rollbackSnapshot, retainedSnapshot } =
@@ -11659,6 +11770,7 @@ async function openPackageQueryRow(
 const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
+  onModeChange: switchPackageQueryMode,
   onAssemblyRun: request => {
     state.packageQueryNavigationError = "";
     packageQueryLiveAnnouncer.reset();
@@ -11685,9 +11797,17 @@ const packageQueryActions: PackageQueryBindingActions = {
   },
   onRun: runPackageQuery,
 };
+const packageChangesActions = {
+  onBack: closePackageQueryRoute,
+  onCancel: () => packageChangesController.cancel("user"),
+  onModeChange: switchPackageQueryMode,
+  onResultViewportChange: schedulePackageQueryStreamRender,
+  onRun: runPackageChanges,
+};
 
 let packageQueryStreamRenderFrame: number | null = null;
 let packageQueryViewport: PackageQueryViewportSnapshot | null = null;
+let packageChangesViewport: PackageChangesViewportSnapshot | null = null;
 
 function cancelPackageQueryStreamRender() {
   if (packageQueryStreamRenderFrame === null) return;
@@ -11704,6 +11824,23 @@ function schedulePackageQueryStreamRender() {
 }
 
 function patchPackageQueryPage() {
+  if (state.packageQueryMode === "changes") {
+    const viewport =
+      capturePackageChangesViewport(document, packageChangesViewport)
+      ?? packageChangesViewport;
+    const patched = patchPackageChangesStream(document, {
+      state: state.packageChangesState,
+      escapeHtml,
+      viewport,
+    });
+    if (!patched) {
+      render();
+      return;
+    }
+    packageChangesViewport =
+      capturePackageChangesViewport(document, viewport) ?? viewport;
+    return;
+  }
   const focus = capturePackageQueryFocus(document);
   const viewport =
     capturePackageQueryViewport(document) ?? packageQueryViewport;
@@ -11729,6 +11866,24 @@ function patchPackageQueryPage() {
 
 function renderPackageQueryPage() {
   cancelPackageQueryStreamRender();
+  if (state.packageQueryMode === "changes") {
+    const viewport =
+      capturePackageChangesViewport(document, packageChangesViewport)
+      ?? packageChangesViewport;
+    document.title = "Package changes · dotnet-inspect";
+    app.innerHTML = renderPackageChangesView({
+      state: state.packageChangesState,
+      packageSets: state.packageChangesPackageSets,
+      catalogError: state.packageChangesCatalogError,
+      escapeHtml,
+      viewport,
+    });
+    bindPackageChangesView(document, packageChangesActions);
+    restorePackageChangesViewport(document, viewport);
+    packageChangesViewport =
+      capturePackageChangesViewport(document, viewport) ?? viewport;
+    return;
+  }
   const focus = capturePackageQueryFocus(document);
   const viewport =
     capturePackageQueryViewport(document) ?? packageQueryViewport;
@@ -15560,6 +15715,15 @@ async function bootstrap() {
         `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
+      state.packageChangesPackageSets = packageChangesPackageSets(
+        await engineClient.package.listPackageChangesPackageSets());
+      state.packageChangesCatalogError = "";
+    } catch (error) {
+      state.packageChangesPackageSets = [];
+      state.packageChangesCatalogError =
+        `Package Changes package sets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+    }
+    try {
       state.packageQueryFacets =
         packageQueryFacets(await engineClient.package.listPackageQueryFacets());
     } catch (error) {
@@ -15827,6 +15991,7 @@ async function navigateInAppUrl(url: URL) {
   if (focusWorkspaceAfterQuery) {
     state.packageQueryOpen = false;
     packageQueryController.cancel();
+    packageChangesController.cancel("disposed");
     state.packageQueryNavigationError = "";
   }
   const navigationSeq = navigationSequence.begin();
@@ -16395,6 +16560,7 @@ window.addEventListener("popstate", () => {
     clearNavigationError();
     state.packageQueryOpen = false;
     packageQueryController.cancel();
+    packageChangesController.cancel("disposed");
     state.credits = false;
     state.home = false;
     state.loading = false;
@@ -16425,6 +16591,7 @@ window.addEventListener("popstate", () => {
     state.packageQueryOpen = false;
     packageQueryHandoffNavigationSeq = null;
     packageQueryController.cancel();
+    packageChangesController.cancel("disposed");
     state.packageQueryReturnFocusPending =
       state.packageQueryReturnFocus !== null
       && isPackageQueryPredecessor(

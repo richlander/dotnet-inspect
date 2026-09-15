@@ -1023,6 +1023,183 @@ test.describe("Package Query website over real Wasm", () => {
 
 });
 
+test.describe("Package Changes website over real Wasm", () => {
+  test("streams product activity and reconciles typed partial evidence", async ({
+    page,
+    context,
+  }) => {
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 5 * 60 * 1_000);
+    const firstCommit = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1_000);
+    const secondCommit = new Date(now.getTime() - 24 * 60 * 60 * 1_000);
+    const requests: URL[] = [];
+    const advisoryRequested = deferred<void>();
+    const releaseAdvisory = deferred<void>();
+    await context.route("**/api/package-changes/**", async route => {
+      const url = new URL(route.request().url());
+      requests.push(url);
+      if (url.pathname.endsWith("/advisories")) {
+        const affects = url.searchParams.get("affects") ?? "";
+        if (url.searchParams.has("after")) {
+          await route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "controlled partial page" }),
+          });
+          return;
+        }
+        if (!affects.split(",").includes("microsoft.extensions.ai")) {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: "[]",
+          });
+          return;
+        }
+        advisoryRequested.resolve();
+        await releaseAdvisory.promise;
+        const next = new URL("https://api.github.com/advisories");
+        for (const name of [
+          "ecosystem",
+          "type",
+          "is_withdrawn",
+          "per_page",
+          "affects",
+        ]) {
+          const value = url.searchParams.get(name);
+          if (value !== null) next.searchParams.set(name, value);
+        }
+        next.searchParams.set("after", "Y3Vyc29yOnYyOpHOAQ==");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: {
+            Link: `<${next.toString()}>; rel="next"`,
+          },
+          body: JSON.stringify([{
+            ghsa_id: "GHSA-1234-5678-9012",
+            cve_id: "CVE-2026-1234",
+            type: "reviewed",
+            severity: "high",
+            published_at: firstCommit.toISOString(),
+            updated_at: secondCommit.toISOString(),
+            withdrawn_at: null,
+            vulnerabilities: [{
+              package: {
+                ecosystem: "nuget",
+                name: "Microsoft.Extensions.AI",
+              },
+              vulnerable_version_range: "< 1.1.0",
+              first_patched_version: null,
+            }],
+          }]),
+        });
+        return;
+      }
+      const providerPath = url.searchParams.get("path");
+      let body: string;
+      if (providerPath === "/v3/index.json") {
+        body = JSON.stringify({
+          version: "3.0.0",
+          resources: [{
+            "@id": "https://api.nuget.org/v3/catalog0/index.json",
+            "@type": "Catalog/3.0.0",
+          }],
+        });
+      } else if (providerPath === "/v3/catalog0/index.json") {
+        body = JSON.stringify({
+          commitId: "index",
+          commitTimeStamp: horizon.toISOString(),
+          count: 1,
+          items: [{
+            "@id": "https://api.nuget.org/v3/catalog0/page0.json",
+            commitId: "page",
+            commitTimeStamp: horizon.toISOString(),
+            count: 2,
+          }],
+        });
+      } else if (providerPath === "/v3/catalog0/page0.json") {
+        body = JSON.stringify({
+          commitId: "page",
+          commitTimeStamp: horizon.toISOString(),
+          count: 2,
+          parent: "https://api.nuget.org/v3/catalog0/index.json",
+          items: [
+            {
+              "@id": "https://api.nuget.org/v3/catalog0/data/first.json",
+              "@type": "nuget:PackageDetails",
+              commitId: "first-commit",
+              commitTimeStamp: firstCommit.toISOString(),
+              "nuget:id": "Microsoft.Extensions.AI",
+              "nuget:version": "1.0.0",
+            },
+            {
+              "@id": "https://api.nuget.org/v3/catalog0/data/second.json",
+              "@type": "nuget:PackageDetails",
+              commitId: "second-commit",
+              commitTimeStamp: secondCommit.toISOString(),
+              "nuget:id": "Microsoft.Extensions.AI",
+              "nuget:version": "1.1.0",
+            },
+          ],
+        });
+      } else {
+        await route.fulfill({ status: 404 });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body,
+      });
+    });
+
+    await page.goto("/query");
+    await expect(page.locator("#package-query-prefix"))
+      .toBeVisible({ timeout: 120_000 });
+    await page.locator('[data-query-mode="changes"]').click();
+    const packageSet = page.locator("#package-changes-package-set");
+    await expect(packageSet).toBeVisible();
+    expect(await packageSet.locator("option").count()).toBeGreaterThan(0);
+    await expect(page.locator(".package-changes-package-set-summary"))
+      .not.toHaveText("");
+
+    await page.locator("#package-changes-run").click();
+    await advisoryRequested.promise;
+    await expect(page.locator(".package-changes-summary"))
+      .toContainText("streaming");
+    await expect(page.locator(".package-changes-progress")).toBeVisible();
+    releaseAdvisory.resolve();
+
+    await expect(page.locator(".package-changes-summary"))
+      .toContainText("partial", { timeout: 30_000 });
+    await expect(page.locator(".package-changes-coverage"))
+      .toContainText("Completion and coverage");
+    await expect(page.locator(".package-changes-coverage"))
+      .toContainText("2 of 2 eligible");
+    await expect(page.locator(".package-changes-row")).toHaveCount(2);
+    await expect(page.locator(".package-changes-row h2"))
+      .toHaveText([
+        "Microsoft.Extensions.AI 1.1.0",
+        "Microsoft.Extensions.AI 1.0.0",
+      ]);
+    await expect(page.locator(".package-changes-evidence-grid"))
+      .toContainText(["Partial", "Partial"]);
+    await expect(page.locator(".package-changes-failures"))
+      .toContainText("Advisory provider");
+    await expect(page.locator(".package-changes-row").first())
+      .toContainText("second-commit");
+    await expect(page.locator(".package-changes-row").last())
+      .toContainText("first-commit");
+    expect(requests.some(request =>
+      request.pathname.endsWith("/nuget")
+      && request.searchParams.get("path") === "/v3/index.json")).toBe(true);
+    expect(requests.some(request =>
+      request.pathname.endsWith("/advisories")
+      && request.searchParams.has("after"))).toBe(true);
+  });
+});
+
 test.describe("Assembly Package Query website over real Wasm", () => {
   test("evaluates disposable candidates and reopens a match through its exact Root", async ({
     page, context,
