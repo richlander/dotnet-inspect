@@ -1,3 +1,5 @@
+using ILInspector.Metadata;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -23,14 +25,13 @@ public static class GeneratedCodeIdentity
             && IsSynthesizedLambdaMethodName(method.Name);
 
     public static bool IsStaticLambdaClosureHolderName(TypeRef type)
-        => LeafTypeName(type.Name) == "<>c";
+        => LeafTypeName(type.Name) == GeneratedNameGrammar.NonCapturingLambdaHolderName;
 
     public static bool IsDisplayClassName(TypeRef type)
-        => LeafTypeName(type.Name).StartsWith("<>c__DisplayClass", StringComparison.Ordinal);
+        => GeneratedNameGrammar.IsDisplayClassLeaf(LeafTypeName(type.Name));
 
     public static bool IsSynthesizedLambdaMethodName(string name)
-        => name.StartsWith("<", StringComparison.Ordinal)
-            && name.Contains(">b__", StringComparison.Ordinal);
+        => GeneratedNameGrammar.IsSynthesizedLambdaMethodName(name);
 
     /// <summary>
     /// A synthesized local-function method: <c>&lt;Enclosing&gt;g__Name|N_M</c>,
@@ -58,7 +59,7 @@ public static class GeneratedCodeIdentity
         => method.DeclaringTypeCompilerGenerated == MetadataFactState.Yes
             && !method.HasThis
             && method.Name == "ComputeStringHash"
-            && LeafTypeName(MetadataTypeName(method.DeclaringType)) == "<PrivateImplementationDetails>"
+            && LeafTypeName(MetadataTypeName(method.DeclaringType)) == GeneratedNameGrammar.PrivateImplementationDetailsTypeName
             && method.ReturnType.Equals(TypeRef.CoreLib("System", "UInt32"))
             && method.ParameterTypes is [var parameter]
             && parameter.Equals(TypeRef.CoreLib("System", "String"));
@@ -80,7 +81,7 @@ public static class GeneratedCodeIdentity
         readOnly = false;
         if (method.DeclaringTypeCompilerGenerated != MetadataFactState.Yes
             || method.HasThis
-            || LeafTypeName(MetadataTypeName(method.DeclaringType)) != "<PrivateImplementationDetails>")
+            || LeafTypeName(MetadataTypeName(method.DeclaringType)) != GeneratedNameGrammar.PrivateImplementationDetailsTypeName)
         {
             return false;
         }
@@ -104,14 +105,13 @@ public static class GeneratedCodeIdentity
     }
 
     public static bool IsDynamicCallSiteContainerType(TypeRef type)
-        => LeafTypeName(MetadataTypeName(type)).StartsWith("<>o__", StringComparison.Ordinal);
+        => LeafTypeName(MetadataTypeName(type)).StartsWith(GeneratedNameGrammar.DynamicCallSiteContainerPrefix, StringComparison.Ordinal);
 
     public static bool IsIteratorStateMachineTypeName(TypeRef type)
-        => LeafTypeName(MetadataTypeName(type)).Contains(">d__", StringComparison.Ordinal);
+        => GeneratedNameGrammar.IsStateMachineLeaf(LeafTypeName(MetadataTypeName(type)));
 
     public static bool IsSynthesizedLocalFunctionName(string name)
-        => name.StartsWith("<", StringComparison.Ordinal)
-            && name.Contains(">g__", StringComparison.Ordinal);
+        => GeneratedNameGrammar.IsSynthesizedLocalFunctionName(name);
 
     /// <summary>
     /// A compiler-generated field name. The leading <c>&lt;</c> is unspeakable in
@@ -122,7 +122,7 @@ public static class GeneratedCodeIdentity
     /// field a rewrite failed to remap.
     /// </summary>
     public static bool IsGeneratedFieldName(string name)
-        => name.StartsWith("<", StringComparison.Ordinal);
+        => GeneratedNameGrammar.IsGeneratedFieldName(name);
 
     /// <summary>
     /// A hoisted user-local field — <c>&lt;name&gt;5__N</c>, the lifted form of a
@@ -135,15 +135,10 @@ public static class GeneratedCodeIdentity
     /// those passes materialize back into kickoff locals and parameters.
     /// </summary>
     public static bool IsHoistedLocalFieldName(string name)
-        => IsGeneratedFieldName(name)
-            && !name.StartsWith("<>", StringComparison.Ordinal)
-            && name.Contains(">5__", StringComparison.Ordinal);
+        => GeneratedNameGrammar.IsHoistedLocalFieldName(name);
 
     static string LeafTypeName(string name)
-    {
-        int plus = name.LastIndexOf('+');
-        return plus < 0 ? name : name[(plus + 1)..];
-    }
+        => GeneratedNameGrammar.LeafSegment(name);
 
     static string MetadataTypeName(TypeRef type)
         => type.Kind == TypeRefKind.GenericInstance ? type.ElementType?.Name ?? "" : type.Name;

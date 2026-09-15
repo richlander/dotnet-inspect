@@ -1,0 +1,151 @@
+import { dotnet } from "./runtime-loader.js";
+const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
+let $runtime;
+let $managedExports;
+let $initialization;
+let $initializationFailure;
+function $ownDataProperty(value, key) {
+    if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+        throw new Error(`Managed export path '${key}' has a non-object parent.`);
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) {
+        throw new Error(`Managed export path '${key}' is not an own data property.`);
+    }
+    return descriptor.value;
+}
+function $requireRuntime() {
+    if ($initializationFailure !== undefined)
+        throw $initializationFailure.error;
+    if ($runtime === undefined) {
+        throw $notInitializedError;
+    }
+    return $runtime;
+}
+function $requireManagedExports() {
+    if ($initializationFailure !== undefined)
+        throw $initializationFailure.error;
+    if ($managedExports === undefined) {
+        throw $notInitializedError;
+    }
+    return $managedExports;
+}
+function $validateManagedExports(exports) {
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "AsyncLoweringCanary.1684317047");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.InspectionEngine.AsyncLoweringCanary.1684317047\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "BuildIdentity.1310674786");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.InspectionEngine.BuildIdentity.1310674786\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "ConfigureHost.92020726");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.InspectionEngine.ConfigureHost.92020726\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "DrainEpochWorkReporter.1731052262");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.InspectionEngine.DrainEpochWorkReporter.1731052262\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "ManagedCpuCanary.1310674786");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.InspectionEngine.ManagedCpuCanary.1310674786\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "RegisterEpochWorkReporter.1170383003");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.InspectionEngine.RegisterEpochWorkReporter.1170383003\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "UnregisterEpochWorkReporter.19325221");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.InspectionEngine.UnregisterEpochWorkReporter.19325221\u0027 is not callable.");
+        }
+    }
+}
+async function $initializeRuntimeCore(runtime) {
+    const exports = await runtime.getAssemblyExports("DotnetInspect.Web");
+    $validateManagedExports(exports);
+    $runtime = runtime;
+    $managedExports = exports;
+}
+export function createRuntime() {
+    return dotnet.create();
+}
+export function initializeRuntime(runtime) {
+    if ($initialization === undefined) {
+        $initialization = Promise.resolve()
+            .then(() => runtime === undefined ? createRuntime() : runtime)
+            .then($initializeRuntimeCore)
+            .catch((error) => {
+            $initializationFailure = { error };
+            throw error;
+        });
+    }
+    return $initialization;
+}
+export function runEntryPoint(mainAssemblyName, args) {
+    return $requireRuntime().runMain(mainAssemblyName, args);
+}
+export async function asyncLoweringCanary() {
+    return await $requireManagedExports()["DotnetInspect"]["Web"]["InspectionEngine"]["AsyncLoweringCanary.1684317047"]();
+}
+export function buildIdentity() {
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["InspectionEngine"]["BuildIdentity.1310674786"]();
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export function configureHost(origin) {
+    return $requireManagedExports()["DotnetInspect"]["Web"]["InspectionEngine"]["ConfigureHost.92020726"](origin);
+}
+export async function drainEpochWorkReporter() {
+    return await $requireManagedExports()["DotnetInspect"]["Web"]["InspectionEngine"]["DrainEpochWorkReporter.1731052262"]();
+}
+export function managedCpuCanary() {
+    return $requireManagedExports()["DotnetInspect"]["Web"]["InspectionEngine"]["ManagedCpuCanary.1310674786"]();
+}
+export function registerEpochWorkReporter(allowance, started, finished) {
+    return $requireManagedExports()["DotnetInspect"]["Web"]["InspectionEngine"]["RegisterEpochWorkReporter.1170383003"](allowance, started, finished);
+}
+export function unregisterEpochWorkReporter() {
+    return $requireManagedExports()["DotnetInspect"]["Web"]["InspectionEngine"]["UnregisterEpochWorkReporter.19325221"]();
+}

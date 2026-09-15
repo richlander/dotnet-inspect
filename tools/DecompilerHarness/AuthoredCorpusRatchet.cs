@@ -741,7 +741,10 @@ static class AuthoredCorpusExitContract
         bool appendAuthoredCorpusHistory,
         bool verifyAuthoredCorpusHistory,
         bool ratchetBaselineSupplied,
-        bool integrityOnly)
+        bool integrityOnly,
+        bool sourceOracleManifestSupplied,
+        bool sourceOracleCandidates,
+        bool baselineSourceOracleReportSupplied)
     {
         // Both corpus gates are taken separately rather than pre-combined by the caller.
         // Pre-combining put the `||` in Program.cs, which no test can reach: tampering it
@@ -754,7 +757,9 @@ static class AuthoredCorpusExitContract
             || appendAuthoredCorpusHistory
             || verifyAuthoredCorpusHistory
             || ratchetBaselineSupplied
-            || integrityOnly;
+            || integrityOnly
+            || sourceOracleManifestSupplied
+            || baselineSourceOracleReportSupplied;
 
         if (showHelp && !anyGateFlag)
             return new FlagVerdict(FlagDisposition.PrintUsage, null);
@@ -762,22 +767,57 @@ static class AuthoredCorpusExitContract
         if (ratchetBaselineSupplied && !benchmarkAuthoredCorpus)
             return Refuse("--ratchet-baseline applies to --benchmark-authored-corpus; it has no effect on its own.");
 
+        // The candidate ledger's baseline is not optional: without a verified enrolled
+        // report there is nothing to measure incremental coverage against, so a ranking
+        // computed from an absent baseline would rank against zero and call every
+        // enrolled feature new.
+        if (baselineSourceOracleReportSupplied && !sourceOracleCandidates)
+            return Refuse("--baseline-source-oracle-report applies to --source-oracle-candidates; it has no effect on its own.");
+
         if (showHelp)
             return Refuse("--help does not run a gate; drop the ratchet flags to read usage.");
 
+        if (sourceOracleCandidates && !baselineSourceOracleReportSupplied)
+            return Refuse("--source-oracle-candidates requires --baseline-source-oracle-report <report.json>; ranking without a verified enrolled baseline would report enrolled coverage as new.");
+
         if (integrityOnly && !benchmarkAuthoredCorpus)
             return Refuse("--integrity-only applies to --benchmark-authored-corpus; it has no effect on its own.");
+        if (sourceOracleManifestSupplied && !benchmarkAuthoredCorpus)
+            return Refuse("--source-oracle-manifest applies to --benchmark-authored-corpus; it has no effect on its own.");
 
         // Asking for a quality verdict and declining to judge quality are contradictory
         // demands, and silently honouring one of them would make the exit code mean
         // something the caller did not ask for.
         if (integrityOnly && ratchetBaselineSupplied)
             return Refuse("--integrity-only and --ratchet-baseline are contradictory: one declines to judge quality, the other demands a verdict on it.");
+        if (integrityOnly && sourceOracleManifestSupplied)
+            return Refuse("--integrity-only and --source-oracle-manifest are contradictory: one declines to judge quality, the other demands a source-oracle verdict.");
 
         return new FlagVerdict(FlagDisposition.Proceed, null);
 
         static FlagVerdict Refuse(string message) => new(FlagDisposition.Refuse, message);
     }
+
+    internal static FlagVerdict JudgeGateFlags(
+        bool showHelp,
+        bool benchmarkAuthoredCorpus,
+        bool verifyAuthoredCorpus,
+        bool appendAuthoredCorpusHistory,
+        bool verifyAuthoredCorpusHistory,
+        bool ratchetBaselineSupplied,
+        bool integrityOnly,
+        bool sourceOracleManifestSupplied)
+        => JudgeGateFlags(
+            showHelp,
+            benchmarkAuthoredCorpus,
+            verifyAuthoredCorpus,
+            appendAuthoredCorpusHistory,
+            verifyAuthoredCorpusHistory,
+            ratchetBaselineSupplied,
+            integrityOnly,
+            sourceOracleManifestSupplied,
+            sourceOracleCandidates: false,
+            baselineSourceOracleReportSupplied: false);
 
     internal static FlagVerdict JudgeGateFlags(
         bool showHelp,
@@ -792,7 +832,8 @@ static class AuthoredCorpusExitContract
             appendAuthoredCorpusHistory: false,
             verifyAuthoredCorpusHistory: false,
             ratchetBaselineSupplied,
-            integrityOnly);
+            integrityOnly,
+            sourceOracleManifestSupplied: false);
 
     /// <summary>
     /// The gates <see cref="PreemptedGateRefusal"/> protects: every mode whose whole
@@ -869,6 +910,7 @@ static class AuthoredCorpusExitContract
         "--enumerate-real-methods",
         "--harvest-authored-corpus",
         "--harvest-evil-corpus",
+        "--source-oracle-candidates",
         "--benchmark-authored-corpus",
         "--verify-authored-corpus",
         "--append-authored-corpus-history",
@@ -1069,6 +1111,22 @@ static class AuthoredCorpusExitContract
         => unmatchedRows == 0 && malformedRows == 0 && evaluated > 0;
 
     /// <summary>
+    /// Recomputes the complete-input claim carried by a serialized benchmark report.
+    /// The report is an evidence boundary, so consumers verify both the producer rule
+    /// and the denominator relationships instead of trusting its derived flag.
+    /// </summary>
+    internal static bool ReportInputsAreComplete(AuthoredCorpusBenchmark.Report report)
+        => report.InputsComplete
+            && InputsComplete(report.UnmatchedRows, report.MalformedRows, report.TargetsEvaluated)
+            && report.MatchedAssemblies > 0
+            && report.MatchedAssemblies == report.CorpusAssemblies
+            && report.MatchedAssemblies <= report.TargetsEvaluated
+            && report.Rows is { } rows
+            && rows.Count == report.TargetsEvaluated
+            && rows.All(static row => row is not null)
+            && report.TargetsEvaluated + report.UnmatchedRows == report.CorpusRows;
+
+    /// <summary>
     /// Whether the run is trustworthy at all. These conditions do not say the
     /// decompiler got worse; they say the number this run produced must not be
     /// compared to anything. A ratchet result — pass, fail, or skip — never rescues a
@@ -1087,11 +1145,11 @@ static class AuthoredCorpusExitContract
     ///
     /// <para>All three are named because they produce identical-looking exit codes and
     /// a caller can otherwise select one by accident. That is not hypothetical: the
-    /// weekly lane was first wired with no baseline in order to get an integrity-only
+    /// scheduled lane was first wired with no baseline in order to get an integrity-only
     /// gate, and silently got <see cref="Perfection"/> instead — a contract the corpus
-    /// cannot satisfy, so the job would have failed every week forever and filed an
-    /// issue each time. Permanently red reports exactly as much as permanently green.
-    /// Making the choice explicit is what stops the next caller repeating it.</para>
+    /// cannot satisfy, so every scheduled run would have failed forever and filed an
+    /// issue. Permanently red reports exactly as much as permanently green. Making the
+    /// choice explicit is what stops the next caller repeating it.</para>
     /// </summary>
     internal enum QualityContract
     {
@@ -1111,7 +1169,7 @@ static class AuthoredCorpusExitContract
         /// <summary>
         /// The caller asked for measurement integrity only, so the exit code makes no
         /// quality claim whatsoever. Legitimate for a lane that cannot yet ratchet
-        /// (see the weekly caller and #3353), and reported in the run output and JSON
+        /// (see the scheduled caller and #3353), and reported in the run output and JSON
         /// so a green result cannot be misread as a quality pass.
         /// </summary>
         NotJudged,
@@ -1148,10 +1206,10 @@ static class AuthoredCorpusExitContract
     /// <para>A skip is not evidence of a regression — but it is not evidence of
     /// anything else either, and exiting 0 on it would rebuild the exact defect this
     /// file exists to remove: a gate that reports success having compared nothing. The
-    /// weekly caller makes that concrete. Its pool is resolved from current top-N
-    /// package versions, so it <em>will</em> drift from the recorded manifest; on a
-    /// green skip the job would then pass forever while measuring nothing, and the
-    /// silence would look exactly like health.</para>
+    /// scheduled caller makes that concrete. Its pool and corpus identities are
+    /// explicit, so an unrecorded pin or methodology refresh can leave it without a
+    /// comparable row; on a green skip the job would then pass forever while measuring
+    /// nothing, and the silence would look exactly like health.</para>
     ///
     /// <para>So passing <c>--ratchet-baseline</c> is a demand for a verdict, and "I
     /// could not produce one" is a failure of that demand. The remedy is a corpus

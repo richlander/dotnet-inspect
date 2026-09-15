@@ -1,6 +1,7 @@
 using System.Reflection;
 
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 // `unsafe <assembly> [count]` — detect requires-unsafe methods under the new
 // memory-safety model (CallerUnsafeMode) and rank them by direct callers.
@@ -61,11 +62,13 @@ static int RunUnsafeReport(string[] args)
     var top = index.TopUnsafeLeverage(count);
 
     Console.WriteLine($"Assembly: {assemblyPath}");
-    Console.WriteLine($"Module opted into updated memory-safety rules: {index.MemorySafetyRulesEnabled}");
+    Console.WriteLine(
+        $"Module memory-safety rules: {DescribeMemorySafetyRules(index.MemorySafetyRules)}");
     Console.WriteLine($"Methods: {modes.Total:N0}");
     Console.WriteLine($"  None     (no requires-unsafe):              {modes.None:N0}");
-    Console.WriteLine($"  Implicit (requires-unsafe, module not opted in): {modes.Implicit:N0}");
-    Console.WriteLine($"  Explicit (requires-unsafe, module opted in):     {modes.Explicit:N0}");
+    Console.WriteLine($"  Implicit (legacy compatibility contract):   {modes.Implicit:N0}");
+    Console.WriteLine($"  Explicit (updated explicit contract):       {modes.Explicit:N0}");
+    Console.WriteLine($"  Unavailable (contract not established):     {modes.Unavailable:N0}");
     Console.WriteLine();
     Console.WriteLine($"Top {top.Length} requires-unsafe methods by direct callers:");
     Console.WriteLine();
@@ -91,6 +94,17 @@ static int RunUnsafeReport(string[] args)
 
     return 0;
 }
+
+static string DescribeMemorySafetyRules(MemorySafetyRulesResult rules)
+    => rules switch
+    {
+        MemorySafetyRulesResult.Available available =>
+            available.State.ToString(),
+        MemorySafetyRulesResult.Unavailable unavailable =>
+            $"Unavailable ({unavailable.Failure.Kind}: "
+                + $"{unavailable.Failure.Detail})",
+        _ => "Unavailable",
+    };
 
 static AppOptions? Parse(string[] args)
 {

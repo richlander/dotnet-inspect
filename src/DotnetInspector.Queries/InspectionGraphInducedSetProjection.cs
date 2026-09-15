@@ -31,6 +31,13 @@ internal static class InspectionGraphInducedSetProjection
         IReadOnlyDictionary<InspectionGraphSubject, InspectionGraphNode>
             nodesBySubject = source.Nodes.ToDictionary(
                 static node => node.Subject);
+        InspectionGraphFailure[] projectableFailures =
+        [
+            .. source.Failures
+                .Select(RemoveOutOfContextBindingMissingDetails)
+                .Where(static failure => failure is not null)
+                .Select(static failure => failure!),
+        ];
         var retainedNodeIds = new HashSet<int>();
         var retainedGroupIds = new HashSet<int>();
         foreach (InspectionGraphSubject subject in request.Subjects)
@@ -96,7 +103,7 @@ internal static class InspectionGraphInducedSetProjection
             retainedNodeIds.Add(edge.ToNodeId);
         }
 
-        foreach (InspectionGraphFailure failure in source.Failures)
+        foreach (InspectionGraphFailure failure in projectableFailures)
         {
             if (failure.Target is
                 {
@@ -242,7 +249,7 @@ internal static class InspectionGraphInducedSetProjection
         ];
         InspectionGraphFailure[] failures =
         [
-            .. source.Failures.Select(failure =>
+            .. projectableFailures.Select(failure =>
                 InspectionGraphProjectionUtilities.RemapFailure(
                     failure,
                     nodeIds,
@@ -264,6 +271,37 @@ internal static class InspectionGraphInducedSetProjection
             [],
             limits,
             failures);
+    }
+
+    static InspectionGraphFailure?
+        RemoveOutOfContextBindingMissingDetails(
+            InspectionGraphFailure failure)
+    {
+        if (failure.Evidence
+                is not InspectionGraphIntegrationFailureEvidence evidence)
+        {
+            return failure;
+        }
+
+        // An absent binding cannot prove that its missing endpoint belongs to
+        // the explicit subject closure.
+        InspectionGraphIntegrationFailureDetail[] retainedDetails =
+        [
+            .. evidence.Details.Where(detail =>
+                detail.Kind
+                    != InspectionGraphIntegrationFailureKind
+                        .BindingMissing),
+        ];
+        if (retainedDetails.Length == evidence.Details.Length)
+            return failure;
+        if (retainedDetails.Length == 0)
+            return null;
+
+        return failure with
+        {
+            Evidence = new InspectionGraphIntegrationFailureEvidence(
+                retainedDetails),
+        };
     }
 
     static bool RelatedToSubjectClosure(

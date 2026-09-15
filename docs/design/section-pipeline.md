@@ -8,17 +8,16 @@ execution:
 user gesture
   -> candidate sections
   -> direct producer demand
-  -> scanner and query prerequisite closure
+  -> query prerequisite closure
   -> typed query execution and projection
-  -> scanner execution
   -> effectiveness
   -> rendering
 ```
 
 The command owns the gesture and budget. `SectionPipeline<TModel>` owns section
-and category planning. `InspectionQueryRegistry` owns typed query cost,
-prerequisites, and execution. `ScannerRegistry` owns the residual mutable
-producer cost, prerequisites, execution, and shared resource declarations.
+and category planning. `InspectionQueryRegistry` authors typed query
+declarations; its immutable `InspectionQueryCatalog` owns query cost,
+prerequisites, optional composition, planning, and execution.
 
 ## Section descriptors
 
@@ -31,7 +30,7 @@ NativeAOT-friendly product behavior.
 | `Name` | Stable selector and rendered heading |
 | `SizeClass` | Output cardinality: fixed, terse, informative, or verbose |
 | `Cost` | Section-specific lower bound on production cost |
-| `ScannerKey` | Producer demand key; `null` means core inspection |
+| `Queries` | Typed producers bound by definition identity |
 | `ExplicitOnly` | Excludes the section from automatic verbosity |
 | `CanRender` | Post-production effectiveness predicate |
 | Applicability predicate | Cheap structural gate supplied at registration |
@@ -59,35 +58,17 @@ Automatic candidate selection intersects:
 - explicit-only policy.
 
 Exact section selection overrides automatic scope. Category selection expands
-to authored members before scanner demand is computed. Bare `-S` uses the
+to authored members before query demand is computed. Bare `-S` uses the
 fixed, network-free subset of the base union.
 
 The library catalog calls `WithoutComputedPoles`; it does not expose computed
 `@All` or `@Hidden` selectors.
 
-## Producer registries
+## Producer registry
 
-`ScannerRegistry` maps each scanner key to a scan function, declared
-`SectionCost`, and immutable prerequisite list:
-
-```csharp
-registry.Add(
-    ScannerResourceTriage,
-    SectionCost.Unbounded,
-    ctx => ctx.Model.Apply(
-        LibraryMetadataService.ScanResourceTriage(
-            ctx.BodyIndex,
-            ctx.DrillMap,
-            ctx.AssemblyPath,
-            ctx.Logger)));
-```
-
-`AddBundle` registers prerequisite closure without adding work or declaring a
-synthetic cost. A bundle costs the maximum of the scanners it requires.
-
-Content-shaped producers instead register an `InspectionQuery<T>` definition.
+Content-shaped producers register an `InspectionQuery<T>` definition.
 Sections bind to that definition by object identity, and the host projects its
-typed result into the compatibility model before residual scanners run.
+typed result into the compatibility model.
 `ClassifiedMethodsQuery` is shared by `Library Info`, P/Invoke Methods, Async
 Methods, and Signals; one demand set executes it once against the command-owned
 `AssemblyInspectionSession`. `Signals` also binds `AuditMetadataQuery` and
@@ -96,6 +77,25 @@ CLI-owned signal composition, then recomposes only model-derived rows after
 later source evidence lands. `Unsafe Members` binds the unbounded
 `UnsafeEvidenceQuery`, which consumes the command's shared Analysis body index
 and retains raw unsafe evidence through the Finding and presentation boundary.
+Bare library discovery instead uses the network-free
+`UnsafeEvidencePresenceQuery`, which reuses the same Analysis safety producer
+but stops at the first finding and does not materialize the body index or
+decoded instruction arrays. It uses a synchronous capability callback over
+the command-owned non-prefetched reader and visits methods sequentially in
+metadata order. Signature-marker prescans
+are no-copy, cached by blob, and charged to a 4 MiB assembly-wide budget;
+streaming instruction visits have a separate 4 MiB aggregate budget. A
+marker-bearing declaration, local, member-reference, method-definition, or
+method-specification signature that the structural guard rejects makes the
+presence result explicitly incomplete instead of becoming successful absence
+or affirmative evidence, even when a later method contains conclusive evidence.
+Decoded custom modifiers retain their unmodified type, so a wrapped pointer
+still counts as unsafe evidence. Name-only `Unsafe` candidates require trusted
+framework identity resolution before becoming evidence. The discovery gate
+also retains renderable metadata signature-decode diagnostics so a negative
+bounded probe cannot hide a known-incomplete scan.
+`UnsafeEvidencePresenceTests` gates these properties, including lookalike
+identity, signature-guard, aggregate-budget, and large-suffix cases.
 `Top Leverage` binds `TopLeverageQuery`, which retains ranked
 `MethodLeverage`, generated-framework evidence, and Analysis diagnostics until
 the presentation boundary. The CLI joins its API-surface drill map for legacy
@@ -104,9 +104,13 @@ The eight Performance sections share `OptimizationOpportunitiesQuery`, which
 retains raw `OptimizationOpportunity`, generated-framework `TypeRef` identity,
 and Analysis diagnostics. The CLI owns generated-code suppression, row
 filtering, ranking, kind bucketing, MVID-preserving compatibility JSON, and
-presentation containment. Body Shapes may demand the same typed result to
-compose method candidates without selecting a Performance section. In that
-case the filtered typed opportunities remain available to the scanner, but the
+presentation containment. `BodyShapesQuery` retains the complete typed
+`BodyShapeSearchResult` through structured and Markdown sinks. It declares
+`OptimizationOpportunitiesQuery` as an optional dependency: when Performance
+predicates independently demand Optimization Opportunities, the registry runs
+that query first and exposes its typed result to Body Shapes; an unfiltered
+Body Shapes search neither closes over nor pays for it. In the composed case
+the filtered typed opportunities remain available to the query adapter, but the
 compatibility Performance JSON projection is not materialized;
 `ComposedBodyShapesJson_OmitsUnselectedPerformanceProjection` gates that
 section-isolation contract. Full effective discovery reports a failed typed
@@ -114,37 +118,30 @@ producer as a section failure and exits unsuccessfully rather than describing
 its sections as empty; `LibraryCommand_EffectivePerformanceDiscoveryNamesOptimizationFailure`
 and `LibraryCommand_EffectiveComposedBodyShapesDiscoveryNamesOptimizationFailure`
 gate the direct and composed projections.
+`Array Pool Escapes` binds `ResourceTriageQuery`, which retains the complete
+resource-lifecycle Finding inspection and every typed triage assessment. The
+CLI owns actionable filtering, ordering, member drill coordinates,
+compatibility JSON, prose, and final presentation containment.
 
-The residual `ScannerRegistry` now contains only Resource Triage and Body
-Shapes.
+The former string-keyed `ScannerRegistry` axis has been retired. Library
+sections now bind typed queries or consume baseline command facts.
 
-The registry rejects:
+## Query-owned cost
 
-- duplicate keys;
-- unregistered requested keys or prerequisites;
-- dependency cycles;
-- missing cost declarations;
-- mutation of prerequisite state after registration.
-
-`ExpandRequired` computes transitive prerequisite closure.
-`RunScanners` executes prerequisites first and each scanner once.
-
-## Scanner-owned cost
-
-Production cost belongs to the scanner because multiple sections can be views
-over the same work. `UseScannerCosts(registry.CostOf)` binds a pipeline to the
-registry before any section is added.
+Production cost belongs to the query because multiple sections can be views
+over the same work. `UseQueryCosts(catalog.CostOf)` binds a pipeline to the catalog before any
+section is added.
 
 A section's effective cost is:
 
 ```text
-max(descriptor cost, scanner prerequisite-closure cost)
+max(descriptor cost, query prerequisite-closure cost)
 ```
 
 A descriptor may raise cost for section-specific work or output, but it cannot
-lower scanner-owned cost. `CostOf` uses the maximum cost over the full
-prerequisite closure, so a nominally cheap scanner that requires an unbounded
-scanner is itself unbounded.
+lower query-owned cost. `CostOf` uses the maximum cost over the required
+prerequisite closure. Optional dependencies do not raise the consumer's cost;
+when independently demanded they execute under their own declaration.
 
 The three production tiers are:
 
@@ -157,32 +154,201 @@ The three production tiers are:
 An unbounded section remains reachable through exact selection, explicit
 category selection, or effective category discovery.
 
-`LibrarySectionCatalog` constructs one scanner registry, one typed-query
-registry, and one cost-bound pipeline. Commands use that catalog for planning
-and execution so the pipeline cannot snapshot costs from one registry while
-another registry performs the work.
+`LibrarySections` retains one process-wide immutable per-assembly query catalog
+and one assembly-group catalog. Query catalog construction validates the
+complete required graph and precomputes each query's closure, transitive cost,
+and single-query execution plan. Repeated catalog acquisition and single-query
+planning allocate no memory after static initialization;
+`LibraryQueryCatalog_RepeatedAcquisitionAndPlanningAllocateNothing` gates that
+property.
+
+`SectionPipeline<TModel>` remains the mutable section-authoring API.
+`Compile()` freezes it and returns an immutable `SectionCatalog<TModel>` that
+snapshots stable section and category enumeration. Compilation also preserves
+the frozen pipeline for candidate, effectiveness, and rendering APIs rather
+than introducing a parallel selection implementation. A compiled builder
+rejects later section, category, cost, or pole changes;
+`CompiledSectionCatalog_FreezesBuilderAndSnapshotsEnumeration` gates that
+boundary.
+
+The library retains one process-wide compiled section catalog. It precomputes
+query-demand plans for every automatic verbosity/fixed-overview combination,
+exact single-section selection, category selection, and the base-category
+union, with bounded and unbounded variants. An uncommon arbitrary section set
+is compiled once for that request. Each immutable plan retains both unique
+queries in section-registration order and section-to-query demand pairs for
+`InspectionTrace`; activation creates the request-owned mutable demand set and
+adds attributed command demand. `LibrarySectionCatalog_QueryPlansMatchMutablePipeline`
+and `CompiledSectionQueryPlan_PreservesTraceAttributionAndCommandDemand` gate
+equivalence. Repeated library catalog acquisition and common plan lookup
+allocate no memory after static initialization;
+`LibrarySectionCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing`
+gates that narrower claim. `LibrarySections.CreatePipeline()` remains a fresh
+mutable compatibility builder for focused tests and extensions.
+
+`PackageSectionDescriptors` applies the same fixed-domain model to package
+inspection: one process-wide SourceLink query catalog and one compiled section
+catalog replace per-command registry and pipeline construction.
+`PackageSectionCatalog_QueryPlansMatchMutablePipeline` gates section-demand
+equivalence, and
+`PackageCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing` gates
+allocation-free repeated catalog acquisition and common plan lookup. Package
+execution composes the selected section plan with the immutable query catalog
+once per request and reuses that execution plan across every selected package
+and every library inspected inside it. `CreatePipeline()` and
+`CreateQueryRegistry()` remain fresh mutable compatibility builders.
+
+`DiffSections` likewise retains one process-wide query catalog and compiled
+section catalog for its fixed comparison domain. Diff command execution
+composes one immutable query plan from the selected section plan and executes
+that plan against request-owned comparison inputs.
+`DiffSectionCatalog_QueryPlansMatchMutablePipeline` gates section-demand
+equivalence, and
+`DiffCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing` gates
+allocation-free repeated catalog acquisition and common plan lookup.
+`CreatePipeline()` and `CreateQueryRegistry()` remain fresh mutable
+compatibility builders.
+
+`PackageProfileSections` completes the same migration for the fixed
+package-prefix profile domain. Discovery, query execution, and rendering share
+one process-wide query catalog and compiled section catalog; execution selects
+the section plan once and runs its precomputed single-query plan against the
+request-owned package source.
+`PackageProfileSectionCatalog_QueryPlansMatchMutablePipeline` gates
+section-demand equivalence, and
+`PackageProfileCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing`
+gates allocation-free repeated catalog acquisition and common plan lookup.
+`CreatePipeline()` and `CreateQueryRegistry()` remain fresh mutable
+compatibility builders.
+
+Commands compile arbitrary multi-query demand once and reuse the resulting
+immutable query plan for every assembly in that request, so package inspection
+does not rebuild dependency state per assembly. The mutable
+`InspectionQueryRegistry` remains the query-authoring surface for dynamic hosts
+and focused extensions; its `Compile` method snapshots it into a catalog
+without allowing later registrations to mutate that snapshot.
+
+## Compiled inspection domain composition
+
+**Compiled Inspection Domain Composition** owns the L1/L2 binding between one
+immutable typed-query domain and one or more immutable section lenses. It is a
+focused composition owner: Queries continues to own producer registration,
+dependency closure, cost, planning, and execution, while the Section Pipeline
+continues to own section candidates and direct producer demand.
+
+The composition contract is:
+
+```text
+InspectionQueryCatalog<TContext>
+  -> CompiledInspectionDomain<TContext>
+       -> CompiledInspectionLens<TContext, TView>
+            -> selected section demand + attributed host demand
+                 -> CompiledInspectionPlan<TContext>
+                      -> InspectionQueryPlan<TContext>
+```
+
+The domain creates each lens pipeline and installs its prerequisite-aware
+`CostOf` callback before the lens registers a section. A lens therefore cannot
+forget cost binding or silently understate an expensive producer. Compilation
+also rejects any section query that is not registered in the domain. Multiple
+lenses may retain different section models and selection policies while
+sharing the same immutable producer declarations.
+
+Planning retains three different values:
+
+- section-to-query demand, owned by the section lens;
+- optional reason-to-query host demand, supplied by the caller; and
+- the dependency-ordered query plan, issued by the L1 query catalog.
+
+Demand attribution is neutral data. A CLI host may project it into
+`InspectionTrace`, but the composition owner does not depend on that sink.
+The owner lowers empty, single-query, and multi-query demand through the query
+catalog's existing planning APIs; it does not rebuild prerequisite closure or
+execution order.
+
+`CompiledInspectionPlan<TContext>` is immutable and reusable. Each execution
+creates the query owner's fresh `InspectionQueryResults`, accepts a
+caller-supplied request or workspace context, and forwards synchronous timing
+or asynchronous cancellation callbacks. The plan stores no context, owns no
+acquisition or disposal, catches no producer failure, and does not transform
+typed payloads. It is a readonly value containing the immutable section and
+query plans, so repeatedly lowering a precomputed empty or single-query
+selection adds no allocation.
+
+`HostQueryDemand` is the shared neutral attribution value used by compiled
+plans, mutable-pipeline compatibility, and `InspectionTrace` projection.
+Composition snapshots host demand and de-duplicates only the requested query
+set; repeated reasons and overlap with section demand remain valid attribution.
+
+The Diff catalog is the first production canary and now exposes one
+`CompiledInspectionDomain<DiffQueryContext>` and one compiled section lens.
+`DiffCommand` obtains and runs its query plan through that lens. Its request-owned
+`DiffQueryContext`, multiple independently selectable producers, a queryless
+Finding Transitions selection that lowers to the empty plan, and pre-existing
+allocation gates exercise the seam without introducing
+assembly or workspace lifetime. API, Type, and Member migration remains
+follow-up work.
+
+Package Profile is the second production adopter. Its fixed query catalog and
+`Packages` section compile into one reusable lens, and `FindCommand` obtains and
+runs the selected query plan through that lens rather than manually lowering a
+section plan. `PackageProfileCatalog_MaterializesSourceExecutionOnce` and
+`PackageProfileCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing`
+gate single execution and the allocation-free common planning path.
+
+Release conformance is enforced by
+`CompiledDomain_MultipleLensesShareOneQueryCatalog`,
+`CompiledLens_RejectsQueryOutsideProducerDomain`,
+`CompiledLens_InstallsPrerequisiteAwareCostsBeforeRegistration`,
+`CompiledLens_LowersEmptySingleAndMultiQueryDemand`,
+`CompiledExecution_DoesNotTransformTypedQueryResults`,
+`CompiledExecution_ForwardsAsyncCancellation`,
+`CompiledExecution_DoesNotRetainOrDisposeSuppliedContext`,
+`DiffQueryCatalog_RunsOnlySelectedSectionDemand`, and
+`DiffCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing` in
+`DotnetInspect.Cli.Tests`.
+
+The executable
+[compiled inspection domain model](models/compiled-inspection-domain/README.md)
+checks foreign-lens rejection, independent request planning, cancellation
+winning over success, and caller-context release and non-disposal across
+interleaved requests. TLC evidence establishes properties of that bounded
+design model, not implementation conformance.
+
+This owner does not:
+
+- define query registration, prerequisite, cost, capability, execution, or
+  failure semantics;
+- own acquisition, workspace admission, assembly groups, contexts, or resource
+  budgets;
+- merge Library's per-assembly and assembly-group catalogs into one
+  multi-context executor;
+- define row selection, output shapes, Markout rendering, or format selection;
+- construct or sanitize `InertString`; typed values cross opaquely; or
+- define the view-facet registry, subject navigation, or host UI behavior.
 
 ## Resource declarations
 
-Whole-assembly body analysis is acquired through `ScannerContext.BodyIndex()`.
-Member drill data is acquired through `ScannerContext.DrillMap()`.
+Whole-assembly body analysis is acquired through
+`InspectionQueryContext.BodyIndex()`. Member drill data is acquired through
+`InspectionQueryContext.DrillMap()`.
 
-Only a scanner or query declared `Unbounded` may acquire either resource. A
-cheaper producer that calls one throws at the acquisition boundary. Production
+Only a query declared `Unbounded` may acquire either resource. A cheaper query
+that calls one throws at the acquisition boundary. Production
 catch boundaries do not convert that declaration violation into a
 success-shaped result.
 
-Typed queries use the same host-side resource guard. The query registry enters
+Typed queries use the same host-side resource guard. The query catalog enters
 an execution scope with each query's maximum transitive `InspectionCost`; the
 CLI adapter maps that cost to `SectionCost`. Query planning, contract, and
 executor failures remain fail-visible, while cancellation and cost-declaration
 failures retain their specific exception types.
 
-Declarations are scoped to one registry run and cannot leak into later work.
-This is a correctness mechanism for well-behaved product-owned scanner and query
+Declarations are scoped to one catalog execution and cannot leak into later
+work. This is a correctness mechanism for well-behaved product-owned query
 wiring, not an in-process security boundary.
 
-Metadata scanners share the command's open inspection session. They do not
+Metadata query adapters share the command's open inspection session. They do not
 reopen the target independently, and they continue to observe the image the
 command opened even if the path is retargeted during the run.
 
@@ -193,13 +359,13 @@ demand before the registry runs.
 
 For library discovery:
 
-| Gesture | Candidate scope | Scanner behavior |
+| Gesture | Candidate scope | Producer behavior |
 | --- | --- | --- |
-| `-D` | Base sections and category doors | Metadata presence only |
-| `-D --effective` | Base-category union | Full base scanner closure |
-| `-D @Category` | Authored category members | Structural; no member scanners |
-| `-D @Category --effective` | Authored category members | Full category scanner closure |
-| `-D --schema` | Complete graph | No target scanners |
+| `-D` | Base sections, category doors, effective standalone sections | Metadata and bounded presence queries |
+| `-D --effective` | Base-category union | Full base query closure |
+| `-D @Category` | Authored category members | Structural; no member queries |
+| `-D @Category --effective` | Authored category members | Full category query closure |
+| `-D --schema` | Complete graph | No target queries |
 
 Plain discovery therefore stays within the local-target latency budget.
 Explicit effective discovery may request unbounded work. In particular,
@@ -207,10 +373,10 @@ Explicit effective discovery may request unbounded work. In particular,
 `-D @Performance --effective` does.
 
 Some command facts are not expressed by a section producer. The command passes
-those scanners or typed queries as attributed command demand so the same closure
-and trace machinery still owns execution.
+those typed queries as attributed command demand so the same closure and trace
+machinery still owns execution.
 
-`References` is core metadata rather than scanner work:
+`References` binds typed direct-reference inspection:
 
 - `-S References` collects direct assembly references and renders a flat table.
 - `-S References --tree` additionally resolves the transitive graph.
@@ -276,18 +442,14 @@ Heterogeneous categories are rejected before producers run.
 
 The test suite names the properties that enforce this architecture:
 
-- `LibraryScannerRegistry_RegistrationMatchesDeclaration`
-- `LibraryScannerCosts_AreDeclaredForEveryRegisteredScanner`
-- `LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic`
-- `CostOf_IsTheMaximumOverTheTransitivePrerequisiteClosure`
-- `Scanner_CannotTakeTheBodyIndexWithoutDeclaringItsCost`
-- `Scanner_CannotTakeTheDrillMapWithoutDeclaringItsCost`
+- `LibraryQueryRegistry_RegistrationMatchesDeclaration`
+- `TypedQueryRegistry_OptionalDependencyRunsOnlyWhenIndependentlyRequested`
 - `TypedQuery_CannotTakeTheBodyIndexWithoutDeclaringItsTransitiveCost`
 - `TypedQuery_CannotTakeTheDrillMapWithoutDeclaringItsCost`
 - `ProductionQueryCatchBoundary_DoesNotSwallowExecutorFailure`
-- `PrerequisiteCost_CannotShiftAfterSectionsSnapshotIt`
-- `SectionsBackedByUnboundedScanners_LeaveTheDetailedLadderButKeepTheirDoor`
-- `SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened`
+- `LibraryPipeline_ConsultsQueryCosts`
+- `LibrarySections_AboveNetworkFree_AreExplicitlyPinned`
+- `ClassifiedAndAuditQueries_ObserveOneSession`
 
 Category ownership and output-shape gates live with the section model. Tests
 derive sets from declarations where possible so both stale and missing entries
@@ -297,11 +459,10 @@ fail.
 
 Library `--trace` records:
 
-- section-to-scanner demand;
 - section-to-query demand;
 - command-level demand;
 - prerequisite expansion;
-- scanner and query execution time and failure;
+- query execution time and failure;
 - body-index and drill-map acquisition;
 - shared metadata-session use.
 

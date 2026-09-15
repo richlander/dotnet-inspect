@@ -22,10 +22,10 @@ public static class ResourceScanner
     /// Lists all manifest resources in an assembly.
     /// </summary>
     public static List<ManifestResourceInfo> Scan(Stream peStream)
-    {
-        using var peReader = new PEReader(peStream);
-        return Scan(peReader);
-    }
+        => OwnedResourceCleanup.ReadAdmittedPeImage(
+            peStream,
+            Scan,
+            []);
 
     /// <summary>
     /// Lists all manifest resources in an assembly.
@@ -34,10 +34,10 @@ public static class ResourceScanner
     {
         List<ManifestResourceInfo> results = [];
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return results;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var resourcesDir = peReader.PEHeaders.CorHeader!.ResourcesDirectory;
 
         foreach (var handle in reader.ManifestResources)
@@ -84,10 +84,10 @@ public static class ResourceScanner
     /// with another resource, or would overwrite an existing file.
     /// </summary>
     public static List<string> ExtractAll(Stream peStream, string outputDir)
-    {
-        using var peReader = new PEReader(peStream);
-        return ExtractAll(peReader, outputDir);
-    }
+        => OwnedResourceCleanup.ReadAdmittedPeImage(
+            peStream,
+            peReader => ExtractAll(peReader, outputDir),
+            []);
 
     /// <summary>
     /// Extracts embedded resources to validated relative paths beneath a directory.

@@ -1,0 +1,14 @@
+package	version	archive_bytes	max_managed_target_bytes	max_managed_target
+newtonsoft.json	13.0.4	2484726	723368	lib/net6.0
+awssdk.polly	4.0.100.14	343049	119976	lib/net472
+serilog	4.4.0	769695	170496	lib/net6.0
+awssdk.core	4.0.102.6	2271169	1088168	lib/net472
+polly	8.8.0	768129	288160	lib/net6.0
+ecng.collections	1.0.310	161965	117760	lib/net6.0
+google.protobuf	3.36.1	730863	501760	lib/net8.0
+swashbuckle.aspnetcore.swaggergen	10.2.3	358005	157696	lib/net10.0
+csvhelper	33.1.0	903000	226816	lib/net9.0
+swashbuckle.aspnetcore.swagger	10.2.3	92741	23040	lib/net10.0
+microsoft.codeanalysis.csharp	5.0.0	17670053	13499288	lib/netstandard2.0
+microsoft.netcore.app.runtime.linux-x64	10.0.10	40096825	61606144	runtimes/linux-x64/lib/net10.0
+microsoft.aspnetcore.app.runtime.linux-x64	10.0.10	12926933	26993208	runtimes/linux-x64/lib/net10.0

@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPublishable>true</IsPublishable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference
+      Include="../Alpha/TsJsExport.MultiFacade.Alpha.csproj"
+      Aliases="AlphaFixture" />
+    <ProjectReference
+      Include="../Beta/TsJsExport.MultiFacade.Beta.csproj"
+      Aliases="BetaFixture" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CanaryModulesDir)' != ''">
+    <Content
+      Include="$(CanaryModulesDir)/coordinator.js"
+      Link="wwwroot/coordinator.js"
+      CopyToPublishDirectory="PreserveNewest" />
+    <Content
+      Include="$(CanaryModulesDir)/exercise.js"
+      Link="wwwroot/exercise.js"
+      CopyToPublishDirectory="PreserveNewest" />
+    <Content
+      Include="$(CanaryModulesDir)/facades/*.js"
+      Link="wwwroot/facades/%(Filename)%(Extension)"
+      CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

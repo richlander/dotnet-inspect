@@ -18,6 +18,9 @@ try
     JobInfo[] jobs = ReadJobs(Required(options, "--jobs"));
     ArtifactInfo[] artifacts = ReadArtifacts(Required(options, "--artifacts"));
     string repository = Required(options, "--repository");
+    bool allowManualStaging = ParseBoolean(
+        Required(options, "--allow-manual-staging"),
+        "--allow-manual-staging");
     double maxAgeHours = double.Parse(
         Required(options, "--max-age-hours"),
         CultureInfo.InvariantCulture);
@@ -28,6 +31,7 @@ try
         jobs,
         artifacts,
         repository,
+        allowManualStaging,
         TimeSpan.FromHours(maxAgeHours),
         DateTimeOffset.UtcNow);
 
@@ -53,6 +57,7 @@ static ValidationResult Validate(
     IReadOnlyList<JobInfo> jobs,
     IReadOnlyList<ArtifactInfo> artifacts,
     string repository,
+    bool allowManualStaging,
     TimeSpan maxAge,
     DateTimeOffset now)
 {
@@ -61,8 +66,16 @@ static ValidationResult Validate(
         throw new InvalidOperationException(
             $"Staging run uses {run.WorkflowPath}, not {StagingWorkflow}.");
     }
-    if (run.Event != "push")
-        throw new InvalidOperationException($"Staging run event {run.Event} is not push.");
+    if (run.Event != "push" && run.Event != "workflow_dispatch")
+    {
+        throw new InvalidOperationException(
+            $"Staging run event {run.Event} is not push or workflow_dispatch.");
+    }
+    if (run.Event == "workflow_dispatch" && !allowManualStaging)
+    {
+        throw new InvalidOperationException(
+            "Manual staging promotion requires explicit operator authorization.");
+    }
     if (run.HeadBranch != "main")
         throw new InvalidOperationException($"Staging run targets {run.HeadBranch}, not main.");
     if (run.Repository != repository || run.HeadRepository != repository)
@@ -292,6 +305,14 @@ static string Required(IReadOnlyDictionary<string, string> options, string name)
         ? value
         : throw new ArgumentException($"Missing required option {name}.");
 
+static bool ParseBoolean(string value, string name) =>
+    value switch
+    {
+        "true" => true,
+        "false" => false,
+        _ => throw new ArgumentException($"{name} must be true or false."),
+    };
+
 static void RunSelfTest()
 {
     DateTimeOffset now = new(2026, 8, 17, 12, 0, 0, TimeSpan.Zero);
@@ -325,6 +346,7 @@ static void RunSelfTest()
         jobs,
         artifacts,
         repository,
+        allowManualStaging: false,
         TimeSpan.FromDays(30),
         now);
     Assert(result.Sha == sha, "Validated SHA should be preserved.");
@@ -336,6 +358,7 @@ static void RunSelfTest()
             jobs,
             artifacts,
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
         "not .github/workflows/deploy-inspect-web.yml");
@@ -345,15 +368,36 @@ static void RunSelfTest()
             jobs,
             artifacts,
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
-        "not push");
+        "requires explicit operator authorization");
+    ValidationResult manualResult = Validate(
+        run with { Event = "workflow_dispatch" },
+        jobs,
+        artifacts,
+        repository,
+        allowManualStaging: true,
+        TimeSpan.FromDays(30),
+        now);
+    Assert(manualResult.Sha == sha, "Authorized manual staging should preserve SHA.");
+    ExpectFailure(
+        () => Validate(
+            run with { Event = "pull_request" },
+            jobs,
+            artifacts,
+            repository,
+            allowManualStaging: true,
+            TimeSpan.FromDays(30),
+            now),
+        "not push or workflow_dispatch");
     ExpectFailure(
         () => Validate(
             run with { HeadRepository = "other/repository" },
             jobs,
             artifacts,
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
         "repository identity");
@@ -363,6 +407,7 @@ static void RunSelfTest()
             [new(StagingJob, "completed", "failure", now.AddMinutes(-5))],
             artifacts,
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
         "not completed/success");
@@ -372,6 +417,7 @@ static void RunSelfTest()
             jobs,
             [],
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
         "contains 0 artifacts");
@@ -381,6 +427,7 @@ static void RunSelfTest()
             jobs,
             [artifacts[0], artifacts[0] with { Id = 203 }],
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
         "contains 2 artifacts");
@@ -390,6 +437,7 @@ static void RunSelfTest()
             jobs,
             [artifacts[0], artifacts[0] with { Id = 203, Name = "other-artifact" }],
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
         "contains 2 artifacts");
@@ -399,6 +447,7 @@ static void RunSelfTest()
             jobs,
             [artifacts[0] with { Name = "other-artifact" }],
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
         "not inspect-web-site");
@@ -408,6 +457,7 @@ static void RunSelfTest()
             jobs,
             [artifacts[0] with { Expired = true }],
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
         "expired");
@@ -417,6 +467,7 @@ static void RunSelfTest()
             jobs,
             [artifacts[0] with { WorkflowRunId = 999 }],
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
         "not 101");
@@ -426,6 +477,7 @@ static void RunSelfTest()
             [jobs[0] with { CompletedAt = now.AddDays(-31) }],
             artifacts,
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now),
         "maximum age");
@@ -478,6 +530,7 @@ static void RunSelfTest()
             ReadJobs(jobsPath),
             ReadArtifacts(artifactsPath),
             repository,
+            allowManualStaging: false,
             TimeSpan.FromDays(30),
             now);
         Assert(parsed.ArtifactDigest == digest, "API parsing should preserve artifact digest.");

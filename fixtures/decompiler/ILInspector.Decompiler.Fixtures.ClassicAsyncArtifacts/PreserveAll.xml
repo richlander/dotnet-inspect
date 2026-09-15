@@ -1,0 +1,4 @@
+<linker>
+  <assembly
+    fullname="ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts" />
+</linker>

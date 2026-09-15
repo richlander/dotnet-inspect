@@ -32,8 +32,9 @@ full zero-network evidence set:
 Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
 calls matter. Use `--bare` for a whole-type listing.
 `-S @Source` is broader and may fetch network `PDB Source` content when
-SourceLink is available; the fetch verifies the final redirect origin and PDB
-checksum before returning the body.
+SourceLink is available; the fetch follows host-permitted redirects and returns
+the body only when it matches the PDB checksum, without treating the final
+destination as source provenance.
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
 
@@ -73,7 +74,9 @@ dnx dotnet-inspect -y -- member JsonDocument RootElement:1 \
 
 `Kind=...` auto-selects the explicit-only section when no `-S` selection is
 present. Results include a round-tripping qualified member selector, MethodDef
-token, one-based start/end range, and exact selected text. Bodies below `Full`
+token, one-based start/end range in the method's rendered C# body, and exact
+selected text. These are not IL offsets or original source-file coordinates.
+Bodies below `Full`
 fidelity are skipped and reported; add `--verbose` for per-member detail.
 At library scope, repeat `--where` with Performance Triage fields to AND those
 predicates before decompilation. The query maps matching opportunities through
@@ -82,6 +85,14 @@ Performance section separately for the canonical evidence receipt. Performance
 `--top` and `--order-by` do not compose; use `--rows` to limit Body Shapes
 output. Without narrowing, the search runs the decompiler for each API-surface
 candidate body and may be expensive on a large library.
+
+For a counted overview, select `-S "Body Shape Summary"` with the same Kind
+predicate. Identical rendered Kind/Match values are grouped before row limits;
+`--columns "Match;Count"` gives a compact table. The existing `Body Shapes`
+section remains the locatable occurrence view. Column projection never groups
+rows, and `--count` counts groups in the summary or occurrences in the detail
+view after its row window. Both views are available at library, type, and
+member scope.
 
 Type scope requires one exact type and decompiles only its MethodDef and
 accessor bodies. Member scope requires one exact member name or selector and

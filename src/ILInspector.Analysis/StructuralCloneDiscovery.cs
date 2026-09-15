@@ -247,6 +247,7 @@ public static partial class StructuralCloneAnalysis
 
         if (!TryGetMetadataReader(
                 image,
+                nameof(image),
                 out MetadataReader reader,
                 out StructuralCloneMetadataFailure metadataFailure))
         {

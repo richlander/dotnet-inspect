@@ -1,9 +1,10 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Analysis;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Research;
 
@@ -56,27 +57,19 @@ public sealed class ResearchAssemblyContext
 /// Memoizes <see cref="ResearchAssemblyContext.Create"/> per <see cref="LibraryBodyIndex"/> instance.
 /// The context's assembly-wide projections are lazy, and sharing the context
 /// ensures each projection is computed at most once for an index when multiple
-/// producers or member queries request it.
+/// producers or member queries request it. The weak association does not extend
+/// the lifetime of the index supplied by its owner.
 /// </summary>
 static class ResearchAssemblyContextCache
 {
-    const int MaxCachedContexts = 8;
-    static readonly object s_lock = new();
-    static readonly Dictionary<LibraryBodyIndex, ResearchAssemblyContext> s_contexts = new();
+    static readonly ConditionalWeakTable<
+        LibraryBodyIndex,
+        ResearchAssemblyContext> s_contexts = new();
 
-    public static ResearchAssemblyContext ForIndex(LibraryBodyIndex index)
-    {
-        lock (s_lock)
-        {
-            if (s_contexts.TryGetValue(index, out var context))
-                return context;
-            if (s_contexts.Count >= MaxCachedContexts)
-                s_contexts.Clear();
-            context = ResearchAssemblyContext.Create(index);
-            s_contexts[index] = context;
-            return context;
-        }
-    }
+    public static ResearchAssemblyContext ForIndex(LibraryBodyIndex index) =>
+        s_contexts.GetValue(
+            index ?? throw new ArgumentNullException(nameof(index)),
+            static owner => ResearchAssemblyContext.Create(owner));
 }
 
 public sealed record ResearchFactContext(
@@ -155,7 +148,7 @@ public interface IResearchFactProducer
     IReadOnlyList<string> Produces { get; }
     IReadOnlyList<string> DependsOn { get; }
     ResearchFactRequirements Requirements => ResearchFactRequirements.None;
-    IReadOnlyList<IAnnotation> Produce(ResearchFactContext context);
+    IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context);
     IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context) => [];
 }
 
@@ -200,8 +193,28 @@ public sealed class ResearchFactRegistry
     public static ResearchFactRegistry CallRelationships { get; } = new(
         new DirectCallFactProducer());
 
+    public FindingCensus<IAnnotation> CollectCensus(ResearchFactContext context)
+    {
+        Finding<IAnnotation>[] findings =
+        [
+            .. _producers.SelectMany(producer => producer.Produce(context)),
+        ];
+        if (findings.Any(finding => finding is null))
+        {
+            throw new InvalidOperationException(
+                "Research fact producers must not return null Findings.");
+        }
+
+        return FindingCensus<IAnnotation>.Seal(
+            findings
+                .OrderBy(finding => finding.Payload.SourceOffset)
+                .ThenBy(
+                    finding => finding.Payload.Descriptor.Id,
+                    StringComparer.Ordinal));
+    }
+
     public IReadOnlyList<IAnnotation> Collect(ResearchFactContext context)
-        => [.. _producers.SelectMany(producer => producer.Produce(context)).OrderBy(fact => fact.SourceOffset).ThenBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
+        => [.. CollectCensus(context).Findings.Select(finding => finding.Payload)];
 
     public IReadOnlyList<ResearchHeaderFact> CollectHeaderFacts(ResearchFactContext context)
         => [.. _producers.SelectMany(producer => producer.ProduceHeaderFacts(context)).OrderBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
@@ -239,6 +252,20 @@ sealed class DecompilerLifetimeFactProducer : IResearchFactProducer
     public IReadOnlyList<string> Produces { get; } = ["lifetime.*"];
     public IReadOnlyList<string> DependsOn => [];
 
-    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
-        => new Decompiler.Annotations.LifetimeClassifier().Classify(context.Imported);
+    public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
+    {
+        var subject = ResearchFactFinding.Subject(context.Imported);
+        return
+        [
+            .. new Decompiler.Annotations.LifetimeClassifier()
+                .Classify(context.Imported)
+                .Select((annotation, ordinal) =>
+                    ResearchFactFinding.Create(
+                        subject,
+                        annotation,
+                        new FindingKey(
+                            $"{annotation.Descriptor.Id}|{annotation.SourceOffset:X8}"),
+                        ordinal)),
+        ];
+    }
 }

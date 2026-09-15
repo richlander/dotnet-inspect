@@ -323,7 +323,7 @@ dotnet-inspect package System.Text.Json@8.0.0 -v:d -S Vulnerabilities
 ```expect
 ## Vulnerabilities
 CVE-2024-30105
-CVE-2024-43485
+GHSA-8g4q-xg66-9fp4
 ```
 
 ## 7. Preview packages from alternate feeds
@@ -418,10 +418,10 @@ dotnet-inspect extensions IDistributedApplicationBuilder \
 IDistributedApplicationBuilder
 ```
 
-### Package search
+### Package query
 
 ```bash
-dotnet-inspect package search 'Azure.AI' --take 5
+dotnet-inspect package query 'Azure.AI*' --take 5
 ```
 
 ```expect
@@ -477,9 +477,6 @@ The tool can inspect its own package.
 ```bash
 dotnet-inspect package dotnet-inspect@0.16.0 -v:q
 ```
-
-Known issue: #3919 — the Tool v2 package redirect loses tool classification.
-Preserve the intended package classification below.
 
 ```expect
 Type: Tool v2

@@ -1,0 +1,7 @@
+; ConsoleCapture is the test assembly's single owner of process-global stdout
+; redirection. Enforce that boundary through the compiler's semantic model so
+; aliases, method groups, generated source, and formatting do not create holes.
+;
+; eng/BannedSymbols.txt already bans Console.SetError repository-wide.
+
+M:System.Console.SetOut(System.IO.TextWriter);Redirect stdout only through ConsoleCapture.

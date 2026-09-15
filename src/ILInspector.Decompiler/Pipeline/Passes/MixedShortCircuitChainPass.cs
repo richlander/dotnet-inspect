@@ -314,7 +314,9 @@ public sealed class MixedShortCircuitChainPass : IIrPass
         var rootChildren = blocks[p].DetachChildren();
         for (int k = 0; k < rootChildren.Count - 1; k++)
             folded.Add(rootChildren[k]);
-        folded.Add(new ConditionalBranch(new LogicalNot(reachFall), chain.BranchArmOffset));
+        var replacement = new ConditionalBranch(new LogicalNot(reachFall), chain.BranchArmOffset);
+        replacement.InheritSourceOffset(rootChildren[^1]);
+        folded.Add(replacement);
 
         foreach (var block in blocks)
             block.Detach();

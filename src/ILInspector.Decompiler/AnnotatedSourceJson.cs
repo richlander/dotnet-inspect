@@ -657,11 +657,13 @@ internal sealed class StrictCSharpUnmatchedNodeReasonJsonConverter
             nameof(CSharpUnmatchedNodeReason.Unsupported) => CSharpUnmatchedNodeReason.Unsupported,
             nameof(CSharpUnmatchedNodeReason.Ambiguous) => CSharpUnmatchedNodeReason.Ambiguous,
             nameof(CSharpUnmatchedNodeReason.NoCounterpart) => CSharpUnmatchedNodeReason.NoCounterpart,
+            nameof(CSharpUnmatchedNodeReason.InferredDeclaration) => CSharpUnmatchedNodeReason.InferredDeclaration,
             _ => default,
         };
         return name is nameof(CSharpUnmatchedNodeReason.Unsupported)
             or nameof(CSharpUnmatchedNodeReason.Ambiguous)
-            or nameof(CSharpUnmatchedNodeReason.NoCounterpart);
+            or nameof(CSharpUnmatchedNodeReason.NoCounterpart)
+            or nameof(CSharpUnmatchedNodeReason.InferredDeclaration);
     }
 
     protected override string? GetName(CSharpUnmatchedNodeReason value)
@@ -670,6 +672,7 @@ internal sealed class StrictCSharpUnmatchedNodeReasonJsonConverter
             CSharpUnmatchedNodeReason.Unsupported => nameof(CSharpUnmatchedNodeReason.Unsupported),
             CSharpUnmatchedNodeReason.Ambiguous => nameof(CSharpUnmatchedNodeReason.Ambiguous),
             CSharpUnmatchedNodeReason.NoCounterpart => nameof(CSharpUnmatchedNodeReason.NoCounterpart),
+            CSharpUnmatchedNodeReason.InferredDeclaration => nameof(CSharpUnmatchedNodeReason.InferredDeclaration),
             _ => null,
         };
 }

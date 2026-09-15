@@ -38,7 +38,7 @@ public sealed record MethodBodySelection(
 /// PE or metadata readers. Returned body data is copied and may outlive the
 /// owning session; resolver operations require the owner to remain alive.
 /// </summary>
-public sealed class MethodBodySource : IOperandNameResolver
+public sealed partial class MethodBodySource : IOperandNameResolver
 {
     readonly PEReader _peReader;
     readonly MetadataReader _reader;
@@ -48,7 +48,7 @@ public sealed class MethodBodySource : IOperandNameResolver
     internal MethodBodySource(PEReader peReader, Action ensureAlive)
     {
         _peReader = peReader;
-        _reader = peReader.GetMetadataReader();
+        _reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         _resolver = new MetadataOperandNameResolver(_reader);
         _ensureAlive = ensureAlive;
     }
@@ -81,39 +81,27 @@ public sealed class MethodBodySource : IOperandNameResolver
         out MethodBodyData? body,
         out string? error)
     {
-        _ensureAlive();
         body = null;
         error = null;
 
-        var handle = MetadataTokens.Handle(methodToken);
-        if (handle.Kind != HandleKind.MethodDefinition)
+        MethodBodyReadResult result = Read(methodToken);
+        if (result is MethodBodyReadResult.Available available)
         {
-            error = $"Token 0x{methodToken:X} is not a MethodDef token.";
-            return false;
-        }
-
-        try
-        {
-            var method = _reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-            if (method.RelativeVirtualAddress == 0)
-            {
-                error = $"Method token 0x{methodToken:X} has no IL body.";
-                return false;
-            }
-
-            var methodBody = _peReader.GetMethodBody(method.RelativeVirtualAddress);
-            body = new MethodBodyData(
-                (methodBody.GetILBytes() ?? []).ToImmutableArray(),
-                methodBody.ExceptionRegions.ToImmutableArray());
+            body = available.Body;
             return true;
         }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentOutOfRangeException)
+
+        error = result switch
         {
-            error = $"Could not decode IL for token 0x{methodToken:X}.";
-            return false;
-        }
+            MethodBodyReadResult.NoBody =>
+                $"Method token 0x{methodToken:X} has no IL body.",
+            MethodBodyReadResult.Unavailable
+            {
+                Reason: MethodBodyUnavailableReason.NotMethodDefinitionToken
+            } => $"Token 0x{methodToken:X} is not a MethodDef token.",
+            _ => $"Could not decode IL for token 0x{methodToken:X}.",
+        };
+        return false;
     }
 
     public MethodBodySelection? ResolveMethod(

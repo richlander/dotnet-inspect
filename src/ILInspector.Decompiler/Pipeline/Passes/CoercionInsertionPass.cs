@@ -23,6 +23,15 @@ public static class CoercionSinks
 
     public readonly record struct TypedSink(IrExpression Value, TypeRef Target, SinkScope Scope = SinkScope.Wrappable);
 
+    public enum SlotTypeTestimonyStatus
+    {
+        Decided,
+        Underivable,
+        Conflicting,
+    }
+
+    public readonly record struct SlotTypeTestimony(TypeRef? Type, SlotTypeTestimonyStatus Status);
+
     /// <summary>
     /// One shared decision for pass and checker: an enumerated sink requires a
     /// <see cref="Coerce"/> when its target is in the invariant's domain, the
@@ -58,17 +67,19 @@ public static class CoercionSinks
     /// The one semantic target for an array-element store, shared by the
     /// printer's cast decision and this sink model: the stelem opcode carries a
     /// storage width (`stelem.i8` says Int64, not the long-backed enum), so the
-    /// array's element type wins exactly when it is an enum-like definition —
-    /// a named type with no primitive stack family that the shape map does not
-    /// class as a reference or non-enum struct. TypedConstantsPass's ungated
-    /// preference is a different question (identity recovery for bool/char,
-    /// where the storage width is never the semantic type).
+    /// array's element type wins exactly when it is a metadata-known enum or an
+    /// unresolved enum-like definition — a named type with no primitive stack
+    /// family that the shape map does not class as a reference or non-enum
+    /// struct. TypedConstantsPass's ungated preference is a different question
+    /// (identity recovery for bool/char, where the storage width is never the
+    /// semantic type).
     /// </summary>
     public static TypeRef? StoreElementTarget(StoreElement store, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
-            && element is { Kind: TypeRefKind.Definition }
-            && TypeFamilies.Of(element) is null
-            && shapes.GetValueOrDefault(element) is not (TypeShape.Reference or TypeShape.ValueType)
+            && (CoercionRendering.IsEnum(element, shapes)
+                || (element is { Kind: TypeRefKind.Definition }
+                    && TypeFamilies.Of(element) is null
+                    && shapes.GetValueOrDefault(element) is not (TypeShape.Reference or TypeShape.ValueType)))
             ? element
             : store.ElementType;
 
@@ -90,37 +101,95 @@ public static class CoercionSinks
     /// enumeration (slice 5b).
     /// </summary>
     public static Dictionary<int, TypeRef> TestifiedSlotTypes(IrNode scope, TypeRef? returnType, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => AnalyzeSlotTypeTestimony(scope, returnType, shapes)
+            .Where(static entry => entry.Value.Status == SlotTypeTestimonyStatus.Decided)
+            .ToDictionary(static entry => entry.Key, static entry => entry.Value.Type!);
+
+    /// <summary>
+    /// The product-owned testimony decision behind <see cref="TestifiedSlotTypes"/>.
+    /// Measurement consumers use the status to distinguish an untyped load with
+    /// no derivable sink from loads that actively disagree. At materialization,
+    /// Boolean-valued stores may recover integer-typed loads at Boolean sinks;
+    /// constant conditionals may recover char/enum element-store identity.
+    /// Earlier passes retain the importer's testimony until raising is complete.
+    /// </summary>
+    public static Dictionary<int, SlotTypeTestimony> AnalyzeSlotTypeTestimony(
+        IrNode scope,
+        TypeRef? returnType,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+        bool recoverBooleanIdentity = false,
+        bool recoverElementIdentity = false,
+        IReadOnlyDictionary<TypeRef, TypeRef>? enumUnderlyingTypes = null)
     {
-        var types = new Dictionary<int, TypeRef>();
-        var ambiguous = new HashSet<int>();
+        var storesBySlot = recoverBooleanIdentity || recoverElementIdentity
+            ? ScopeNodes(scope).OfType<StoreStackSlot>()
+                .ToLookup(static store => store.Slot, static store => store.Value)
+            : null;
+        var testimony = new Dictionary<int, SlotTypeTestimony>();
         foreach (var load in ScopeNodes(scope).OfType<LoadStackSlot>())
         {
-            if (ambiguous.Contains(load.Slot))
-                continue;
-            var evidence = BitwiseEnumSinkType(load, shapes) ?? load.Type ?? LoadSinkTargetType(load, returnType, shapes);
+            var stores = storesBySlot?[load.Slot];
+            var booleanType = recoverBooleanIdentity && stores?.Any() == true
+                && stores.All(static value => TypeFamilies.IsBoolean(value.ResultType))
+                ? BooleanSlotLoadType(load, returnType, shapes)
+                : null;
+            var elementType = recoverElementIdentity && stores?.Any() == true
+                ? ElementSlotLoadType(load, stores, shapes, enumUnderlyingTypes)
+                : null;
+            var evidence = booleanType ?? elementType ?? BitwiseEnumSinkType(load, shapes)
+                ?? load.Type ?? LoadSinkTargetType(load, returnType, shapes);
             if (evidence is null)
             {
-                types.Remove(load.Slot);
-                ambiguous.Add(load.Slot);
+                testimony[load.Slot] = new(null, SlotTypeTestimonyStatus.Underivable);
                 continue;
             }
-            if (types.TryGetValue(load.Slot, out var existing))
+            if (testimony.TryGetValue(load.Slot, out var existing))
             {
-                if (!existing.Equals(evidence))
-                {
-                    types.Remove(load.Slot);
-                    ambiguous.Add(load.Slot);
-                }
+                if (existing.Status == SlotTypeTestimonyStatus.Underivable)
+                    continue;
+                if (existing.Status == SlotTypeTestimonyStatus.Conflicting
+                    || !existing.Type!.Equals(evidence))
+                    testimony[load.Slot] = new(null, SlotTypeTestimonyStatus.Conflicting);
             }
             else
             {
-                types[load.Slot] = evidence;
+                testimony[load.Slot] = new(evidence, SlotTypeTestimonyStatus.Decided);
             }
         }
-        return types;
+        return testimony;
     }
 
-    /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable — the printer's StackSlotLoadTargetType vocabulary.</summary>
+    static TypeRef? ElementSlotLoadType(
+        LoadStackSlot load,
+        IEnumerable<IrExpression> stores,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+        IReadOnlyDictionary<TypeRef, TypeRef>? enumUnderlyingTypes)
+    {
+        if (load.Type is not { } type || !TypeFamilies.IsIntegerLike(type)
+            || load.Parent is not StoreElement element || !ReferenceEquals(element.Value, load)
+            || StoreElementTarget(element, shapes) is not { } target)
+            return null;
+
+        bool isChar = target is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };
+        var underlying = enumUnderlyingTypes?.GetValueOrDefault(CoercionRendering.NamedDefinition(target));
+        if (!isChar && (!CoercionRendering.IsEnum(target, shapes) || underlying is null))
+            return null;
+
+        return stores.All(value => value is Conditional conditional
+            && PreservesConstant(conditional.WhenTrue) && PreservesConstant(conditional.WhenFalse))
+                ? target
+                : null;
+
+        bool PreservesConstant(IrExpression value)
+            => value.ResultType is { } valueType && TypeFamilies.IsIntegerLike(valueType)
+                && (isChar
+                    ? CoercionRendering.TryCharConstantValue(value, out _)
+                    : value is Constant { Value: int or long } constant
+                        && CSharpConversionRules.ConstantFits(
+                            constant.Value is int i ? i : (long)constant.Value, underlying!));
+    }
+
+    /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable.</summary>
     static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => load.Parent switch
         {
@@ -134,9 +203,49 @@ public static class CoercionSinks
         };
 
     /// <summary>
-    /// The enum family a slot load contributes when it is an operand of a
-    /// flags-enum bitwise op (<c>and</c>/<c>or</c>/<c>xor</c>) whose sibling
-    /// operand is enum-typed. #3009: a spilled accumulator holding a bare
+    /// The semantic target that can recover a typed slot load's identity.
+    /// Property stores join the ordinary testimony sinks here because their
+    /// setter parameter is available even when the load still carries its
+    /// evaluation-stack storage type.
+    /// </summary>
+    public static TypeRef? SemanticLoadSinkTargetType(
+        LoadStackSlot load,
+        TypeRef? returnType,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => load.Parent is StoreProperty store
+            && ReferenceEquals(store.Value, load)
+            && store.Accessor.ParameterTypes is { IsDefault: false, Length: > 0 } setter
+                ? setter[^1]
+                : LoadSinkTargetType(load, returnType, shapes);
+
+    internal static TypeRef? BooleanSlotLoadType(
+        LoadStackSlot load,
+        TypeRef? returnType,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    {
+        if (load.Type is not { } type || !TypeFamilies.IsIntegerLike(type))
+            return null;
+        if (SemanticLoadSinkTargetType(load, returnType, shapes) is { } target
+            && TypeFamilies.IsBoolean(target))
+            return target;
+        return load.Parent switch
+        {
+            LogicalNot not when ReferenceEquals(not.Operand, load) => TypeRef.CoreLib("System", "Boolean"),
+            LogicalBinary logical when ReferenceEquals(logical.Left, load) || ReferenceEquals(logical.Right, load) => TypeRef.CoreLib("System", "Boolean"),
+            Conditional conditional when ReferenceEquals(conditional.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            ConditionalBranch branch when ReferenceEquals(branch.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            IfStatement statement when ReferenceEquals(statement.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            WhileLoop loop when ReferenceEquals(loop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            DoWhileLoop loop when ReferenceEquals(loop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            ForLoop loop when ReferenceEquals(loop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// The enum family a slot load contributes when its contiguous flags-enum
+    /// bitwise chain (<c>and</c>/<c>or</c>/<c>xor</c>) has an enum-typed sibling.
+    /// #3009: a spilled accumulator holding a bare
     /// integer flag constant (<c>long S_0 = (long)512</c>) is only ever
     /// consumed as the enum in the OR chain, so it should testify — and
     /// materialize as — the enum, not the integer storage width the IL stack
@@ -148,15 +257,26 @@ public static class CoercionSinks
     /// </summary>
     static TypeRef? BitwiseEnumSinkType(LoadStackSlot load, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
     {
-        if (load.Parent is not Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary)
-            return null;
-        var sibling = ReferenceEquals(binary.Left, load) ? binary.Right : binary.Left;
-        if (sibling is Constant || sibling.ResultType is not { } siblingType
-                || shapes.GetValueOrDefault(siblingType) != TypeShape.Enum)
-            return null;
-        if (load.Type is { } loadType && shapes.GetValueOrDefault(loadType) == TypeShape.Enum)
-            return null;
-        return siblingType;
+        IrExpression operand = load;
+        while (operand.Parent is Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary)
+        {
+            IrExpression sibling;
+            if (ReferenceEquals(binary.Left, operand))
+                sibling = binary.Right;
+            else if (ReferenceEquals(binary.Right, operand))
+                sibling = binary.Left;
+            else
+                break;
+
+            if (sibling is not Constant
+                && sibling.ResultType is { } siblingType
+                && CoercionRendering.IsEnum(siblingType, shapes))
+            {
+                return CoercionRendering.IsEnum(load.Type, shapes) ? null : siblingType;
+            }
+            operand = binary;
+        }
+        return null;
     }
 
     /// <summary>
@@ -245,8 +365,8 @@ public static class CoercionSinks
                 // (`(T)(object)x`) renders the operand through ConvertText, not
                 // CoerceText, and a bare constant under `(object)` boxes the
                 // literal's own type regardless of the box token — the coercion
-                // needs the explicit type spelling there. Residual for the
-                // burn-down; the plain-Box printer branch still coerces via its
+                // needs the explicit type spelling there. Residual docket item;
+                // the plain-Box printer branch still coerces via its
                 // own CoerceText call.
                 case StoreElement store when store.Value is { } value
                     && StoreElementTarget(store, function.TypeShapes) is { } elementType:
@@ -255,7 +375,7 @@ public static class CoercionSinks
                 // StoreIndirect is deliberately absent: the printer's target
                 // derivation (IndirectStoreType) carries special cases this
                 // enumeration would drift from; TypedConstantsPass still retypes
-                // its constants. Residual for the burn-down.
+                // its constants. Residual docket item.
                 case Call call when !call.Callee.ParameterTypes.IsDefault:
                     for (int i = 0, offset = call.Callee.HasThis ? 1 : 0;
                         i < call.Callee.ParameterTypes.Length && i + offset < call.Arguments.Count; i++)
@@ -273,7 +393,7 @@ public static class CoercionSinks
                 // counts their mismatches as residuals rather than hiding them
                 // behind the exclusion (#2145).
                 case Conditional { MergedType: { } merged } conditional:
-                    var armScope = function.TypeShapes.GetValueOrDefault(merged) == TypeShape.Enum
+                    var armScope = CoercionRendering.IsEnum(merged, function.TypeShapes)
                         ? SinkScope.Wrappable
                         : SinkScope.PrinterOwned;
                     yield return new(conditional.WhenTrue, merged, armScope);
@@ -311,7 +431,7 @@ public static class CoercionDomain
         // explicit disjunct (it is deliberately not a numeric primitive).
         => TypeFamilies.IsNumericPrimitive(target)
             || TypeFamilies.IsBoolean(target)
-            || shapes.GetValueOrDefault(target) == TypeShape.Enum;
+            || CoercionRendering.IsEnum(target, shapes);
 
     public static bool IsAtTarget(IrExpression value, TypeRef target)
         => value.ResultType is { } resultType && resultType.Equals(target);
@@ -345,7 +465,9 @@ public sealed class CoercionInsertionPass : IIrPass
             context.Stepper.StepOver($"coerce sink value to {target.Name}", value);
             // Clone so the wrapper owns a detached copy before the in-place
             // replace swaps the original out of its slot.
-            value.ReplaceWith(new Coerce(target, (IrExpression)value.Clone()));
+            var coercion = new Coerce(target, (IrExpression)value.Clone());
+            coercion.InheritSourceOffset(value);
+            value.ReplaceWith(coercion);
         }
     }
 
@@ -370,7 +492,7 @@ public static class CoercionInvariant
     /// <see cref="Violations"/> break the invariant (gates assert zero);
     /// <see cref="Residuals"/> are in-domain mismatches the invariant's scope
     /// deliberately leaves to later or targeted deciders, counted by value
-    /// kind so the scope limit is measurable burn-down, never silent (#2145).
+    /// kind so the scope limit is measurable and never silent (#2145).
     /// </summary>
     public readonly record struct CoercionViolation(IrNode Node, string Message);
 

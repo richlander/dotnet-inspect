@@ -5,13 +5,43 @@ namespace NuGetFetch;
 /// </summary>
 public sealed record NuGetFetchOptions
 {
-    private static readonly TimeSpan MaximumCancellationTimeout =
-        TimeSpan.FromMilliseconds(uint.MaxValue - 1d);
-
     /// <summary>
     /// Default maximum size of a service-index, version-index, or search-response body.
     /// </summary>
     public const long DefaultMaxMetadataResponseBytes = 16 * 1024 * 1024;
+
+    /// <summary>
+    /// Default maximum size of an exact package manifest.
+    /// </summary>
+    public const long DefaultMaxManifestResponseBytes = 1024 * 1024;
+
+    /// <summary>
+    /// Default maximum aggregate size of one Gallery registration join.
+    /// </summary>
+    public const long DefaultMaxRegistrationMetadataBytes =
+        64 * 1024 * 1024;
+
+    /// <summary>
+    /// Default maximum bytes materialized across one Gallery page batch.
+    /// </summary>
+    public const long DefaultMaxRegistrationPageBatchBytes =
+        64 * 1024 * 1024;
+
+    /// <summary>
+    /// Default maximum number of Catalog page documents acquired after the index.
+    /// </summary>
+    public const int DefaultMaxCatalogPages = 512;
+
+    /// <summary>
+    /// Default maximum HTTP attempts across one Catalog acquisition.
+    /// </summary>
+    public const int DefaultMaxCatalogHttpAttempts = 1024;
+
+    /// <summary>
+    /// Default maximum decoded metadata bytes across one Catalog acquisition.
+    /// </summary>
+    public const long DefaultMaxCatalogDecodedBytes =
+        512L * 1024 * 1024;
 
     /// <summary>
     /// Default deadline for one HTTP request, including response-body consumption.
@@ -36,6 +66,46 @@ public sealed record NuGetFetchOptions
     /// </summary>
     public long MaxMetadataResponseBytes { get; init; } =
         DefaultMaxMetadataResponseBytes;
+
+    /// <summary>
+    /// Gets the maximum accepted package-manifest size in bytes.
+    /// </summary>
+    public long MaxManifestResponseBytes { get; init; } =
+        DefaultMaxManifestResponseBytes;
+
+    /// <summary>
+    /// Gets the maximum aggregate bytes admitted across one Gallery
+    /// registration index, its pages, and retry attempts.
+    /// </summary>
+    public long MaxRegistrationMetadataBytes { get; init; } =
+        DefaultMaxRegistrationMetadataBytes;
+
+    /// <summary>
+    /// Gets the maximum bytes materialized concurrently across one Gallery
+    /// external-page batch.
+    /// </summary>
+    public long MaxRegistrationPageBatchBytes { get; init; } =
+        DefaultMaxRegistrationPageBatchBytes;
+
+    /// <summary>
+    /// Gets the maximum Catalog page documents acquired after the index.
+    /// </summary>
+    public int MaxCatalogPages { get; init; } =
+        DefaultMaxCatalogPages;
+
+    /// <summary>
+    /// Gets the maximum HTTP attempts across service-index, Catalog-index,
+    /// page, and retry requests in one Catalog acquisition.
+    /// </summary>
+    public int MaxCatalogHttpAttempts { get; init; } =
+        DefaultMaxCatalogHttpAttempts;
+
+    /// <summary>
+    /// Gets the maximum decoded metadata bytes across every Catalog document
+    /// and retry attempt in one Catalog acquisition.
+    /// </summary>
+    public long MaxCatalogDecodedBytes { get; init; } =
+        DefaultMaxCatalogDecodedBytes;
 
     /// <summary>
     /// Gets the deadline for one HTTP request, including response-body consumption.
@@ -63,7 +133,7 @@ public sealed record NuGetFetchOptions
         TimeSpan requestTimeout)
     {
         ValidateTimeout(requestTimeout, nameof(requestTimeout));
-        if (requestTimeout > MaximumCancellationTimeout / 4)
+        if (requestTimeout > NuGetOperationContext.MaximumTimeout / 4)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(requestTimeout),
@@ -83,6 +153,18 @@ public sealed record NuGetFetchOptions
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             options.MaxMetadataResponseBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxManifestResponseBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxRegistrationMetadataBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxRegistrationPageBatchBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxCatalogPages);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxCatalogHttpAttempts);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxCatalogDecodedBytes);
         ValidateTimeout(options.RequestTimeout, nameof(RequestTimeout));
         ValidateTimeout(options.OperationTimeout, nameof(OperationTimeout));
         if (options.MetadataBodyTimeout != Timeout.InfiniteTimeSpan)
@@ -100,9 +182,17 @@ public sealed record NuGetFetchOptions
         TimeSpan clientTimeout)
     {
         options = Validate(options);
-        TimeSpan requestTimeout = RequestTimeoutForClient(
+        return ForRequest(
             options,
-            clientTimeout);
+            RequestTimeoutForClient(options, clientTimeout));
+    }
+
+    internal static NuGetFetchOptions ForRequest(
+        NuGetFetchOptions options,
+        TimeSpan requestTimeout)
+    {
+        options = Validate(options);
+        ValidateTimeout(requestTimeout, nameof(requestTimeout));
         return options.MetadataBodyTimeout != Timeout.InfiniteTimeSpan
             && options.MetadataBodyTimeout < requestTimeout
                 ? options
@@ -138,7 +228,9 @@ public sealed record NuGetFetchOptions
                 : options.RequestTimeout;
     }
 
-    private static void ValidateTimeout(TimeSpan timeout, string parameterName)
+    internal static void ValidateTimeout(
+        TimeSpan timeout,
+        string parameterName)
     {
         if (timeout <= TimeSpan.Zero)
         {
@@ -148,12 +240,12 @@ public sealed record NuGetFetchOptions
                 "The timeout must be positive.");
         }
 
-        if (timeout > MaximumCancellationTimeout)
+        if (timeout > NuGetOperationContext.MaximumTimeout)
         {
             throw new ArgumentOutOfRangeException(
                 parameterName,
                 timeout,
-                $"The timeout cannot exceed {MaximumCancellationTimeout}.");
+                $"The timeout cannot exceed {NuGetOperationContext.MaximumTimeout}.");
         }
     }
 }

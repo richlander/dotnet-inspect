@@ -275,7 +275,7 @@ public class PdbContext : IDisposable
     }
 
     // --- PE/Assembly ---
-    public bool HasMetadata => _peReader.HasMetadata;
+    public bool HasMetadata => MetadataFormatAdmission.AdmitImage(_peReader);
 
     /// <summary>
     /// File size captured at open time (avoids repeated fstat syscalls).
@@ -419,6 +419,33 @@ public class PdbContext : IDisposable
             loadLocalPdb: false,
             loadEmbeddedPdb: true,
             maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
+            expansionBudget: expansionBudget,
+            assemblyRegistration: assembly);
+    }
+
+    /// <summary>
+    /// Prefetches the complete PE image and loads an embedded PDB up to
+    /// <paramref name="maxEmbeddedPdbBytes"/> without probing for an adjacent PDB.
+    /// </summary>
+    /// <remarks>
+    /// Gate:
+    /// <c>PdbContext_EmbeddedOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
+    /// </remarks>
+    public static PdbContext OpenEmbeddedPdbOnlyPrefetched(
+        string assemblyPath,
+        int maxEmbeddedPdbBytes,
+        Action<string>? log = null,
+        PdbExpansionBudget? expansionBudget = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
+        return Open(
+            assemblyPath,
+            log,
+            PEStreamOptions.PrefetchEntireImage
+                | PEStreamOptions.LeaveOpen,
+            loadLocalPdb: false,
+            loadEmbeddedPdb: true,
+            maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
             expansionBudget: expansionBudget);
     }
 
@@ -439,7 +466,39 @@ public class PdbContext : IDisposable
             PEStreamOptions.Default,
             assembly.LastWriteTimeUtc,
             loadLocalPdb: false,
-            loadEmbeddedPdb: false);
+            loadEmbeddedPdb: false,
+            assemblyRegistration: assembly);
+    }
+
+    /// <summary>
+    /// Prefetches descriptor-owned PE content and loads an embedded PDB up to
+    /// <paramref name="maxEmbeddedPdbBytes"/> without probing for an adjacent PDB.
+    /// </summary>
+    /// <remarks>
+    /// Gate:
+    /// <c>PdbContext_EmbeddedOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
+    /// </remarks>
+    public static PdbContext OpenEmbeddedPdbOnlyPrefetched(
+        ResolvedAssemblyReference assembly,
+        int maxEmbeddedPdbBytes,
+        Action<string>? log = null,
+        PdbExpansionBudget? expansionBudget = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.PrefetchEntireImage
+                | PEStreamOptions.LeaveOpen,
+            assembly.LastWriteTimeUtc,
+            loadLocalPdb: false,
+            loadEmbeddedPdb: true,
+            maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
+            expansionBudget: expansionBudget,
+            assemblyRegistration: assembly);
     }
 
     /// <summary>
@@ -457,14 +516,32 @@ public class PdbContext : IDisposable
             assembly.Identity.Name,
             log,
             PEStreamOptions.Default,
-            assembly.LastWriteTimeUtc);
+            assembly.LastWriteTimeUtc,
+            assemblyRegistration: assembly);
     }
 
     /// <summary>
-    /// This context's open reader, lent to <see cref="AssemblyInspectionSession.Borrow"/> so the
-    /// facet surface reads the same bytes this context read instead of reopening
-    /// the source. Internal because the reader is metadata-internal; borrowers go
-    /// through the session.
+    /// Runs one synchronous product-layer inspection against this context's
+    /// open reader without transferring ownership.
+    /// </summary>
+    /// <remarks>
+    /// The callback must not retain or dispose the reader. The reader remains
+    /// owned by this context. Gates:
+    /// <c>UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext</c>
+    /// and <c>Metadata_FriendsOnlyTestAssemblies</c>.
+    /// </remarks>
+    public TResult InspectImage<TResult>(
+        Func<PEReader, TResult> inspect)
+    {
+        ArgumentNullException.ThrowIfNull(inspect);
+        EnsureAlive();
+        return inspect(_peReader);
+    }
+
+    /// <summary>
+    /// This context's open reader, lent to
+    /// <see cref="AssemblyInspectionSession.Borrow"/> so Metadata facets read
+    /// the same bytes without reopening the source.
     /// </summary>
     internal PEReader BorrowedPEReader
     {
@@ -510,7 +587,8 @@ public class PdbContext : IDisposable
             log,
             PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
             assembly.LastWriteTimeUtc,
-            loadLocalPdb: true);
+            loadLocalPdb: true,
+            assemblyRegistration: assembly);
     }
 
     static PdbContext Open(
@@ -543,7 +621,8 @@ public class PdbContext : IDisposable
         bool loadLocalPdb = true,
         bool loadEmbeddedPdb = true,
         int maxEmbeddedPdbBytes = int.MaxValue,
-        PdbExpansionBudget? expansionBudget = null)
+        PdbExpansionBudget? expansionBudget = null,
+        ResolvedAssemblyReference? assemblyRegistration = null)
     {
         PEReader? peReader = null;
         PdbContext? context = null;
@@ -557,6 +636,25 @@ public class PdbContext : IDisposable
             peReader = new PEReader(
                 stream,
                 streamOptions | PEStreamOptions.LeaveOpen);
+            bool hasMetadata;
+            try
+            {
+                hasMetadata =
+                    MetadataFormatAdmission.AdmitImage(peReader);
+                if (hasMetadata)
+                {
+                    _ = MetadataFormatAdmission
+                        .GetMetadataReader(peReader);
+                }
+                assemblyRegistration?.ValidateArtifactContent(peReader);
+            }
+            catch (OverflowException ex)
+            {
+                throw new BadImageFormatException(
+                    "The selected image metadata is invalid.",
+                    ex);
+            }
+
             context = new PdbContext(
                 stream,
                 peReader,
@@ -566,7 +664,7 @@ public class PdbContext : IDisposable
                 log,
                 (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
                 lastWriteTimeUtc);
-            if (!peReader.HasMetadata)
+            if (!hasMetadata)
                 return context;
 
             context.ReadDebugDirectory(
@@ -783,33 +881,94 @@ public class PdbContext : IDisposable
     /// answer as "no body" and must not be reported as one (issue #3299).
     /// </summary>
     /// <remarks>
-    /// A reference assembly answers <see langword="null"/> for every token: it strips all IL, so
-    /// its RVAs report the image's surface-only nature rather than anything about the method.
+    /// A reference assembly's RVA describes a synthesized body rather than the implementation
+    /// member's body, so it is not evidence in either direction. Abstract, P/Invoke, non-IL
+    /// code-type, internal-call, and forward-reference flags still prove that a method has no IL
+    /// body; other reference methods remain unknown.
+    /// <c>MethodHasBodyTests.ReferenceAssembly_ReportsOnlyDefiniteBodylessness</c> gates this
+    /// distinction.
     /// </remarks>
     public bool? MethodHasBody(int methodToken)
     {
-        if (!_peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(_peReader))
             return null;
 
         try
         {
-            // Handle() rejects an invalid token by throwing, and an inspected assembly is
-            // untrusted input, so decode inside the guard rather than ahead of it.
-            var handle = MetadataTokens.Handle(methodToken);
-            if (handle.Kind != HandleKind.MethodDefinition)
-                return null;
-
-            var reader = _peReader.GetMetadataReader();
-            if (IsReferenceAssembly(reader))
-                return null;
-
-            return reader.GetMethodDefinition((MethodDefinitionHandle)handle).RelativeVirtualAddress != 0;
+            var reader = MetadataFormatAdmission.GetMetadataReader(_peReader);
+            MethodDefinitionHandle handle = ResolveMethodHandle(
+                reader,
+                typeName: "",
+                methodName: "",
+                overloadIndex: 0,
+                publicOnly: false,
+                metadataToken: methodToken);
+            return handle.IsNil ? null : MethodHasBody(reader, handle);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
             return null;
         }
     }
+
+    /// <summary>
+    /// Whether the selected method carries an IL body, resolving by type, name, and overload.
+    /// </summary>
+    /// <remarks>
+    /// Cross-image callers must not treat an overload ordinal as a member identity: declaration
+    /// order can differ between reference and runtime images.
+    /// <c>CommandExecutionTests.MemberBodyState_CrossImageOverloadOrderMismatch_IsUnknown</c>
+    /// gates that caller boundary. <c>MethodHasBodyTests.MethodResolvedByName_ReportsBodyState</c>
+    /// gates same-image name resolution.
+    /// </remarks>
+    public bool? MethodHasBody(
+        string typeName,
+        string methodName,
+        int overloadIndex,
+        bool publicOnly = false)
+    {
+        if (!MetadataFormatAdmission.AdmitImage(_peReader))
+            return null;
+
+        try
+        {
+            var reader = MetadataFormatAdmission.GetMetadataReader(_peReader);
+            MethodDefinitionHandle handle = ResolveMethodHandle(
+                reader,
+                typeName,
+                methodName,
+                overloadIndex,
+                publicOnly,
+                metadataToken: 0);
+            return handle.IsNil ? null : MethodHasBody(reader, handle);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private bool? MethodHasBody(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle)
+    {
+        MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+        if (DefinitelyHasNoIlBody(method))
+            return false;
+        if (IsReferenceAssembly(reader))
+            return null;
+
+        return method.RelativeVirtualAddress != 0;
+    }
+
+    private static bool DefinitelyHasNoIlBody(MethodDefinition method)
+        => (method.Attributes
+                & (MethodAttributes.Abstract | MethodAttributes.PinvokeImpl)) != 0
+            || (method.ImplAttributes & MethodImplAttributes.CodeTypeMask)
+                != MethodImplAttributes.IL
+            || (method.ImplAttributes
+                & (MethodImplAttributes.InternalCall
+                    | MethodImplAttributes.ForwardRef)) != 0;
 
     /// <summary>
     /// Whether the assembly carries <c>ReferenceAssemblyAttribute</c>, cached because the answer
@@ -877,7 +1036,7 @@ public class PdbContext : IDisposable
 
     public ILOffsetMemberContextInfo? ResolveMemberContext(int methodToken, int ilOffset)
     {
-        if (!_peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(_peReader))
             return null;
 
         var handle = MetadataTokens.Handle(methodToken);
@@ -886,7 +1045,7 @@ public class PdbContext : IDisposable
 
         try
         {
-            var reader = _peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(_peReader);
             var methodHandle = (MethodDefinitionHandle)handle;
             var method = reader.GetMethodDefinition(methodHandle);
             var type = reader.GetTypeDefinition(method.GetDeclaringType());
@@ -923,115 +1082,103 @@ public class PdbContext : IDisposable
     public IReadOnlyList<ILOffsetExceptionContextInfo> ResolveExceptionContext(int methodToken, int ilOffset, out string? error)
     {
         error = null;
-        if (!_peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(_peReader))
             return [];
 
-        var handle = MetadataTokens.Handle(methodToken);
-        if (handle.Kind != HandleKind.MethodDefinition)
+        MethodBodyReadResult read = MethodBodies.Read(methodToken);
+        if (read is not MethodBodyReadResult.Available available)
         {
-            error = $"Token 0x{methodToken:X} is not a MethodDef token.";
-            return [];
-        }
-
-        try
-        {
-            var reader = _peReader.GetMetadataReader();
-            var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-            if (method.RelativeVirtualAddress == 0)
+            error = read switch
             {
-                error = $"Method token 0x{methodToken:X} has no IL body.";
-                return [];
-            }
-
-            var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
-            List<ILOffsetExceptionContextInfo> rows = [];
-            var regions = body.ExceptionRegions;
-            for (var i = 0; i < regions.Length; i++)
-            {
-                var region = regions[i];
-                var tryEnd = region.TryOffset + region.TryLength;
-                var handlerEnd = region.HandlerOffset + region.HandlerLength;
-                int? filterStart = region.Kind == ExceptionRegionKind.Filter ? region.FilterOffset : null;
-                int? filterEnd = region.Kind == ExceptionRegionKind.Filter ? region.HandlerOffset : null;
-                var context = GetExceptionContext(region, ilOffset, tryEnd, handlerEnd, filterStart, filterEnd);
-                if (context is null)
-                    continue;
-
-                rows.Add(new ILOffsetExceptionContextInfo(
-                    Region: i + 1,
-                    Context: context,
-                    Clause: FormatExceptionClause(region.Kind),
-                    TryStart: region.TryOffset,
-                    TryEnd: tryEnd,
-                    HandlerStart: region.HandlerOffset,
-                    HandlerEnd: handlerEnd,
-                    FilterStart: filterStart,
-                    FilterEnd: filterEnd,
-                    CaughtType: ResolveCatchType(reader, region)));
-            }
-
-            return rows;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentOutOfRangeException)
-        {
-            error = $"Could not resolve exception context for token 0x{methodToken:X}+0x{ilOffset:X}.";
+                MethodBodyReadResult.NoBody =>
+                    $"Method token 0x{methodToken:X} has no IL body.",
+                MethodBodyReadResult.Unavailable
+                {
+                    Reason: MethodBodyUnavailableReason.NotMethodDefinitionToken
+                } => $"Token 0x{methodToken:X} is not a MethodDef token.",
+                _ =>
+                    $"Could not resolve exception context for token "
+                    + $"0x{methodToken:X}+0x{ilOffset:X}.",
+            };
             return [];
         }
+
+        if (HasRejectedCatchType(available.Body.ExceptionRegionCatalog))
+        {
+            error = $"Could not resolve exception context for token "
+                + $"0x{methodToken:X}+0x{ilOffset:X}.";
+            return [];
+        }
+
+        List<ILOffsetExceptionContextInfo> rows = [];
+        foreach (MethodExceptionRegionContext context
+            in available.Body.ExceptionRegionCatalog.ContextsAt(ilOffset))
+        {
+            MethodExceptionClause clause = context.Clause;
+            rows.Add(new ILOffsetExceptionContextInfo(
+                Region: clause.Id.Ordinal + 1,
+                Context: FormatExceptionContext(context),
+                Clause: FormatExceptionClause(clause.Kind),
+                TryStart: clause.ProtectedExtent.Start,
+                TryEnd: clause.ProtectedExtent.End,
+                HandlerStart: clause.HandlerExtent.Start,
+                HandlerEnd: clause.HandlerExtent.End,
+                FilterStart: clause.FilterExtent?.Start,
+                FilterEnd: clause.FilterExtent?.End,
+                CaughtType: clause.CatchType?.DisplayName));
+        }
+
+        return rows;
     }
 
     public IReadOnlyList<MethodExceptionRegionInfo> ResolveExceptionRegions(int methodToken, out string? error)
     {
         error = null;
-        if (!_peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(_peReader))
             return [];
 
-        var handle = MetadataTokens.Handle(methodToken);
-        if (handle.Kind != HandleKind.MethodDefinition)
+        MethodBodyReadResult read = MethodBodies.Read(methodToken);
+        if (read is not MethodBodyReadResult.Available available)
         {
-            error = $"Token 0x{methodToken:X} is not a MethodDef token.";
+            error = read switch
+            {
+                MethodBodyReadResult.NoBody =>
+                    $"Method token 0x{methodToken:X} has no IL body.",
+                MethodBodyReadResult.Unavailable
+                {
+                    Reason: MethodBodyUnavailableReason.NotMethodDefinitionToken
+                } => $"Token 0x{methodToken:X} is not a MethodDef token.",
+                _ =>
+                    $"Could not resolve exception regions for token 0x{methodToken:X}.",
+            };
             return [];
         }
 
-        try
-        {
-            var reader = _peReader.GetMetadataReader();
-            var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-            if (method.RelativeVirtualAddress == 0)
-            {
-                error = $"Method token 0x{methodToken:X} has no IL body.";
-                return [];
-            }
-
-            var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
-            List<MethodExceptionRegionInfo> rows = [];
-            var regions = body.ExceptionRegions;
-            for (var i = 0; i < regions.Length; i++)
-            {
-                var region = regions[i];
-                var tryEnd = region.TryOffset + region.TryLength;
-                var handlerEnd = region.HandlerOffset + region.HandlerLength;
-                int? filterStart = region.Kind == ExceptionRegionKind.Filter ? region.FilterOffset : null;
-                int? filterEnd = region.Kind == ExceptionRegionKind.Filter ? region.HandlerOffset : null;
-                rows.Add(new MethodExceptionRegionInfo(
-                    Region: i + 1,
-                    Clause: FormatExceptionClause(region.Kind),
-                    TryStart: region.TryOffset,
-                    TryEnd: tryEnd,
-                    HandlerStart: region.HandlerOffset,
-                    HandlerEnd: handlerEnd,
-                    FilterStart: filterStart,
-                    FilterEnd: filterEnd,
-                    CaughtType: ResolveCatchType(reader, region)));
-            }
-
-            return rows;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentOutOfRangeException)
+        if (HasRejectedCatchType(available.Body.ExceptionRegionCatalog))
         {
             error = $"Could not resolve exception regions for token 0x{methodToken:X}.";
             return [];
         }
+
+        return available.Body.ExceptionRegionCatalog.Clauses
+            .Select(static clause => new MethodExceptionRegionInfo(
+                Region: clause.Id.Ordinal + 1,
+                Clause: FormatExceptionClause(clause.Kind),
+                TryStart: clause.ProtectedExtent.Start,
+                TryEnd: clause.ProtectedExtent.End,
+                HandlerStart: clause.HandlerExtent.Start,
+                HandlerEnd: clause.HandlerExtent.End,
+                FilterStart: clause.FilterExtent?.Start,
+                FilterEnd: clause.FilterExtent?.End,
+                CaughtType: clause.CatchType?.DisplayName))
+            .ToArray();
     }
+
+    private static bool HasRejectedCatchType(
+        MethodExceptionRegionCatalog catalog) =>
+        catalog.Clauses.Any(
+            static clause => clause.CatchType?.Name
+                is MetadataTypeNameResult.Rejected);
 
     /// <summary>Resolves a method to its portable-PDB document and visible line range.</summary>
     public PdbMethodDocumentInfo? ResolveMethodDocument(
@@ -1041,16 +1188,38 @@ public class PdbContext : IDisposable
         bool publicOnly = false,
         int metadataToken = 0)
     {
-        if (_pdbReader == null || !_peReader.HasMetadata)
+        if (_pdbReader == null || !MetadataFormatAdmission.AdmitImage(_peReader))
             return null;
 
-        var reader = _peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(_peReader);
+        MethodDefinitionHandle methodHandle = ResolveMethodHandle(
+            reader,
+            typeName,
+            methodName,
+            overloadIndex,
+            publicOnly,
+            metadataToken);
+        return methodHandle.IsNil
+            ? null
+            : ResolveMethodDocumentRange(methodHandle);
+    }
+
+    private static MethodDefinitionHandle ResolveMethodHandle(
+        MetadataReader reader,
+        string typeName,
+        string methodName,
+        int overloadIndex,
+        bool publicOnly,
+        int metadataToken)
+    {
         if (metadataToken != 0)
         {
+            // Handle() rejects invalid tokens by throwing. Callers that accept untrusted token
+            // values must guard this decode.
             var tokenHandle = MetadataTokens.Handle(metadataToken);
             return tokenHandle.Kind == HandleKind.MethodDefinition
-                ? ResolveMethodDocumentRange((MethodDefinitionHandle)tokenHandle)
-                : null;
+                ? (MethodDefinitionHandle)tokenHandle
+                : default;
         }
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
@@ -1071,11 +1240,11 @@ public class PdbContext : IDisposable
                     continue;
                 }
                 if (matchCount++ == overloadIndex)
-                    return ResolveMethodDocumentRange(methodHandle);
+                    return methodHandle;
             }
         }
 
-        return null;
+        return default;
     }
 
     PdbMethodDocumentInfo? ResolveMethodDocumentRange(MethodDefinitionHandle methodHandle)
@@ -1119,7 +1288,12 @@ public class PdbContext : IDisposable
             var context = GenericContext.ForMethod(reader, type, method);
             var signature = GuardedSignatureText.MethodText(reader, method, context)
                 .GetValueOrThrow();
-            return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, signature);
+            return SignatureRenderer.RenderDecodedSignature(
+                reader,
+                method,
+                methodName,
+                signature,
+                context);
         }
         catch
         {
@@ -1171,29 +1345,22 @@ public class PdbContext : IDisposable
             _ => null
         };
 
-    private static string? GetExceptionContext(
-        ExceptionRegion region,
-        int offset,
-        int tryEnd,
-        int handlerEnd,
-        int? filterStart,
-        int? filterEnd)
-    {
-        if (filterStart is { } fs && filterEnd is { } fe && offset >= fs && offset < fe)
-            return "filter";
-        if (offset >= region.HandlerOffset && offset < handlerEnd)
-            return region.Kind switch
+    private static string FormatExceptionContext(
+        MethodExceptionRegionContext context) =>
+        context.Role switch
+        {
+            MethodExceptionRegionRole.Protected => "try",
+            MethodExceptionRegionRole.Filter => "filter",
+            MethodExceptionRegionRole.Handler => context.Clause.Kind switch
             {
                 ExceptionRegionKind.Catch => "catch handler",
                 ExceptionRegionKind.Filter => "filter handler",
                 ExceptionRegionKind.Finally => "finally handler",
                 ExceptionRegionKind.Fault => "fault handler",
-                _ => "handler"
-            };
-        if (offset >= region.TryOffset && offset < tryEnd)
-            return "try";
-        return null;
-    }
+                _ => "handler",
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(context)),
+        };
 
     private static string FormatExceptionClause(ExceptionRegionKind kind)
         => kind switch
@@ -1204,11 +1371,6 @@ public class PdbContext : IDisposable
             ExceptionRegionKind.Fault => "fault",
             _ => kind.ToString()
         };
-
-    private static string? ResolveCatchType(MetadataReader reader, ExceptionRegion region)
-        => region.Kind == ExceptionRegionKind.Catch && !region.CatchType.IsNil
-            ? TypeResolver.GetTypeName(reader, region.CatchType)
-            : null;
 
     /// <summary>Enumerates all named documents in the portable PDB.</summary>
     public IEnumerable<PdbDocumentInfo> EnumeratePdbDocuments()
@@ -1256,10 +1418,10 @@ public class PdbContext : IDisposable
     public IEnumerable<PdbMemberDocumentInfo> EnumerateMemberDocuments(
         IReadOnlySet<int>? metadataTokens = null)
     {
-        if (_pdbReader == null || !_peReader.HasMetadata)
+        if (_pdbReader == null || !MetadataFormatAdmission.AdmitImage(_peReader))
             yield break;
 
-        var metadata = _peReader.GetMetadataReader();
+        var metadata = MetadataFormatAdmission.GetMetadataReader(_peReader);
         foreach (var methodHandle in EnumerateSelectedMethods(metadata, metadataTokens))
         {
             int metadataToken = MetadataTokens.GetToken(methodHandle);
@@ -1365,10 +1527,10 @@ public class PdbContext : IDisposable
     /// </summary>
     public IEnumerable<PdbTypeDocumentInfo> EnumerateTypeDocuments()
     {
-        if (_pdbReader == null || !_peReader.HasMetadata)
+        if (_pdbReader == null || !MetadataFormatAdmission.AdmitImage(_peReader))
             yield break;
 
-        var metadata = _peReader.GetMetadataReader();
+        var metadata = MetadataFormatAdmission.GetMetadataReader(_peReader);
         foreach (var typeHandle in metadata.TypeDefinitions)
         {
             var type = metadata.GetTypeDefinition(typeHandle);
@@ -1687,7 +1849,7 @@ public class PdbContext : IDisposable
     /// </summary>
     public PdbILOffsetLocation? ResolvePdbLocation(int methodToken, int ilOffset)
     {
-        if (_pdbReader == null || !_peReader.HasMetadata)
+        if (_pdbReader == null || !MetadataFormatAdmission.AdmitImage(_peReader))
             return null;
 
         try
@@ -1696,7 +1858,7 @@ public class PdbContext : IDisposable
             if (handle.Kind != HandleKind.MethodDefinition)
                 return null;
 
-            var metadata = _peReader.GetMetadataReader();
+            var metadata = MetadataFormatAdmission.GetMetadataReader(_peReader);
             var methodHandle = (MethodDefinitionHandle)handle;
             var method = metadata.GetMethodDefinition(methodHandle);
             var type = metadata.GetTypeDefinition(method.GetDeclaringType());

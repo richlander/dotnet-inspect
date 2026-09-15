@@ -415,7 +415,9 @@ public sealed class BooleanFoldingPass : IIrPass
         comparison.DetachChildren();
         bool keepIdentity = constant == (comparison.Kind == ComparisonKind.Equal);
         stepper.StepOver($"fold X == {constant.ToString().ToLowerInvariant()} to boolean test", comparison);
-        comparison.ReplaceWith(keepIdentity ? operand : Conditions.Negate(operand));
+        var replacement = keepIdentity ? operand : Conditions.Negate(operand);
+        replacement.InheritSourceOffset(comparison);
+        comparison.ReplaceWith(replacement);
         return true;
     }
 
@@ -720,6 +722,7 @@ public sealed class BooleanFoldingPass : IIrPass
         var first = previous.DetachChildren()[0];
         var fallback = inner.DetachChildren()[0];
         var coalesce = new Coalesce((IrExpression)first, (IrExpression)fallback);
+        coalesce.InheritSourceOffset(guard);
         guard.Detach();
         stepper.StepOver("fold null check into ?? coalesce", previous);
         switch (previous)

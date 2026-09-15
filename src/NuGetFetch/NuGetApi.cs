@@ -133,15 +133,130 @@ public static class NuGetApi
             {
                 throw InvalidMetadata("search response", "data[].versions");
             }
+
+            if (result.Owners is not null
+                && result.Owners.Any(static owner => owner is null))
+            {
+                throw InvalidMetadata(
+                    "search response",
+                    "data[].owners");
+            }
         }
 
         return response;
+    }
+
+    internal static async ValueTask<SearchResponse?>
+        DeserializePrefixSearchResponseAsync(
+            Stream json,
+            CancellationToken cancellationToken)
+    {
+        PrefixSearchWireResponse? response =
+            await JsonSerializer.DeserializeAsync(
+                json,
+                PrefixSearchJsonContext.Default.PrefixSearchWireResponse,
+                cancellationToken).ConfigureAwait(false);
+
+        if (response is null)
+        {
+            return null;
+        }
+
+        if (response.Data is null)
+        {
+            throw InvalidMetadata("search response", "data");
+        }
+
+        var results = new SearchResult[response.Data.Count];
+        for (int index = 0; index < results.Length; index++)
+        {
+            PrefixSearchWireResult result = response.Data[index];
+            if (result is null || result.Id is null || result.Version is null)
+            {
+                throw InvalidMetadata("search response", "data");
+            }
+
+            if (result.Owners is not null
+                && result.Owners.Any(static owner => owner is null))
+            {
+                throw InvalidMetadata(
+                    "search response",
+                    "data[].owners");
+            }
+
+            results[index] = new SearchResult(
+                result.Id,
+                result.Version,
+                result.Description,
+                result.TotalDownloads,
+                result.Verified,
+                Versions: null,
+                Owners: result.Owners);
+        }
+
+        return new SearchResponse(results);
     }
 
     private static JsonException InvalidMetadata(
         string document,
         string member) =>
         new($"NuGet {document} is missing required member '{member}'.");
+}
+
+internal sealed class StringOrArrayJsonConverter
+    : JsonConverter<IReadOnlyList<string>?>
+{
+    public override IReadOnlyList<string>? Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
+
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            return
+            [
+                reader.GetString()
+                    ?? throw new JsonException(
+                        "A NuGet string-or-array value cannot be null."),
+            ];
+        }
+
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            throw new JsonException(
+                "A NuGet string-or-array value must be a string or an array.");
+        }
+
+        List<string> values = [];
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.String)
+            {
+                throw new JsonException(
+                    "A NuGet string-or-array value contains a non-string item.");
+            }
+
+            values.Add(
+                reader.GetString()
+                    ?? throw new JsonException(
+                        "A NuGet string-or-array value contains a null item."));
+        }
+
+        if (reader.TokenType != JsonTokenType.EndArray)
+            throw new JsonException("A NuGet string array was incomplete.");
+
+        return values;
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        IReadOnlyList<string>? value,
+        JsonSerializerOptions options) =>
+        throw new NotSupportedException(
+            "NuGet metadata models are read-only.");
 }
 
 // Feeds disagree about whether a JSON number is a number. Azure DevOps Artifacts
@@ -162,5 +277,14 @@ public static class NuGetApi
 [JsonSerializable(typeof(VersionIndex))]
 [JsonSerializable(typeof(SearchResponse))]
 public partial class NuGetJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    NumberHandling = JsonNumberHandling.AllowReadingFromString,
+    DefaultBufferSize = 128 * 1024)]
+[JsonSerializable(typeof(PrefixSearchWireResponse))]
+internal partial class PrefixSearchJsonContext : JsonSerializerContext
 {
 }

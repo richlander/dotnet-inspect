@@ -277,11 +277,13 @@ awk '/^\| `/ { count++ } END { if (count == 5) print "five-implementers" }'
 five-implementers
 ```
 
-## 6. Find implementers in a specific scope
+## 6. Make the platform scope explicit
 
-> Goal: Narrow the search to platform assemblies or specific packages.
+> Goal: Name the same platform framework set explicitly. Bare `--platform` is
+> equivalent to the implicit default when used alone and composes with other
+> explicit source selectors.
 
-### 6a. Platform only
+### 6a. Explicit platform scope
 
 ```bash
 dotnet-inspect implements IJsonTypeInfoResolver --platform -v:q

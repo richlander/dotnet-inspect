@@ -50,6 +50,11 @@ public sealed class ApiSurfaceEmitSetTests
             type.Members,
             member => member.Kind == "method"
                 && member.Name == nameof(EmitSetFixture.remove_Standalone));
+        Assert.All(
+            type.Members.Where(member => member.Kind == "method"),
+            member => Assert.Equal(
+                ApiMethodSemanticsKind.None,
+                member.MethodSemantics));
     }
 
     [Fact]
@@ -102,6 +107,15 @@ public sealed class ApiSurfaceEmitSetTests
                 && member.Name.EndsWith(
                     $".remove_{nameof(IEmitSetContract.Changed)}",
                     StringComparison.Ordinal));
+        Assert.Equal(
+            ApiMethodSemanticsKind.PropertyGetter,
+            propertyAccessor.MethodSemantics);
+        Assert.Contains(
+            type.Members,
+            member => member.MethodSemantics == ApiMethodSemanticsKind.EventAdder);
+        Assert.Contains(
+            type.Members,
+            member => member.MethodSemantics == ApiMethodSemanticsKind.EventRemover);
 
         Assert.DoesNotContain(
             type.Members,
@@ -147,6 +161,25 @@ public sealed class ApiSurfaceEmitSetTests
         Assert.DoesNotContain(
             implicitImpl.Members,
             member => member.Name == "get_Count");
+    }
+
+    [Theory]
+    [InlineData(nameof(CovariantEmitDerived), nameof(CovariantEmitDerived.P))]
+    [InlineData(nameof(StaticAbstractEmitImpl), nameof(StaticAbstractEmitImpl.Value))]
+    [InlineData(nameof(ImplicitEmitImpl), nameof(ImplicitEmitImpl.Count))]
+    public void PublicAccessorProjection_RetainsMethodClassification(
+        string typeName,
+        string propertyName)
+    {
+        ApiType type = Type(PublicSurface, typeName);
+        ApiMember property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property" && member.Name == propertyName);
+        Assert.NotNull(property.SignatureModel);
+        Assert.All(
+            property.SignatureModel.Accessors,
+            accessor => Assert.False(accessor.IsExplicitInterfaceImplementation));
+        Assert.Equal("method", Assert.Single(ApiMemberAccessors.Create(property, type)).Kind);
     }
 
     [Fact]

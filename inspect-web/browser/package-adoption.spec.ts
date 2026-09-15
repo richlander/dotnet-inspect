@@ -1,0 +1,1858 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { Buffer } from "node:buffer";
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type Page,
+  type Route,
+  type Worker,
+} from "@playwright/test";
+import type {
+  BrowserAssemblyReferenceList as AssemblyReferenceList,
+  BrowserAssemblyReferenceResult as AssemblyReferenceResult,
+  BrowserPackageCacheStats as CacheStats,
+  BrowserPackageDependencies as PackageDependencies,
+  BrowserPackageSurface as PackageSurface,
+  BrowserWorkspacePackageOccurrence as OccurrenceRow,
+  BrowserWorkspacePackageOccurrenceActivation as OccurrenceActivation,
+  BrowserWorkspacePackageOccurrenceView as OccurrenceView,
+} from "../src/facades/inspect-web-package.js";
+import type {
+  BrowserPackageIntegrations as PackageIntegrations,
+} from "../src/facades/inspect-web-analysis.js";
+import type {
+  BrowserLibraryApiDiffResult,
+} from "../src/facades/inspect-web-metadata.js";
+import {
+  renderLibraryApiDiff,
+  type LibraryApiDiffState,
+} from "../src/library-api-diff.ts";
+import {
+  fixtureFramework,
+  galleryDownloadPath,
+  healthyNupkg,
+  malformedAlongsideHealthyNupkg,
+  malformedAssemblyBytes,
+  manifestBackedNupkg,
+  manifestOnlyNupkg,
+  storedZip,
+  type ManifestDependency,
+} from "./package-adoption-nupkg.ts";
+
+type WorkerClientModule = typeof import("../src/engine-worker-client.ts");
+
+const site = resolve(
+  process.env.INSPECT_WEB_PACKAGE_ADOPTION_SITE
+    ?? "../artifacts/inspect-web-publish/wwwroot",
+);
+const manifest: unknown = JSON.parse(
+  readFileSync(resolve(site, "manifest.json"), "utf8"),
+);
+if (typeof manifest !== "object" || manifest === null
+    || !("src/engine-worker-client.ts" in manifest)) {
+  throw new Error("Published site is missing the production Worker client entry.");
+}
+const workerClientEntry = manifest["src/engine-worker-client.ts"];
+if (typeof workerClientEntry !== "object" || workerClientEntry === null
+    || !("file" in workerClientEntry)
+    || typeof workerClientEntry.file !== "string") {
+  throw new Error("Published production Worker client entry has no asset.");
+}
+const workerClientUrl = `/${workerClientEntry.file}`;
+
+async function chooseInspector(
+  page: Page,
+  attribute: string,
+  inspector: string,
+) {
+  const tab = page.locator(
+    `[data-inspector-tab][${attribute}="${inspector}"]`,
+  );
+  const trigger = page.locator("[data-navigation-trigger='inspector']");
+  await expect.poll(async () =>
+    await tab.isVisible() || await trigger.isVisible()).toBe(true);
+  if (await tab.isVisible()) {
+    await tab.click();
+    return;
+  }
+
+  await trigger.click();
+  await page.locator("#inspector-navigation-menu")
+    .locator(`[${attribute}="${inspector}"]`)
+    .click();
+}
+
+// This gate drives the actually published production DotnetInspect.Web Wasm
+// artifact through the production single-runtime Worker client in Firefox. It proves
+// the artifact-backed package scope adoption contract (issue #5576): ordinary
+// singleton opening via queryPackage, repeated/joined requests, the four-scope
+// bound with successful eviction, awaitable Workspace occurrence activation, a
+// stale occurrence action after clear and after replacement, and a
+// valid-reference / malformed-implementation package producing a visible
+// selected rejection beside healthy evidence. It also proves the package
+// facade's assembly-reference result union (issue #6191): an available list of
+// real AssemblyRef rows, a manifest-only package's compile-library failure
+// message beside healthy manifest dependency groups, and the production page
+// rendering the available case. Package acquisition leaves the browser as
+// ordinary NuGet Gallery CDN fetches, which this spec intercepts to serve
+// deterministic local fixtures; a separate test exercises the immutable real
+// Microsoft.Extensions.Http@10.0.0/net10.0 and the formerly oversized
+// System.Text.Json@10.0.0/net10.0 coordinates over the network.
+
+function locateFixtureAssembly(variable: string): Buffer {
+  const configured = process.env[variable];
+  if (!configured) {
+    throw new Error(
+      `${variable} must point at a built, cataloged fixture assembly resolved `
+        + "through eng/test-inspect-web-package-adoption-gate.sh "
+        + "(FixtureCatalog.AssemblyPath via tools/InspectWebFixtureResolver).",
+    );
+  }
+  return readFileSync(resolve(configured));
+}
+
+// Two genuinely valid, distinct-identity cataloged fixtures (diff-asm.lib-a and
+// diff-asm.lib-b). The healthy carrier supplies valid reference and
+// implementation assets; the broken carrier supplies a valid reference beside a
+// malformed implementation, so queryPackage's reference surface stays healthy
+// for both names while the analysis facade surfaces the broken implementation's
+// selected rejection.
+const healthyAssembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_LIBA_DLL",
+);
+const brokenReferenceAssembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_LIBB_DLL",
+);
+const literalAssembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_LITERALS_DLL",
+);
+const libraryDiffV1Assembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V1_DLL",
+);
+const libraryDiffV2Assembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V2_DLL",
+);
+const healthyAssemblyFileName = "DiffAsmLibA.dll";
+const brokenAssemblyFileName = "DiffAsmLibB.dll";
+const healthyTypeName = "Token";
+
+const healthyArchive = healthyNupkg(healthyAssembly, healthyAssemblyFileName);
+const malformedArchive = malformedAlongsideHealthyNupkg(
+  healthyAssembly,
+  healthyAssemblyFileName,
+  brokenReferenceAssembly,
+  brokenAssemblyFileName,
+  malformedAssemblyBytes(),
+);
+
+interface FixtureCoordinate {
+  readonly packageId: string;
+  readonly version: string;
+  readonly archive: Buffer;
+  readonly manifest?: Buffer;
+}
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let complete!: (value: T) => void;
+  const promise = new Promise<T>(accept => {
+    complete = accept;
+  });
+  return { promise, resolve: complete };
+}
+
+const version = "1.0.0";
+
+function packageQueryManifest(
+  packageId: string,
+  packageVersion: string,
+  isTool: boolean,
+): Buffer {
+  return Buffer.from(
+    `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>${packageId}</id>
+    <version>${packageVersion}</version>
+    <authors>Fixture</authors>
+    <description>Package Query fixture.</description>
+    ${isTool
+      ? `<packageTypes>
+      <packageType name="DotnetTool" />
+    </packageTypes>`
+      : ""}
+  </metadata>
+</package>
+`,
+    "utf8",
+  );
+}
+
+const healthy: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.Healthy",
+  version,
+  archive: healthyArchive,
+};
+const malformed: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.Malformed",
+  version,
+  archive: malformedArchive,
+};
+const occurrenceOne: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.OccurrenceOne",
+  version,
+  archive: healthyArchive,
+};
+const occurrenceTwo: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.OccurrenceTwo",
+  version,
+  archive: healthyArchive,
+};
+const joinCoordinate: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.Join",
+  version,
+  archive: healthyArchive,
+};
+const scopeCoordinates: readonly FixtureCoordinate[] = Array.from(
+  { length: 5 },
+  (_unused, index) => ({
+    packageId: `InspectWeb.Adoption.Scope${index + 1}`,
+    version,
+    archive: healthyArchive,
+  }),
+);
+
+// The assembly-reference result cases (issue #6191). Both packages declare the
+// same ordinary manifest dependency group, so the manifest evidence is a
+// constant across the available and unavailable reference outcomes.
+const declaredDependency: ManifestDependency = {
+  id: "InspectWeb.Adoption.Declared",
+  versionRange: "[2.0.0]",
+};
+const referencesPackageId = "InspectWeb.Adoption.References";
+const manifestOnlyPackageId = "InspectWeb.Adoption.ManifestOnly";
+const references: FixtureCoordinate = {
+  packageId: referencesPackageId,
+  version,
+  archive: manifestBackedNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    referencesPackageId,
+    version,
+    declaredDependency,
+  ),
+};
+const manifestOnly: FixtureCoordinate = {
+  packageId: manifestOnlyPackageId,
+  version,
+  archive: manifestOnlyNupkg(
+    manifestOnlyPackageId,
+    version,
+    declaredDependency,
+  ),
+};
+
+// DiffAsmLibA is an ordinary managed library with exactly one AssemblyRef row,
+// so the available case has an exact expected list rather than a shape probe.
+const healthyAssemblyName = "DiffAsmLibA";
+const expectedReferenceName = "System.Runtime";
+const libraryDiffPackageId = "InspectWeb.LibraryApiDiff";
+const libraryDiffAssemblyFileName = "LibraryApiDiffFixture.dll";
+const libraryDiffV1: FixtureCoordinate = {
+  packageId: libraryDiffPackageId,
+  version: "1.0.0",
+  archive: healthyNupkg(
+    libraryDiffV1Assembly,
+    libraryDiffAssemblyFileName,
+  ),
+};
+const libraryDiffV2: FixtureCoordinate = {
+  packageId: libraryDiffPackageId,
+  version: "2.0.0",
+  archive: healthyNupkg(
+    libraryDiffV2Assembly,
+    libraryDiffAssemblyFileName,
+  ),
+};
+
+const allFixtures: readonly FixtureCoordinate[] = [
+  healthy,
+  malformed,
+  occurrenceOne,
+  occurrenceTwo,
+  joinCoordinate,
+  references,
+  manifestOnly,
+  libraryDiffV1,
+  libraryDiffV2,
+  ...scopeCoordinates,
+];
+
+const literalFixtures: readonly FixtureCoordinate[] = [
+  {
+    packageId: "InspectWeb.Query.LiteralMatch",
+    version,
+    archive: healthyNupkg(literalAssembly, "ILInspector.Analysis.Fixtures.dll"),
+  },
+  {
+    packageId: "InspectWeb.Query.SemanticMiss",
+    version,
+    archive: healthyArchive,
+  },
+  {
+    packageId: "InspectWeb.Query.ReferenceOnly",
+    version,
+    archive: storedZip([
+      { name: `ref/${fixtureFramework}/Primary.dll`, bytes: literalAssembly },
+    ]),
+  },
+  {
+    packageId: "InspectWeb.Query.InvalidAssembly",
+    version,
+    archive: storedZip([
+      { name: `lib/${fixtureFramework}/Primary.dll`, bytes: malformedAssemblyBytes() },
+    ]),
+  },
+];
+
+class GalleryFixtureRegistry {
+  readonly downloads = new Map<string, number>();
+  private readonly archives = new Map<string, Buffer>();
+  private readonly manifests = new Map<string, Buffer>();
+  private readonly versions = new Map<string, string[]>();
+  private readonly registrations = new Map<string, {
+    readonly packageId: string;
+    readonly versions: string[];
+  }>();
+  private readonly downloadKeys = new Map<string, string>();
+
+  constructor(fixtures: readonly FixtureCoordinate[]) {
+    for (const fixture of fixtures) {
+      this.archives.set(
+        galleryDownloadPath(fixture.packageId, fixture.version),
+        fixture.archive,
+      );
+      const flatPath = `/v3-flatcontainer/${fixture.packageId.toLowerCase()}/${fixture.version}`
+        + `/${fixture.packageId.toLowerCase()}.${fixture.version}.nupkg`;
+      this.archives.set(flatPath, fixture.archive);
+      this.downloadKeys.set(flatPath, galleryDownloadPath(fixture.packageId, fixture.version));
+      const indexPath =
+        `/v3-flatcontainer/${fixture.packageId.toLowerCase()}/index.json`;
+      const versions = this.versions.get(indexPath) ?? [];
+      if (!versions.includes(fixture.version)) versions.push(fixture.version);
+      this.versions.set(indexPath, versions);
+      const registrationPath =
+        `/v3/registration5-gz-semver2/${fixture.packageId.toLowerCase()}/index.json`;
+      this.registrations.set(registrationPath, {
+        packageId: fixture.packageId,
+        versions,
+      });
+      if (fixture.manifest) {
+        this.manifests.set(
+          `/v3-flatcontainer/${fixture.packageId.toLowerCase()}/${fixture.version}`
+            + `/${fixture.packageId.toLowerCase()}.nuspec`,
+          fixture.manifest,
+        );
+      }
+    }
+  }
+
+  archiveFor(pathname: string): Buffer | undefined {
+    return this.archives.get(pathname);
+  }
+
+  versionIndexFor(pathname: string): readonly string[] | undefined {
+    return this.versions.get(pathname);
+  }
+
+  registrationFor(pathname: string): unknown {
+    const registration = this.registrations.get(pathname);
+    if (!registration) return undefined;
+    return {
+      items: [{
+        items: registration.versions.map(packageVersion => ({
+          catalogEntry: {
+            id: registration.packageId,
+            version: packageVersion,
+            listed: true,
+          },
+        })),
+      }],
+    };
+  }
+
+  manifestFor(pathname: string): Buffer | undefined {
+    return this.manifests.get(pathname);
+  }
+
+  recordDownload(pathname: string): void {
+    const key = this.downloadKeys.get(pathname) ?? pathname;
+    this.downloads.set(key, (this.downloads.get(key) ?? 0) + 1);
+  }
+
+  downloadCount(fixture: FixtureCoordinate): number {
+    return this.downloads.get(
+      galleryDownloadPath(fixture.packageId, fixture.version),
+    ) ?? 0;
+  }
+}
+
+const corsHeaders: Readonly<Record<string, string>> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, HEAD, OPTIONS",
+  "access-control-allow-headers": "*",
+};
+
+async function installGalleryRoutes(
+  context: BrowserContext,
+  registry: GalleryFixtureRegistry,
+  beforeArchive: (pathname: string) => Promise<void> = () => Promise.resolve(),
+): Promise<void> {
+  const serveFixture = async (route: Route): Promise<void> => {
+    const request = route.request();
+    if (request.method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: corsHeaders });
+      return;
+    }
+    const pathname = new URL(request.url()).pathname;
+    const archive = registry.archiveFor(pathname);
+    if (archive) {
+      await beforeArchive(pathname);
+      registry.recordDownload(pathname);
+      await route.fulfill({
+        status: 200,
+        headers: { ...corsHeaders, "content-type": "application/octet-stream" },
+        body: archive,
+      });
+      return;
+    }
+    const manifestBytes = registry.manifestFor(pathname);
+    if (manifestBytes) {
+      await route.fulfill({
+        status: 200,
+        headers: { ...corsHeaders, "content-type": "application/xml" },
+        body: manifestBytes,
+      });
+      return;
+    }
+    const indexVersions = registry.versionIndexFor(pathname);
+    if (indexVersions) {
+      await route.fulfill({
+        status: 200,
+        headers: { ...corsHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ versions: indexVersions }),
+      });
+      return;
+    }
+    const registration = registry.registrationFor(pathname);
+    if (registration) {
+      await route.fulfill({
+        status: 200,
+        headers: { ...corsHeaders, "content-type": "application/json" },
+        body: JSON.stringify(registration),
+      });
+      return;
+    }
+    await route.fulfill({ status: 404, headers: corsHeaders });
+  };
+  await context.route("https://globalcdn.nuget.org/**", serveFixture);
+  await context.route("https://api.nuget.org/v3-flatcontainer/**", serveFixture);
+  await context.route("https://api.nuget.org/v3/index.json", async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: corsHeaders,
+      body: JSON.stringify({
+        version: "3.0.0",
+        resources: [{
+          "@id": "https://api.nuget.org/v3-flatcontainer/",
+          "@type": "PackageBaseAddress/3.0.0",
+        }],
+      }),
+    });
+  });
+}
+
+declare global {
+  interface Window {
+    __adoption?: {
+      queryPackage(
+        packageId: string,
+        version: string,
+        framework: string,
+      ): Promise<PackageSurface>;
+      cacheStats(): Promise<CacheStats>;
+      queryOccurrences(workspaceJson: string): Promise<OccurrenceView>;
+      activate(action: string): Promise<OccurrenceActivation>;
+      clearOccurrences(): Promise<void>;
+      queryDependencies(
+        packageId: string,
+        version: string,
+        framework: string,
+        assemblyId: string,
+      ): Promise<PackageDependencies>;
+      queryIntegrations(
+        packageId: string,
+        version: string,
+        framework: string,
+        libraryId: string,
+      ): Promise<PackageIntegrations>;
+      dispose(): void;
+    };
+    __queryResponsiveness?: {
+      readonly startAt: number;
+      inputAt: number | null;
+      firstRowAt: number | null;
+      frameAt: number | null;
+      completedAt: number | null;
+      renderCount: number;
+      longestTimerDelay: number;
+      timer: number;
+      observer: MutationObserver;
+    };
+  }
+}
+
+async function boot(page: Page): Promise<void> {
+  await page.goto("/package-adoption-gate.html");
+  await page.evaluate(async clientUrl => {
+    const clientImport: unknown = await import(clientUrl);
+    function isWorkerClient(value: unknown): value is WorkerClientModule {
+      return typeof value === "object" && value !== null
+        && "createProductionEngineWorkerClient" in value
+        && typeof value.createProductionEngineWorkerClient === "function";
+    }
+    if (!isWorkerClient(clientImport)) {
+      throw new Error("Published production Worker client exports are missing.");
+    }
+    const production = clientImport.createProductionEngineWorkerClient(
+      location.origin,
+      {
+        callbacks: {
+          failure: failure => {
+            throw new Error(`Production Worker failure: ${failure.kind}.`);
+          },
+          diagnostic: diagnostic => {
+            throw new Error(`Production Worker diagnostic: ${diagnostic.kind}.`);
+          },
+          realmReleased: () => undefined,
+        },
+        operationDiagnostic: diagnostic => {
+          console.error(
+            `INSPECT_WEB_PRODUCT_OPERATION_FAILURE:${diagnostic.kind}`,
+          );
+          throw new Error(`Production operation failed: ${diagnostic.kind}.`);
+        },
+      },
+    );
+    await production.ready;
+    const client = production.client;
+    window.__adoption = {
+      queryPackage: (packageId, pkgVersion, framework) =>
+        client.package.queryPackage(packageId, pkgVersion, framework),
+      cacheStats: () => client.package.packageCacheStats(),
+      queryOccurrences: workspaceJson =>
+        client.package.queryWorkspacePackageOccurrences(workspaceJson),
+      activate: action =>
+        client.package.activateWorkspacePackageOccurrence(action),
+      clearOccurrences: () =>
+        client.package.clearWorkspacePackageOccurrences(),
+      queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
+        client.package.queryPackageDependencies(
+          packageId, pkgVersion, framework, assemblyId),
+      queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
+        client.analysis.queryPackageIntegrations(
+          packageId, pkgVersion, framework, libraryId),
+      dispose: () => production.dispose(),
+    };
+  }, workerClientUrl);
+}
+
+function driver(page: Page): {
+  queryPackage(fixture: FixtureCoordinate, framework?: string): Promise<PackageSurface>;
+  queryCoordinate(packageId: string, version: string, framework: string): Promise<PackageSurface>;
+  cacheStats(): Promise<CacheStats>;
+  queryOccurrences(workspace: readonly { package: string; version: string; framework: string }[]): Promise<OccurrenceView>;
+  activate(action: string): Promise<OccurrenceActivation>;
+  clearOccurrences(): Promise<void>;
+  queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
+  queryIntegrations(packageId: string, version: string, framework: string, libraryId: string): Promise<PackageIntegrations>;
+} {
+  return {
+    queryPackage: (fixture, framework = fixtureFramework) =>
+      page.evaluate(
+        ({ packageId, version: ver, framework: tfm }) =>
+          window.__adoption!.queryPackage(packageId, ver, tfm),
+        { packageId: fixture.packageId, version: fixture.version, framework },
+      ),
+    queryCoordinate: (packageId, pkgVersion, framework) =>
+      page.evaluate(
+        ({ packageId: id, version: ver, framework: tfm }) =>
+          window.__adoption!.queryPackage(id, ver, tfm),
+        { packageId, version: pkgVersion, framework },
+      ),
+    cacheStats: () => page.evaluate(() => window.__adoption!.cacheStats()),
+    queryOccurrences: workspace =>
+      page.evaluate(
+        json => window.__adoption!.queryOccurrences(json),
+        JSON.stringify(workspace),
+      ),
+    activate: action =>
+      page.evaluate(token => window.__adoption!.activate(token), action),
+    clearOccurrences: () =>
+      page.evaluate(() => window.__adoption!.clearOccurrences()),
+    queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
+      page.evaluate(
+        ({ packageId: id, version: ver, framework: tfm, assemblyId: selected }) =>
+          window.__adoption!.queryDependencies(id, ver, tfm, selected),
+        { packageId, version: pkgVersion, framework, assemblyId },
+      ),
+    queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
+      page.evaluate(
+        ({ packageId: id, version: ver, framework: tfm, libraryId: selected }) =>
+          window.__adoption!.queryIntegrations(id, ver, tfm, selected),
+        { packageId, version: pkgVersion, framework, libraryId },
+      ),
+  };
+}
+
+function firstOccurrence(view: OccurrenceView): OccurrenceRow {
+  const [row] = view.occurrences;
+  if (row === undefined) {
+    throw new Error("Expected at least one workspace package occurrence.");
+  }
+  return row;
+}
+
+// The published facade hands back one completed assembly-reference outcome: an
+// available list (the object case), a failure message (the string case), or the
+// generated union's default null. These narrow that result at the consumer,
+// exactly as the production renderer must, so a test that expects one case can
+// never silently read the other.
+function availableReferences(
+  result: AssemblyReferenceResult,
+): AssemblyReferenceList {
+  if (result === null || typeof result === "string") {
+    throw new Error(
+      "Expected an available assembly-reference list; the facade returned "
+        + `${JSON.stringify(result)}.`);
+  }
+  return result;
+}
+
+function referenceFailure(result: AssemblyReferenceResult): string {
+  if (typeof result !== "string") {
+    throw new Error(
+      "Expected an assembly-reference failure message; the facade returned "
+        + `${JSON.stringify(result)}.`);
+  }
+  return result;
+}
+
+test("Library API Diff preserves distinct carriage-return and newline Type identities", async ({
+  page,
+}) => {
+  const input = {
+    packageModel: {},
+    packageId: "Example.Package",
+    currentVersion: "2.0.0",
+    targetVersion: "1.0.0",
+    targetFramework: fixtureFramework,
+    compileAssetId: "lib/net11.0/Example.dll",
+  };
+  const endpoint = (packageVersion: string) => ({
+    packageId: input.packageId,
+    version: packageVersion,
+    framework: input.targetFramework,
+    asset: {
+      id: input.compileAssetId,
+      path: input.compileAssetId,
+      assemblyName: "Example",
+    },
+    assembly: {
+      name: "Example",
+      version: packageVersion,
+      culture: null,
+      publicKeyToken: null,
+    },
+    scope: "Public" as const,
+    isComplete: true,
+    issues: [],
+  });
+  const type = (identifier: string) => ({
+    documentIdentifier: identifier,
+    display: identifier,
+    state: "Diff" as const,
+    typeDefinitionChanged: false,
+    changedMemberCount: 0,
+    breakingCount: 0,
+    additiveCount: 0,
+    potentiallyBreakingCount: 0,
+    before: {
+      identifier,
+      namespace: "Example",
+      segments: ["A", "B"],
+      display: identifier,
+    },
+    after: {
+      identifier,
+      namespace: "Example",
+      segments: ["A", "B"],
+      display: identifier,
+    },
+  });
+  const result: BrowserLibraryApiDiffResult = {
+    schemaVersion: 1,
+    request: {
+      schemaVersion: 1,
+      packageId: input.packageId,
+      currentVersion: input.currentVersion,
+      targetVersion: input.targetVersion,
+      targetFramework: input.targetFramework,
+      compileAssetId: input.compileAssetId,
+    },
+    kind: "Succeeded",
+    value: {
+      libraryIdentifier: "Example",
+      libraryDisplay: "Example",
+      target: endpoint(input.targetVersion),
+      current: endpoint(input.currentVersion),
+      aggregate: {
+        changedTypeCount: 2,
+        addedTypeCount: 0,
+        removedTypeCount: 0,
+        changedMemberCount: 0,
+        breakingCount: 0,
+        additiveCount: 0,
+        potentiallyBreakingCount: 0,
+      },
+      types: [type("Example.A\rB"), type("Example.A\nB")],
+    },
+    unavailable: null,
+    rejected: null,
+    failureKind: null,
+    error: null,
+    diagnostic: null,
+    reason: null,
+  };
+  const state: LibraryApiDiffState = {
+    status: "ready",
+    input,
+    result,
+  };
+  const html = renderLibraryApiDiff(state, value => String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;"));
+
+  await page.setContent(html);
+  const rows = page.locator(".library-api-diff-type");
+  await expect(rows.nth(0))
+    .toHaveAttribute("data-before-type-id", "Example.A\rB");
+  await expect(rows.nth(1))
+    .toHaveAttribute("data-before-type-id", "Example.A\nB");
+});
+
+test.describe("Package Query website over real Wasm", () => {
+  test("keeps blank input idle and exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
+    const workers: Worker[] = [];
+    page.on("worker", worker => workers.push(worker));
+    const exactRequests: URL[] = [];
+    const searchRequests: URL[] = [];
+    const enrichment: string[] = [];
+    context.on("request", request => {
+      const url = new URL(request.url());
+      if (url.pathname.endsWith(".nuspec") || url.pathname.endsWith(".nupkg")) {
+        enrichment.push(url.href);
+      }
+    });
+    await context.route("https://globalcdn.nuget.org/**", async route => {
+      const url = new URL(route.request().url());
+      exactRequests.push(url);
+      if (url.pathname === "/v3-flatcontainer/newtonsoft.missing/index.json") {
+        await route.fulfill({ status: 404, headers: corsHeaders });
+        return;
+      }
+      expect([
+        "/v3-flatcontainer/newtonsoft.json/index.json",
+        "/v3/registration5-gz-semver2/newtonsoft.json/index.json",
+      ]).toContain(url.pathname);
+      const data = url.pathname.includes("registration")
+        ? { items: [{ items: [{ catalogEntry: {
+            id: "Newtonsoft.Json", version: "1.0.0", listed: true,
+          } }] }] }
+        : { versions: ["1.0.0"] };
+      await route.fulfill({
+        status: 200, contentType: "application/json", headers: corsHeaders,
+        body: JSON.stringify(data),
+      });
+    });
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      const url = new URL(route.request().url());
+      expect(url.pathname).toBe("/query");
+      searchRequests.push(url);
+      const data = url.searchParams.get("skip") === "0"
+        ? ["Newtonsoft.Json", "NewtonsoftOther"].map(id => ({
+            id, version: "1.0.0", description: "Prefix fixture.",
+            owners: ["Fixture"], totalDownloads: 100, verified: true,
+          }))
+        : [];
+      await route.fulfill({
+        status: 200, contentType: "application/json", headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 2, data }),
+      });
+    });
+
+    await page.goto("/query");
+    const input = page.locator("#package-query-prefix");
+    await expect(input).toBeVisible({ timeout: 120_000 });
+    expect(workers).toHaveLength(1);
+    await expect(page.locator("#package-query-run")).toHaveText("Run query");
+    await expect(page.locator("#package-query-discover")).toHaveCount(0);
+    await expect(page.locator("#package-query-type")).toHaveCount(0);
+    await expect(page.locator("#package-query-order")).toHaveCount(0);
+    expect(exactRequests).toHaveLength(0);
+    expect(searchRequests).toHaveLength(0);
+
+    await page.locator("#package-query-run").click();
+    expect(exactRequests).toHaveLength(0);
+    expect(searchRequests).toHaveLength(0);
+
+    await input.fill("Newtonsoft.Json");
+    await page.locator("#package-query-run").click();
+    await expect(page.locator(".query-row h2"))
+      .toHaveText(["Newtonsoft.Json"], { timeout: 30_000 });
+    await expect(page.locator(".query-footer"))
+      .toContainText("exact package selection complete", { timeout: 30_000 });
+    expect(exactRequests).toHaveLength(2);
+    expect(searchRequests).toHaveLength(0);
+    await expect(page.locator("#package-query-type")).toHaveCount(0);
+
+    await input.fill("Newtonsoft.*");
+    await page.locator("#package-query-run").click();
+    await expect(page.locator(".query-row h2")).toHaveText(["Newtonsoft.Json"]);
+    await expect(page.locator(".query-footer")).toContainText("all matches");
+    expect(searchRequests.length).toBeGreaterThan(0);
+    expect(exactRequests).toHaveLength(2);
+
+    await input.fill("Newtonsoft*");
+    await page.locator("#package-query-run").click();
+    await expect(page.locator(".query-row h2")).toHaveText(["Newtonsoft.Json", "NewtonsoftOther"]);
+    await expect(page.locator(".query-footer")).toContainText("all matches");
+    const searchCount = searchRequests.length;
+
+    await input.fill("Newtonsoft.Missing");
+    await page.locator("#package-query-run").click();
+    await expect(page.locator(".query-empty")).toContainText("No fallback search was used.");
+    await expect(page.locator(".query-row")).toHaveCount(0);
+    expect(searchRequests).toHaveLength(searchCount);
+    expect(exactRequests.at(-1)?.pathname).toBe("/v3-flatcontainer/newtonsoft.missing/index.json");
+    expect(enrichment).toEqual([]);
+  });
+
+  test("classifies Azure.Mcp as a CLI v2 tool through bounded package content", async ({
+    page,
+    context,
+  }) => {
+    const toolManifest = packageQueryManifest("Azure.Mcp", "2.0.5", true);
+    const tool: FixtureCoordinate = {
+      packageId: "Azure.Mcp",
+      version: "2.0.5",
+      manifest: toolManifest,
+      archive: storedZip([
+        { name: "Azure.Mcp.nuspec", bytes: toolManifest },
+        {
+          name: "tools/net10.0/any/DotnetToolSettings.xml",
+          bytes: Buffer.from(
+            `<DotNetCliTool Version="2">
+  <Commands>
+    <Command Name="azmcp" EntryPoint="Azure.Mcp.dll" Runner="dotnet" />
+  </Commands>
+</DotNetCliTool>
+`,
+            "utf8",
+          ),
+        },
+      ]),
+    };
+    const libraryManifest =
+      packageQueryManifest("Azure.Library", "1.0.0", false);
+    const library: FixtureCoordinate = {
+      packageId: "Azure.Library",
+      version: "1.0.0",
+      manifest: libraryManifest,
+      archive: storedZip([
+        { name: "Azure.Library.nuspec", bytes: libraryManifest },
+      ]),
+    };
+    const registry = new GalleryFixtureRegistry([tool, library]);
+    await installGalleryRoutes(context, registry);
+
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      const url = new URL(route.request().url());
+      expect(url.pathname).toBe("/query");
+      const data = url.searchParams.get("skip") === "0"
+        ? [
+            {
+              id: tool.packageId,
+              version: tool.version,
+              description: "Azure MCP Server.",
+              owners: ["Microsoft"],
+              totalDownloads: 2_208_344,
+              verified: true,
+            },
+            {
+              id: library.packageId,
+              version: library.version,
+              description: "Ordinary library fixture.",
+              owners: ["Fixture"],
+              totalDownloads: 1,
+              verified: false,
+            },
+          ]
+        : [];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 2, data }),
+      });
+    });
+
+    await page.goto("/query");
+    const input = page.locator("#package-query-prefix");
+    await expect(input).toBeVisible({ timeout: 120_000 });
+    const toolFacet = page.locator(
+      '[data-query-facet="package.query.dotnet-tool"]',
+    );
+    await toolFacet.click();
+    await expect(toolFacet).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".query-facet-disclosure").nth(1))
+      .toContainText("Candidate bound K: 20");
+
+    await input.fill("Azure.*");
+    await page.locator("#package-query-run").click();
+
+    const row = page.locator(".query-row");
+    await expect(row).toHaveCount(1, { timeout: 30_000 });
+    await expect(row.locator("h2")).toHaveText(tool.packageId);
+    await expect(row.locator(".query-tier")).toHaveText("package-content");
+    await expect(row.locator(".query-evidence")).toContainText(
+      "RID-specific .NET tool CLI v2 format",
+    );
+    expect(registry.downloadCount(tool)).toBe(1);
+    expect(registry.downloadCount(library)).toBe(0);
+  });
+
+  test("retains 100 prefix results while mounting a bounded row window", async ({
+    page,
+    context,
+  }) => {
+    const requests: URL[] = [];
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      const url = new URL(route.request().url());
+      expect(url.pathname).toBe("/query");
+      requests.push(url);
+      const skip = Number(url.searchParams.get("skip") ?? "0");
+      const data = skip === 0
+        ? Array.from({ length: 100 }, (_, index) => ({
+            id: `System.Package${index.toString().padStart(3, "0")}`,
+            version: "1.0.0",
+            description: "Windowed prefix fixture.",
+            owners: ["Fixture"],
+            totalDownloads: index,
+            verified: false,
+          }))
+        : [];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 100, data }),
+      });
+    });
+
+    await page.goto("/query");
+    const input = page.locator("#package-query-prefix");
+    const main = page.locator(".query-main");
+    const footer = page.locator(".query-footer");
+    await expect(input).toBeVisible({ timeout: 120_000 });
+    await input.fill("System*");
+    await page.locator("#package-query-run").click();
+
+    await expect(footer).toContainText("20 packages");
+    await expect(page.locator(".query-row")).toHaveCount(20);
+    const firstOpen = page.locator("[data-query-row-open]").first();
+    await firstOpen.focus();
+    await expect(firstOpen).toBeFocused();
+    for (let target = 30; target <= 100; target += 10) {
+      await main.evaluate(element => {
+        element.scrollTop = element.scrollHeight;
+      });
+      await expect.poll(async () => {
+        const text = (await footer.textContent() ?? "").trim();
+        return Number(text.match(/^(\d+) packages?/)?.[1] ?? "0");
+      }).toBeGreaterThanOrEqual(target);
+      expect(await page.locator(".query-row").count())
+        .toBeLessThanOrEqual(30);
+      if (target >= 40) {
+        await expect(page.locator("#package-query-results")).toBeFocused();
+      }
+    }
+
+    await expect(footer)
+      .toContainText("100 packages · bounded: first 100 matches");
+    await expect(page.locator(".query-row h2").last())
+      .toHaveText("System.Package099");
+    await main.evaluate(element => {
+      element.scrollTop = 0;
+    });
+    await expect(page.locator(".query-row h2").first())
+      .toHaveText("System.Package000");
+    await expect(page.locator(".query-row")).toHaveCount(30);
+    expect(requests).toHaveLength(1);
+  });
+
+});
+
+test.describe("Package Changes website over real Wasm", () => {
+  test("streams product activity and reconciles typed partial evidence", async ({
+    page,
+    context,
+  }) => {
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 5 * 60 * 1_000);
+    const catalogItems = Array.from({ length: 40 }, (_, index) => {
+      const ordinal = index.toString().padStart(2, "0");
+      return {
+        "@id": `https://api.nuget.org/v3/catalog0/data/item-${ordinal}.json`,
+        "@type": "nuget:PackageDetails",
+        commitId: `commit-${ordinal}`,
+        commitTimeStamp: new Date(
+          now.getTime() - (40 - index) * 30 * 60 * 1_000).toISOString(),
+        "nuget:id": "Microsoft.Extensions.AI",
+        "nuget:version": `1.${index}.0`,
+      };
+    });
+    const firstCommit = new Date(catalogItems[0]!.commitTimeStamp);
+    const secondCommit = new Date(catalogItems.at(-1)!.commitTimeStamp);
+    const requests: URL[] = [];
+    const advisoryRequested = deferred<void>();
+    const releaseAdvisory = deferred<void>();
+    await context.route("**/api/package-changes/**", async route => {
+      const url = new URL(route.request().url());
+      requests.push(url);
+      if (url.pathname.endsWith("/advisories")) {
+        const affects = url.searchParams.get("affects") ?? "";
+        if (url.searchParams.has("after")) {
+          await route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "controlled partial page" }),
+          });
+          return;
+        }
+        if (!affects.split(",").includes("microsoft.extensions.ai")) {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: "[]",
+          });
+          return;
+        }
+        advisoryRequested.resolve();
+        await releaseAdvisory.promise;
+        const next = new URL("https://api.github.com/advisories");
+        for (const name of [
+          "ecosystem",
+          "type",
+          "is_withdrawn",
+          "per_page",
+          "affects",
+        ]) {
+          const value = url.searchParams.get(name);
+          if (value !== null) next.searchParams.set(name, value);
+        }
+        next.searchParams.set("after", "Y3Vyc29yOnYyOpHOAQ==");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: {
+            Link: `<${next.toString()}>; rel="next"`,
+          },
+          body: JSON.stringify([{
+            ghsa_id: "GHSA-1234-5678-9012",
+            cve_id: "CVE-2026-1234",
+            type: "reviewed",
+            severity: "high",
+            published_at: firstCommit.toISOString(),
+            updated_at: secondCommit.toISOString(),
+            withdrawn_at: null,
+            vulnerabilities: [{
+              package: {
+                ecosystem: "nuget",
+                name: "Microsoft.Extensions.AI",
+              },
+              vulnerable_version_range: "< 1.1.0",
+              first_patched_version: null,
+            }],
+          }]),
+        });
+        return;
+      }
+      const providerPath = url.searchParams.get("path");
+      let body: string;
+      if (providerPath === "/v3/index.json") {
+        body = JSON.stringify({
+          version: "3.0.0",
+          resources: [{
+            "@id": "https://api.nuget.org/v3/catalog0/index.json",
+            "@type": "Catalog/3.0.0",
+          }],
+        });
+      } else if (providerPath === "/v3/catalog0/index.json") {
+        body = JSON.stringify({
+          commitId: "index",
+          commitTimeStamp: horizon.toISOString(),
+          count: catalogItems.length,
+          items: catalogItems.map((item, index) => ({
+            "@id": `https://api.nuget.org/v3/catalog0/page-${index}.json`,
+            commitId: `page-${index}`,
+            commitTimeStamp: index === catalogItems.length - 1
+              ? horizon.toISOString()
+              : item.commitTimeStamp,
+            count: 1,
+          })),
+        });
+      } else if (/^\/v3\/catalog0\/page-\d+\.json$/.test(
+        providerPath ?? "")) {
+        const pageIndex = Number(
+          /^\/v3\/catalog0\/page-(\d+)\.json$/.exec(providerPath ?? "")?.[1]);
+        body = JSON.stringify({
+          commitId: `page-${pageIndex}`,
+          commitTimeStamp: pageIndex === catalogItems.length - 1
+            ? horizon.toISOString()
+            : catalogItems[pageIndex]!.commitTimeStamp,
+          count: 1,
+          parent: "https://api.nuget.org/v3/catalog0/index.json",
+          items: [catalogItems[pageIndex]],
+        });
+      } else {
+        await route.fulfill({ status: 404 });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body,
+      });
+    });
+
+    await page.goto("/query");
+    await expect(page.locator("#package-query-prefix"))
+      .toBeVisible({ timeout: 120_000 });
+    await page.locator('[data-query-mode="changes"]').click();
+    const packageSet = page.locator("#package-changes-package-set");
+    await expect(packageSet).toBeVisible();
+    expect(await packageSet.locator("option").count()).toBeGreaterThan(0);
+    await expect(page.locator(".package-changes-package-set-summary"))
+      .not.toHaveText("");
+
+    const maximumRows = page.locator("#package-changes-limit");
+    await maximumRows.fill("");
+    await page.locator("#package-changes-run").click();
+    expect(await maximumRows.evaluate(input => {
+      if (!(input instanceof HTMLInputElement)) {
+        throw new Error("Package Changes maximum rows is not an input.");
+      }
+      return input.validity.valueMissing;
+    })).toBe(true);
+    expect(requests).toHaveLength(0);
+    await maximumRows.fill("100");
+
+    const dateTimeInput = (value: Date) => value.toISOString().slice(0, 19);
+    await page.locator("#package-changes-custom-interval").check();
+    await page.locator("#package-changes-from")
+      .fill(dateTimeInput(new Date(now.getTime() - 10 * 24 * 60 * 60 * 1_000)));
+    const through = page.locator("#package-changes-through");
+    await through.fill(
+      dateTimeInput(new Date(now.getTime() + 40 * 24 * 60 * 60 * 1_000)));
+    await page.locator("#package-changes-run").click();
+    await expect(through).toHaveJSProperty(
+      "validationMessage",
+      "The custom interval cannot exceed 42 days.");
+    expect(requests).toHaveLength(0);
+
+    await through.fill(dateTimeInput(new Date(now.getTime() - 60 * 1_000)));
+    await page.locator("#package-changes-run").click();
+    await advisoryRequested.promise;
+    await expect(page.locator(".package-changes-summary"))
+      .toContainText("streaming");
+    await expect(page.locator(".package-changes-progress")).toBeVisible();
+    releaseAdvisory.resolve();
+
+    await expect(page.locator(".package-changes-summary"))
+      .toContainText("partial", { timeout: 30_000 });
+    await expect(page.locator(".package-changes-coverage"))
+      .toContainText("Completion and coverage");
+    await expect(page.locator(".package-changes-coverage"))
+      .toContainText("40 of 40 eligible");
+    await expect(page.locator(".package-changes-progress li")).toHaveCount(2);
+    await expect(page.locator(".package-changes-row")).toHaveCount(30);
+    await expect(page.locator(".package-changes-row h2").first())
+      .toHaveText("Microsoft.Extensions.AI 1.39.0");
+    await expect(page.locator(".package-changes-evidence-grid").first())
+      .toContainText("Partial");
+    await expect(page.locator(".package-changes-failures"))
+      .toContainText("Advisory provider");
+    await expect(page.locator(".package-changes-row").first())
+      .toContainText("commit-39");
+
+    await page.addStyleTag({
+      content: ".package-changes-row { min-height: 1760px; }",
+    });
+    const scroller = page.locator(".query-main");
+    const geometry = await page.evaluate(() => {
+      const scroll = document.querySelector<HTMLElement>(".query-main");
+      const window = document.querySelector<HTMLElement>(
+        "#package-changes-row-window");
+      const first = document.querySelector<HTMLElement>(
+        "[data-changes-row-index='0']");
+      if (!scroll || !window || !first) {
+        throw new Error("Package Changes window geometry is unavailable.");
+      }
+      const scrollRect = scroll.getBoundingClientRect();
+      const windowRect = window.getBoundingClientRect();
+      const extent = first.getBoundingClientRect().height + 10;
+      const surfaceTop = windowRect.top - scrollRect.top + scroll.scrollTop;
+      scroll.scrollTop = surfaceTop + extent * 6 - 50;
+      scroll.dispatchEvent(new Event("scroll"));
+      return { extent, target: scroll.scrollTop };
+    });
+    expect(geometry.extent).toBeGreaterThan(1_600);
+    await expect(page.locator("#package-changes-row-window"))
+      .toHaveAttribute("aria-label", "Changes 1 through 30 of 40");
+    const retainedLink = page.locator(
+      "[data-changes-row-index='10'] [data-package-changes-focus-key='package-10']");
+    await retainedLink.focus();
+    await expect(retainedLink).toBeFocused();
+    await scroller.evaluate(element => {
+      element.scrollTop += 100;
+      element.dispatchEvent(new Event("scroll"));
+    });
+    await expect(page.locator("#package-changes-row-window"))
+      .not.toHaveAttribute("aria-label", "Changes 1 through 30 of 40");
+    expect(await scroller.evaluate(element => element.scrollTop))
+      .toBeGreaterThanOrEqual(geometry.target);
+    await expect(page.locator(".package-changes-row")).toHaveCount(30);
+    await expect(retainedLink).toBeFocused();
+
+    expect(requests.some(request =>
+      request.pathname.endsWith("/nuget")
+      && request.searchParams.get("path") === "/v3/index.json")).toBe(true);
+    expect(requests.some(request =>
+      request.pathname.endsWith("/advisories")
+      && request.searchParams.has("after"))).toBe(true);
+  });
+});
+
+test.describe("Assembly Package Query website over real Wasm", () => {
+  test("evaluates disposable candidates and reopens a match through its exact Root", async ({
+    page, context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(literalFixtures);
+    const releaseCompletion = deferred<void>();
+    const heldArchive = galleryDownloadPath(
+      literalFixtures.at(-1)!.packageId,
+      literalFixtures.at(-1)!.version,
+    );
+    await installGalleryRoutes(context, registry, pathname =>
+      pathname === heldArchive ? releaseCompletion.promise : Promise.resolve());
+    await page.goto("/query");
+    await expect(page.locator(".query-assembly-controls summary")).toBeVisible({ timeout: 120_000 });
+    await page.locator(".query-assembly-controls summary").click();
+    const packages = page.locator("#package-query-assembly-packages");
+    await page.locator("#package-query-assembly-operand").fill("shared-literal-use-marker");
+    await page.locator("#package-query-assembly-tfm").fill(fixtureFramework);
+    await packages.fill("System.Text.Json");
+    await page.locator("#package-query-assembly-run").click();
+    await expect(packages).toHaveJSProperty(
+      "validationMessage",
+      "Enter one exact ID@VERSION package per line.");
+    await packages.fill(
+      literalFixtures.map(fixture => `${fixture.packageId}@${fixture.version}`).join("\n"));
+    await expect(packages).toHaveJSProperty("validationMessage", "");
+    await page.evaluate(() => {
+      const timing: NonNullable<Window["__queryResponsiveness"]> = {
+        startAt: performance.timeOrigin + performance.now(),
+        inputAt: null,
+        firstRowAt: null,
+        frameAt: null,
+        completedAt: null,
+        renderCount: 0,
+        longestTimerDelay: 0,
+        timer: 0,
+        observer: new MutationObserver(() => {
+          timing.renderCount++;
+        }),
+      };
+      let previousTimerAt = performance.now();
+      timing.timer = window.setInterval(() => {
+        const currentTimerAt = performance.now();
+        timing.longestTimerDelay = Math.max(
+          timing.longestTimerDelay,
+          currentTimerAt - previousTimerAt,
+        );
+        previousTimerAt = currentTimerAt;
+      }, 10);
+      const input = document.createElement("button");
+      input.id = "query-responsiveness-input";
+      input.type = "button";
+      input.textContent = "Responsiveness input";
+      input.style.position = "fixed";
+      input.style.inset = "1rem";
+      input.style.zIndex = "10000";
+      input.addEventListener("pointerdown", () => {
+        timing.inputAt = performance.timeOrigin + performance.now();
+      }, { once: true });
+      document.body.append(input);
+      timing.observer.observe(document.body, { childList: true, subtree: true });
+      window.__queryResponsiveness = timing;
+    });
+    await page.locator("#package-query-assembly-run").click();
+
+    await expect(page.locator(".query-row")).toHaveCount(1, { timeout: 60_000 });
+    await page.evaluate(() => {
+      window.__queryResponsiveness!.firstRowAt =
+        performance.timeOrigin + performance.now();
+    });
+    await page.locator("#query-responsiveness-input").click();
+    await page.evaluate(async () => {
+      await new Promise<void>(resolveFirstFrame => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.__queryResponsiveness!.frameAt =
+              performance.timeOrigin + performance.now();
+            resolveFirstFrame();
+          });
+        });
+      });
+    });
+    releaseCompletion.resolve();
+    await expect(page.locator(".query-row")).toContainText("shared-literal-use-marker");
+    await expect(page.locator(".query-assessments")).toContainText("inspectweb.query.semanticmiss");
+    await expect(page.locator(".query-assessments")).toContainText("inspectweb.query.referenceonly");
+    await expect(page.locator(".query-failures")).toContainText("ImageAdmission");
+    await expect(page.locator(".query-footer")).toContainText("not all package assemblies");
+    const responsiveness = await page.evaluate(() => {
+      const timing = window.__queryResponsiveness!;
+      timing.completedAt = performance.timeOrigin + performance.now();
+      clearInterval(timing.timer);
+      timing.observer.disconnect();
+      document.querySelector("#query-responsiveness-input")?.remove();
+      return {
+        startAt: timing.startAt,
+        inputAt: timing.inputAt,
+        firstRowAt: timing.firstRowAt,
+        frameAt: timing.frameAt,
+        completedAt: timing.completedAt,
+        renderCount: timing.renderCount,
+        longestTimerDelay: timing.longestTimerDelay,
+      };
+    });
+    expect(responsiveness.firstRowAt).toBeGreaterThan(responsiveness.startAt);
+    expect(responsiveness.inputAt).toBeGreaterThan(responsiveness.startAt);
+    expect(responsiveness.frameAt).toBeGreaterThan(responsiveness.startAt);
+    expect(responsiveness.completedAt).toBeGreaterThan(responsiveness.firstRowAt!);
+    expect(responsiveness.inputAt).toBeLessThan(responsiveness.completedAt);
+    expect(responsiveness.frameAt).toBeLessThan(responsiveness.completedAt);
+    expect(responsiveness.renderCount).toBeGreaterThan(0);
+    expect(responsiveness.longestTimerDelay).toBeLessThan(250);
+    const match = literalFixtures[0]!;
+    for (const fixture of literalFixtures) expect(registry.downloadCount(fixture)).toBe(1);
+    const open = page.locator("[data-query-root-request]");
+    await expect(open).toHaveAttribute("data-query-root-request", /^pkgroot3\./);
+    await open.click();
+
+    await expect(page).not.toHaveURL(
+      /\/query(?:[?#].*)?$/,
+      { timeout: 60_000 },
+    );
+    await expect(page.locator("body")).toContainText(match.packageId.toLowerCase());
+    expect(registry.downloadCount(match)).toBe(2);
+  });
+});
+
+test.describe("artifact-backed package scope adoption over real Wasm", () => {
+  test.describe.configure({ timeout: 240_000 });
+
+  test("drives the production opening, join, occurrence, and rejection contracts", async ({
+    page,
+    context,
+  }) => {
+    page.on("console", message => {
+      const text = message.text();
+      if (text.startsWith("INSPECT_WEB_PRODUCT_OPERATION_FAILURE:")) {
+        console.log(text);
+      }
+    });
+    const workers: Worker[] = [];
+    page.on("worker", worker => workers.push(worker));
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    expect(workers).toHaveLength(1);
+    const engine = driver(page);
+
+    // Ordinary singleton opening yields healthy evidence.
+    const opened = await engine.queryPackage(healthy);
+    expect(opened.package).toBe(healthy.packageId);
+    expect(opened.version).toBe(version);
+    expect(opened.activeFramework).toBe(fixtureFramework);
+    expect(opened.assemblies.length).toBeGreaterThan(0);
+    expect(opened.types.length).toBeGreaterThan(0);
+    expect(opened.types.some(type => type.name === healthyTypeName)).toBe(true);
+    expect(opened.inspectionErrors.length).toBe(0);
+
+    // A repeated request for the same coordinate joins the retained scope: no
+    // new workspace entry, and the archive was fetched exactly once.
+    const afterFirst = await engine.cacheStats();
+    const rejoined = await engine.queryPackage(healthy);
+    const afterRejoin = await engine.cacheStats();
+    expect(rejoined).toEqual(opened);
+    expect(afterRejoin.workspaces).toBe(afterFirst.workspaces);
+    expect(registry.downloadCount(healthy)).toBe(1);
+
+    // Concurrent requests for the SAME previously unopened coordinate join a
+    // single scope: both observe the same surface, the archive downloads once,
+    // and exactly one workspace is counted for the coordinate.
+    const beforeJoin = await engine.cacheStats();
+    const [joinedA, joinedB] = await Promise.all([
+      engine.queryPackage(joinCoordinate),
+      engine.queryPackage(joinCoordinate),
+    ]);
+    const afterJoin = await engine.cacheStats();
+    expect(joinedA.package).toBe(joinCoordinate.packageId);
+    expect(joinedA).toEqual(joinedB);
+    expect(joinedA.types.some(type => type.name === healthyTypeName)).toBe(true);
+    expect(registry.downloadCount(joinCoordinate)).toBe(1);
+    expect(afterJoin.workspaces).toBe(beforeJoin.workspaces + 1);
+
+    // Awaitable occurrence activation following queryWorkspacePackageOccurrences.
+    const view = await engine.queryOccurrences([
+      { package: healthy.packageId, version, framework: fixtureFramework },
+    ]);
+    expect(view.superseded).toBe(false);
+    expect(view.occurrences.length).toBe(1);
+    const action = firstOccurrence(view).action;
+    const activation = await engine.activate(action);
+    expect(activation.activated).toBe(true);
+    expect(activation.superseded).toBe(false);
+    expect(activation.package?.package).toBe(healthy.packageId);
+
+    // A stale occurrence action after clear reports a superseded rejection.
+    const staleView = await engine.queryOccurrences([
+      { package: healthy.packageId, version, framework: fixtureFramework },
+    ]);
+    const staleAction = firstOccurrence(staleView).action;
+    await engine.clearOccurrences();
+    const clearedActivation = await engine.activate(staleAction);
+    expect(clearedActivation.activated).toBe(false);
+    expect(clearedActivation.superseded).toBe(true);
+    expect(clearedActivation.package).toBeNull();
+
+    // A stale occurrence action after replacement is superseded, while the
+    // replacement occurrence activates successfully.
+    const firstView = await engine.queryOccurrences([
+      { package: occurrenceOne.packageId, version, framework: fixtureFramework },
+    ]);
+    const firstAction = firstOccurrence(firstView).action;
+    const secondView = await engine.queryOccurrences([
+      { package: occurrenceTwo.packageId, version, framework: fixtureFramework },
+    ]);
+    const secondAction = firstOccurrence(secondView).action;
+    const supersededActivation = await engine.activate(firstAction);
+    expect(supersededActivation.activated).toBe(false);
+    expect(supersededActivation.superseded).toBe(true);
+    const replacementActivation = await engine.activate(secondAction);
+    expect(replacementActivation.activated).toBe(true);
+    expect(replacementActivation.package?.package).toBe(occurrenceTwo.packageId);
+
+    // Valid-reference / malformed-implementation: queryPackage returns the
+    // healthy reference surface for both selected names (both distinct-identity
+    // reference assemblies are valid), with no inspection errors and a Selected
+    // compile library. The analysis facade, initialized in the SAME runtime,
+    // then surfaces the broken implementation's selected rejection beside that
+    // healthy evidence: the malformed lib for the broken carrier makes the
+    // integrations result incomplete with a visible rejection, while the compile
+    // library selection stays Selected.
+    const malformedSurface = await engine.queryPackage(malformed);
+    expect(malformedSurface.assemblies.length).toBeGreaterThan(1);
+    expect(malformedSurface.types.some(type => type.name === healthyTypeName)).toBe(true);
+    expect(malformedSurface.inspectionErrors.length).toBe(0);
+    expect(malformedSurface.inspectionError).toBeNull();
+    expect(String(malformedSurface.compileLibrary.status)).toBe("Selected");
+
+    const brokenLibrary = malformedSurface.assemblies.find(
+      library => library.asset === `ref/${fixtureFramework}/${brokenAssemblyFileName}`,
+    );
+    const healthyLibrary = malformedSurface.assemblies.find(
+      library => library.asset === `ref/${fixtureFramework}/${healthyAssemblyFileName}`,
+    );
+    if (brokenLibrary === undefined || healthyLibrary === undefined) {
+      throw new Error("Expected both Library descriptors in the malformed package.");
+    }
+    const integrations = await engine.queryIntegrations(
+      malformed.packageId,
+      version,
+      fixtureFramework,
+      brokenLibrary.id,
+    );
+    expect(integrations.package).toBe(malformed.packageId);
+    expect(String(integrations.compileLibrary.status)).toBe("Selected");
+    expect(integrations.isComplete).toBe(false);
+    expect(integrations.inspectionError).not.toBeNull();
+    expect(integrations.inspectionError ?? "").toContain("InvalidImage");
+    const healthyIntegrations = await engine.queryIntegrations(
+      malformed.packageId,
+      version,
+      fixtureFramework,
+      healthyLibrary.id,
+    );
+    expect(healthyIntegrations.isComplete).toBe(true);
+    expect(healthyIntegrations.inspectionError).toBeNull();
+    await page.evaluate(() => window.__adoption!.dispose());
+  });
+
+  test("holds the four-scope bound and evicts to admit new scopes", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    const engine = driver(page);
+
+    const maxOpenScopes = 4;
+    const observed: number[] = [];
+    for (const coordinate of scopeCoordinates) {
+      const surface = await engine.queryPackage(coordinate);
+      expect(surface.package).toBe(coordinate.packageId);
+      expect(surface.types.length).toBeGreaterThan(0);
+      observed.push((await engine.cacheStats()).workspaces);
+    }
+
+    // The bound is never exceeded, and five distinct scopes saturate it: the
+    // fifth admission succeeded only by evicting a least-recently-used entry.
+    for (const workspaces of observed) {
+      expect(workspaces).toBeLessThanOrEqual(maxOpenScopes);
+    }
+    expect(Math.max(...observed)).toBe(maxOpenScopes);
+    expect(observed[observed.length - 1]).toBe(maxOpenScopes);
+  });
+
+  // Issue #6191: BrowserPackageDependencies.AssemblyReferences is a native C#
+  // union of a reference list and a failure message. These drive the published
+  // production Wasm and the public generated queryPackageDependencies facade so
+  // both cases are real engine answers, not hand-written JSON.
+  test("answers the assembly-reference union's available case with real rows", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    const engine = driver(page);
+
+    // The selected compile library comes from the package's own surface, so the
+    // reference query runs against the identity the production consumer uses.
+    const surface = await engine.queryPackage(references);
+    const library = surface.assemblies.find(
+      candidate => candidate.name === healthyAssemblyName,
+    );
+    if (library === undefined) {
+      throw new Error(`Expected the ${healthyAssemblyName} Library descriptor.`);
+    }
+    expect(String(surface.compileLibrary.status)).toBe("Selected");
+
+    const dependencies = await engine.queryDependencies(
+      references.packageId,
+      version,
+      fixtureFramework,
+      library.id,
+    );
+    expect(dependencies.package).toBe(references.packageId);
+    expect(dependencies.version).toBe(version);
+    expect(dependencies.activeFramework).toBe(fixtureFramework);
+    expect(dependencies.assembly).toBe(healthyAssemblyFileName);
+
+    // The available case is an object carrying the existing reference rows.
+    const list = availableReferences(dependencies.assemblyReferences);
+    const rows = list.references;
+    expect(rows.map(row => row.name)).toEqual([expectedReferenceName]);
+    const [row] = rows;
+    if (row === undefined) throw new Error("Expected one AssemblyRef row.");
+    expect(row.version).toBe("11.0.0.0");
+    expect(row.culture).toBe("neutral");
+    expect(row.publicKeyToken).toBeTruthy();
+
+    // The retired parallel field is gone from the wire result, and the outer
+    // manifest, framework, and compile-library facts stay independent of it.
+    expect(Object.hasOwn(dependencies, "assemblyReferenceError")).toBe(false);
+    expect(Object.keys(list)).toEqual(["references"]);
+    expect(dependencies.dependencyGroupError).toBeNull();
+    expect(String(dependencies.compileLibrary.status)).toBe("Selected");
+    const [group] = dependencies.dependencyGroups;
+    if (group === undefined) {
+      throw new Error("Expected the declared manifest dependency group.");
+    }
+    expect(group.isActive).toBe(true);
+    expect(group.dependencies.map(dependency => dependency.id))
+      .toEqual([declaredDependency.id]);
+  });
+
+  test("answers a manifest-only package with a reference failure beside healthy dependency groups", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    const engine = driver(page);
+
+    // A manifest-only package declares real dependencies and ships no compile
+    // assets, so no assembly-reference list can exist. The assembly id is
+    // unused on this path: the engine reports compile-library unavailability
+    // rather than attempting a reference query.
+    const dependencies = await engine.queryDependencies(
+      manifestOnly.packageId,
+      version,
+      fixtureFramework,
+      "",
+    );
+    expect(dependencies.package).toBe(manifestOnly.packageId);
+    expect(dependencies.assembly).toBeNull();
+    expect(String(dependencies.compileLibrary.status)).toBe("NoCompileAssets");
+
+    // The failure case is a string carrying the compile-library message, not an
+    // empty successful list and not the union's default null.
+    const failure = referenceFailure(dependencies.assemblyReferences);
+    expect(failure.length).toBeGreaterThan(0);
+    if (dependencies.compileLibrary.message !== null) {
+      expect(failure).toBe(dependencies.compileLibrary.message);
+    }
+    expect(Object.hasOwn(dependencies, "assemblyReferenceError")).toBe(false);
+
+    // The manifest evidence stays healthy beside that failure.
+    expect(dependencies.dependencyGroupError).toBeNull();
+    const [group] = dependencies.dependencyGroups;
+    if (group === undefined) {
+      throw new Error("Expected the declared manifest dependency group.");
+    }
+    expect(group.isActive).toBe(true);
+    expect(group.dependencies).toEqual([
+      { id: declaredDependency.id, versionRange: declaredDependency.versionRange },
+    ]);
+  });
+
+  test("renders the available reference rows on the production package page", async ({
+    page,
+    context,
+  }) => {
+    const browserErrors: string[] = [];
+    page.on("console", message => {
+      if (message.type() === "error") browserErrors.push(message.text());
+    });
+    page.on("pageerror", error => {
+      browserErrors.push(`${error.name}: ${error.message}`);
+    });
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+
+    // The production site served by this gate, opened on the same fixture
+    // coordinate: the page consumes the generated union through its own
+    // queryPackageDependencies call and renders the available case.
+    await page.goto(
+      `/index.html?package=${references.packageId}&version=${version}`
+        + `&framework=${fixtureFramework}#pkg`);
+    const libraryRow = page.locator(".library-list [data-lib-scope]").first();
+    await expect(libraryRow.or(page.locator(".load-error")))
+      .toBeVisible({ timeout: 180_000 });
+    if (await page.locator(".load-error").isVisible()) {
+      const details = page.locator("#toggle-error-detail");
+      if (await details.isVisible()) await details.click();
+      throw new Error(
+        `Production page startup failed: ${
+          await page.locator(".load-error-detail").textContent() ?? "No details."}`
+          + `\nBrowser errors: ${browserErrors.join("\n") || "none"}`);
+    }
+    await libraryRow.click();
+    await chooseInspector(page, "data-library-lens", "references");
+
+    const panel = page.locator("#inspector-panel");
+    await expect(panel.getByRole("heading", { name: "References", exact: true }))
+      .toBeVisible({ timeout: 60_000 });
+    await expect(panel).toContainText(expectedReferenceName);
+    // Only the available case renders a reference count; a failure renders
+    // "Inspection failed" instead.
+    await expect(panel.locator(".api-surface-head"))
+      .toContainText("1 direct reference");
+    await expect(panel.locator("footer")).toContainText(healthyAssemblyFileName);
+    await expect(panel).not.toContainText("Inspection failed");
+  });
+
+  test("renders the complete Library API Diff inventory and same-version empty neighbor", async ({
+    page,
+    context,
+  }) => {
+    const browserErrors: string[] = [];
+    page.on("console", message => {
+      if (message.type() === "error") browserErrors.push(message.text());
+    });
+    page.on("pageerror", error => {
+      browserErrors.push(`${error.name}: ${error.message}`);
+    });
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+
+    await page.goto(
+      `/index.html?package=${libraryDiffV2.packageId}`
+        + `&version=${libraryDiffV2.version}`
+        + `&framework=${fixtureFramework}#pkg`,
+    );
+    const libraryRow = page.locator(".library-list [data-lib-scope]").first();
+    await expect(libraryRow.or(page.locator(".load-error")))
+      .toBeVisible({ timeout: 180_000 });
+    if (await page.locator(".load-error").isVisible()) {
+      throw new Error(
+        `Production page startup failed: ${
+          await page.locator(".load-error").textContent() ?? "No details."}`
+          + `\nBrowser errors: ${browserErrors.join("\n") || "none"}`,
+      );
+    }
+    await libraryRow.click();
+    await chooseInspector(page, "data-library-lens", "compare");
+
+    const panel = page.locator("#inspector-panel");
+    await expect(panel.getByRole("heading", {
+      name: "Library API diff",
+      exact: true,
+    })).toBeVisible({ timeout: 60_000 });
+    await expect(panel.locator(".library-api-diff-status"))
+      .toContainText("Comparison complete", { timeout: 60_000 });
+    await expect(panel.locator(".library-api-diff-type")).toHaveCount(7);
+    await expect(panel).toContainText("LibraryApiDiffFixture.RemovedType");
+    await expect(panel).toContainText("LibraryApiDiffFixture.AddedType");
+    await expect(panel).toContainText(
+      "LibraryApiDiffFixture.TypeDefinitionOnly",
+    );
+    await expect(panel.locator(
+      '[data-before-type-id="LibraryApiDiffFixture.RemovedType"]',
+    )).toHaveAttribute("data-after-type-id", "");
+    await expect(panel.locator(
+      '[data-after-type-id="LibraryApiDiffFixture.AddedType"]',
+    )).toHaveAttribute("data-before-type-id", "");
+    await expect(panel.locator(".library-api-diff-type button")).toHaveCount(0);
+    expect(registry.downloadCount(libraryDiffV1)).toBe(1);
+    expect(registry.downloadCount(libraryDiffV2)).toBe(1);
+
+    await panel.locator("#library-api-diff-change-target").click();
+    const target = page.locator("#package-diff-target");
+    await expect(target).toBeVisible();
+    await target.selectOption("exact:2.0.0");
+    await page.locator(".library-list [data-lib-scope]").first().click();
+    await chooseInspector(page, "data-library-lens", "compare");
+    await expect(panel.locator(".library-api-diff-status"))
+      .toContainText("No changed Types", { timeout: 60_000 });
+    await expect(panel).toContainText("No public API changes");
+    await expect(panel.locator(".library-api-diff-type")).toHaveCount(0);
+  });
+});
+
+test.describe("bounded network-backed two-host demo", () => {
+  test.describe.configure({ timeout: 240_000 });
+
+  test("opens ordinary and large net10.0 packages over the real Gallery CDN", async ({
+    page,
+  }) => {
+    await boot(page);
+    const engine = driver(page);
+
+    // The CLI pilot's default selection resolves net10.0 for this coordinate;
+    // the browser host selects the same TFM against the immutable real package.
+    const surface = await engine.queryCoordinate(
+      "Microsoft.Extensions.Http",
+      "10.0.0",
+      "net10.0",
+    );
+    expect(surface.package).toBe("Microsoft.Extensions.Http");
+    expect(surface.version).toBe("10.0.0");
+    expect(surface.activeFramework).toBe("net10.0");
+    expect(surface.assemblies.length).toBeGreaterThan(0);
+    expect(surface.types.length).toBeGreaterThan(0);
+
+    // System.Text.Json is an ordinary supported package whose complete surface
+    // crossed both former ordinary-transport bounds. The published Worker must
+    // carry that generated result without weakening its finite envelope.
+    const largeSurface = await engine.queryCoordinate(
+      "System.Text.Json",
+      "10.0.0",
+      "net10.0",
+    );
+    expect(largeSurface.package).toBe("System.Text.Json");
+    expect(largeSurface.version).toBe("10.0.0");
+    expect(largeSurface.activeFramework).toBe("net10.0");
+    expect(largeSurface.assemblies.length).toBeGreaterThan(0);
+    expect(largeSurface.types.length).toBeGreaterThan(0);
+
+    // The awaitable Workspace occurrence for the same real coordinate activates
+    // and yields the same package surface.
+    const view = await engine.queryOccurrences([
+      { package: "Microsoft.Extensions.Http", version: "10.0.0", framework: "net10.0" },
+    ]);
+    expect(view.superseded).toBe(false);
+    expect(view.occurrences.length).toBe(1);
+    const [occurrence] = view.occurrences;
+    if (occurrence === undefined) {
+      throw new Error("Expected one Microsoft.Extensions.Http occurrence.");
+    }
+    const activation = await engine.activate(occurrence.action);
+    expect(activation.activated).toBe(true);
+    expect(activation.superseded).toBe(false);
+    expect(activation.package?.package).toBe("Microsoft.Extensions.Http");
+
+    // HTTP Client integration evidence matches the CLI default demo
+    // (IHttpClientFactory / AddHttpClient) for the same real coordinate.
+    const library = surface.assemblies.find(
+      candidate => candidate.name === "Microsoft.Extensions.Http",
+    );
+    if (library === undefined) {
+      throw new Error("Expected the Microsoft.Extensions.Http Library descriptor.");
+    }
+    const integrations = await engine.queryIntegrations(
+      "Microsoft.Extensions.Http",
+      "10.0.0",
+      "net10.0",
+      library.id,
+    );
+    expect(integrations.isComplete).toBe(true);
+    expect(String(integrations.compileLibrary.status)).toBe("Selected");
+    const httpClient = integrations.categories.find(
+      category => category.integration === "HTTP Client",
+    );
+    expect(httpClient).toBeDefined();
+    expect((httpClient?.signals.length ?? 0)).toBeGreaterThan(0);
+    const signalNames = (httpClient?.signals ?? []).map(signal => signal.name);
+    const flattened = signalNames.join(" ");
+    expect(flattened).toContain("IHttpClientFactory");
+    expect(flattened).toContain("AddHttpClient");
+  });
+});

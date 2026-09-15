@@ -222,6 +222,58 @@ into the cache by a prior render therefore makes the family discoverable on the
 next `-D`; the effective-section cache keys on this availability so warming or
 clearing the PDB busts a stale catalog. See
 `docs/design/section-model.md#symbol-dependent-discovery-sourcelink-family`.
+The target metadata-format cutover retains this library-only persistent
+compatibility catalog for package and platform routes, as described under
+[`Existing library effective catalog`](design/section-model.md#existing-library-effective-catalog);
+it is not an authorization-bearing outcome cache for the planned type/member
+executor. A direct local-file route performs the same bounded discovery from a
+fresh retained image each run without persistent catalog lookup or
+publication. This direct-file target is unverified pending
+`LocalAssemblyFacts_DoNotEnterACrossRunCache`; shipping `effective-v28` still
+persists direct-file catalogs as recorded under
+[Current mismatch](design/assembly-image-lifetime.md#current-mismatch).
+
+At that cutover, the bounded assembly gate runs over acquisition-retained bytes
+before this probe or any permitted catalog lookup, and the persistent catalog
+category also bumps. The assembly debug-directory read consumes those retained
+bytes rather than reopening a mutable assembly path. Portable PDB parsing after
+assembly admission may construct a PDB `MetadataReader`; it is not assembly
+metadata projection and remains governed by the existing embedded-PDB and
+expansion budgets.
+
+The successor catalog key replaces the predecessor `sl0`/`sl1` Boolean with
+typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity for
+one retained, assembly-identity-validated portable PDB. That identity includes
+the PDB content digest, discovery-relevant provider/provenance dimensions, and
+typed SourceLink effectiveness. The probe freezes this evidence into the
+effective-catalog subject before lookup; all PDB-dependent discovery and
+publication use it unchanged. Separately authorized source rendering or
+concurrent cache activity may warm and validate symbols, but cannot re-key the
+current catalog. An observed evidence-generation change declines publication,
+and the next invocation probes and recomputes under the new evidence. Replacing
+one SourceLink-bearing PDB with another therefore changes the next key even
+when both report true, because PDB document paths and other facts can change
+effective catalog membership. Rendering still opens and validates the current
+PDB rather than reusing catalog data as source evidence.
+
+Bare effective discovery owns one finite portable-PDB retention budget. Its
+compatibility default is 64 MiB, matching the existing
+`DiscoveryMaxEmbeddedPdbBytes`, and it applies uniformly to adjacent, symbol
+cache, acquired, and decompressed embedded PDB bytes. The owner reserves the
+selected PDB's declared length before allocation, copying, hashing, or
+`MetadataReaderProvider` construction; a non-seekable source uses a bounded
+copy that stops at limit plus one, and embedded content reserves its declared
+decompressed length before expansion. The retained snapshot holds the
+reservation through catalog lookup/production and releases it with the
+operation.
+
+An over-limit candidate returns typed `PortablePdbRetentionLimitExceeded` and
+performs no catalog read or write; it is not silently treated as `None` and does
+not fall through to another provider. Product effective-discovery construction
+cannot select `SourceLinkReadLimits.Unlimited`. This retention budget is
+unimplemented and ungated; near/over limits, every provider, the aggregate
+retained-byte peak, the one digest pass, and the same single-threaded
+Browser/Wasm failure are tracked by [#3478](https://github.com/richlander/dotnet-inspect/issues/3478) and are unverified.
 
 ## Network and performance policy
 
@@ -236,18 +288,25 @@ use the network only when the selected section justifies it.
 | Fetch one PDB-mapped member source body | explicit selected-member `PDB Source` / `@Source` |
 | Resolve member file/line locations | explicit member `Source Locations` section; may acquire one missing PDB but should not fetch source bodies |
 
-Every source-body fetch checks the final response URL after redirects. If the
-requested URL has an attributable SourceLink origin, the final URL must name the
-same host, repository, and revision. The response body is then used only when it
-matches the portable-PDB checksum. Availability and integrity audits apply the
-same final-origin rule before recording reachability or reading content.
-Browser/Wasm cannot report the final URL after an automatic redirect, so
-attributed SourceLink fetches fail closed on that platform; checksum-verified
-URLs outside the known provenance grammars remain available. Header-first body
-reads retain the untrusted-fetch timeout and enforce the download cap against
-decoded bytes even when the server omits `Content-Length`. Each source body is
-capped at 16 MB. Browser/Wasm fetches require streaming-response support so the
-transport cannot buffer the full body before that cap is enforced.
+Selected source-body acquisition follows redirects and uses a successful final
+response only when its bytes match the portable-PDB checksum. An unsuccessful
+response or transport failure leaves PDB source unavailable, so the shared
+source query uses decompiled source when available. The desktop transport
+continues to apply its untrusted-destination checks to every connection,
+including redirects. Browser/Wasm authorizes the initial HTTPS SourceLink host,
+omits credentials, and follows redirects; checksum verification remains the
+content-admission gate.
+
+Availability and integrity audits continue to check the final response URL
+before recording reachability or reading content. If the requested URL has an
+attributable SourceLink origin, the final URL must name the same host,
+repository, and revision. Browser/Wasm cannot report the final URL after an
+automatic redirect, so attributed audit results fail closed on that platform.
+Header-first body reads retain the untrusted-fetch timeout and enforce the
+download cap against decoded bytes even when the server omits
+`Content-Length`. Each source body is capped at 16 MB. Browser/Wasm fetches
+require streaming-response support so the transport cannot buffer the full
+body before that cap is enforced.
 
 The section pipeline lowers selected SourceLink sections to typed query demand:
 
@@ -272,12 +331,28 @@ network requests.
 - Symbol-package PDB caches are identity-keyed to avoid multi-TFM collisions.
 - Source availability and integrity queries accept an optional host cache;
   filesystem-free hosts may run without one.
-- Positive availability and integrity results are cached permanently only when
-  the provenance grammar establishes an immutable commit-pinned GitHub or Azure
-  DevOps URL. Other availability results retain a TTL; integrity results for
-  unknown hosts and moving or ambiguous selectors are not cached.
-- Effective-section caches may summarize what sections are renderable, but must
-  be invalidated when section semantics change.
+- [Source availability audit](design/source-availability-audit.md) owns
+  availability reuse. Origin-validated positives are permanent only for
+  recognized immutable commit-pinned URLs and otherwise retain a one-day TTL.
+  Non-success results lack final-origin evidence and remain operation-local.
+- [Source integrity audit](design/source-integrity-audit.md) owns checksum
+  classification and reuse. Exact and line-ending-normalized positives are
+  permanent only when the provenance grammar establishes an immutable
+  commit-pinned URL. Mutable positives and failed operations are not cached.
+- The target bare-library effective catalog may persist successful
+  package/platform section summaries under its versioned semantic key. The
+  future #3478 successor keys on retained assembly content plus complete typed
+  local-symbol discovery evidence, not the predecessor `sl0`/`sl1` Boolean.
+  Input-admission changes bump the category before lookup so prior successful
+  catalogs cannot bypass the new gate; this cutover also runs bounded
+  assembly-format admission before every permitted lookup. Assembly and PDB
+  digest, admission, discovery, and publication each use their owner-retained
+  immutable content; bracketing hashes over a mutable path are insufficient.
+  Direct local-file discovery performs neither persistent lookup nor
+  publication in that target, unverified pending
+  `LocalAssemblyFacts_DoNotEnterACrossRunCache`. Planned type/member
+  authorization-dependent outcomes remain operation-local and never consume
+  that catalog. This work is not assigned to a type/member migration slice.
 
 Cache reuse must never bypass PDB identity validation.
 

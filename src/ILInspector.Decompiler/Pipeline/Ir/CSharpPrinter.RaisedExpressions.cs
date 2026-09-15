@@ -115,69 +115,79 @@ public sealed partial class CSharpPrinter
             lambda.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef);
         string parameters = hasByRefParameter
             ? $"({string.Join(", ", lambda.Parameters.Select((parameter, index) =>
-                $"{ParameterTypeText(parameter, lambda.ParameterRefKinds[index])} {CSharpNaming.ContainedIdentifier(parameter.Name)}"))})"
+                $"{ParameterTypeText(parameter, lambda.ParameterRefKinds[index])} {CSharpNaming.ContainedIdentifier(parameter.DisplayName)}"))})"
             : lambda.Parameters is [var single]
-                ? CSharpNaming.ContainedIdentifier(single.Name)
-                : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.Name)))})";
+                ? CSharpNaming.ContainedIdentifier(single.DisplayName)
+                : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.DisplayName)))})";
 
         if (lambda.ExpressionBody is { } expr)
         {
             if (_stackSlotTelemetry is not null
-                && NeedsNestedLambdaScope(lambda))
+                && lambda.NeedsIsolatedLocalScope)
             {
                 _ = LambdaBodyTextWithLocalScope(lambda);
             }
-            return LambdaConversionText(lambda, $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}");
+            string expressionText = ExpressionTreeBodyText(lambda, expr);
+            if (!lambda.IsExpressionTree
+                && EmitsExplicitUnsafeContexts
+                && HasRequiredUnsafeOperation(expr))
+            {
+                if (_newMemorySafetyRules
+                    && !lambda.ReturnsVoid
+                    && UnsafeExpressionCompilerSupports(expr))
+                {
+                    expressionText = UnsafeExpressionText(expr, expressionText);
+                    return LambdaConversionText(lambda, $"{parameters} => {expressionText}");
+                }
+                string statementText = lambda.ReturnsVoid
+                    ? $"{expressionText};"
+                    : $"return {expressionText};";
+                string bodyText =
+                    $"unsafe\n{{\n    {statementText}\n}}";
+                return LambdaConversionText(
+                    lambda,
+                    LambdaBlockText(parameters, bodyText));
+            }
+            return LambdaConversionText(lambda, $"{parameters} => {expressionText}");
         }
 
-        int statementCount = lambda.Body.Blocks.SelectMany(b => b.Children).Count();
+        var statementNodes = lambda.Body.Blocks
+            .SelectMany(block => block.Children)
+            .ToList();
+        int statementCount = statementNodes.Count;
         if (LambdaReturnType(lambda) is { } fallbackReturnType
             && NeedsUnsupportedFallbackReturn(fallbackReturnType, requiresAsyncBodyModifier: false, lambda.Body))
         {
             statementCount++;
         }
 
-        if (NeedsNestedLambdaScope(lambda))
+        if (lambda.NeedsIsolatedLocalScope)
         {
             string bodyText = LambdaBodyTextWithLocalScope(lambda);
-            string text = statementCount > 1
+            string text = RequiresMultilineLambdaBlock(statementCount, bodyText)
                 ? LambdaBlockText(parameters, bodyText)
                 : $"{parameters} => {{ {FlattenLambdaBodyText(bodyText)} }}";
             return LambdaConversionText(lambda, text);
         }
 
-        // Building the child statement texts one indent level deeper keeps any
-        // nested lambda block expansion (a lambda-in-lambda) aligned to where
-        // that statement will actually land once LambdaBlockText re-applies
-        // _statementIndent for the outer braces below.
         int enclosingIndent = _statementIndent;
-        _statementIndent = enclosingIndent + 1;
-        List<string> statements;
-        try
+        string sharedBodyText = LambdaBodyTextWithSharedScope(
+            lambda,
+            statementNodes);
+        if (LambdaReturnType(lambda) is { } returnType
+            && NeedsUnsupportedFallbackReturn(returnType, requiresAsyncBodyModifier: false, lambda.Body))
         {
-            statements = lambda.Body.Blocks
-                .SelectMany(b => b.Children)
-                .Select(LambdaStatement)
-                .Where(s => s is not null)
-                .Select(s => s!)
-                .ToList();
-            if (LambdaReturnType(lambda) is { } returnType
-                && NeedsUnsupportedFallbackReturn(returnType, requiresAsyncBodyModifier: false, lambda.Body))
-            {
-                statements.Add("return default;");
-            }
-        }
-        finally
-        {
-            _statementIndent = enclosingIndent;
+            sharedBodyText += sharedBodyText.Length == 0
+                ? "return default;"
+                : "\nreturn default;";
         }
 
-        if (statements.Count == 0)
+        if (sharedBodyText.Length == 0)
             return LambdaConversionText(lambda, $"{parameters} => {{ }}");
 
-        string blockText = statements.Count > 1
-            ? LambdaBlockText(parameters, string.Join("\n", statements))
-            : $"{parameters} => {{ {string.Join(" ", statements)} }}";
+        string blockText = RequiresMultilineLambdaBlock(statementCount, sharedBodyText)
+            ? LambdaBlockText(parameters, sharedBodyText, enclosingIndent)
+            : $"{parameters} => {{ {FlattenLambdaBodyText(sharedBodyText)} }}";
         return LambdaConversionText(lambda, blockText);
     }
 
@@ -224,15 +234,24 @@ public sealed partial class CSharpPrinter
     /// rather than wherever the lambda happens to start inside that statement's
     /// expression tree, matching how a developer would have written the block.
     /// </summary>
-    string LambdaBlockText(string parameters, string bodyText)
+    string LambdaBlockText(
+        string parameters,
+        string bodyText,
+        int? statementIndent = null)
     {
-        string pad = new(' ', _statementIndent * 4);
-        string innerPad = new(' ', (_statementIndent + 1) * 4);
+        int indent = statementIndent ?? _statementIndent;
+        string pad = new(' ', indent * 4);
+        string innerPad = new(' ', (indent + 1) * 4);
         var sb = new StringBuilder();
         sb.Append(parameters).Append(" =>").Append("\n");
         sb.Append(pad).Append('{').Append("\n");
-        foreach (var line in bodyText.Split("\n", StringSplitOptions.RemoveEmptyEntries))
-            sb.Append(innerPad).Append(line).Append("\n");
+        foreach (var line in bodyText.Split('\n'))
+        {
+            if (line.Length == 0)
+                sb.Append('\n');
+            else
+                sb.Append(innerPad).Append(line).Append('\n');
+        }
         sb.Append(pad).Append('}');
         return sb.ToString();
     }
@@ -273,12 +292,6 @@ public sealed partial class CSharpPrinter
             _ => null,
         };
 
-    // internal so IrFunction.MarkLocalEliminated can reuse the exact shared-vs-isolated
-    // nested-scope discriminator this printer uses, keeping the two from drifting (#3295).
-    internal static bool NeedsNestedLambdaScope(Lambda lambda)
-        => !lambda.Locals.IsEmpty
-            || lambda.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
-
     /// <summary>Renders a locals-bearing lambda body through an isolated nested printer, trimmed but not yet flattened.</summary>
     string LambdaBodyTextWithLocalScope(Lambda lambda)
     {
@@ -294,16 +307,21 @@ public sealed partial class CSharpPrinter
                 body)
             {
                 LocalNames = lambda.LocalNames,
+                SynthesizedLocalNames = lambda.SynthesizedLocalNames,
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };
             function.CopyTypeFactsFrom(_function);
-            return new CSharpPrinter(
+            var printer = new CSharpPrinter(
                 function,
                 _options,
                 CurrentScopeNames(),
                 _stackSlotTelemetry,
-                stackSlotTelemetryScope: lambda).PrintBody(function).Trim();
+                stackSlotTelemetryScope: lambda)
+            {
+                _labelScopeSuffix = AllocateNestedLabelScopeSuffix(),
+            };
+            return printer.PrintBody(function).Trim();
         }
         finally
         {
@@ -312,12 +330,54 @@ public sealed partial class CSharpPrinter
         }
     }
 
+    /// <summary>Renders an empty-locals lambda body with the enclosing function's shared local scope.</summary>
+    string LambdaBodyTextWithSharedScope(
+        Lambda lambda,
+        IReadOnlyList<IrNode> statements)
+    {
+        var sb = new StringBuilder();
+        var enclosingRanges = _printedRanges;
+        var enclosingLambda = _sharedScopeLambda;
+        var enclosingLabelScope = EnterNestedLabelScope(lambda);
+        int enclosingIndent = _statementIndent;
+        _printedRanges = null;
+        _sharedScopeLambda = lambda;
+        try
+        {
+            AppendStatements(sb, statements, indent: 0);
+            return sb.ToString().Trim();
+        }
+        finally
+        {
+            _printedRanges = enclosingRanges;
+            _sharedScopeLambda = enclosingLambda;
+            RestoreLabelScope(enclosingLabelScope);
+            _statementIndent = enclosingIndent;
+        }
+    }
+
+    bool IsSharedScopeLambdaReturn(IrNode node)
+    {
+        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
+        {
+            if (parent is LocalFunctionStatement)
+                return false;
+            if (parent is Lambda lambda)
+                return ReferenceEquals(lambda, _sharedScopeLambda);
+        }
+        return false;
+    }
+
     static string FlattenLambdaBodyText(string bodyText)
         => string.Join(" ", bodyText.Split("\n", StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim()));
 
+    static bool RequiresMultilineLambdaBlock(int statementCount, string bodyText)
+        => statementCount > 1 || bodyText.Contains('\n');
+
     string? LambdaStatement(IrNode node) => node switch
     {
-        Return { Value: { } value } => $"return {Expression(value)};",
+        Return { Value: { } value }
+            => $"return {UnsafeExpressionText(value, Expression(value))};",
         Return => "return;",
         _ => Statement(node),
     };

@@ -5,12 +5,11 @@ public sealed class LayeringTests
     private static readonly string[] PreMoveCorpusAssemblies =
     [
         "DiffAsmTarget",
-        "DotnetInspector.CSharpBodySlicer",
-        "DotnetInspector.CSharpBodySlicer.Tests",
+        "CSharpText.MemberSlicing",
+        "CSharpText.MemberSlicing.Tests",
         "ILInspector.Decompiler.Fixtures.NewUnsafe",
         "ILInspector.Metadata",
         "ILInspector.SourceLink",
-        "SourceLinkFetch",
     ];
 
     [Fact]

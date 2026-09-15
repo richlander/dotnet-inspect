@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using DotnetInspector.Core;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Packages;
@@ -237,6 +236,17 @@ public sealed class PackageVersionVector
             .ToImmutableArray();
 
         return new PackageVersionVector(range.PackageId, range.Start, range.End, addresses);
+    }
+
+    internal static bool ContainsVersion(
+        IEnumerable<string> availableVersions,
+        NuGetVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(availableVersions);
+        ArgumentNullException.ThrowIfNull(version);
+        return availableVersions.Any(candidate =>
+            NuGetVersion.TryParse(candidate, out NuGetVersion? parsed)
+            && VersionComparer.Equals(parsed, version));
     }
 
     /// <summary>

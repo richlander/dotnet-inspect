@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "discovery": {
+    "channel": "12.0",
+    "rid": "linux-x64",
+    "productCommitUrl": "https://aka.ms/dotnet/12.0/daily/productCommit-linux-x64.json"
+  },
+  "sdk": {
+    "version": "12.0.100-alpha.1.26462.105",
+    "featureBand": "12.0.100-alpha.1"
+  },
+  "runtime": {
+    "version": "12.0.0-alpha.1.26462.105",
+    "repository": "https://github.com/dotnet/dotnet",
+    "commit": "c8c7ac15e5a07158cc2d5199d25d1840eaadf18e"
+  },
+  "workload": {
+    "id": "wasm-tools",
+    "targetFramework": "net11.0",
+    "manifestId": "microsoft.net.workload.mono.toolchain.current",
+    "packIds": [
+      "Microsoft.NET.Runtime.WebAssembly.Sdk.net11",
+      "Microsoft.NET.Sdk.WebAssembly.Pack.net11",
+      "Microsoft.NETCore.App.Runtime.Mono.net11.browser-wasm",
+      "Microsoft.NETCore.App.Runtime.net11.browser-wasm",
+      "Microsoft.NETCore.App.Runtime.AOT.Cross.net11.browser-wasm"
+    ]
+  },
+  "feeds": {
+    "daily": "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json",
+    "nuget": "https://api.nuget.org/v3/index.json"
+  }
+}

@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Runtime.CompilerServices;
 using ILInspector.Decompiler.Pipeline;
+using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -205,7 +206,8 @@ public sealed record CSharpIdentityResolutionFailure(
     int SubjectToken,
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
-    string Detail);
+    string Detail,
+    string? StableAssemblyKey = null);
 
 internal sealed record CSharpSemanticOperation(
     CSharpDiffOperationKind Kind,
@@ -230,12 +232,163 @@ public sealed record CSharpBodyDiffResult(
 }
 
 /// <summary>
+/// One explicitly admitted endpoint for a C# member comparison. A present endpoint identifies an
+/// exact method definition; subject absence is separate evidence and is never inferred from a null
+/// source, handle, or body.
+/// </summary>
+public abstract record CSharpMemberDiffEndpoint
+{
+    CSharpMemberDiffEndpoint()
+    {
+    }
+
+    public sealed record Present : CSharpMemberDiffEndpoint
+    {
+        public Present(
+            FindingSubject subject,
+            MetadataSource source,
+            MethodDefinitionHandle method)
+        {
+            Subject = subject ?? throw new ArgumentNullException(nameof(subject));
+            Source = source ?? throw new ArgumentNullException(nameof(source));
+            if (method.IsNil)
+                throw new ArgumentException("Method handle must not be nil.", nameof(method));
+            Method = method;
+        }
+
+        public FindingSubject Subject { get; }
+        public MetadataSource Source { get; }
+        public MethodDefinitionHandle Method { get; }
+    }
+
+    public sealed record SubjectAbsent : CSharpMemberDiffEndpoint
+    {
+        public SubjectAbsent(FindingSubject subject, string? detail = null)
+        {
+            Subject = subject ?? throw new ArgumentNullException(nameof(subject));
+            Detail = detail;
+        }
+
+        public FindingSubject Subject { get; }
+        public string? Detail { get; }
+    }
+}
+
+/// <summary>
+/// The total C#-owned result for two explicitly admitted endpoints. <see cref="BodyDiff"/> is
+/// present exactly when both endpoint inspections completed and the pair-dependent C# differ ran.
+/// </summary>
+public sealed record CSharpMemberEndpointComparison
+{
+    internal CSharpMemberEndpointComparison(
+        FindingSubject old,
+        FindingSubject @new,
+        FindingComparison<CSharpCanonicalLine> findings,
+        CSharpBodyDiffResult? bodyDiff)
+    {
+        Old = old ?? throw new ArgumentNullException(nameof(old));
+        New = @new ?? throw new ArgumentNullException(nameof(@new));
+        Findings = findings ?? throw new ArgumentNullException(nameof(findings));
+
+        bool isCompletePair = findings.Value
+            is FindingComparison<CSharpCanonicalLine>.Complete
+            {
+                Transition:
+                {
+                    Old: FindingInspectionState.Complete,
+                    New: FindingInspectionState.Complete,
+                },
+            };
+        if (isCompletePair != (bodyDiff is not null))
+        {
+            throw new ArgumentException(
+                "A native C# body diff must be present exactly for a complete/complete endpoint pair.",
+                nameof(bodyDiff));
+        }
+
+        BodyDiff = bodyDiff;
+    }
+
+    public FindingSubject Old { get; }
+    public FindingSubject New { get; }
+    public FindingComparison<CSharpCanonicalLine> Findings { get; }
+    public CSharpBodyDiffResult? BodyDiff { get; }
+}
+
+/// <summary>
 /// Decompiler-owned C# body diff over the shipped decompiler output for matched
 /// method bodies.
 /// </summary>
 public static partial class CSharpBodyDiff
 {
     internal const int MaxLcsLines = 4096;
+
+    readonly record struct InspectedEndpoint(
+        FindingSubject Subject,
+        FindingInspection<CSharpCanonicalLine> Inspection);
+
+    /// <summary>
+    /// Compares two explicitly admitted endpoints without performing selector resolution or
+    /// cross-version correspondence. The pair-dependent C# body differ runs only when both
+    /// endpoint inspections complete.
+    /// </summary>
+    public static CSharpMemberEndpointComparison CompareMemberEndpoints(
+        CSharpMemberDiffEndpoint oldEndpoint,
+        CSharpMemberDiffEndpoint newEndpoint)
+    {
+        ArgumentNullException.ThrowIfNull(oldEndpoint);
+        ArgumentNullException.ThrowIfNull(newEndpoint);
+
+        var old = InspectEndpoint(oldEndpoint);
+        var @new = InspectEndpoint(newEndpoint);
+        var findings = CSharpFindings.CompareInspections(
+            old.Inspection,
+            @new.Inspection,
+            acceptanceThreshold: 100);
+
+        CSharpBodyDiffResult? bodyDiff = null;
+        if (findings.Value
+            is FindingComparison<CSharpCanonicalLine>.Complete
+            {
+                Transition:
+                {
+                    Old: FindingInspectionState.Complete,
+                    New: FindingInspectionState.Complete,
+                },
+            })
+        {
+            var oldPresent = (CSharpMemberDiffEndpoint.Present)oldEndpoint;
+            var newPresent = (CSharpMemberDiffEndpoint.Present)newEndpoint;
+            bodyDiff = CompareMembers(
+                oldPresent.Source,
+                oldPresent.Method,
+                newPresent.Source,
+                newPresent.Method);
+        }
+
+        return new CSharpMemberEndpointComparison(
+            old.Subject,
+            @new.Subject,
+            findings,
+            bodyDiff);
+    }
+
+    static InspectedEndpoint InspectEndpoint(CSharpMemberDiffEndpoint endpoint)
+        => endpoint switch
+        {
+            CSharpMemberDiffEndpoint.Present present => new(
+                present.Subject,
+                CSharpFindings.Inspect(
+                    present.Source,
+                    present.Method,
+                    present.Subject)),
+            CSharpMemberDiffEndpoint.SubjectAbsent absent => new(
+                absent.Subject,
+                new FindingInspection<CSharpCanonicalLine>.Absent(
+                    FindingInspectionAbsenceKind.SubjectAbsent,
+                    absent.Detail)),
+            _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
+        };
 
     public static CSharpBodyDiffResult CompareAssemblies(
         string oldPath,
@@ -468,6 +621,8 @@ public static partial class CSharpBodyDiff
     {
         var entries = new List<CSharpMethodEntry>();
         var failures = ImmutableArray.CreateBuilder<CSharpIdentityResolutionFailure>();
+        var declarationOmissionFailures =
+            ImmutableArray.CreateBuilder<CSharpDeclarationOmissionFailure>();
         var assemblyOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var path in paths.Distinct(StringComparer.Ordinal))
         {
@@ -483,10 +638,14 @@ public static partial class CSharpBodyDiff
                 includeNonPublic,
                 typeFilters,
                 side,
-                failures));
+                failures,
+                declarationOmissionFailures));
         }
 
-        return CreateMethodIndex(entries, failures);
+        return CreateMethodIndex(
+            entries,
+            failures,
+            declarationOmissionFailures);
     }
 
     internal static CSharpMethodIndex BuildMethodIndexWithFailures(
@@ -497,6 +656,8 @@ public static partial class CSharpBodyDiff
     {
         var entries = new List<CSharpMethodEntry>();
         var failures = ImmutableArray.CreateBuilder<CSharpIdentityResolutionFailure>();
+        var declarationOmissionFailures =
+            ImmutableArray.CreateBuilder<CSharpDeclarationOmissionFailure>();
         var assemblyOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         var seen = new HashSet<MetadataSource>(
             ReferenceEqualityComparer.Instance);
@@ -516,15 +677,22 @@ public static partial class CSharpBodyDiff
                 includeNonPublic,
                 typeFilters,
                 side,
-                failures).Select(entry => entry with { Source = source }));
+                failures,
+                declarationOmissionFailures)
+                .Select(entry => entry with { Source = source }));
         }
 
-        return CreateMethodIndex(entries, failures);
+        return CreateMethodIndex(
+            entries,
+            failures,
+            declarationOmissionFailures);
     }
 
     static CSharpMethodIndex CreateMethodIndex(
         List<CSharpMethodEntry> entries,
-        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures)
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
+        ImmutableArray<CSharpDeclarationOmissionFailure>.Builder
+            declarationOmissionFailures)
     {
         var methods = entries
             .GroupBy(entry => $"{entry.StableAssemblyKey}|{entry.RawKey}", StringComparer.Ordinal)
@@ -542,7 +710,10 @@ public static partial class CSharpBodyDiff
                     }))
                 .Select(entry => (Key: entry.StableMemberKey, Entry: entry)))
             .ToDictionary(pair => pair.Key, pair => pair.Entry, StringComparer.Ordinal);
-        return new CSharpMethodIndex(methods, failures.ToImmutable());
+        return new CSharpMethodIndex(
+            methods,
+            failures.ToImmutable(),
+            declarationOmissionFailures.ToImmutable());
     }
 
     static CSharpMethodRender Decompile(CSharpMethodEntry entry, SourceCache sources)
@@ -630,7 +801,9 @@ public static partial class CSharpBodyDiff
         bool includeNonPublic,
         IReadOnlySet<string>? typeFilters,
         string side,
-        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures)
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
+        ImmutableArray<CSharpDeclarationOmissionFailure>.Builder
+            declarationOmissionFailures)
     {
         var reader = source.Reader;
         var typeDefinitionsByName = BuildTypeDefinitionMap(reader);
@@ -651,7 +824,15 @@ public static partial class CSharpBodyDiff
             }
             catch (MetadataIdentityResolutionException ex)
             {
-                AddIdentityFailure(failures, side, path, typeHandle, ex.Failure);
+                declarationOmissionFailures.Add(new(
+                    AddIdentityFailure(
+                        failures,
+                        side,
+                        path,
+                        stableAssemblyKey,
+                        typeHandle,
+                        ex.Failure),
+                    OwningTypeFullName: null));
                 continue;
             }
 
@@ -665,7 +846,16 @@ public static partial class CSharpBodyDiff
             }
             catch (MetadataIdentityResolutionException ex)
             {
-                AddIdentityFailure(failures, side, path, typeHandle, ex.Failure);
+                declarationOmissionFailures.Add(new(
+                    AddIdentityFailure(
+                        failures,
+                        side,
+                        path,
+                        stableAssemblyKey,
+                        typeHandle,
+                        ex.Failure),
+                    typeFullName,
+                    MethodName: null));
                 continue;
             }
 
@@ -687,9 +877,11 @@ public static partial class CSharpBodyDiff
                     stableAssemblyKey,
                     side,
                     failures,
+                    declarationOmissionFailures,
                     typeFullName,
                     typeKey,
-                    overloadIndex);
+                    overloadIndex,
+                    methodName);
                 if (entry is not null)
                     yield return entry;
             }
@@ -703,9 +895,12 @@ public static partial class CSharpBodyDiff
         string stableAssemblyKey,
         string side,
         ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
+        ImmutableArray<CSharpDeclarationOmissionFailure>.Builder?
+            declarationOmissionFailures = null,
         string? typeFullName = null,
         string? typeKey = null,
-        int? overloadIndex = null)
+        int? overloadIndex = null,
+        string? methodName = null)
     {
         CSharpMethodEntry entry;
         try
@@ -721,12 +916,17 @@ public static partial class CSharpBodyDiff
         }
         catch (MetadataIdentityResolutionException ex)
         {
-            AddIdentityFailure(
+            CSharpIdentityResolutionFailure failure = AddIdentityFailure(
                 failures,
                 side,
                 source.Path,
+                stableAssemblyKey,
                 methodHandle,
                 ex.Failure);
+            declarationOmissionFailures?.Add(new(
+                failure,
+                typeFullName,
+                methodName));
             return null;
         }
 
@@ -741,6 +941,7 @@ public static partial class CSharpBodyDiff
                 failures,
                 side,
                 source.Path,
+                stableAssemblyKey,
                 methodHandle,
                 ex.Failure);
             return entry;
@@ -861,7 +1062,7 @@ public static partial class CSharpBodyDiff
                     : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
             TypeRefKind.GenericInstance => $"{CanonicalTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(CanonicalTypeName))}>",
             TypeRefKind.SzArray => $"{CanonicalTypeName(type.ElementType!)}[]",
-            TypeRefKind.Array => $"{CanonicalTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : new string(',', type.Rank - 1))}]",
+            TypeRefKind.Array => $"{CanonicalTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : TypeRef.FormatArrayDimensions(type.Rank))}]",
             TypeRefKind.ByRef => $"{CanonicalTypeName(type.ElementType!)}&",
             TypeRefKind.Pointer => $"{CanonicalTypeName(type.ElementType!)}*",
             TypeRefKind.Pinned => $"pinned {CanonicalTypeName(type.ElementType!)}",
@@ -2451,23 +2652,36 @@ public static partial class CSharpBodyDiff
         return text.Trim();
     }
 
-    static void AddIdentityFailure(
+    static CSharpIdentityResolutionFailure AddIdentityFailure(
         ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
         string side,
         string path,
+        string stableAssemblyKey,
         EntityHandle subject,
         MetadataTypeNameFailure failure)
-        => failures.Add(new CSharpIdentityResolutionFailure(
+    {
+        var recorded = new CSharpIdentityResolutionFailure(
             side,
             path,
             failure.SubjectToken ?? MetadataTokens.GetToken(subject),
             failure.Mechanism,
             failure.Kind,
-            failure.Detail));
+            failure.Detail,
+            stableAssemblyKey);
+        failures.Add(recorded);
+        return recorded;
+    }
 
     internal sealed record CSharpMethodIndex(
         Dictionary<string, CSharpMethodEntry> Methods,
-        ImmutableArray<CSharpIdentityResolutionFailure> Failures);
+        ImmutableArray<CSharpIdentityResolutionFailure> Failures,
+        ImmutableArray<CSharpDeclarationOmissionFailure>
+            DeclarationOmissionFailures);
+
+    internal sealed record CSharpDeclarationOmissionFailure(
+        CSharpIdentityResolutionFailure Failure,
+        string? OwningTypeFullName,
+        string? MethodName = null);
 
     internal sealed record ExplicitImplementationVisibility(
         HashSet<MethodDefinitionHandle> Handles,

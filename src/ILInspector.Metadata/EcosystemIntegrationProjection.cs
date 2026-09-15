@@ -1,42 +1,45 @@
-using System.Reflection;
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// Performs the single SRM traversal and projects classified integration evidence
-/// into the ordered signal rows consumed by queries and Findings.
+/// Projects classifications with their original evidence into the ordered signal
+/// rows consumed by queries and Findings.
 /// </summary>
 internal static class EcosystemIntegrationProjection
 {
     internal static List<EcosystemIntegrationSignalInfo> Scan(MetadataReader reader)
+        => Project(EcosystemIntegrationClassifier.Classify(
+            EcosystemIntegrationObservationReader.Read(reader)));
+
+    internal static List<EcosystemIntegrationSignalInfo> Project(
+        ImmutableArray<EcosystemIntegrationClassification> classifications)
     {
         var buckets = IntegrationBuckets.Create();
-
-        foreach (var handle in reader.TypeDefinitions)
+        foreach (EcosystemIntegrationClassification classification in classifications)
         {
-            var typeDefinition = reader.GetTypeDefinition(handle);
-            if (!typeDefinition.IsPublic)
-                continue;
-
-            var typeName = reader.GetFullTypeName(typeDefinition);
-            MetadataTypeDefinitionName? definitionName =
-                MetadataTypeDefinitionNameReader.Read(reader, handle)
-                    is MetadataTypeDefinitionNameReadResult.Read read
-                        ? read.Name
-                        : null;
-            AddType(
-                buckets,
-                typeName,
-                "TypeDef",
-                definitionName);
-            AddStarterMethods(
-                buckets,
-                reader,
-                handle,
-                typeDefinition,
-                typeName,
-                definitionName);
+            IntegrationBucket bucket = GetBucket(buckets, classification);
+            switch (classification.Observation)
+            {
+                case EcosystemIntegrationTypeObservation type:
+                    AddType(
+                        bucket,
+                        type.MetadataName,
+                        "TypeDef",
+                        classification.Kind,
+                        type.Definition);
+                    break;
+                case EcosystemIntegrationMethodObservation method:
+                    AddApi(
+                        bucket,
+                        $"{TypeResolver.FormatDisplayName(method.DeclaringType.MetadataName)}.{method.Name}(...)",
+                        classification.Kind,
+                        method.Evidence);
+                    break;
+                default:
+                    throw new InvalidOperationException("Unknown Integration observation.");
+            }
         }
 
         List<EcosystemIntegrationSignalInfo> results = [];
@@ -45,36 +48,36 @@ internal static class EcosystemIntegrationProjection
         return results;
     }
 
-    private static void AddType(
+    private static IntegrationBucket GetBucket(
         IntegrationBuckets buckets,
-        string typeName,
-        string source,
-        MetadataTypeDefinitionName? definitionName)
+        EcosystemIntegrationClassification classification)
     {
-        if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetAspNetCoreKind(typeName, out var aspNetCoreKind))
-            AddType(buckets.AspNetCore, typeName, source, aspNetCoreKind, definitionName);
-        if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetAspireKind(typeName, out var aspireKind))
-            AddType(buckets.Aspire, typeName, source, aspireKind, definitionName);
-        if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetAIKind(typeName, out var aiKind))
-            AddType(GetAIBucket(buckets, aiKind), typeName, source, definitionName);
-        if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetAuthenticationKind(typeName, out var authenticationKind))
-            AddType(buckets.Authentication, typeName, source, authenticationKind, definitionName);
-        if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetConfigurationKind(typeName, out var configurationKind))
-            AddType(buckets.Configuration, typeName, source, configurationKind, definitionName);
-        if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetOpenApiKind(typeName, out var openApiKind))
-            AddType(buckets.OpenApi, typeName, source, openApiKind, definitionName);
-        if (EcosystemIntegrationClassifier.TryGetDependencyInjectionKind(typeName, out var dependencyInjectionKind))
-            AddType(buckets.DependencyInjection, typeName, source, dependencyInjectionKind, definitionName);
-        if (EcosystemIntegrationClassifier.IsLoggingType(typeName))
-            AddType(buckets.Logging, typeName, source, definitionName);
-        if (EcosystemIntegrationClassifier.IsOptionsType(typeName))
-            AddType(buckets.Options, typeName, source, definitionName);
-        if (EcosystemIntegrationClassifier.IsHostingType(typeName))
-            AddType(buckets.Hosting, typeName, source, definitionName);
-        if (EcosystemIntegrationClassifier.IsHealthChecksType(typeName))
-            AddType(buckets.HealthChecks, typeName, source, definitionName);
-        if (EcosystemIntegrationClassifier.TryGetHttpClientKind(typeName, out var httpClientKind))
-            AddType(buckets.HttpClient, typeName, source, httpClientKind, definitionName);
+        IntegrationConceptDescriptor concept = classification.Concept;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.AI))
+            return GetAIBucket(buckets, classification.Kind);
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.AspNetCore))
+            return buckets.AspNetCore;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.Aspire))
+            return buckets.Aspire;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.Authentication))
+            return buckets.Authentication;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.Configuration))
+            return buckets.Configuration;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.OpenAPI))
+            return buckets.OpenApi;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.DependencyInjection))
+            return buckets.DependencyInjection;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.Logging))
+            return buckets.Logging;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.Options))
+            return buckets.Options;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.Hosting))
+            return buckets.Hosting;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.HealthChecks))
+            return buckets.HealthChecks;
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.HttpClient))
+            return buckets.HttpClient;
+        throw new InvalidOperationException("Unknown ecosystem Integration concept.");
     }
 
     private static IntegrationBucket GetAIBucket(IntegrationBuckets buckets, string kind) => kind switch
@@ -97,18 +100,6 @@ internal static class EcosystemIntegrationProjection
         IntegrationBucket bucket,
         string typeName,
         string source,
-        MetadataTypeDefinitionName? definitionName)
-        => AddType(
-            bucket,
-            typeName,
-            source,
-            bucket.ApiKind,
-            definitionName);
-
-    private static void AddType(
-        IntegrationBucket bucket,
-        string typeName,
-        string source,
         string kind,
         MetadataTypeDefinitionName? definitionName)
     {
@@ -125,92 +116,6 @@ internal static class EcosystemIntegrationProjection
         bucket.Kinds[typeName] = kind;
         if (definitionName is not null)
             bucket.TypeDefinitions.Add(typeName, definitionName);
-    }
-
-    private static void AddStarterMethods(
-        IntegrationBuckets buckets,
-        MetadataReader reader,
-        TypeDefinitionHandle typeDefinitionHandle,
-        TypeDefinition typeDefinition,
-        string typeName,
-        MetadataTypeDefinitionName? definitionName)
-    {
-        var attributes = typeDefinition.Attributes;
-        var isStatic = (attributes & TypeAttributes.Sealed) != 0
-                       && (attributes & TypeAttributes.Abstract) != 0;
-        if (!isStatic || !AttributeReader.HasExtensionAttribute(reader, typeDefinition.GetCustomAttributes()))
-            return;
-
-        foreach (var methodHandle in typeDefinition.GetMethods())
-        {
-            var method = reader.GetMethodDefinition(methodHandle);
-            if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
-                || (method.Attributes & MethodAttributes.Static) == 0
-                || !AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
-                continue;
-
-            var methodName = reader.GetString(method.Name);
-            var context = GenericContext.ForMethod(reader, typeDefinition, method);
-            MethodSignature<string> signature;
-            try
-            {
-                signature = GuardedSignatureText.MethodText(reader, method, context)
-                    .GetValueOrThrow();
-            }
-            catch (BadImageFormatException)
-            {
-                continue;
-            }
-            if (signature.ParameterTypes.Length == 0)
-                continue;
-
-            var api = $"{TypeResolver.FormatDisplayName(typeName)}.{methodName}(...)";
-            EcosystemIntegrationApiEvidence? evidence = null;
-            if (definitionName is not null)
-            {
-                try
-                {
-                    ExtensionMemberAnchorInfo anchor =
-                        ApiMemberIdentity.CreateExtensionMethodAnchorInfo(
-                            reader,
-                            typeDefinitionHandle,
-                            method);
-                    evidence = new EcosystemIntegrationApiEvidence(
-                        anchor.Anchor,
-                        definitionName,
-                        anchor.ExtendedTypeReference,
-                        anchor.ReturnTypeReference);
-                }
-                catch (BadImageFormatException)
-                {
-                    evidence = null;
-                }
-            }
-            if (EcosystemIntegrationClassifier.TryClassifyAspireStarterMethod(typeName, methodName, signature, out var aspireKind))
-                AddApi(buckets.Aspire, api, aspireKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyAIStarterMethod(typeName, methodName, signature, out var aiKind))
-                AddApi(GetAIBucket(buckets, aiKind), api, aiKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyAuthenticationStarterMethod(methodName, signature, out var authenticationKind))
-                AddApi(buckets.Authentication, api, authenticationKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyConfigurationStarterMethod(methodName, signature, out var configurationKind))
-                AddApi(buckets.Configuration, api, configurationKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyDependencyInjectionStarterMethod(typeName, methodName, signature, out var dependencyInjectionKind))
-                AddApi(buckets.DependencyInjection, api, dependencyInjectionKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyLoggingStarterMethod(typeName, methodName, signature, out var loggingKind))
-                AddApi(buckets.Logging, api, loggingKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyOpenApiStarterMethod(typeName, methodName, signature, out var openApiKind))
-                AddApi(buckets.OpenApi, api, openApiKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyOptionsStarterMethod(methodName, signature, out var optionsKind))
-                AddApi(buckets.Options, api, optionsKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyAspNetCoreStarterMethod(methodName, signature, out var aspNetCoreKind))
-                AddApi(buckets.AspNetCore, api, aspNetCoreKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyHealthChecksStarterMethod(methodName, signature, out var healthChecksKind))
-                AddApi(buckets.HealthChecks, api, healthChecksKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyHostingStarterMethod(typeName, methodName, signature, out var hostingKind))
-                AddApi(buckets.Hosting, api, hostingKind, evidence);
-            if (EcosystemIntegrationClassifier.TryClassifyHttpClientStarterMethod(typeName, methodName, signature, out var httpClientKind))
-                AddApi(buckets.HttpClient, api, httpClientKind, evidence);
-        }
     }
 
     static void AddApi(
@@ -241,7 +146,7 @@ internal static class EcosystemIntegrationProjection
     {
         foreach (var api in OrderApis(bucket.Apis))
             results.Add(new EcosystemIntegrationSignalInfo(
-                bucket.Integration,
+                bucket.Concept,
                 bucket.Apis[api],
                 api,
                 IntegrationSignalShape.Api)
@@ -256,7 +161,7 @@ internal static class EcosystemIntegrationProjection
 
         foreach (var type in OrderTypes(bucket.Types))
             results.Add(new EcosystemIntegrationSignalInfo(
-                bucket.Integration,
+                bucket.Concept,
                 bucket.Kinds.TryGetValue(type, out var kind) ? kind : bucket.ApiKind,
                 TypeResolver.FormatDisplayName(type))
             {
@@ -350,9 +255,11 @@ internal static class EcosystemIntegrationProjection
             _ => 10,
         };
 
-    private sealed class IntegrationBucket(string integration, string apiKind)
+    private sealed class IntegrationBucket(
+        IntegrationConceptDescriptor concept,
+        string apiKind)
     {
-        public string Integration { get; } = integration;
+        public IntegrationConceptDescriptor Concept { get; } = concept;
         public string ApiKind { get; } = apiKind;
         public Dictionary<string, string> Apis { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, List<EcosystemIntegrationApiEvidence>>
@@ -418,28 +325,28 @@ internal static class EcosystemIntegrationProjection
 
         public static IntegrationBuckets Create() => new()
         {
-            AspNetCore = new IntegrationBucket(EcosystemIntegrationNames.AspNetCore, "ASP.NET Core"),
-            Aspire = new IntegrationBucket(EcosystemIntegrationNames.Aspire, "Aspire"),
-            AIChat = new IntegrationBucket(EcosystemIntegrationNames.AI, "Chat"),
-            AIEmbeddings = new IntegrationBucket(EcosystemIntegrationNames.AI, "Embeddings"),
-            AIImages = new IntegrationBucket(EcosystemIntegrationNames.AI, "Images"),
-            AIRealtime = new IntegrationBucket(EcosystemIntegrationNames.AI, "Realtime"),
-            AIHosting = new IntegrationBucket(EcosystemIntegrationNames.AI, "Hosting"),
-            AISpeechToText = new IntegrationBucket(EcosystemIntegrationNames.AI, "Speech to Text"),
-            AITextToSpeech = new IntegrationBucket(EcosystemIntegrationNames.AI, "Text to Speech"),
-            AITools = new IntegrationBucket(EcosystemIntegrationNames.AI, "Tools"),
-            AIHostedFiles = new IntegrationBucket(EcosystemIntegrationNames.AI, "Hosted Files"),
-            AIBuilder = new IntegrationBucket(EcosystemIntegrationNames.AI, "Builder"),
-            AIConfiguration = new IntegrationBucket(EcosystemIntegrationNames.AI, "Configuration"),
-            Authentication = new IntegrationBucket(EcosystemIntegrationNames.Authentication, "Authentication"),
-            Configuration = new IntegrationBucket(EcosystemIntegrationNames.Configuration, "Configuration"),
-            DependencyInjection = new IntegrationBucket(EcosystemIntegrationNames.DependencyInjection, "Dependency Injection"),
-            Logging = new IntegrationBucket(EcosystemIntegrationNames.Logging, "Logging"),
-            OpenApi = new IntegrationBucket(EcosystemIntegrationNames.OpenAPI, "OpenAPI"),
-            Options = new IntegrationBucket(EcosystemIntegrationNames.Options, "Options"),
-            Hosting = new IntegrationBucket(EcosystemIntegrationNames.Hosting, "Hosting"),
-            HealthChecks = new IntegrationBucket(EcosystemIntegrationNames.HealthChecks, "Health Check"),
-            HttpClient = new IntegrationBucket(EcosystemIntegrationNames.HttpClient, "HTTP Client")
+            AspNetCore = new IntegrationBucket(IntegrationConceptCatalog.AspNetCore, "ASP.NET Core"),
+            Aspire = new IntegrationBucket(IntegrationConceptCatalog.Aspire, "Aspire"),
+            AIChat = new IntegrationBucket(IntegrationConceptCatalog.AI, "Chat"),
+            AIEmbeddings = new IntegrationBucket(IntegrationConceptCatalog.AI, "Embeddings"),
+            AIImages = new IntegrationBucket(IntegrationConceptCatalog.AI, "Images"),
+            AIRealtime = new IntegrationBucket(IntegrationConceptCatalog.AI, "Realtime"),
+            AIHosting = new IntegrationBucket(IntegrationConceptCatalog.AI, "Hosting"),
+            AISpeechToText = new IntegrationBucket(IntegrationConceptCatalog.AI, "Speech to Text"),
+            AITextToSpeech = new IntegrationBucket(IntegrationConceptCatalog.AI, "Text to Speech"),
+            AITools = new IntegrationBucket(IntegrationConceptCatalog.AI, "Tools"),
+            AIHostedFiles = new IntegrationBucket(IntegrationConceptCatalog.AI, "Hosted Files"),
+            AIBuilder = new IntegrationBucket(IntegrationConceptCatalog.AI, "Builder"),
+            AIConfiguration = new IntegrationBucket(IntegrationConceptCatalog.AI, "Configuration"),
+            Authentication = new IntegrationBucket(IntegrationConceptCatalog.Authentication, "Authentication"),
+            Configuration = new IntegrationBucket(IntegrationConceptCatalog.Configuration, "Configuration"),
+            DependencyInjection = new IntegrationBucket(IntegrationConceptCatalog.DependencyInjection, "Dependency Injection"),
+            Logging = new IntegrationBucket(IntegrationConceptCatalog.Logging, "Logging"),
+            OpenApi = new IntegrationBucket(IntegrationConceptCatalog.OpenAPI, "OpenAPI"),
+            Options = new IntegrationBucket(IntegrationConceptCatalog.Options, "Options"),
+            Hosting = new IntegrationBucket(IntegrationConceptCatalog.Hosting, "Hosting"),
+            HealthChecks = new IntegrationBucket(IntegrationConceptCatalog.HealthChecks, "Health Check"),
+            HttpClient = new IntegrationBucket(IntegrationConceptCatalog.HttpClient, "HTTP Client")
         };
     }
 

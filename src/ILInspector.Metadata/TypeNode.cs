@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -40,7 +41,8 @@ internal abstract class TypeNode
 
     /// <summary>
     /// Whether this node or a descendant carries identity that <see cref="Render"/>
-    /// erases: a custom modifier, pinned wrapper, or function-pointer header.
+    /// erases: literal array delimiters in an exact metadata name, a non-SZ
+    /// array, custom modifier, pinned wrapper, or function-pointer header.
     /// </summary>
     internal virtual bool HasStructuralPayload => false;
 
@@ -51,6 +53,244 @@ internal abstract class TypeNode
     /// </summary>
     internal virtual string StructuralIdentity()
         => CSharpText.XmlDocumentationNotation.NormalizeParameterType(RenderCanonical());
+
+    internal bool TryGetXmlDocumentationName(
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out string? name)
+    {
+        if (IsDegraded)
+        {
+            name = null;
+            return false;
+        }
+
+        switch (this)
+        {
+            case PrimitiveTypeNode primitive:
+                name = primitive.Name == "TypedReference"
+                    ? "System.TypedReference"
+                    : CSharpText.PrimitiveTypeNames.ToClrFullName(
+                        primitive.Name);
+                return true;
+
+            case NamedTypeNode { MetadataName: { } metadataName }:
+                name = CSharpText.XmlDocumentationNotation.FormatDefinitionName(
+                    metadataName.Namespace,
+                    metadataName.Segments);
+                return true;
+
+            case GenericTypeNode generic:
+                return TryFormatGenericType(generic, out name);
+
+            case SZArrayTypeNode array
+                when array.ElementType.TryGetXmlDocumentationName(
+                    out string? element):
+                name = $"{element}[]";
+                return true;
+
+            case MDArrayTypeNode array
+                when array.ElementType.TryGetXmlDocumentationName(
+                        out string? element):
+                return TryFormatArray(array, element, out name);
+
+            case PointerTypeNode pointer
+                when pointer.ElementType.TryGetXmlDocumentationName(
+                    out string? element):
+                name = $"{element}*";
+                return true;
+
+            case ByRefTypeNode byRef
+                when byRef.ElementType.TryGetXmlDocumentationName(
+                    out string? element):
+                name = $"{element}@";
+                return true;
+
+            case GenericParameterNode parameter:
+                name = parameter.IsMethodParameter
+                    ? $"``{parameter.Index}"
+                    : $"`{parameter.Index}";
+                return true;
+
+            // Roslyn's documentation-comment ID visitor has no function-pointer
+            // projection. The compiler therefore emits an empty parameter type.
+            case FunctionPointerTypeNode:
+                name = "";
+                return true;
+
+            case ModifiedTypeNode modified
+                when modified.Inner.TryGetXmlDocumentationName(
+                    out string? unmodified):
+                name = unmodified;
+                return true;
+
+            default:
+                name = null;
+                return false;
+        }
+    }
+
+    static bool TryFormatGenericType(
+        GenericTypeNode generic,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out string? name)
+    {
+        if (generic.MetadataName is not { } metadataName)
+        {
+            name = null;
+            return false;
+        }
+
+        string[] arguments = new string[generic.Arguments.Length];
+        for (int index = 0; index < arguments.Length; index++)
+        {
+            if (!generic.Arguments[index].TryGetXmlDocumentationName(
+                    out string? argument))
+            {
+                name = null;
+                return false;
+            }
+            arguments[index] = argument;
+        }
+
+        bool hasTrustedCounts =
+            metadataName.IntroducedTypeParameterCounts is { } counts
+            && counts.Count == metadataName.Segments.Count;
+        int EffectiveArity(int index, string segment)
+        {
+            int declared = MetadataNameArity.OfSegment(segment);
+            return declared == 0 && hasTrustedCounts
+                ? metadataName.IntroducedTypeParameterCounts![index]
+                : declared;
+        }
+
+        long totalArity = 0;
+        for (int index = 0; index < metadataName.Segments.Count; index++)
+            totalArity += EffectiveArity(index, metadataName.Segments[index]);
+        if (totalArity != arguments.Length)
+        {
+            name = null;
+            return false;
+        }
+
+        var builder = new StringBuilder();
+        if (metadataName.Namespace.Length > 0)
+        {
+            builder.Append(metadataName.Namespace);
+            builder.Append('.');
+        }
+        int argumentIndex = 0;
+        for (int segmentIndex = 0;
+            segmentIndex < metadataName.Segments.Count;
+            segmentIndex++)
+        {
+            if (segmentIndex > 0)
+                builder.Append('.');
+            string segment = metadataName.Segments[segmentIndex];
+            builder.Append(
+                CSharpText.XmlDocumentationNotation.FormatNameSegment(
+                    MetadataNameArity.StripFromSegment(segment)));
+            int arity = EffectiveArity(segmentIndex, segment);
+            if (arity == 0)
+                continue;
+
+            builder.Append('{');
+            for (int offset = 0; offset < arity; offset++)
+            {
+                if (offset > 0)
+                    builder.Append(',');
+                builder.Append(arguments[argumentIndex++]);
+            }
+            builder.Append('}');
+        }
+
+        name = builder.ToString();
+        return true;
+    }
+
+    static bool TryFormatArray(
+        MDArrayTypeNode array,
+        string element,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out string? name)
+    {
+        if (array.Rank <= 0)
+        {
+            name = null;
+            return false;
+        }
+        var builder = new StringBuilder(element.Length + array.Rank * 3 + 2);
+        builder.Append(element);
+        builder.Append('[');
+        for (int dimension = 0; dimension < array.Rank; dimension++)
+        {
+            if (dimension > 0)
+                builder.Append(',');
+            builder.Append("0:");
+        }
+        builder.Append(']');
+        name = builder.ToString();
+        return true;
+    }
+
+    internal IEnumerable<ApiTypeReferenceIdentity> ReferencedTypes()
+    {
+        if (this is NamedTypeNode { AssemblyIdentity: { } assembly } named)
+        {
+            yield return new(
+                assembly,
+                named.Name,
+                StructuredName(named.MetadataName));
+        }
+        else if (this is GenericTypeNode
+            {
+                DefinitionAssemblyIdentity: { } definitionAssembly
+            } generic)
+        {
+            yield return new(
+                definitionAssembly,
+                generic.DefinitionName,
+                StructuredName(generic.MetadataName));
+        }
+
+        foreach (TypeNode child in TypeChildren(this))
+        {
+            foreach (ApiTypeReferenceIdentity reference
+                in child.ReferencedTypes())
+            {
+                yield return reference;
+            }
+        }
+    }
+
+    internal ApiTypeReferenceIdentity? DefinitionReference() =>
+        this switch
+        {
+            NamedTypeNode
+            {
+                AssemblyIdentity: { } assembly
+            } named => new(
+                assembly,
+                named.Name,
+                StructuredName(named.MetadataName)),
+            GenericTypeNode
+            {
+                DefinitionAssemblyIdentity: { } assembly
+            } generic => new(
+                assembly,
+                generic.DefinitionName,
+                StructuredName(generic.MetadataName)),
+            _ => null,
+        };
+
+    static MetadataTypeDefinitionName? StructuredName(
+        MetadataTypeNameParts? parts) =>
+        parts is not null
+        && MetadataTypeDefinitionName.Create(
+                parts.Namespace,
+                [.. parts.Segments]) is
+            MetadataTypeDefinitionNameResult.Valid valid
+            ? valid.Name
+            : null;
 
     /// <summary>Renders this type to a C# display string with nullability annotations,
     /// including C# tuple syntax (<c>(int count, string name)</c>) for
@@ -265,8 +505,11 @@ internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : Typ
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
-        byte b = ConsumeByte(bytes, ref position, defaultByte);
-        if (IsReferenceType && b == 2) IsNullableAnnotated = true;
+        if (IsReferenceType)
+        {
+            byte b = ConsumeByte(bytes, ref position, defaultByte);
+            if (b == 2) IsNullableAnnotated = true;
+        }
     }
 
     public override void ApplyDynamic(byte[]? flags, ref int position)
@@ -277,12 +520,20 @@ internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : Typ
 internal sealed class NamedTypeNode(
     string name,
     bool isReferenceType,
-    MetadataTypeNameParts? metadataName = null) : TypeNode
+    MetadataTypeNameParts? metadataName = null,
+    ApiAssemblyIdentity? assemblyIdentity = null) : TypeNode
 {
     public string Name => name;
+    public ApiAssemblyIdentity? AssemblyIdentity => assemblyIdentity;
     public MetadataTypeNameParts? MetadataName => metadataName;
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
+
+    internal override bool HasStructuralPayload =>
+        metadataName is not null
+        && StructuralTypeIdentity.RequiresArrayNamePayload(
+            metadataName.Namespace,
+            metadataName.Segments);
 
     public override string Render(bool canonicalTuples)
     {
@@ -290,10 +541,20 @@ internal sealed class NamedTypeNode(
         return IsReferenceType && IsNullableAnnotated ? $"{effective}?" : effective;
     }
 
+    internal override string StructuralIdentity()
+        => metadataName is null
+            ? base.StructuralIdentity()
+            : StructuralTypeIdentity.Named(
+                metadataName.Namespace,
+                metadataName.Segments);
+
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
-        byte b = ConsumeByte(bytes, ref position, defaultByte);
-        if (IsReferenceType && b == 2) IsNullableAnnotated = true;
+        if (IsReferenceType)
+        {
+            byte b = ConsumeByte(bytes, ref position, defaultByte);
+            if (b == 2) IsNullableAnnotated = true;
+        }
     }
 
     public override void ApplyDynamic(byte[]? flags, ref int position)
@@ -308,15 +569,29 @@ internal sealed class GenericTypeNode(
     string nestedSuffix = "",
     bool degradedGenericType = false,
     MetadataTypeNameParts? metadataName = null,
-    string? structuralMetadataName = null) : TypeNode
+    string? structuralMetadataName = null,
+    ApiAssemblyIdentity? definitionAssemblyIdentity = null) : TypeNode
 {
     readonly long estimatedRenderedLength =
         EstimateRenderedLength(baseName, arguments, nestedSuffix);
 
     public string BaseName => baseName;
+    public string DefinitionName =>
+        structuralMetadataName
+        ?? metadataName?.ToDottedName()
+        ?? baseName;
+    public ApiAssemblyIdentity? DefinitionAssemblyIdentity =>
+        definitionAssemblyIdentity;
+    public MetadataTypeNameParts? MetadataName => metadataName;
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
+    internal override bool HasStructuralPayload =>
+        arguments.Any(argument => argument.HasStructuralPayload)
+        || (metadataName is not null
+            && StructuralTypeIdentity.RequiresArrayNamePayload(
+                metadataName.Namespace,
+                metadataName.Segments));
     public override long EstimatedRenderedLength => estimatedRenderedLength;
 
     internal override string StructuralIdentity()
@@ -400,11 +675,19 @@ internal sealed class GenericTypeNode(
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
-        byte b = ConsumeByte(bytes, ref position, defaultByte);
-        if (IsReferenceType && b == 2) IsNullableAnnotated = true;
+        if (!IsNullableValueType)
+        {
+            byte b = ConsumeByte(bytes, ref position, defaultByte);
+            if (IsReferenceType && b == 2) IsNullableAnnotated = true;
+        }
         foreach (var arg in arguments)
             arg.ApplyNullability(bytes, ref position, defaultByte);
     }
+
+    bool IsNullableValueType =>
+        !IsReferenceType
+        && arguments.Length == 1
+        && DefinitionName is "System.Nullable" or "System.Nullable`1";
 
     public override void ApplyDynamic(byte[]? flags, ref int position)
     {
@@ -449,23 +732,41 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
 }
 
 /// <summary>Multi-dimensional arrays (int[,], etc.).</summary>
-internal sealed class MDArrayTypeNode(TypeNode elementType, int rank) : TypeNode
+internal sealed class MDArrayTypeNode(
+    TypeNode elementType,
+    int rank,
+    ImmutableArray<int> arraySizes = default,
+    ImmutableArray<int> arrayLowerBounds = default) : TypeNode
 {
     public TypeNode ElementType => elementType;
+    public int Rank => rank;
+    public ImmutableArray<int> ArraySizes =>
+        arraySizes.IsDefault ? [] : arraySizes;
+    public ImmutableArray<int> ArrayLowerBounds =>
+        arrayLowerBounds.IsDefault ? [] : arrayLowerBounds;
     public override bool IsReferenceType => true;
     public override bool IsDegraded => elementType.IsDegraded;
-    internal override bool HasStructuralPayload => elementType.HasStructuralPayload;
+    internal override bool HasStructuralPayload =>
+        rank == 1 || elementType.HasStructuralPayload;
     public override long EstimatedRenderedLength =>
         Math.Min(
             int.MaxValue,
             elementType.EstimatedRenderedLength + Math.Max(rank, 0L) + 2);
 
     internal override string StructuralIdentity()
-        => $"{elementType.StructuralIdentity()}[{new string(',', Math.Max(rank - 1, 0))}]";
+    {
+        string dimensions = rank == 1
+            ? "*"
+            : new string(',', Math.Max(rank - 1, 0));
+        return $"{elementType.StructuralIdentity()}[{dimensions}]";
+    }
 
     public override string Render(bool canonicalTuples)
     {
-        var result = $"{elementType.Render(canonicalTuples)}[{new string(',', rank - 1)}]";
+        var dimensions = rank == 1
+            ? "*"
+            : new string(',', rank - 1);
+        var result = $"{elementType.Render(canonicalTuples)}[{dimensions}]";
         return IsNullableAnnotated ? $"{result}?" : result;
     }
 
@@ -551,6 +852,8 @@ internal sealed class GenericParameterNode(
     bool isMethodParameter,
     int index) : TypeNode
 {
+    public bool IsMethodParameter => isMethodParameter;
+    public int Index => index;
     public override bool IsReferenceType => false;
     public override long EstimatedRenderedLength => name.Length + 1L;
 
@@ -572,6 +875,7 @@ internal sealed class GenericParameterNode(
 /// <summary>Function pointer types (delegate*&lt;...&gt;).</summary>
 internal sealed class FunctionPointerTypeNode(MethodSignature<TypeNode> signature) : TypeNode
 {
+    public MethodSignature<TypeNode> Signature => signature;
     public IEnumerable<TypeNode> ChildTypes => signature.ParameterTypes.Prepend(signature.ReturnType);
     public override bool IsReferenceType => false;
     public override bool IsDegraded => signature.ReturnType.IsDegraded
@@ -669,6 +973,8 @@ internal class PassthroughTypeNode(TypeNode inner) : TypeNode
 /// <summary>Custom-modified types pass through for rendering while preserving declaration-site evidence.</summary>
 internal sealed class ModifiedTypeNode(TypeNode modifier, TypeNode inner, bool isRequired) : PassthroughTypeNode(inner)
 {
+    public TypeNode Modifier => modifier;
+    public bool IsRequired => isRequired;
     internal override bool HasStructuralPayload => true;
     public override bool IsDegraded => modifier.IsDegraded || base.IsDegraded;
 

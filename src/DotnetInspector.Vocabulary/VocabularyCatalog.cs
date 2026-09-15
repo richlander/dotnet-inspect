@@ -148,7 +148,6 @@ public sealed record VocabularySection(
     string Id,
     string Name,
     string Summary,
-    ImmutableArray<string> Categories,
     ImmutableArray<string> AcceptedBy,
     ImmutableArray<VocabularyField> Fields,
     ImmutableArray<VocabularyRow> Values);
@@ -194,7 +193,7 @@ public static class VocabularyCatalog
             CreateBodyKinds(),
         ];
         VocabularySection index = CreateSectionIndex(values);
-        var document = new VocabularyDocument(1, [index, .. values]);
+        var document = new VocabularyDocument(2, [index, .. values]);
         Validate(document);
         return document;
     }
@@ -207,7 +206,6 @@ public static class VocabularyCatalog
             TextField("id", "ID", "Stable section identity.", VocabularyOperator.Equals, VocabularyOperator.NotEquals, VocabularyOperator.In),
             TextField("section", "Section", "Human-facing section name.", VocabularyOperator.Equals, VocabularyOperator.NotEquals, VocabularyOperator.Glob),
             TextField("summary", "Summary", "What the vocabulary values control.", VocabularyOperator.Glob),
-            TextListField("categories", "Categories", "Section categories.", VocabularyOperator.Contains),
             TextListField("accepted_by", "Accepted By", "Typed query inputs that consume these values.", VocabularyOperator.Contains),
             IntegerField("values", "Values", "Number of legal values.", VocabularyOperator.Equals, VocabularyOperator.LessThan, VocabularyOperator.GreaterThan),
         ];
@@ -215,23 +213,17 @@ public static class VocabularyCatalog
             "vocabulary.sections",
             SectionsSection,
             "Product-owned vocabularies available as rich-query inputs.",
-            ["@Vocabulary"],
             ["vocabulary"],
             fields,
             []);
-        ImmutableArray<VocabularySection> indexedSections = [definition, .. sections];
         ImmutableArray<VocabularyRow> rows =
         [
-            .. indexedSections.Select(section => new VocabularyRow(
+            .. sections.Select(section => new VocabularyRow(
                 ("id", VocabularyValue.FromText(section.Id)),
                 ("section", VocabularyValue.FromText(section.Name)),
                 ("summary", VocabularyValue.FromText(section.Summary)),
-                ("categories", VocabularyValue.FromTextList(section.Categories)),
                 ("accepted_by", VocabularyValue.FromTextList(section.AcceptedBy)),
-                ("values", VocabularyValue.FromInteger(
-                    ReferenceEquals(section, definition)
-                        ? indexedSections.Length
-                        : section.Values.Length)))),
+                ("values", VocabularyValue.FromInteger(section.Values.Length)))),
         ];
         return definition with { Values = rows };
     }
@@ -257,7 +249,6 @@ public static class VocabularyCatalog
             "api.accessibility",
             AccessibilitySection,
             "Accessibility facets accepted by API type and member inventory queries.",
-            ["@Vocabulary", "@API"],
             ["api.type-inventory", "api.member-inventory"],
             fields,
             rows);
@@ -286,7 +277,6 @@ public static class VocabularyCatalog
             "csharp.style-tiers",
             StyleTiersSection,
             "Fidelity and presentation tiers used to group C# style choices.",
-            ["@Vocabulary", "@Decompiler"],
             ["decompiler.style-picker"],
             fields,
             rows);
@@ -332,7 +322,6 @@ public static class VocabularyCatalog
             "csharp.style-choices",
             StyleChoicesSection,
             "Selectable product-owned C# rendering choices.",
-            ["@Vocabulary", "@Decompiler"],
             ["decompiler.style-picker", "decompiler.render"],
             fields,
             rows);
@@ -365,7 +354,6 @@ public static class VocabularyCatalog
             "csharp.body-kinds",
             BodyKindsSection,
             "Exact rendered C# syntax kinds accepted by body queries.",
-            ["@Vocabulary", "@Decompiler"],
             ["decompiler.body-kind"],
             fields,
             rows);

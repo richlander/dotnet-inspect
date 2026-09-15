@@ -2,8 +2,9 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
+using System.Collections.Immutable;
+using System.Globalization;
 using CSharpText;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGet.Versioning;
@@ -15,12 +16,6 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class PlatformResolver
 {
-    /// <summary>
-    /// Process-lifetime cache for the parameterless GetInstalledFrameworks() overload.
-    /// Framework installations don't change during a CLI invocation.
-    /// </summary>
-    private static List<FrameworkInfo>? _cachedFrameworks;
-
     /// <summary>
     /// Returns true if the name looks like a platform assembly.
     /// </summary>
@@ -93,6 +88,83 @@ public static class PlatformResolver
         FrameworkMappings.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Adapts a target framework to the resolver's exact platform
+    /// family/version hints.
+    /// </summary>
+    public static bool TryGetFrameworkSpecsForTargetFramework(
+        string? targetFramework,
+        out IReadOnlyList<string> frameworkSpecs)
+    {
+        frameworkSpecs = [];
+        if (string.IsNullOrEmpty(targetFramework)
+            || targetFramework.AsSpan().Trim().Length
+                != targetFramework.Length)
+        {
+            return false;
+        }
+
+        string normalized = TfmSelector.NormalizeTfm(targetFramework);
+        string[] families;
+        ReadOnlySpan<char> version;
+        if (normalized.StartsWith(
+                "netstandard",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            families = ["netstandard"];
+            version = normalized.AsSpan("netstandard".Length);
+        }
+        else if (normalized.StartsWith(
+                     "netcoreapp",
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            families = ["runtime", "aspnetcore"];
+            version = normalized.AsSpan("netcoreapp".Length);
+        }
+        else if (normalized.StartsWith(
+                     "net",
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            families = ["runtime", "aspnetcore"];
+            version = normalized.AsSpan("net".Length);
+        }
+        else
+        {
+            return false;
+        }
+
+        int separator = version.IndexOf('.');
+        if (separator <= 0
+            || separator == version.Length - 1
+            || version[(separator + 1)..].Contains('.')
+            || !TryParseCanonicalFrameworkNumber(
+                version[..separator],
+                out int major)
+            || !TryParseCanonicalFrameworkNumber(
+                version[(separator + 1)..],
+                out int minor)
+            || families.Length > 1
+                && normalized.StartsWith(
+                    "net",
+                    StringComparison.OrdinalIgnoreCase)
+                && !normalized.StartsWith(
+                    "netcoreapp",
+                    StringComparison.OrdinalIgnoreCase)
+                && major < 5)
+        {
+            return false;
+        }
+
+        string releaseBand =
+            $"{major.ToString(CultureInfo.InvariantCulture)}."
+            + minor.ToString(CultureInfo.InvariantCulture);
+        frameworkSpecs =
+        [
+            .. families.Select(family => $"{family}@{releaseBand}"),
+        ];
+        return true;
+    }
+
+    /// <summary>
     /// Discovers the highest-priority existing packs directory: the app cache packs
     /// category when populated, otherwise an SDK-installed <c>packs</c> directory.
     /// Returns null when no candidate directory exists.
@@ -118,6 +190,28 @@ public static class PlatformResolver
             }
         }
         return result;
+    }
+
+    private static bool TryParseCanonicalFrameworkNumber(
+        ReadOnlySpan<char> value,
+        out int number)
+    {
+        number = 0;
+        if (value.IsEmpty
+            || value.Length > 1 && value[0] == '0')
+        {
+            return false;
+        }
+
+        foreach (char character in value)
+            if (!char.IsAsciiDigit(character))
+                return false;
+
+        return int.TryParse(
+            value,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out number);
     }
 
     /// <summary>
@@ -281,38 +375,18 @@ public static class PlatformResolver
 
     /// <summary>
     /// Discovers all installed frameworks with their versions across all packs directories.
+    /// Default discovery is live because the active cache root, DOTNET_ROOT,
+    /// and pack contents can change during a process. Gated by
+    /// GetInstalledFrameworks_DefaultDiscoveryRefreshesAfterPersistentCacheRootChanges.
     /// </summary>
-    public static List<FrameworkInfo> GetInstalledFrameworks(string? packsDirectory = null)
-    {
-        // Use process-lifetime cache for the common no-arg path
-        if (packsDirectory == null)
-        {
-            var cached = Volatile.Read(ref _cachedFrameworks);
-            if (cached != null)
-            {
-                using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
-                CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Hit);
-                return cached;
-            }
-        }
+    public static List<FrameworkInfo> GetInstalledFrameworks(
+        string? packsDirectory = null) =>
+        GetInstalledFrameworksCore(packsDirectory);
 
-        if (packsDirectory == null)
-        {
-            using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
-            CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Miss);
-        }
-
-        var result = GetInstalledFrameworksCore(packsDirectory);
-
-        if (packsDirectory == null)
-        {
-            Volatile.Write(ref _cachedFrameworks, result);
-            using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
-            CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Store);
-        }
-
-        return result;
-    }
+    internal static PlatformFrameworkSnapshot GetInstalledFrameworkSnapshot() =>
+        new(
+            GetInstalledFrameworks(),
+            GetInstalledRuntimeFrameworks());
 
     private static List<FrameworkInfo> GetInstalledFrameworksCore(string? packsDirectory)
     {
@@ -342,7 +416,10 @@ public static class PlatformResolver
                 if (!Directory.Exists(refPackPath))
                     continue;
 
-                var versions = GetInstalledVersions(refPackPath);
+                var versions = GetInstalledVersions(refPackPath)
+                    .Where(version =>
+                        HasReferenceAssemblies(refPackPath, version))
+                    .ToList();
                 if (versions.Count == 0)
                     continue;
 
@@ -384,6 +461,32 @@ public static class PlatformResolver
         return [.. frameworkMap.Values];
     }
 
+    private static List<RuntimeFrameworkInfo> GetInstalledRuntimeFrameworks()
+    {
+        var sharedDirectory = GetSharedDirectory();
+        if (sharedDirectory is null)
+            return [];
+
+        List<RuntimeFrameworkInfo> frameworks = [];
+        foreach (var (shortName, sharedFrameworkName) in SharedFrameworkMappings)
+        {
+            string frameworkPath =
+                Path.Combine(sharedDirectory, sharedFrameworkName);
+            string? latestVersion =
+                GetInstalledVersions(frameworkPath).FirstOrDefault();
+            if (latestVersion is null)
+                continue;
+
+            frameworks.Add(
+                new RuntimeFrameworkInfo(
+                    shortName,
+                    latestVersion,
+                    Path.Combine(frameworkPath, latestVersion)));
+        }
+
+        return frameworks;
+    }
+
     /// <summary>
     /// Gets all installed versions for a framework, sorted by version descending (latest first).
     /// </summary>
@@ -423,6 +526,12 @@ public static class PlatformResolver
 
         return Path.Combine(versionPath, tfmDirs[0]!);
     }
+
+    private static bool HasReferenceAssemblies(
+        string refPackPath,
+        string version) =>
+        GetRefAssemblyPath(refPackPath, version) is { } referencePath
+        && CountAssemblies(referencePath) > 0;
 
     /// <summary>
     /// Lists all assemblies in a ref assembly directory.
@@ -492,6 +601,8 @@ public static class PlatformResolver
 
             foreach (var v in GetInstalledVersions(refPackPath))
             {
+                if (!HasReferenceAssemblies(refPackPath, v))
+                    continue;
                 if (!allVersions.Any(x => x.Version == v))
                 {
                     allVersions.Add((v, refPackPath));
@@ -599,7 +710,41 @@ public static class PlatformResolver
         string? frameworkSpec = null,
         string? packsDirectory = null,
         bool useRuntimeAssemblies = false,
-        string? platformVersion = null)
+        string? platformVersion = null) =>
+        ResolveAssemblyCore(
+            assemblyName,
+            frameworkSpec,
+            packsDirectory,
+            useRuntimeAssemblies,
+            platformVersion,
+            installedFrameworks: null,
+            installedRuntimeFrameworks: null);
+
+    internal static (string? AssemblyPath, string? Framework, string? Version, string? Error)
+        ResolveAssemblyFromSnapshot(
+            string assemblyName,
+            PlatformFrameworkSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return ResolveAssemblyCore(
+            assemblyName,
+            frameworkSpec: null,
+            packsDirectory: null,
+            useRuntimeAssemblies: false,
+            platformVersion: null,
+            snapshot.ReferenceFrameworks,
+            snapshot.RuntimeFrameworks);
+    }
+
+    private static (string? AssemblyPath, string? Framework, string? Version, string? Error)
+        ResolveAssemblyCore(
+            string assemblyName,
+            string? frameworkSpec,
+            string? packsDirectory,
+            bool useRuntimeAssemblies,
+            string? platformVersion,
+            IReadOnlyList<FrameworkInfo>? installedFrameworks,
+            IReadOnlyList<RuntimeFrameworkInfo>? installedRuntimeFrameworks)
     {
         // Detect framework names passed as assembly names (e.g., --platform Microsoft.AspNetCore.App)
         // and provide a helpful error message
@@ -668,7 +813,8 @@ public static class PlatformResolver
         // Search all frameworks across all packs dirs and runtime,
         // returning the assembly from whichever source has the newest version.
         // When versions are equal, runtime wins (has debug info for SourceLink).
-        var frameworks = GetInstalledFrameworks(packsDirectory);
+        var frameworks =
+            installedFrameworks ?? GetInstalledFrameworks(packsDirectory);
         var searchOrder = new[] { "runtime", "aspnetcore", "netstandard" };
 
         foreach (var shortName in searchOrder)
@@ -686,7 +832,12 @@ public static class PlatformResolver
                 continue;
 
             // Check if the runtime has a newer (or equal) version
-            var rt = ResolveRuntimeAssembly(assemblyName, shortName);
+            var rt = installedRuntimeFrameworks is null
+                ? ResolveRuntimeAssembly(assemblyName, shortName)
+                : ResolveRuntimeAssembly(
+                    assemblyName,
+                    shortName,
+                    installedRuntimeFrameworks);
             if (rt.AssemblyPath != null && rt.Version != null)
             {
                 var rtVer = ParseVersion(rt.Version);
@@ -702,7 +853,12 @@ public static class PlatformResolver
         // live in the shared runtime but have no ref-pack counterpart.
         foreach (var shortName in new[] { "runtime", "aspnetcore" })
         {
-            var rt = ResolveRuntimeAssembly(assemblyName, shortName);
+            var rt = installedRuntimeFrameworks is null
+                ? ResolveRuntimeAssembly(assemblyName, shortName)
+                : ResolveRuntimeAssembly(
+                    assemblyName,
+                    shortName,
+                    installedRuntimeFrameworks);
             if (rt.AssemblyPath != null)
                 return rt;
         }
@@ -807,6 +963,35 @@ public static class PlatformResolver
         }
 
         return (assemblyPath, frameworkName, version, null);
+    }
+
+    private static (string? AssemblyPath, string? Framework, string? Version, string? Error)
+        ResolveRuntimeAssembly(
+            string assemblyName,
+            string frameworkName,
+            IReadOnlyList<RuntimeFrameworkInfo> installedFrameworks)
+    {
+        RuntimeFrameworkInfo? framework =
+            installedFrameworks.FirstOrDefault(
+                candidate => candidate.ShortName.Equals(
+                    frameworkName,
+                    StringComparison.OrdinalIgnoreCase));
+        if (framework is null)
+        {
+            return (null, null, null,
+                frameworkName.Equals(
+                    "netstandard",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? "netstandard does not have runtime libraries (ref-only)"
+                    : $"Framework '{frameworkName}' runtime is not installed");
+        }
+
+        string? assemblyPath =
+            FindAssemblyCaseInsensitive(framework.DirectoryPath, assemblyName);
+        return assemblyPath is null
+            ? (null, null, null,
+                $"Library '{assemblyName}' not found in {frameworkName} runtime {framework.Version}")
+            : (assemblyPath, framework.ShortName, framework.Version, null);
     }
 
     private static (string? AssemblyPath, string? Framework, string? Version, string? Error) ResolveRuntimeAssemblyAcrossFrameworks(
@@ -958,6 +1143,172 @@ public static class PlatformResolver
     }
 
     /// <summary>
+    /// Resolves a user type pattern against one explicitly selected framework
+    /// reference catalog.
+    /// </summary>
+    public static PlatformTypeLookupOutcome LookupTypeInFramework(
+        string typeName,
+        string frameworkSpec,
+        string? packsDirectory = null)
+    {
+        var (refPath, version, error) =
+            ResolveFramework(frameworkSpec, packsDirectory);
+        if (error is not null || refPath is null || version is null)
+        {
+            return new PlatformTypeLookupOutcome.Rejected(
+                new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    error ?? $"The {frameworkSpec} reference catalog is unavailable."));
+        }
+
+        var atIndex = frameworkSpec.LastIndexOf('@');
+        var frameworkName = atIndex > 0
+            ? frameworkSpec[..atIndex]
+            : frameworkSpec;
+        return PlatformTypeCatalog.Lookup(
+            typeName,
+            refPath,
+            frameworkName,
+            version);
+    }
+
+    /// <summary>
+    /// Resolves a user type pattern across every installed platform reference
+    /// catalog without choosing a first-enumerated assembly.
+    /// </summary>
+    public static PlatformTypeLookupOutcome LookupTypeAcrossFrameworks(
+        string typeName,
+        string? packsDirectory = null)
+    {
+        if (PlatformTypeLookupPattern.Create(typeName)
+            is PlatformTypeLookupPatternResult.Rejected invalid)
+        {
+            return new PlatformTypeLookupOutcome.Rejected(invalid.Failure);
+        }
+
+        var frameworks = GetInstalledFrameworks(packsDirectory);
+        if (frameworks.Count == 0)
+        {
+            return new PlatformTypeLookupOutcome.Rejected(
+                new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    "No platform reference catalogs are available."));
+        }
+
+        var candidates =
+            ImmutableArray.CreateBuilder<PlatformTypeLookupCandidate>();
+        PlatformTypeLookupFailure? catalogFailure = null;
+        foreach (var framework in frameworks)
+        {
+            var refPath = GetRefAssemblyPath(
+                framework.Path,
+                framework.LatestVersion);
+            if (refPath == null)
+            {
+                catalogFailure ??= new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    $"The {framework.ShortName} reference catalog is unavailable.");
+                continue;
+            }
+
+            switch (PlatformTypeCatalog.Lookup(
+                typeName,
+                refPath,
+                framework.ShortName,
+                framework.LatestVersion))
+            {
+                case PlatformTypeLookupOutcome.Resolved resolved:
+                    candidates.Add(resolved.Candidate);
+                    break;
+                case PlatformTypeLookupOutcome.Ambiguous ambiguous:
+                    candidates.AddRange(ambiguous.Candidates);
+                    break;
+                case PlatformTypeLookupOutcome.Rejected rejected:
+                    catalogFailure ??= rejected.Failure;
+                    break;
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return catalogFailure is not null
+                ? new PlatformTypeLookupOutcome.Rejected(catalogFailure)
+                : new PlatformTypeLookupOutcome.Missing();
+        }
+
+        IEnumerable<PlatformTypeLookupCandidate> selected = candidates;
+        var definitions = candidates
+            .Where(candidate =>
+                candidate.DeclarationKind
+                    == PlatformTypeDeclarationKind.Definition)
+            .ToArray();
+        if (definitions.Length > 0)
+            selected = definitions;
+
+        var distinct = selected
+            .DistinctBy(
+                candidate =>
+                    $"{candidate.Assembly.Identity.Name}\0{candidate.Type.ToMetadataFullName()}",
+                StringComparer.OrdinalIgnoreCase)
+            .OrderBy(
+                candidate => candidate.Assembly.Identity.Name,
+                StringComparer.OrdinalIgnoreCase)
+            .ThenBy(
+                candidate => candidate.Type.ToMetadataFullName(),
+                StringComparer.OrdinalIgnoreCase)
+            .ToImmutableArray();
+        if (distinct.Length > 1
+            && distinct
+                .Select(candidate => candidate.Type.ToMetadataFullName())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() == 1)
+        {
+            var resolvedTypeName = distinct[0].Type.ToMetadataFullName();
+            var assemblyPrefixMatches = distinct
+                .Where(candidate =>
+                    resolvedTypeName.StartsWith(
+                        candidate.Assembly.Identity.Name + ".",
+                        StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(
+                    candidate => candidate.Assembly.Identity.Name.Length)
+                .ToArray();
+            if (assemblyPrefixMatches.Length > 0
+                && (assemblyPrefixMatches.Length == 1
+                    || assemblyPrefixMatches[0].Assembly.Identity.Name.Length
+                        > assemblyPrefixMatches[1].Assembly.Identity.Name.Length))
+            {
+                return new PlatformTypeLookupOutcome.Resolved(
+                    assemblyPrefixMatches[0]);
+            }
+
+            foreach (string framework in
+                new[] { "runtime", "aspnetcore", "netstandard" })
+            {
+                var frameworkMatches = distinct
+                    .Where(candidate =>
+                        candidate.Assembly.Provenance
+                            is AssemblyResolutionProvenance.PlatformAsset platform
+                        && platform.Framework.Equals(
+                            framework,
+                            StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                if (frameworkMatches.Length == 1)
+                {
+                    return new PlatformTypeLookupOutcome.Resolved(
+                        frameworkMatches[0]);
+                }
+
+                if (frameworkMatches.Length > 1)
+                    break;
+            }
+        }
+
+        return distinct.Length == 1
+            ? new PlatformTypeLookupOutcome.Resolved(distinct[0])
+            : new PlatformTypeLookupOutcome.Ambiguous(distinct);
+    }
+
+    /// <summary>
     /// Classifies a platform assembly through Metadata's typed declaration
     /// inventory. The path is acquisition input, never metadata-derived.
     /// </summary>
@@ -1021,6 +1372,15 @@ public class FrameworkInfo
     public int AssemblyCount { get; set; }
     public string Path { get; set; } = "";
 }
+
+internal sealed record PlatformFrameworkSnapshot(
+    IReadOnlyList<FrameworkInfo> ReferenceFrameworks,
+    IReadOnlyList<RuntimeFrameworkInfo> RuntimeFrameworks);
+
+internal sealed record RuntimeFrameworkInfo(
+    string ShortName,
+    string Version,
+    string DirectoryPath);
 
 /// <summary>
 /// Information about a reference assembly.

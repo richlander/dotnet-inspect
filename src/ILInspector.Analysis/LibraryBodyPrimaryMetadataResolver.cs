@@ -18,7 +18,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     readonly MetadataReader _reader;
     readonly string _assemblyName;
     readonly Guid _mvid;
-    readonly bool _memorySafetyRulesEnabled;
+    readonly MemorySafetyMetadataIndex _memorySafety;
     readonly Func<
         EntityHandle,
         GenericScope,
@@ -29,6 +29,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     readonly Func<DecodedInstruction, bool>
         _isStableReceiverGetter;
     readonly Action? _asyncStateMachineTypesBuilt;
+    readonly Lazy<Dictionary<
+        MetadataTypeDefinitionName,
+        TypeDefinitionHandle>> _localTypeDefinitions;
     // Build owns the only async-state-machine classification cache and prewarms it before
     // parallel method analysis. OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis
     // gates that the consumed cache, rather than a duplicate, is initialized exactly once.
@@ -60,11 +63,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             isStableReceiverGetter;
         _asyncStateMachineTypesBuilt =
             asyncStateMachineTypesBuilt;
-        _memorySafetyRulesEnabled = DetectMemorySafetyRules();
+        _memorySafety = MemorySafetyMetadataIndex.Create(reader);
+        _localTypeDefinitions = new(
+            BuildLocalTypeDefinitions,
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
-    internal bool MemorySafetyRulesEnabled =>
-        _memorySafetyRulesEnabled;
+    internal MemorySafetyRulesResult MemorySafetyRules =>
+        _memorySafety.Rules;
 
     internal string AssemblyName => _assemblyName;
 
@@ -73,14 +79,12 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal ILibraryMethodAnalysisResolver CreateMethodAnalysisResolver(
         GenericScope scope,
         MethodIdentity caller,
-        byte[] il,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions) =>
+        MethodInstructions instructions) =>
         new MethodAnalysisResolver(
             this,
             scope,
             caller,
-            il,
-            exceptionRegions);
+            instructions);
 
     internal IMethodCallResolver CreateCallResolver(
         GenericScope scope,
@@ -98,18 +102,6 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
     internal bool IsAllocatingValueTypeBox(int token, GenericScope scope) =>
         IsAllocatingValueTypeBox(token, ResolveTypeToken(token, scope));
-
-    // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
-    // when MemorySafetyRulesAttribute is applied (emitted [module:], like
-    // RefSafetyRulesAttribute). Check the module and assembly scopes.
-    bool DetectMemorySafetyRules()
-    {
-        const string ns = "System.Runtime.CompilerServices";
-        if (HasAttributeNamed(_reader.GetModuleDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns))
-            return true;
-        return _reader.IsAssembly
-            && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
-    }
 
     // True when a `newobj` of this operand constructs a value type. Combines a name-based
     // FRAMEWORK fast path with an authoritative metadata resolution of the constructor's
@@ -194,7 +186,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             MetadataTokens.GetToken(methodHandle),
             (methodDef.Attributes & MethodAttributes.Static) != 0,
             IsExtensionMethod(typeHandle, methodDef),
-            ComputeCallerUnsafeMode(typeHandle, methodDef, parameterTypes, returnType),
+            CallerUnsafeModeFromContract(
+                _memorySafety.GetMemberContract(methodHandle)),
             methodDef.GetGenericParameters().Count,
             GenericParameterNames(methodDef))
         {
@@ -235,33 +228,20 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             && AttributeReader.HasExtensionAttribute(_reader, methodDef.GetCustomAttributes());
     }
 
-    // Mirrors Roslyn's PEMethodSymbol.CallerUnsafeMode: a member "requires
-    // unsafe" when it carries RequiresUnsafeAttribute (the metadata form of
-    // the `unsafe` modifier) or has a pointer/function pointer in its
-    // signature; the mode is then gated on the module opting into the rules.
-    CallerUnsafeMode ComputeCallerUnsafeMode(
-        TypeDefinitionHandle typeHandle, MethodDefinition methodDef,
-        ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
-    {
-        bool requiresUnsafe =
-            HasRequiresUnsafe(methodDef.GetCustomAttributes())
-            || HasRequiresUnsafe(_reader.GetTypeDefinition(typeHandle).GetCustomAttributes())
-            || parameterTypes.Any(type => type.ContainsPointer())
-            || returnType.ContainsPointer();
-
-        if (!requiresUnsafe)
-            return CallerUnsafeMode.None;
-        return _memorySafetyRulesEnabled ? CallerUnsafeMode.Explicit : CallerUnsafeMode.Implicit;
-    }
-
-    // Read attributes straight from SRM — a simple has-attribute check needs
-    // no shared decode/render machinery, so Analysis stays independent.
-    bool HasRequiresUnsafe(CustomAttributeHandleCollection attributes)
-        // Match the distinctive simple name: the implemented attribute is in
-        // System.Diagnostics.CodeAnalysis, while the design doc says
-        // System.Runtime.CompilerServices — tolerate the namespace churn.
-        => HasAttributeNamed(attributes, "RequiresUnsafeAttribute",
-            "System.Diagnostics.CodeAnalysis", "System.Runtime.CompilerServices");
+    static CallerUnsafeMode CallerUnsafeModeFromContract(
+        MemorySafetyMemberContractResult contract)
+        => contract switch
+        {
+            MemorySafetyMemberContractResult.None =>
+                CallerUnsafeMode.None,
+            MemorySafetyMemberContractResult.Implicit =>
+                CallerUnsafeMode.Implicit,
+            MemorySafetyMemberContractResult.Explicit =>
+                CallerUnsafeMode.Explicit,
+            MemorySafetyMemberContractResult.Unavailable =>
+                CallerUnsafeMode.Unavailable,
+            _ => CallerUnsafeMode.Unavailable,
+        };
 
     bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
     {
@@ -289,6 +269,36 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
         => HasAttributeNamed(attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
 
+    internal bool IsCompilerGeneratedTypeOrEnclosing(
+        TypeDefinitionHandle handle)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+            .TryWalkTypeDefinitionDeclaringChain(
+                _reader,
+                handle,
+                chain,
+                out int count,
+                out _,
+                out _))
+        {
+            return true;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            if (HasCompilerGeneratedAttribute(
+                    _reader.GetTypeDefinition(
+                        chain[i]).GetCustomAttributes()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
     {
         if (constructor.Kind == HandleKind.MemberReference
@@ -313,8 +323,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         LibraryBodyPrimaryMetadataResolver owner,
         GenericScope scope,
         MethodIdentity caller,
-        byte[] il,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions)
+        MethodInstructions instructions)
         : ILibraryMethodAnalysisResolver
     {
         public TypeRef ResolveType(int token)
@@ -368,9 +377,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
         public ReachingDefinitionsResult AnalyzeReachingDefinitions()
             => ReachingDefinitions.Analyze(
-                il,
-                ArgumentSlotCount(caller),
-                exceptionRegions);
+                instructions,
+                ArgumentSlotCount(caller));
     }
 
     // Metadata-dependent call-site facts for one method. MethodCallAnalysis owns
@@ -395,6 +403,39 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
         public int DefinitionToken(int operandToken)
             => owner.PeelToDefinitionToken(operandToken);
+
+        public TypeRef ResolveType(int token)
+            => owner.ResolveTypeToken(token, scope);
+
+        public (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(
+            int fieldToken)
+            => owner.ResolveFieldOwner(fieldToken, scope);
+
+        public FieldIdentity? ResolveFieldIdentity(int fieldToken)
+            => owner.ResolveFieldIdentity(fieldToken, scope);
+
+        public string? ResolveUserString(int token)
+        {
+            if ((token & unchecked((int)0xFF000000))
+                    != 0x70000000)
+            {
+                return null;
+            }
+
+            try
+            {
+                return owner._reader.GetUserString(
+                    MetadataTokens.UserStringHandle(
+                        token & 0x00FFFFFF));
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentException
+                    or InvalidOperationException)
+            {
+                return null;
+            }
+        }
     }
 
     // A value-type `newobj` whose operand is an unresolvable external TypeRef is still
@@ -448,6 +489,200 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         {
             return (null, null);
         }
+    }
+
+    FieldIdentity? ResolveFieldIdentity(
+        int fieldToken,
+        GenericScope callerScope)
+    {
+        try
+        {
+            EntityHandle handle = MetadataTokens.EntityHandle(fieldToken);
+            (TypeRef? declaringType, string? name) =
+                ResolveFieldOwner(fieldToken, callerScope);
+            FieldIdentity? fallback =
+                FieldIdentity.TryCreate(declaringType, name);
+            if (fallback is null)
+                return null;
+
+            if (handle.Kind == HandleKind.FieldDefinition)
+            {
+                return FieldIdentity.CreateLocal(
+                    declaringType!,
+                    name!,
+                    fieldToken);
+            }
+            if (handle.Kind != HandleKind.MemberReference)
+                return fallback;
+
+            MemberReference member =
+                _reader.GetMemberReference((MemberReferenceHandle)handle);
+            TypeDefinitionHandle parent;
+            if (member.Parent.Kind == HandleKind.TypeDefinition)
+            {
+                parent = (TypeDefinitionHandle)member.Parent;
+            }
+            else if (CouldReferenceCurrentModule(declaringType!))
+            {
+                if (!CanCanonicalizeCurrentModuleReference(
+                        declaringType!)
+                    || !TryResolveLocalTypeDefinition(
+                        declaringType!,
+                        out parent))
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                return fallback;
+            }
+
+            FieldDefinitionHandle[] matches =
+            [
+                .. _reader
+                    .GetTypeDefinition(parent)
+                    .GetFields()
+                    .Where(field =>
+                        FieldMatchesMemberReference(
+                            member,
+                            field,
+                            name!)),
+            ];
+            return matches is [var match]
+                ? FieldIdentity.CreateLocal(
+                    declaringType!,
+                    name!,
+                    MetadataTokens.GetToken(match))
+                : null;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException
+            or IndexOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    bool CouldReferenceCurrentModule(TypeRef type)
+    {
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
+        return definition.Resolution?.Origin switch
+        {
+            TypeReferenceOrigin.CurrentAssembly => true,
+            TypeReferenceOrigin.AssemblyReference assembly =>
+                _reader.IsAssembly
+                && assembly.Assembly.Name.Equals(
+                    _reader.GetString(
+                        _reader.GetAssemblyDefinition().Name),
+                    StringComparison.OrdinalIgnoreCase),
+            TypeReferenceOrigin.ModuleReference module =>
+                module.ModuleName.Equals(
+                    _reader.GetString(
+                        _reader.GetModuleDefinition().Name),
+                    StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    bool CanCanonicalizeCurrentModuleReference(TypeRef type)
+    {
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
+        return definition.Resolution?.Origin switch
+        {
+            TypeReferenceOrigin.CurrentAssembly => true,
+            TypeReferenceOrigin.AssemblyReference assembly =>
+                _reader.IsAssembly
+                && assembly.Assembly.IsEquivalentTo(
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        _reader)),
+            TypeReferenceOrigin.ModuleReference module =>
+                module.ModuleName.Equals(
+                    _reader.GetString(
+                        _reader.GetModuleDefinition().Name),
+                    StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    bool TryResolveLocalTypeDefinition(
+        TypeRef type,
+        out TypeDefinitionHandle handle)
+    {
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
+        if (definition.Resolution is not { Type: var name }
+            || !_localTypeDefinitions.Value.TryGetValue(
+                name,
+                out handle)
+            || handle.IsNil)
+        {
+            handle = default;
+            return false;
+        }
+
+        return true;
+    }
+
+    Dictionary<MetadataTypeDefinitionName, TypeDefinitionHandle>
+        BuildLocalTypeDefinitions()
+    {
+        var definitions = new Dictionary<
+            MetadataTypeDefinitionName,
+            TypeDefinitionHandle>();
+        foreach (TypeDefinitionHandle handle in _reader.TypeDefinitions)
+        {
+            TypeRef type = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                _reader,
+                handle,
+                0);
+            if (type.Resolution is not { Type: var name })
+                continue;
+
+            if (!definitions.TryAdd(name, handle))
+                definitions[name] = default;
+        }
+
+        return definitions;
+    }
+
+    bool FieldMatchesMemberReference(
+        MemberReference member,
+        FieldDefinitionHandle fieldHandle,
+        string name)
+    {
+        FieldDefinition field =
+            _reader.GetFieldDefinition(fieldHandle);
+        if (_reader.GetString(field.Name) != name
+            || !SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                _reader,
+                member.Signature,
+                SignatureBlobGuard.Kind.Field)
+            || !SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                _reader,
+                field.Signature,
+                SignatureBlobGuard.Kind.Field))
+        {
+            return false;
+        }
+
+        BlobReader left = _reader.GetBlobReader(member.Signature);
+        BlobReader right = _reader.GetBlobReader(field.Signature);
+        if (left.Length != right.Length)
+            return false;
+        while (left.RemainingBytes > 0)
+        {
+            if (left.ReadByte() != right.ReadByte())
+                return false;
+        }
+        return true;
     }
 
     bool IsDelegateConstructorToken(int operandToken, MemberRef constructor)

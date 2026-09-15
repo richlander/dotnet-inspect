@@ -466,10 +466,12 @@ internal sealed class LibraryBodyMethodReferenceResolver
         if (target.Kind == MemberKind.Unsupported
             || target.GenericArity == 0
             || arguments.Length != target.GenericArity
-            || arguments.Any(argument =>
-                ContainsMalformedMethodSpecificationType(
-                    argument,
-                    scope)))
+            || !MethodSignatureTypeShape
+                .InspectMethodSpecificationArguments(
+                    arguments,
+                    scope.TypeParameters.Length,
+                    scope.MethodParameters.Length)
+                .IsSupported)
         {
             throw new BadImageFormatException(
                 "The MethodSpec signature is invalid for its target and caller scope.");
@@ -534,56 +536,4 @@ internal sealed class LibraryBodyMethodReferenceResolver
         }
     }
 
-    static bool ContainsMalformedMethodSpecificationType(
-        TypeRef type,
-        GenericScope scope)
-    {
-        if (type.Kind == TypeRefKind.GenericParameter
-            && (type.GenericParameterIndex < 0
-                || type.GenericParameterIndex
-                    >= scope.TypeParameters.Length)
-            || type.Kind == TypeRefKind.MethodGenericParameter
-                && (type.GenericParameterIndex < 0
-                    || type.GenericParameterIndex
-                        >= scope.MethodParameters.Length))
-        {
-            return true;
-        }
-        if (type.Kind == TypeRefKind.Unsupported)
-        {
-            if (type.UnmodifiedType is { } unmodified)
-            {
-                return ContainsMalformedMethodSpecificationType(
-                        unmodified,
-                        scope)
-                    || (type.ModifierType is { } modifier
-                        && ContainsMalformedMethodSpecificationType(
-                            modifier,
-                            scope));
-            }
-            if (type.FunctionPointerSignature is { } function)
-            {
-                return ContainsMalformedMethodSpecificationType(
-                        function.ReturnType,
-                        scope)
-                    || function.ParameterTypes.Any(
-                        parameter =>
-                            ContainsMalformedMethodSpecificationType(
-                                parameter,
-                                scope));
-            }
-            return true;
-        }
-        if (type.ElementType is { } element
-            && ContainsMalformedMethodSpecificationType(
-                element,
-                scope))
-        {
-            return true;
-        }
-        return type.TypeArguments.Any(
-            argument => ContainsMalformedMethodSpecificationType(
-                argument,
-                scope));
-    }
 }

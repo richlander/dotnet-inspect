@@ -1,0 +1,207 @@
+namespace ILInspector.Decompiler.Fixtures.UnsafeChainB;
+
+using ILInspector.Decompiler.Fixtures.UnsafeChainA;
+
+using System.Threading.Tasks;
+
+/// <summary>
+/// Caller assembly B of the cross-assembly unsafe chain. <see cref="M2"/> calls
+/// <see cref="LibraryA.M1"/> — a pointerless requires-unsafe method in assembly
+/// A. Under the updated memory-safety rules the call needs an explicit unsafe
+/// context even though no pointer crosses the boundary. The source wraps it in
+/// an <c>unsafe { }</c> block; a faithful decompilation must do the same, which
+/// requires reading A.M1's <c>RequiresUnsafeAttribute</c> cross-assembly.
+/// </summary>
+public static class LibraryB
+{
+    public static int ReadContractField()
+    {
+        unsafe
+        {
+            return LibraryA.ContractField;
+        }
+    }
+
+    public static void WriteContractField(int value)
+    {
+        unsafe
+        {
+            LibraryA.ContractField = value;
+        }
+    }
+
+    public static ref int AddressContractField()
+    {
+        unsafe
+        {
+            return ref LibraryA.ContractField;
+        }
+    }
+
+    public static int ReadSafeField()
+        => LibraryA.SafeField;
+
+    public static int ReadContractProperty()
+    {
+        unsafe
+        {
+            return LibraryA.ContractProperty;
+        }
+    }
+
+    public static void SubscribeContractEvent(Action handler)
+    {
+        unsafe
+        {
+            LibraryA.ContractEvent += handler;
+        }
+    }
+
+    public static ContractObject CreateContractObject()
+    {
+        unsafe
+        {
+            return new ContractObject();
+        }
+    }
+
+    public static async Task<int> AwaitSafePointer(nint value)
+        => await LibraryA.SafePointerTask((int*)value);
+
+    // Cross-assembly call to a pointerless requires-unsafe method. The call —
+    // not any intrinsic pointer op — is what forces the unsafe context.
+    public static int M2()
+    {
+        unsafe
+        {
+            return LibraryA.M1();
+        }
+    }
+}
+
+public sealed class ContractDerived : ContractBase
+{
+    public int Value;
+
+    public unsafe ContractDerived()
+        : base(42)
+    {
+        Value = 42;
+    }
+}
+
+public sealed class ThisContract
+{
+    public int Value;
+
+    public unsafe ThisContract(int value)
+    {
+        Value = value;
+    }
+
+    public unsafe ThisContract()
+        : this(42)
+    {
+        Value++;
+    }
+}
+
+public sealed class ImplicitContractDerived : ImplicitContractBase
+{
+    public int Value;
+
+    public unsafe ImplicitContractDerived()
+    {
+        Value = 42;
+    }
+}
+
+public sealed class ContractArgumentDerived : SafeArgumentBase
+{
+    public int Value;
+
+    public ContractArgumentDerived()
+        : base(unsafe(LibraryA.M1()))
+    {
+        Value = 42;
+    }
+}
+
+public sealed class ContractPropertyArgumentDerived : SafeArgumentBase
+{
+    public int Value;
+
+    public ContractPropertyArgumentDerived()
+        : base(unsafe((int)LibraryA.ContractProperty))
+    {
+        Value = 42;
+    }
+}
+
+public sealed class ContractRefArgumentDerived : SafeRefArgumentBase
+{
+    public ContractRefArgumentDerived()
+        : base(ref unsafe(LibraryA.ContractRef()))
+    {
+    }
+}
+
+public sealed class ContractInArgumentDerived : SafeInArgumentBase
+{
+    public ContractInArgumentDerived()
+        : base(in unsafe(LibraryA.ContractIn()))
+    {
+    }
+}
+
+public sealed class ContractInRvalueArgumentDerived : SafeInRvalueArgumentBase
+{
+    public ContractInRvalueArgumentDerived()
+        : base(unsafe(LibraryA.M1()))
+    {
+    }
+}
+
+public sealed class ContractInPropertyArgumentDerived : SafeInRvalueArgumentBase
+{
+    public ContractInPropertyArgumentDerived()
+        : base(unsafe((int)LibraryA.ContractProperty))
+    {
+    }
+}
+
+public sealed class ThisInRvalueContract
+{
+    public ThisInRvalueContract(in int value)
+    {
+    }
+
+    public ThisInRvalueContract()
+        : this(unsafe(LibraryA.M1()))
+    {
+    }
+}
+
+public sealed class ContractRefPropertyArgumentDerived : SafeRefArgumentBase
+{
+    public unsafe ContractRefPropertyArgumentDerived()
+        : base(ref LibraryA.ContractRefProperty)
+    {
+    }
+}
+
+public sealed class ThisArgumentContract
+{
+    public int Value;
+
+    public ThisArgumentContract(int value)
+    {
+        Value = value;
+    }
+
+    public ThisArgumentContract()
+        : this(unsafe(LibraryA.M1()))
+    {
+        Value++;
+    }
+}

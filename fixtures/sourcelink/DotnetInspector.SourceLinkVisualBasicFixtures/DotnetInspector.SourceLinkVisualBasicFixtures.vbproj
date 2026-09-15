@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <RootNamespace></RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <LangVersion>latest</LangVersion>
+    <EnablePreviewFeatures>false</EnablePreviewFeatures>
+    <DebugType>embedded</DebugType>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
+    <SourceLink>$(MSBuildProjectDirectory)/sourcelink.json</SourceLink>
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <EnableSourceLink>false</EnableSourceLink>
+  </PropertyGroup>
+</Project>

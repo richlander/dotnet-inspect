@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 
 namespace DotnetInspector.Packages;
 
@@ -8,9 +9,22 @@ namespace DotnetInspector.Packages;
 /// <see cref="RootPath"/>. This is the desktop content: the extracted directory
 /// itself is what the CLI's existing consumers open by path.
 /// </summary>
-public sealed class FileSystemPackageContent : IPackageContent
+/// <remarks>
+/// The extracted file length is the declared entry length, so this content also
+/// implements <see cref="IPackageContentEntryManifest"/>. Without it, a bounded
+/// caller would only learn that an entry is over budget from the
+/// <see cref="InvalidDataException"/> raised inside
+/// <see cref="TryOpenEntry(string, long, out Stream?)"/>, which is
+/// indistinguishable from an unrelated read failure. Gated by
+/// <c>FileSystemPackageContentManifestTests.FileSystemLengthUsesManifestPreflight</c>.
+/// </remarks>
+public sealed class FileSystemPackageContent :
+    IPackageContent,
+    IPackageContentEntryManifest,
+    IPackageContentDigestSource
 {
     private readonly string _root;
+    private readonly PackageContentGenerationIdentity _generationIdentity = new();
 
     public FileSystemPackageContent(
         string rootPath,
@@ -42,6 +56,10 @@ public sealed class FileSystemPackageContent : IPackageContent
     public string ProducerKey { get; }
 
     /// <inheritdoc />
+    public PackageContentGenerationIdentity GenerationIdentity =>
+        _generationIdentity;
+
+    /// <inheritdoc />
     public bool RequiresArchiveTreeMatch { get; }
 
     /// <inheritdoc />
@@ -55,6 +73,62 @@ public sealed class FileSystemPackageContent : IPackageContent
 
         stream = File.OpenRead(NupkgPath);
         return true;
+    }
+
+    PackageContentDigest? IPackageContentDigestSource.GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!RequiresArchiveTreeMatch)
+            return null;
+
+        PackageContentGenerationIdentity generation = GenerationIdentity;
+        PackageContentDigest? digest = generation.GetOrCreateDigest(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Stream? stream;
+            try
+            {
+                if (!TryOpenArchive(out stream))
+                    return null;
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+
+            using (stream)
+            {
+                long archiveLength;
+                try
+                {
+                    archiveLength = stream.Length;
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException)
+                {
+                    return null;
+                }
+
+                chargeWork(archiveLength);
+
+                try
+                {
+                    return new PackageContentDigest(
+                        generation,
+                        Convert.ToHexStringLower(SHA256.HashData(stream)));
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException)
+                {
+                    return null;
+                }
+            }
+        });
+        cancellationToken.ThrowIfCancellationRequested();
+        return digest;
     }
 
     /// <inheritdoc />
@@ -102,6 +176,42 @@ public sealed class FileSystemPackageContent : IPackageContent
         {
             yield return Path.GetRelativePath(_root, file).Replace(Path.DirectorySeparatorChar, '/');
         }
+    }
+
+    /// <inheritdoc />
+    public bool TryGetEntryLength(string relativePath, out long length)
+    {
+        var file = new FileInfo(ResolveEntryPath(relativePath));
+        if (!file.Exists)
+        {
+            length = 0;
+            return false;
+        }
+
+        length = file.Length;
+        return true;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths()
+    {
+        if (!Directory.Exists(_root))
+            return [];
+
+        var entries = new List<PackageContentEntry>();
+        foreach (var file in Directory.EnumerateFiles(
+            _root,
+            "*",
+            SearchOption.AllDirectories))
+        {
+            entries.Add(
+                new PackageContentEntry(
+                    Path.GetRelativePath(_root, file)
+                        .Replace(Path.DirectorySeparatorChar, '/'),
+                    new FileInfo(file).Length));
+        }
+
+        return entries;
     }
 
     private string ResolveEntryPath(string relativePath)

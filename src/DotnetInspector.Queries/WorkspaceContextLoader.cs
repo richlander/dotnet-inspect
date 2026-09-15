@@ -46,6 +46,18 @@ public sealed record WorkspaceContextLoadOptions
     public required IPackageStore PackageStore { get; init; }
 
     /// <summary>
+    /// Optional host capacity policy applied before a package response body is
+    /// materialized.
+    /// </summary>
+    /// <remarks>
+    /// Gated through the loader for package and platform coordinates by
+    /// <c>WorkspaceContextLoaderTests.BrowserNeutralAcquisition_DownloadsAndRealizesInMemory</c>
+    /// and
+    /// <c>PlatformAcquisition_ForwardsTransferPolicyForDeclaredAndRealizedCoordinates</c>.
+    /// </remarks>
+    public IPackagePayloadTransferPolicy? PackageTransferPolicy { get; init; }
+
+    /// <summary>
     /// The host's embedded-content access. A context with an embedded member
     /// fails visibly when the host supplies none.
     /// </summary>
@@ -65,13 +77,26 @@ public sealed record WorkspaceContextLoadOptions
     public bool UseVersionCache { get; init; }
 
     /// <summary>
+    /// Whether package realizations should also issue package Root bindings.
+    /// </summary>
+    /// <remarks>
+    /// This remains opt-in because creating a Root binding freezes a separate
+    /// compile-asset selection needed by Workspace occurrence consumers.
+    /// Ordinary assembly-context loads do not pay for that projection.
+    /// </remarks>
+    public bool IncludePackageRootBindings { get; init; }
+
+    /// <summary>
     /// The bounds a downloaded package payload must respect before it may be
     /// published into <see cref="PackageStore"/>.
     /// </summary>
     public PackagePayloadLimits PayloadLimits { get; init; } =
         PackagePayloadLimits.Default;
 
-    /// <summary>The created group's cumulative retained-image budget.</summary>
+    /// <summary>
+    /// The created group's cumulative retained-image budget. Every realized
+    /// image is sealed under this budget before the group is published.
+    /// </summary>
     public long MaxRetainedImageBytes { get; init; } =
         AssemblyContextGroupOptions.DefaultMaxRetainedImageBytes;
 
@@ -111,13 +136,15 @@ public sealed record WorkspaceContextLoadOptions
 /// Cancellation remains an exception rather than an outcome.
 /// </para>
 /// <para>
-/// Participants share one binding-policy snapshot:
-/// <see cref="SourceRelativeAssemblyGroupBindingPolicy"/> over the realized
-/// descriptors, with <see cref="NoResolverAssemblyBindingPolicy"/> beneath it.
+/// Before publication, every realized image is sealed into the group's
+/// retained-image budget. Participants then share one binding-policy snapshot:
+/// <see cref="SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld"/>
+/// over those snapshot-backed descriptors, with
+/// <see cref="NoResolverAssemblyBindingPolicy"/> beneath it.
 /// That is the correct contract here — the loader acquires no dependency
 /// outside the context, so an in-context identity binds to its own descriptor
-/// while every other reference is a typed non-selection instead of a
-/// filesystem probe.
+/// while intrinsic inspection and every other reference remain free of package,
+/// embedded-content, network, or filesystem acquisition.
 /// </para>
 /// <para>
 /// Gated by <c>WorkspaceContextLoaderTests</c>:
@@ -156,6 +183,86 @@ public static class WorkspaceContextLoader
     const string PlatformResolverSource = "NuGet implementation pack";
 
     /// <summary>
+    /// Loads one explicitly selected declaration context and binds its exact
+    /// request to the realization outcome for population capture and lazy
+    /// Workspace locator observation.
+    /// </summary>
+    public static async Task<WorkspaceDeclarationContext> LoadDeclarationContextAsync(
+        InspectionWorkspace workspace,
+        WorkspaceContextInput context,
+        WorkspaceContextLoadOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(context.Members);
+        cancellationToken.ThrowIfCancellationRequested();
+        var request = context with { Members = context.Members.ToImmutableArray() };
+        int order = workspace.BeginDeclarationContext();
+        WorkspaceContextLoadOutcome outcome = await LoadAsync(
+            workspace, request, options, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return workspace.CompleteDeclarationContext(order, request, outcome);
+    }
+
+    /// <summary>
+    /// Acquires one package Root without constructing assembly contexts.
+    /// Scope publication separately prepares its physical realization.
+    /// </summary>
+    /// <remarks>
+    /// When the requested framework has no exact compile selection, reuse the
+    /// context loader's compatible implementation universe as the selection
+    /// target. The acquired coordinate still records the requested framework.
+    /// </remarks>
+    public static async Task<WorkspacePackageRootAcquisitionOutcome>
+        AcquirePackageRootAsync(
+            WorkspaceContextInput context,
+            WorkspaceContextLoadOptions options,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.HttpClient);
+        ArgumentNullException.ThrowIfNull(options.SourceAuthorization);
+        ArgumentNullException.ThrowIfNull(options.PackageStore);
+        ArgumentNullException.ThrowIfNull(options.PayloadLimits);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ImmutableArray<WorkspaceContextLoadFailure> rejections =
+            Validate(context, options, out string? framework, out string? rid);
+        if (!rejections.IsEmpty)
+            return new WorkspacePackageRootAcquisitionOutcome.Failed(rejections);
+        if (context.Members.Count != 1
+            || context.Members[0] is not WorkspaceMemberCoordinate.PackageMember member)
+        {
+            return new WorkspacePackageRootAcquisitionOutcome.Failed(
+                [Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member: null,
+                    "Package Root acquisition requires exactly one package member.")]);
+        }
+
+        var acquisition = await AcquirePackagePayloadAsync(
+            member, framework!, rid, options, cancellationToken)
+            .ConfigureAwait(false);
+        if (acquisition.Failure is { } failure)
+            return new WorkspacePackageRootAcquisitionOutcome.Failed([failure]);
+
+        AcquiredPackagePayload payload = acquisition.Payload!;
+        WorkspacePackageRootAcquisitionOutcome binding =
+            BindPackageRoot(member, payload, framework!);
+        if (binding is WorkspacePackageRootAcquisitionOutcome.Acquired acquired
+            && acquired.Root.Root.AssetSelection.Status
+                == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
+            && PackageAssetSelector.Select(payload.Content, framework!, rid)
+                is PackageAssetSelection.Selected compatible)
+        {
+            return BindPackageRoot(member, payload, compatible.Universe.TargetFramework);
+        }
+        return binding;
+    }
+
+    /// <summary>
     /// Realizes <paramref name="context"/> into one group owned by
     /// <paramref name="workspace"/>, or returns the typed reasons it could not
     /// be realized.
@@ -173,6 +280,8 @@ public static class WorkspaceContextLoader
         ArgumentNullException.ThrowIfNull(options.SourceAuthorization);
         ArgumentNullException.ThrowIfNull(options.PackageStore);
         ArgumentNullException.ThrowIfNull(options.PayloadLimits);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            options.MaxRetainedImageBytes);
         ArgumentOutOfRangeException.ThrowIfNegative(
             options.MaxEmbeddedContentBytes);
         cancellationToken.ThrowIfCancellationRequested();
@@ -206,6 +315,8 @@ public static class WorkspaceContextLoader
 
         var realized =
             ImmutableArray.CreateBuilder<RealizedMember>();
+        var availablePlatformAssemblies =
+            new HashSet<RealizedMemberCoordinate.Platform>();
         foreach (WorkspaceMemberCoordinate member in members)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -237,6 +348,8 @@ public static class WorkspaceContextLoader
             if (realization.Failure is { } failure)
                 return new WorkspaceContextLoadOutcome.Failed([failure]);
 
+            availablePlatformAssemblies.UnionWith(
+                realization.AvailablePlatformAssemblies);
             foreach (ResolvedAssemblyReference assembly
                 in realization.Assemblies)
             {
@@ -246,11 +359,18 @@ public static class WorkspaceContextLoader
                     new RealizedMember(
                         member,
                         realization.Realized!,
-                        assembly));
+                        assembly,
+                        realization.PackageRoot));
             }
         }
 
-        return CreateGroup(workspace, realized, options, framework, rid);
+        return CreateGroup(
+            workspace,
+            realized,
+            availablePlatformAssemblies,
+            options,
+            framework,
+            rid);
     }
 
     /// <summary>
@@ -300,6 +420,8 @@ public static class WorkspaceContextLoader
         ArgumentNullException.ThrowIfNull(options.PackageStore);
         ArgumentNullException.ThrowIfNull(options.PayloadLimits);
         ArgumentOutOfRangeException.ThrowIfNegative(
+            options.MaxRetainedImageBytes);
+        ArgumentOutOfRangeException.ThrowIfNegative(
             options.MaxEmbeddedContentBytes);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -332,7 +454,41 @@ public static class WorkspaceContextLoader
             return new WorkspaceContextLoadOutcome.Failed([duplicate]);
         }
 
+        var platformGroups = distinct
+            .OfType<RealizedMemberCoordinate.Platform>()
+            .GroupBy(PlatformPackKeyFor)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray());
+        var realizedPlatformGroups = new Dictionary<
+            PlatformPackKey,
+            IReadOnlyDictionary<
+                RealizedMemberCoordinate.Platform,
+                MemberRealization>>();
+
+        async Task<MemberRealization> RealizePlatformMemberAsync(
+            RealizedMemberCoordinate.Platform platform)
+        {
+            PlatformPackKey key = PlatformPackKeyFor(platform);
+            if (!realizedPlatformGroups.TryGetValue(
+                    key,
+                    out IReadOnlyDictionary<
+                        RealizedMemberCoordinate.Platform,
+                        MemberRealization>? group))
+            {
+                group = await RealizePinnedPlatformGroupAsync(
+                    platformGroups[key],
+                    options,
+                    cancellationToken).ConfigureAwait(false);
+                realizedPlatformGroups.Add(key, group);
+            }
+
+            return group[platform];
+        }
+
         var realized = ImmutableArray.CreateBuilder<RealizedMember>();
+        var availablePlatformAssemblies =
+            new HashSet<RealizedMemberCoordinate.Platform>();
         foreach (RealizedMemberCoordinate coordinate in distinct)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -347,11 +503,8 @@ public static class WorkspaceContextLoader
                         options,
                         cancellationToken).ConfigureAwait(false),
                 RealizedMemberCoordinate.Platform platform =>
-                    await RealizePinnedPlatformAsync(
-                        platform,
-                        (WorkspaceMemberCoordinate.PlatformMember)declared,
-                        options,
-                        cancellationToken).ConfigureAwait(false),
+                    await RealizePlatformMemberAsync(platform)
+                        .ConfigureAwait(false),
                 RealizedMemberCoordinate.Embedded =>
                     RealizeEmbedded(
                         (WorkspaceMemberCoordinate.EmbeddedMember)declared,
@@ -367,6 +520,8 @@ public static class WorkspaceContextLoader
             if (realization.Failure is { } failure)
                 return new WorkspaceContextLoadOutcome.Failed([failure]);
 
+            availablePlatformAssemblies.UnionWith(
+                realization.AvailablePlatformAssemblies);
             foreach (ResolvedAssemblyReference assembly
                 in realization.Assemblies)
             {
@@ -374,11 +529,18 @@ public static class WorkspaceContextLoader
                     new RealizedMember(
                         declared,
                         realization.Realized!,
-                        assembly));
+                        assembly,
+                        realization.PackageRoot));
             }
         }
 
-        return CreateGroup(workspace, realized, options, framework, rid);
+        return CreateGroup(
+            workspace,
+            realized,
+            availablePlatformAssemblies,
+            options,
+            framework,
+            rid);
     }
 
     /// <summary>
@@ -450,6 +612,20 @@ public static class WorkspaceContextLoader
     /// is what makes a mismatch a conflict rather than two independent members.
     /// </remarks>
     readonly record struct AcquisitionKey(string Subject, string Key);
+
+    readonly record struct PlatformPackKey(
+        string Family,
+        string Version,
+        string Producer,
+        string Framework);
+
+    static PlatformPackKey PlatformPackKeyFor(
+        RealizedMemberCoordinate.Platform coordinate) =>
+        new(
+            coordinate.Family,
+            coordinate.Version,
+            coordinate.Producer,
+            coordinate.Framework);
 
     /// <summary>
     /// The canonical acquisition key for a declared member, resolved against
@@ -798,16 +974,18 @@ public static class WorkspaceContextLoader
     /// participants share, or null when every identity is distinct.
     /// </summary>
     /// <remarks>
-    /// Identity equality is <see cref="AssemblyReferenceIdentity"/>'s own, which
-    /// is what <see cref="SourceRelativeAssemblyGroupBindingPolicy"/> compares
-    /// when it matches a reference against the group's roots — so this detects
-    /// exactly the groups that policy would answer ambiguously, and no others.
+    /// Identity equality uses
+    /// <see cref="AssemblyReferenceIdentity.EquivalentComparer"/>, matching
+    /// binding equivalence for name, version, normalized culture, and public
+    /// key token. This prevents two participants that cannot be distinguished
+    /// by full binding identity from entering one group.
     /// Two versions of one library have different identities and coexist.
     /// </remarks>
     static WorkspaceContextLoadFailure? FirstIdentityCollision(
         ImmutableArray<RealizedMember>.Builder realized)
     {
-        var seen = new Dictionary<AssemblyReferenceIdentity, RealizedMember>();
+        var seen = new Dictionary<AssemblyReferenceIdentity, RealizedMember>(
+            AssemblyReferenceIdentity.EquivalentComparer);
         foreach (RealizedMember entry in realized)
         {
             if (seen.TryAdd(entry.Assembly.Identity, entry))
@@ -861,6 +1039,8 @@ public static class WorkspaceContextLoader
     static WorkspaceContextLoadOutcome CreateGroup(
         InspectionWorkspace workspace,
         ImmutableArray<RealizedMember>.Builder realized,
+        HashSet<RealizedMemberCoordinate.Platform>
+            availablePlatformAssemblies,
         WorkspaceContextLoadOptions options,
         string? framework,
         string? runtimeIdentifier)
@@ -886,22 +1066,15 @@ public static class WorkspaceContextLoader
             return new WorkspaceContextLoadOutcome.Failed([collision]);
         }
 
-        var groupPolicy = new SourceRelativeAssemblyGroupBindingPolicy(
-            realized.Select(static entry =>
-                (entry.Assembly,
-                    (IAssemblyBindingPolicy)
-                        NoResolverAssemblyBindingPolicy.Instance)));
-        List<AssemblyContextParticipant> participants =
-        [
-            .. realized.Select(entry =>
-                new AssemblyContextParticipant(entry.Assembly, groupPolicy)),
-        ];
-        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
-            participants,
-            new AssemblyContextGroupOptions
-            {
-                MaxRetainedImageBytes = options.MaxRetainedImageBytes,
-            });
+        RetainedAssemblyContextGroup retained = RetainedAssemblyContextGroup.Create(
+            workspace, [.. realized.Select(static entry => entry.Assembly)],
+            new AssemblyContextGroupOptions { MaxRetainedImageBytes = options.MaxRetainedImageBytes });
+        if (retained is RetainedAssemblyContextGroup.Rejected rejected)
+        {
+            return new WorkspaceContextLoadOutcome.Failed(
+                [RetentionFailure(realized[rejected.AssemblyIndex], rejected.Failure)]);
+        }
+        AssemblyContextGroup group = ((RetainedAssemblyContextGroup.Ready)retained).Group;
 
         var members =
             ImmutableArray.CreateBuilder<WorkspaceContextMember>(
@@ -912,14 +1085,56 @@ public static class WorkspaceContextLoader
                 new WorkspaceContextMember(
                     realized[index].Declared,
                     realized[index].Realized,
-                    participants[index]));
+                    group.Participants[index]));
         }
 
+        ImmutableArray<PackageRootBinding> packageRoots =
+        [
+            .. realized
+                .Select(static entry => entry.PackageRoot)
+                .OfType<PackageRootBinding>()
+                .Distinct(),
+        ];
         return new WorkspaceContextLoadOutcome.Loaded(
+            workspace.Identity,
             group,
             members.MoveToImmutable(),
+            packageRoots,
+            [
+                .. availablePlatformAssemblies
+                    .OrderBy(assembly => assembly.Family, StringComparer.Ordinal)
+                    .ThenBy(assembly => assembly.Version, StringComparer.Ordinal)
+                    .ThenBy(assembly => assembly.Producer, StringComparer.Ordinal)
+                    .ThenBy(assembly => assembly.Framework, StringComparer.Ordinal)
+                    .ThenBy(assembly => assembly.Assembly, StringComparer.Ordinal),
+            ],
             framework,
             runtimeIdentifier);
+    }
+
+    static WorkspaceContextLoadFailure RetentionFailure(
+        RealizedMember entry,
+        CandidateOpenFailure failure)
+    {
+        WorkspaceContextLoadFailureKind kind = failure.Kind switch
+        {
+            CandidateOpenFailureKind.ResourceBudget =>
+                WorkspaceContextLoadFailureKind
+                    .ImageRetentionBudgetExceeded,
+            CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                WorkspaceContextLoadFailureKind
+                    .UnsupportedMetadataFormat,
+            _ => WorkspaceContextLoadFailureKind.InvalidImage,
+        };
+        string message = failure.Kind
+            == CandidateOpenFailureKind.ResourceBudget
+                ? "The workspace context exceeds its immutable image-retention budget."
+                : "A realized workspace image could not be sealed for acquisition-free inspection.";
+        return Failure(
+            kind,
+            entry.Declared,
+            message,
+            failure.MetadataRootReason);
     }
 
     static ImmutableArray<WorkspaceContextLoadFailure> Validate(
@@ -1298,7 +1513,8 @@ public static class WorkspaceContextLoader
                 options.PackageStore,
                 options.Log,
                 options.PayloadLimits,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.PackageTransferPolicy).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             LogPlatformDetail(
@@ -1320,12 +1536,79 @@ public static class WorkspaceContextLoader
             cancellationToken);
     }
 
-    static async Task<MemberRealization> RealizePinnedPlatformAsync(
-        RealizedMemberCoordinate.Platform pinned,
-        WorkspaceMemberCoordinate.PlatformMember declared,
+    static MemberRealization RealizeAcquiredPlatform(
+        WorkspaceMemberCoordinate.PlatformMember member,
+        AcquiredPackagePayload acquired,
+        string framework,
         WorkspaceContextLoadOptions options,
         CancellationToken cancellationToken)
     {
+        string family = member.Family.ToLowerInvariant();
+        if (!RealizedMemberCoordinate.Platform.TryCreate(
+                family,
+                acquired.Coordinate.Version,
+                acquired.ProducerKey,
+                framework,
+                member.Assembly,
+                out RealizedMemberCoordinate.Platform? requested,
+                out string? problem))
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member,
+                    $"The acquired platform family could not be named by a canonical realized coordinate: {problem}."));
+        }
+
+        MemberRealization realization = RealizeAcquiredPlatforms(
+            [requested],
+            acquired,
+            framework,
+            options,
+            cancellationToken)[requested];
+        if (realization.Failure is { } failure)
+        {
+            return new MemberRealization(
+                Failure(
+                    failure.Kind,
+                    member,
+                    failure.Message,
+                    failure.MetadataRootReason));
+        }
+
+        string? realizedAssembly = member.Assembly is null
+            ? null
+            : realization.Assemblies[0].Identity.Name;
+        if (!RealizedMemberCoordinate.Platform.TryCreate(
+                family,
+                acquired.Coordinate.Version,
+                acquired.ProducerKey,
+                framework,
+                realizedAssembly,
+                out RealizedMemberCoordinate.Platform? coordinate,
+                out problem))
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member,
+                    $"The acquired platform family could not be named by a canonical realized coordinate: {problem}."));
+        }
+
+        return new MemberRealization(
+            coordinate,
+            realization.Assemblies,
+            realization.AvailablePlatformAssemblies);
+    }
+
+    static async Task<IReadOnlyDictionary<
+        RealizedMemberCoordinate.Platform,
+        MemberRealization>> RealizePinnedPlatformGroupAsync(
+        ImmutableArray<RealizedMemberCoordinate.Platform> members,
+        WorkspaceContextLoadOptions options,
+        CancellationToken cancellationToken)
+    {
+        RealizedMemberCoordinate.Platform pinned = members[0];
         string packageId = PlatformPackageId(pinned.Family);
         PackageSourceAuthorization authorization =
             options.SourceAuthorization.AuthorizeSourcesFor(packageId);
@@ -1340,12 +1623,10 @@ public static class WorkspaceContextLoader
                 options,
                 pinned.Family,
                 authorization.DenialReason);
-            return new MemberRealization(
-                Failure(
-                    WorkspaceContextLoadFailureKind
-                        .PlatformProducerUnavailable,
-                    declared,
-                    $"The recorded producer for platform family '{pinned.Family}' is not authorized by this host."));
+            return FailPlatformMembers(
+                members,
+                WorkspaceContextLoadFailureKind.PlatformProducerUnavailable,
+                $"The recorded producer for platform family '{pinned.Family}' is not authorized by this host.");
         }
 
         PackageCoordinateResolution resolution =
@@ -1375,12 +1656,10 @@ public static class WorkspaceContextLoader
                 options,
                 pinned.Family,
                 detail);
-            return new MemberRealization(
-                Failure(
-                    WorkspaceContextLoadFailureKind
-                        .PlatformProducerUnavailable,
-                    declared,
-                    $"The recorded producer could not resolve platform family '{pinned.Family}' version '{pinned.Version}'."));
+            return FailPlatformMembers(
+                members,
+                WorkspaceContextLoadFailureKind.PlatformProducerUnavailable,
+                $"The recorded producer could not resolve platform family '{pinned.Family}' version '{pinned.Version}'.");
         }
 
         PackagePayloadResult payload =
@@ -1390,19 +1669,18 @@ public static class WorkspaceContextLoader
                 options.PackageStore,
                 options.Log,
                 options.PayloadLimits,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.PackageTransferPolicy).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             LogPlatformDetail(
                 options,
                 pinned.Family,
                 payloadFailure.Message);
-            return new MemberRealization(
-                Failure(
-                    WorkspaceContextLoadFailureKind
-                        .PlatformProducerUnavailable,
-                    declared,
-                    $"The recorded producer could not acquire platform family '{pinned.Family}' version '{pinned.Version}'."));
+            return FailPlatformMembers(
+                members,
+                WorkspaceContextLoadFailureKind.PlatformProducerUnavailable,
+                $"The recorded producer could not acquire platform family '{pinned.Family}' version '{pinned.Version}'.");
         }
 
         AcquiredPackagePayload acquired =
@@ -1412,34 +1690,41 @@ public static class WorkspaceContextLoader
                 pinned.Producer,
                 StringComparison.Ordinal))
         {
-            return new MemberRealization(
-                Failure(
-                    WorkspaceContextLoadFailureKind
-                        .PlatformProducerUnavailable,
-                    declared,
-                    $"Platform family '{pinned.Family}' was served by a producer other than the one its realized coordinate names."));
+            return FailPlatformMembers(
+                members,
+                WorkspaceContextLoadFailureKind.PlatformProducerUnavailable,
+                $"Platform family '{pinned.Family}' was served by a producer other than the one its realized coordinate names.");
+        }
+        if (!string.Equals(
+                acquired.Coordinate.Version,
+                pinned.Version,
+                StringComparison.Ordinal))
+        {
+            return FailPlatformMembers(
+                members,
+                WorkspaceContextLoadFailureKind.PlatformProducerUnavailable,
+                $"Platform family '{pinned.Family}' was served at a version other than the one its realized coordinate names.");
         }
 
-        MemberRealization realization = RealizeAcquiredPlatform(
-            declared,
+        return RealizeAcquiredPlatforms(
+            members,
             acquired,
             pinned.Framework,
             options,
             cancellationToken);
-        return realization.Failure is null
-            ? new MemberRealization(pinned, realization.Assemblies)
-            : realization;
     }
 
-    static MemberRealization RealizeAcquiredPlatform(
-        WorkspaceMemberCoordinate.PlatformMember member,
+    static IReadOnlyDictionary<
+        RealizedMemberCoordinate.Platform,
+        MemberRealization> RealizeAcquiredPlatforms(
+        ImmutableArray<RealizedMemberCoordinate.Platform> members,
         AcquiredPackagePayload acquired,
         string framework,
         WorkspaceContextLoadOptions options,
         CancellationToken cancellationToken)
     {
-        string family = member.Family.ToLowerInvariant();
-        PackageAssetSelection selection = PackageAssetSelector.Select(
+        string family = members[0].Family;
+        PackageAssetSelection selection = PackageAssetSelector.SelectPlatformPack(
             acquired.Content,
             framework,
             RepresentativeRuntimeIdentifier);
@@ -1454,15 +1739,14 @@ public static class WorkspaceContextLoader
                 _ => null,
             };
             LogPlatformDetail(options, family, detail);
-            return new MemberRealization(
-                Failure(
-                    WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
-                    member,
-                    selection is PackageAssetSelection.Ambiguous
-                        ? $"Platform family '{family}' has more than one applicable assembly asset universe for target framework '{framework}'."
-                        : selection is PackageAssetSelection.Invalid
-                            ? $"Platform family '{family}' has an invalid assembly asset layout."
-                            : $"Platform family '{family}' carries no assembly assets for target framework '{framework}'."));
+            return FailPlatformMembers(
+                members,
+                WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                selection is PackageAssetSelection.Ambiguous
+                    ? $"Platform family '{family}' has more than one applicable assembly asset universe for target framework '{framework}'."
+                    : selection is PackageAssetSelection.Invalid
+                        ? $"Platform family '{family}' has an invalid assembly asset layout."
+                        : $"Platform family '{family}' carries no assembly assets for target framework '{framework}'.");
         }
 
         AssemblyResolutionProvenance provenance =
@@ -1470,8 +1754,23 @@ public static class WorkspaceContextLoader
                 family,
                 acquired.Coordinate.Version,
                 PlatformResolverSource);
-        var assemblies =
-            ImmutableArray.CreateBuilder<ResolvedAssemblyReference>();
+        RealizedMemberCoordinate.Platform? allAssemblies =
+            members.SingleOrDefault(member => member.Assembly is null);
+        var requestedAssemblies = members
+            .Where(member => member.Assembly is not null)
+            .ToDictionary(
+                member => member.Assembly!,
+                StringComparer.OrdinalIgnoreCase);
+        // Validation rejects mixing an all-assembly member with selected
+        // members, so each decoded image has exactly one destination shape.
+        var assembliesByMember = members.ToDictionary(
+            member => member,
+            _ => ImmutableArray.CreateBuilder<ResolvedAssemblyReference>());
+        var availablePlatformAssemblies = new Dictionary<
+            string,
+            RealizedMemberCoordinate.Platform>(
+            StringComparer.OrdinalIgnoreCase);
+        RealizedMemberCoordinate.Platform pack = members[0];
         foreach (PackageAssetEntry asset in selected.Universe.Assets)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1482,27 +1781,62 @@ public static class WorkspaceContextLoader
                         () => OpenPackageEntry(
                             acquired.Content,
                             asset.EntryPath),
-                        provenance);
-                if (assembly is not null
-                    && (member.Assembly is null
-                        || string.Equals(
-                            member.Assembly,
-                            assembly.Identity.Name,
-                            StringComparison.OrdinalIgnoreCase)))
+                        provenance,
+                        lastWriteTimeUtc: null,
+                        assetFileName: asset.FileName);
+                if (assembly is null)
+                    continue;
+
+                if (RealizedMemberCoordinate.IsAssemblySimpleName(
+                        assembly.Identity.Name))
                 {
-                    assemblies.Add(assembly);
+                    availablePlatformAssemblies.TryAdd(
+                        assembly.Identity.Name,
+                        new RealizedMemberCoordinate.Platform(
+                            family,
+                            pack.Version,
+                            pack.Producer,
+                            pack.Framework,
+                            assembly.Identity.Name));
                 }
+
+                if (allAssemblies is not null)
+                {
+                    assembliesByMember[allAssemblies].Add(assembly);
+                }
+                else if (requestedAssemblies.TryGetValue(
+                    assembly.Identity.Name,
+                    out RealizedMemberCoordinate.Platform? member))
+                {
+                    assembliesByMember[member].Add(assembly);
+                }
+            }
+            catch (UnsupportedMetadataFormatException)
+            {
+                return FailPlatformMembers(
+                    members,
+                    WorkspaceContextLoadFailureKind
+                        .UnsupportedMetadataFormat,
+                    "A selected assembly asset uses an unsupported metadata format.");
+            }
+            catch (MalformedMetadataRootException ex)
+            {
+                return FailPlatformMembers(
+                    members,
+                    WorkspaceContextLoadFailureKind
+                        .MalformedMetadataRoot,
+                    $"A selected assembly asset in platform family '{family}' contains a malformed metadata root.",
+                    ex.Reason);
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
                     or ArgumentOutOfRangeException
                     or OverflowException)
             {
-                return new MemberRealization(
-                    Failure(
-                        WorkspaceContextLoadFailureKind.InvalidImage,
-                        member,
-                        $"A selected assembly asset in platform family '{family}' contains invalid metadata."));
+                return FailPlatformMembers(
+                    members,
+                    WorkspaceContextLoadFailureKind.InvalidImage,
+                    $"A selected assembly asset in platform family '{family}' contains invalid metadata.");
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -1510,51 +1844,85 @@ public static class WorkspaceContextLoader
                     or NotSupportedException
                     or ObjectDisposedException)
             {
-                return new MemberRealization(
-                    Failure(
-                        WorkspaceContextLoadFailureKind.InvalidImage,
-                        member,
-                        $"A selected assembly asset in platform family '{family}' could not be read."));
+                return FailPlatformMembers(
+                    members,
+                    WorkspaceContextLoadFailureKind.InvalidImage,
+                    $"A selected assembly asset in platform family '{family}' could not be read.");
             }
         }
 
-        if (assemblies.Count == 0)
+        var realizations = new Dictionary<
+            RealizedMemberCoordinate.Platform,
+            MemberRealization>();
+        ImmutableArray<RealizedMemberCoordinate.Platform> available =
+        [
+            .. availablePlatformAssemblies.Values
+        ];
+        for (int index = 0; index < members.Length; index++)
         {
-            return new MemberRealization(
-                Failure(
-                    member.Assembly is null
-                        ? WorkspaceContextLoadFailureKind
-                            .PlatformPackUnavailable
-                        : WorkspaceContextLoadFailureKind
-                            .PlatformAssemblyUnavailable,
-                    member,
-                    member.Assembly is null
-                        ? $"Platform family '{family}' carries no managed assembly for target framework '{framework}'."
-                        : $"Platform family '{family}' does not carry assembly '{member.Assembly}' for target framework '{framework}'."));
+            RealizedMemberCoordinate.Platform member = members[index];
+            ImmutableArray<ResolvedAssemblyReference>.Builder assemblies =
+                assembliesByMember[member];
+            realizations.Add(
+                member,
+                assemblies.Count == 0
+                    ? new MemberRealization(
+                        Failure(
+                            member.Assembly is null
+                                ? WorkspaceContextLoadFailureKind
+                                    .PlatformPackUnavailable
+                                : WorkspaceContextLoadFailureKind
+                                    .PlatformAssemblyUnavailable,
+                            Declare(member),
+                            member.Assembly is null
+                                ? $"Platform family '{family}' carries no managed assembly for target framework '{framework}'."
+                                : $"Platform family '{family}' does not carry assembly '{member.Assembly}' for target framework '{framework}'."))
+                    : member.Assembly is not null
+                        && assemblies
+                            .Select(assembly => assembly.Identity)
+                            .Distinct(
+                                AssemblyReferenceIdentity.EquivalentComparer)
+                            .Skip(1)
+                            .Any()
+                        ? new MemberRealization(
+                            Failure(
+                                WorkspaceContextLoadFailureKind
+                                    .PlatformAssemblyAmbiguous,
+                                Declare(member),
+                                $"Platform family '{family}' carries more than one assembly identity named '{member.Assembly}' for target framework '{framework}'."))
+                    : new MemberRealization(
+                        member,
+                        assemblies.ToImmutable(),
+                        available));
         }
 
-        string? realizedAssembly = member.Assembly is null
-            ? null
-            : assemblies[0].Identity.Name;
-        if (!RealizedMemberCoordinate.Platform.TryCreate(
-                family,
-                acquired.Coordinate.Version,
-                acquired.ProducerKey,
-                framework,
-                realizedAssembly,
-                out RealizedMemberCoordinate.Platform? coordinate,
-                out string? problem))
+        return realizations;
+    }
+
+    static IReadOnlyDictionary<
+        RealizedMemberCoordinate.Platform,
+        MemberRealization> FailPlatformMembers(
+        ImmutableArray<RealizedMemberCoordinate.Platform> members,
+        WorkspaceContextLoadFailureKind kind,
+        string message,
+        MetadataRootMalformedReason? metadataRootReason = null)
+    {
+        var failures = new Dictionary<
+            RealizedMemberCoordinate.Platform,
+            MemberRealization>();
+        foreach (RealizedMemberCoordinate.Platform member in members)
         {
-            return new MemberRealization(
-                Failure(
-                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
-                    member,
-                    $"The acquired platform family could not be named by a canonical realized coordinate: {problem}."));
+            failures.Add(
+                member,
+                new MemberRealization(
+                    Failure(
+                        kind,
+                        Declare(member),
+                        message,
+                        metadataRootReason)));
         }
 
-        return new MemberRealization(
-            coordinate,
-            assemblies.ToImmutable());
+        return failures;
     }
 
     static bool TryGetPlatformTarget(
@@ -1607,6 +1975,29 @@ public static class WorkspaceContextLoader
         WorkspaceContextLoadOptions options,
         CancellationToken cancellationToken)
     {
+        var acquisition = await AcquirePackagePayloadAsync(
+            member, framework, runtimeIdentifier, options, cancellationToken)
+            .ConfigureAwait(false);
+        return acquisition.Failure is { } failure
+            ? new MemberRealization(failure)
+            : RealizeAcquiredPackage(
+                member,
+                acquisition.Payload!,
+                framework,
+                runtimeIdentifier,
+                options.IncludePackageRootBindings,
+                cancellationToken);
+    }
+
+    static async Task<(
+        AcquiredPackagePayload? Payload,
+        WorkspaceContextLoadFailure? Failure)> AcquirePackagePayloadAsync(
+            WorkspaceMemberCoordinate.PackageMember member,
+            string framework,
+            string? runtimeIdentifier,
+            WorkspaceContextLoadOptions options,
+            CancellationToken cancellationToken)
+    {
         // Authorization is resolved for this member's own id, and before any
         // discovery, cache read, or download for it. The canonical id is what
         // the host is asked about, so one package has one authorization answer
@@ -1616,7 +2007,7 @@ public static class WorkspaceContextLoader
                 member.PackageId.ToLowerInvariant());
         if (authorization.Sources.Count == 0)
         {
-            return new MemberRealization(
+            return (null,
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageUnavailable,
                     member,
@@ -1644,13 +2035,13 @@ public static class WorkspaceContextLoader
         switch (resolution)
         {
             case PackageCoordinateResolution.Invalid invalid:
-                return new MemberRealization(
+                return (null,
                     Failure(
                         WorkspaceContextLoadFailureKind.InvalidCoordinate,
                         member,
                         invalid.Message));
             case PackageCoordinateResolution.Unavailable unavailable:
-                return new MemberRealization(
+                return (null,
                     Failure(
                         WorkspaceContextLoadFailureKind.PackageUnavailable,
                         member,
@@ -1666,24 +2057,18 @@ public static class WorkspaceContextLoader
                 options.PackageStore,
                 options.Log,
                 options.PayloadLimits,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.PackageTransferPolicy).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
-            return new MemberRealization(
+            return (null,
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageUnavailable,
                     member,
                     payloadFailure.Message));
         }
 
-        AcquiredPackagePayload acquired =
-            ((PackagePayloadResult.Acquired)payload).Payload;
-        return RealizeAcquiredPackage(
-            member,
-            acquired,
-            framework,
-            runtimeIdentifier,
-            cancellationToken);
+        return (((PackagePayloadResult.Acquired)payload).Payload, null);
     }
 
     /// <summary>
@@ -1697,19 +2082,36 @@ public static class WorkspaceContextLoader
         WorkspaceContextLoadOptions options,
         CancellationToken cancellationToken)
     {
+        string? framework = pinned.Framework;
+        if (framework is null)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.MissingAcquisitionTarget,
+                    declared,
+                    $"Package '{pinned.PackageId}' requires a framework before its assembly assets can be realized."));
+        }
+
         PackageSourceAuthorization authorization =
             options.SourceAuthorization.AuthorizeSourcesFor(pinned.PackageId);
 
-        // The intersection, not a preference: only the source whose producer
-        // key is the recorded one may answer, so a host that authorizes several
+        // The intersection, not a preference: only authorities for the
+        // recorded producer may answer, so a host that authorizes several
         // producers for this id still re-acquires the bytes the coordinate was
         // realized from.
-        PackageSource? producer = authorization.Sources.FirstOrDefault(
-            source => string.Equals(
-                NuGetCache.GetSourceKey(source.Url),
-                pinned.Producer,
-                StringComparison.Ordinal));
-        if (producer is null)
+        PackageRootProducerAuthorization.MatchResult producerMatch =
+            PackageRootProducerAuthorization.Match(
+                authorization.Sources,
+                pinned.Producer);
+        if (producerMatch.Ambiguous)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
+                    declared,
+                    $"The producer recorded for package '{pinned.PackageId}' matches multiple authorized package-source identities."));
+        }
+        if (producerMatch.Candidates.Count == 0)
         {
             return new MemberRealization(
                 Failure(
@@ -1725,9 +2127,10 @@ public static class WorkspaceContextLoader
                 new PackageCoordinate(
                     pinned.PackageId,
                     pinned.Version,
-                    pinned.Framework,
+                    framework,
                     pinned.RuntimeIdentifier),
-                [producer],
+                [.. producerMatch.Candidates.Select(static candidate =>
+                    candidate.Source)],
                 options.Log,
                 options.IncludePrerelease,
                 options.UseVersionCache,
@@ -1762,7 +2165,8 @@ public static class WorkspaceContextLoader
                 options.PackageStore,
                 options.Log,
                 options.PayloadLimits,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.PackageTransferPolicy).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             return new MemberRealization(
@@ -1774,14 +2178,13 @@ public static class WorkspaceContextLoader
 
         AcquiredPackagePayload acquired =
             ((PackagePayloadResult.Acquired)payload).Payload;
-        if (!string.Equals(
-                acquired.ProducerKey,
-                pinned.Producer,
-                StringComparison.Ordinal))
+        PackageRootProducerAuthorization.Candidate? acquiredCandidate =
+            producerMatch.Candidates.FirstOrDefault(
+                candidate => acquired.ProducerKey.Equals(
+                    candidate.LegacyProducerKey,
+                    StringComparison.Ordinal));
+        if (acquiredCandidate is null)
         {
-            // Acquisition was given one source, so this cannot normally
-            // happen; it is checked because the alternative to checking is
-            // silently binding another producer's bytes to this coordinate.
             return new MemberRealization(
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
@@ -1792,14 +2195,20 @@ public static class WorkspaceContextLoader
         MemberRealization realization = RealizeAcquiredPackage(
             declared,
             acquired,
-            pinned.Framework,
+            framework,
             pinned.RuntimeIdentifier,
-            cancellationToken);
+            options.IncludePackageRootBindings,
+            cancellationToken,
+            pinned.Producer,
+            acquiredCandidate.Producer);
 
         // A re-acquired member reports the coordinate it was asked for, so a
         // caller can compare the round trip by value.
         return realization.Failure is null
-            ? new MemberRealization(pinned, realization.Assemblies)
+            ? new MemberRealization(
+                pinned,
+                realization.Assemblies,
+                realization.PackageRoot)
             : realization;
     }
 
@@ -1808,7 +2217,10 @@ public static class WorkspaceContextLoader
         AcquiredPackagePayload acquired,
         string framework,
         string? runtimeIdentifier,
-        CancellationToken cancellationToken)
+        bool includePackageRootBinding,
+        CancellationToken cancellationToken,
+        string? coordinateProducer = null,
+        PackageProducerIdentity? sourceProducer = null)
     {
         ResolvedPackageCoordinate coordinate = acquired.Coordinate;
         IPackageContent content = acquired.Content;
@@ -1865,6 +2277,25 @@ public static class WorkspaceContextLoader
                     assemblies.Add(assembly);
                 }
             }
+            catch (UnsupportedMetadataFormatException)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind
+                            .UnsupportedMetadataFormat,
+                        member,
+                        "A selected assembly asset uses an unsupported metadata format."));
+            }
+            catch (MalformedMetadataRootException ex)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind
+                            .MalformedMetadataRoot,
+                        member,
+                        $"A selected assembly asset in package '{coordinate.PackageId}' contains a malformed metadata root.",
+                        ex.Reason));
+            }
             catch (Exception ex) when (
                 ex is BadImageFormatException
                     or ArgumentOutOfRangeException
@@ -1907,7 +2338,7 @@ public static class WorkspaceContextLoader
         if (!RealizedMemberCoordinate.Package.TryCreate(
                 coordinate.PackageId,
                 coordinate.Version,
-                acquired.ProducerKey,
+                coordinateProducer ?? acquired.ProducerKey,
                 framework,
                 runtimeIdentifier,
                 out RealizedMemberCoordinate.Package? realizedCoordinate,
@@ -1920,9 +2351,73 @@ public static class WorkspaceContextLoader
                     $"The acquired package could not be named by a canonical realized coordinate: {problem}."));
         }
 
+        PackageRootBinding? packageRoot = null;
+        if (includePackageRootBinding)
+        {
+            WorkspacePackageRootAcquisitionOutcome binding =
+                BindPackageRoot(
+                    (WorkspaceMemberCoordinate.PackageMember)member,
+                    acquired,
+                    framework,
+                    coordinateProducer,
+                    sourceProducer);
+            if (binding is WorkspacePackageRootAcquisitionOutcome.Failed failed)
+            {
+                return new MemberRealization(failed.Failures[0]);
+            }
+            packageRoot =
+                ((WorkspacePackageRootAcquisitionOutcome.Acquired)binding).Root;
+            if (packageRoot.Coordinate != realizedCoordinate)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                        member,
+                        $"The package Root for '{coordinate.PackageId}' disagrees with the context's realized coordinate."));
+            }
+        }
+
         return new MemberRealization(
             realizedCoordinate,
-            assemblies.ToImmutable());
+            assemblies.ToImmutable(),
+            packageRoot);
+    }
+
+    static WorkspacePackageRootAcquisitionOutcome BindPackageRoot(
+        WorkspaceMemberCoordinate.PackageMember member,
+        AcquiredPackagePayload acquired,
+        string framework,
+        string? coordinateProducer = null,
+        PackageProducerIdentity? sourceProducer = null)
+    {
+        try
+        {
+            return new WorkspacePackageRootAcquisitionOutcome.Acquired(
+                sourceProducer is null
+                    ? PackageRootBinding.CreateFromResolved(
+                        acquired,
+                        framework,
+                        member.PackageId)
+                    : PackageRootBinding.CreateFromResolved(
+                        acquired,
+                        framework,
+                        member.PackageId,
+                        coordinateProducer ?? acquired.ProducerKey,
+                        sourceProducer));
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException
+                or IOException
+                or InvalidOperationException
+                or NotSupportedException
+                or ObjectDisposedException)
+        {
+            return new WorkspacePackageRootAcquisitionOutcome.Failed(
+                [Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member,
+                    $"The package Root for '{acquired.Coordinate.PackageId}' could not be bound to its acquired content.")]);
+        }
     }
 
     static MemberRealization RealizeEmbedded(
@@ -1990,6 +2485,25 @@ public static class WorkspaceContextLoader
             assembly = ResolvedAssemblyReference.CreateFromStreamIfManaged(
                 () => new MemoryStream(bytes, writable: false),
                 provenance);
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind
+                        .UnsupportedMetadataFormat,
+                    member,
+                    "Embedded content uses an unsupported metadata format."));
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind
+                        .MalformedMetadataRoot,
+                    member,
+                    $"Embedded content '{member.ContentRef}' contains a malformed metadata root.",
+                    ex.Reason));
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -2112,8 +2626,12 @@ public static class WorkspaceContextLoader
     static WorkspaceContextLoadFailure Failure(
         WorkspaceContextLoadFailureKind kind,
         WorkspaceMemberCoordinate? member,
-        string message) =>
-        new(kind, member, message);
+        string message,
+        MetadataRootMalformedReason? metadataRootReason = null) =>
+        new(kind, member, message)
+        {
+            MetadataRootReason = metadataRootReason,
+        };
 
     static bool IsBlankOrPadded(string? value) =>
         !PackageCoordinateResolver.IsAcquisitionTargetText(value);
@@ -2125,10 +2643,23 @@ public static class WorkspaceContextLoader
     {
         internal MemberRealization(
             RealizedMemberCoordinate realized,
-            ImmutableArray<ResolvedAssemblyReference> assemblies)
+            ImmutableArray<ResolvedAssemblyReference> assemblies,
+            PackageRootBinding? packageRoot = null)
+            : this(realized, assemblies, [], packageRoot)
+        {
+        }
+
+        internal MemberRealization(
+            RealizedMemberCoordinate realized,
+            ImmutableArray<ResolvedAssemblyReference> assemblies,
+            ImmutableArray<RealizedMemberCoordinate.Platform>
+                availablePlatformAssemblies,
+            PackageRootBinding? packageRoot = null)
         {
             Realized = realized;
             Assemblies = assemblies;
+            AvailablePlatformAssemblies = availablePlatformAssemblies;
+            PackageRoot = packageRoot;
             Failure = null;
         }
 
@@ -2136,16 +2667,22 @@ public static class WorkspaceContextLoader
         {
             Realized = null;
             Assemblies = [];
+            AvailablePlatformAssemblies = [];
+            PackageRoot = null;
             Failure = failure;
         }
 
         internal RealizedMemberCoordinate? Realized { get; }
         internal ImmutableArray<ResolvedAssemblyReference> Assemblies { get; }
+        internal ImmutableArray<RealizedMemberCoordinate.Platform>
+            AvailablePlatformAssemblies { get; }
+        internal PackageRootBinding? PackageRoot { get; }
         internal WorkspaceContextLoadFailure? Failure { get; }
     }
 
     readonly record struct RealizedMember(
         WorkspaceMemberCoordinate Declared,
         RealizedMemberCoordinate Realized,
-        ResolvedAssemblyReference Assembly);
+        ResolvedAssemblyReference Assembly,
+        PackageRootBinding? PackageRoot = null);
 }

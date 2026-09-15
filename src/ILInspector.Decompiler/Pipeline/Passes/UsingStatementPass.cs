@@ -477,7 +477,8 @@ public sealed class UsingStatementPass : IIrPass
             // reference-type resource here and leave it as the flat try/finally.
             ExpressionStatement { Expression: Call bareDispose }
                 when IsDisposeOf(function, bareDispose, storeResource)
-                    && function.TypeShapes.GetValueOrDefault(storeResource.Type) is not TypeShape.Reference
+                    && function.TypeShapes.GetValueOrDefault(
+                        CoercionRendering.NamedDefinition(storeResource.Type)) is not TypeShape.Reference
                 => bareDispose.Callee,
             _ => null,
         };
@@ -522,7 +523,8 @@ public sealed class UsingStatementPass : IIrPass
             return false;
         }
 
-        return function.TypeShapes.GetValueOrDefault(storeResource.Type) is TypeShape.ValueType or TypeShape.Enum;
+        return function.TypeShapes.GetValueOrDefault(
+            CoercionRendering.NamedDefinition(storeResource.Type)) is TypeShape.ValueType or TypeShape.Enum;
     }
 
 }

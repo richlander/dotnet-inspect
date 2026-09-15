@@ -141,24 +141,79 @@ exchange one compact JSON object per line, UTF-8 without a BOM. The sequence is 
 `MonitorNuGetProcessExit`, `Initialize`, `GetOperationClaims`, `SetLogLevel`, and then
 `GetAuthenticationCredentials`.
 
-Two details are easy to get wrong and are pinned by tests:
+Two details are easy to get wrong:
 
 - **The handshake is symmetric.** The plugin sends its *own* handshake request at the same time
   as the host sends one. A host that only waits for a reply, without answering, deadlocks.
+  This client requires protocol 2.0.0 because its source-agnostic `GetOperationClaims` request is
+  only valid in that protocol version.
+  `ReadyRequiresSymmetricHandshake` checks the design interaction;
+  `PluginProtocolTests.CompatibleInboundHandshakeUsesProtocolTwo` and
+  `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` enforce the
+  inbound response, while
+  `PluginProtocolTests.InvalidOrUnsupportedOutboundHandshakeStopsInitialization` enforces the
+  plugin response.
 - **`Progress` messages restart the request timer.** They are the plugin saying "still working"
   during a slow sign-in. A host that ignores them times out a request that is progressing fine.
+  `ProgressRenewsOnlyItsRequest` checks the design interaction; implementation correspondence is
+  unverified. Progress may continue renewing the request indefinitely; the model's request
+  liveness guarantee begins once those renewals stop.
+
+The request timeout covers the whole admitted operation: registration, waiting for the serialized
+writer, and waiting for a response. If timeout or caller cancellation preempts the request that
+owns an in-progress pipe write, the connection terminates before another writer can use that pipe;
+`WriterPreemptionIsContained` and `ClosedConnectionIsAbsorbing` check that rule. Terminal pipe loss
+closes request admission before the read loop collects and settles pending requests, checked by
+`RequestAdmissionHasLiveReceiver` and `ShutdownSettlementIsComplete`. A malformed
+plugin-originated request receives an error response or the connection terminates; it never becomes
+abandoned work, checked by `InboundFailureIsContained` and
+`MalformedInboundEventuallySettles`. Active-writer timeout, cancellation, response, and write-fault
+containment are enforced by
+`PluginProtocolTests.AStalledWriterTimeoutTerminatesTheConnectionAndSettlesQueuedRequests`,
+`PluginProtocolTests.CallerCancellationOfAStalledWriterRemainsCancellation`,
+`PluginProtocolTests.AResponseCannotLeaveItsRequestWriterStalled`, and
+`PluginProtocolTests.CallerCancellationWinsAConcurrentWriteFailure`. Connection resources remain
+alive until admitted requests and inbound response writers have unwound, enforced by
+`PluginProtocolTests.ConnectionResourcesWaitForInterruptedRequestsToQuiesce` and
+`PluginProtocolTests.ConnectionResourcesWaitForInboundResponseWritersToQuiesce`; if a terminated
+transport write cannot be observed completing, its resources remain retained, enforced by
+`PluginProtocolTests.AnUnfinishedInterruptedWriteRetainsConnectionResources`. Terminal admission
+and pending settlement are enforced by
+`PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout` and
+`PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`, with the
+atomic overlap enforced by
+`PluginProtocolTests.AdmissionCannotRegisterDuringTheTerminalPendingSnapshot`. Malformed inbound
+Handshake and Log payload handling is enforced by
+`PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and
+`PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse`.
 
 Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnection.cs) and
 [`PluginCredentialProvider`](../../src/NuGetFetch/Plugins/PluginCredentialProvider.cs).
+The concurrent conversation and shutdown rules are checked by the
+[NuGet credential-plugin session lifecycle model](models/nuget-plugin-session-lifecycle/README.md).
+The model checks the design under finite bounds; implementation correspondence for progress
+renewal and concurrent correlation remains unverified. Writer preemption, terminal admission, and
+pending settlement are enforced by the gates named above.
 
-Plugins are started lazily and kept for the process lifetime, because a launch costs a process
-start plus five round trips. A plugin that fails to start, or that does not claim the
-`Authentication` operation, is remembered as unusable rather than retried.
+Plugins are started lazily and kept until their connection closes, because a launch costs a process
+start plus five round trips. A request that loses a race with terminal publication retries once on
+a replacement connection, and later requests likewise replace a cached terminal connection. These
+rules are enforced by
+`PluginProtocolTests.ARequestRacingTerminalPublicationRetriesOnAReplacementConnection` and
+`PluginProtocolTests.AClosedCachedPluginConnectionIsRestartedOnTheNextRequest`. A plugin that fails
+to start, or that does not claim the `Authentication` operation, is remembered as unusable rather
+than retried.
 
 A plugin process or pipe that dies during a request is likewise treated as no credential from
 that plugin. Timeouts, malformed responses, I/O failures, disposed pipes, and invalid process
 state are contained at the request boundary so another provider can answer or the feed's 401 can
-surface normally. Caller cancellation is not a plugin fault and continues to propagate.
+surface normally. Caller cancellation is not a plugin fault and continues to propagate, enforced
+before and after receiver loss by `PluginProtocolTests.CallerCancellationContinuesToPropagate` and
+`PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`, including the
+admission-monitor race checked by
+`PluginProtocolTests.CancellationWhileWaitingForClosedAdmissionRemainsCancellation`.
+Cancellation while a terminal cached connection is being replaced likewise propagates, enforced by
+`PluginProtocolTests.CancellationWhileReplacingAClosedConnectionRemainsCancellation`.
 
 ### Unattended by default
 
@@ -271,6 +326,11 @@ is also a `DelegatingHandler` — and the reason to copy it is that the loop nee
 `HttpResponseMessage` in hand. Doing it in the pipeline rather than at call sites means every
 request is covered, including any whose call site forgot to pass a credential.
 
+That paragraph describes the current shared handler. The target below retains
+the response-aware handler loop but binds each handler to one configured-source
+context. A request outside a source-bound pipeline is intentionally
+plugin-ineligible rather than inheriting authority from its URL.
+
 Behaviour follows NuGet's:
 
 | Aspect | Behaviour |
@@ -278,9 +338,319 @@ Behaviour follows NuGet's:
 | Trigger | 401 always; 403 only when explicitly enabled, since 403 usually means "authenticated but not permitted" |
 | Retry bound | 4 attempts per request, matching `AmbientAuthenticationState.MaxAuthRetries` |
 | `IsRetry` | Clear on the first ask, set afterwards, so a plugin replaces a cached token the feed has already rejected |
-| Scope | Credentials are cached per scheme, host and port, so one feed's token is never offered to another |
-| Concurrency | Concurrent requests to one source acquire credentials once |
+| Scope | The current handler caches by request-target network scope; this does not isolate distinct configured sources on one origin |
+| Concurrency | Concurrent requests in one current cache scope acquire credentials once |
 | Precedence | A credential already on the request is never overwritten |
+
+### Source-scoped plugin authentication context
+
+This section's sole normative owner is **NuGet feed authentication**. Its claim
+is that plugin credential state belongs to one configured source authority,
+not to every request target sharing that authority's network scope. The target
+design replaces request-target cache identity with one
+**plugin-authentication context** per configured NuGet V3 source authority.
+This is an authentication owner concept, not another package source or
+producer identity. The context binds plugin credential state to the configured
+authority that was allowed to ask for it.
+
+This contract consumes, without redefining:
+
+- the package-source model's canonical configured-source identity and alias
+  decision;
+- the browser-package-source design's caller-created
+  `PackageSourceAssociation` reference for that configured authority;
+- the configured-authority owner's provider-query URI for that canonical
+  source;
+- V3 source clients' already-resolved service-index and resource targets; and
+- the built-in NuGet Gallery's credential-free transport boundary.
+
+It returns an opaque context reference and a target-authorization decision to
+the source-owned authentication pipeline. The caller supplies the same
+`PackageSourceAssociation` only for aliases of one canonical configured
+authority and distinct references for distinct authorities. Authentication
+binds one context to that association and never reconstructs source identity
+from the request target.
+
+The reference contains no credential and does not expose source text. The
+resolved configured-authority owner owns the context and its lifetime;
+pipelines receive non-owning references. Disposing one pipeline disposes its
+transport but does not retire the shared context, clear its credential state,
+or cancel context-owned provider work that another pipeline joined. Changing
+or releasing the configured authority retires the old context and requires a
+new one. Retirement immediately denies new credential use or acquisition and
+prevents an in-flight completion from publishing. Credential state remains
+process-local and is released after its authority owner retires the context,
+not when an individual authentication pipeline is disposed.
+
+#### Anonymous is a context state, not a source classification
+
+A configurable V3 source is not declared public or private. Its context starts
+without a plugin credential. An associated request sends anonymously while
+that context is empty. If the response does not challenge, the context stays
+empty and the credential provider is never consulted.
+
+An authorized 401 response, or an authorized 403 under the existing opt-in,
+may start acquisition for that context. The challenge may come from the
+service index or from an authorized resource it advertised; the service index
+need not challenge first. A successful acquisition belongs only to that live
+context. A null or failed acquisition leaves the context empty and returns the
+challenge under the existing failure contract.
+
+Once populated, the context may attach its cached credential preemptively to a
+later associated and resource-authorized request. It never supplies that
+credential to a request associated with another context. Consequently, a
+private source and an anonymous source can share a network origin without the
+anonymous source receiving the private source's credential.
+
+An explicit `Authorization` header remains higher precedence. It is sent under
+the configured-credential policy and neither reads nor seeds the plugin
+context. A challenge to that request remains visible rather than silently
+switching credential mechanisms.
+
+#### Association, provider query, and resource authorization are separate
+
+Plugin participation requires two independent owner facts:
+
+1. the caller-issued source association bound to the authentication context;
+   and
+2. the authentication owner's result that the concrete target is inside that
+   context's credential-resource scope.
+
+Association answers *which source could own a credential*. Resource
+authorization answers *whether this target may ask for or receive it*. Sharing
+a network origin or resource scope does not create context association.
+Feed-advertised metadata cannot mint or replace the context reference.
+
+The configured-authority owner supplies one provider-query URI when it creates
+the context. That URI retains the exact configured service-index spelling
+selected by the owner's alias decision, including raw path and query spelling,
+solely for `GetAuthenticationCredentials`. Parsing the URI to establish
+resource scope must not replace that provider-query spelling. Every authorized
+challenge for the context queries the plugin with that exact URI, including
+when an advertised resource or redirect target supplies the first challenge.
+The concrete challenge target never becomes provider lookup identity and
+feed-advertised metadata cannot replace it. Provider-query identity does not
+authorize a target. NuGet.Client's JSON URI serialization likewise emits the
+URI's original string rather than its normalized presentation.
+
+The configured service-index endpoint establishes the context's
+credential-resource scope. For ordinary hosts the scope is the endpoint's URI
+scheme, canonical IDN host, and effective port. For
+`pkgs.dev.azure.com`, the first non-empty path segment, the Azure organization,
+also participates. Deeper project and feed path segments do not participate,
+so name-to-GUID endpoint aliases in one organization remain authorized while a
+resource under another organization is rejected.
+
+This rule assumes Azure preserves the organization segment's spelling between
+the configured service index and its advertised resources. A changed spelling,
+including a name-to-ID change in that first segment, fails closed rather than
+guessing equivalence. When the live Azure feed sensor named below runs, it must
+exercise the configured index and an advertised package resource so a service
+change makes that assumption visible.
+
+Scheme and host comparisons are case-insensitive. Default and explicit ports
+compare by their effective value. Path, query, fragment, user information, and
+display text do not participate except for the Azure organization segment
+above. Failure to derive either scope is not authorization.
+
+Authentication accepts a context reference and that source client's isolated
+credential-free inner transport, whose owning contract disables automatic
+desktop redirects, and returns a source-bound authentication handler. It does
+not accept a shared or opaque caller handler. Its composition precondition is
+that the package source owner's redirect orchestration wraps the returned
+handler, so every redirect clone re-enters authentication. This is the required
+handoff between the owners; authentication does not redefine redirect-target
+admission, source-client factory, or transport-disposal behavior. Requests
+formed by that client therefore enter an already-associated pipeline; source
+association is not a string-valued request option that feed data can influence.
+The handler injects plugin authorization only after the authentication owner
+authorizes the concrete target.
+
+Several V3 pipelines constructed with the same `PackageSourceAssociation`
+share the one authentication context bound to that association. Pipeline or
+handler identity does not create another credential authority. Pipelines
+constructed with distinct associations remain isolated even when their
+resource scopes are equal.
+
+Each service-index, feed-advertised, and redirect target must independently
+pass resource authorization. Source-owned redirect orchestration does not copy
+a plugin-produced header; the clone re-enters the source-bound handler, which
+may attach that context's credential only after authorizing the new target.
+Retry and redirect clones preserve the handler-bound context and an existing
+rejection; they cannot replace either, turn rejection into authorization, or
+use an intermediate redirect hop as the comparison anchor.
+
+An unassociated request, explicitly plugin-ineligible request, retired context,
+or out-of-scope target bypasses plugin cache lookup, acquisition, and replay.
+It is sent once without plugin authorization so the response remains visible.
+Failing closed is required because the handler cannot invent configured-source
+authority from a request URL.
+
+#### Gallery is not an authentication context
+
+The built-in NuGet Gallery client is a separate source implementation over
+fixed public search, registration, CDN, package, and symbol capabilities. Its
+factory creates an isolated credential-free transport. It creates no plugin
+context, composes no source authentication handler, and cannot reach plugin
+cache, acquisition, or replay. NuGet.org service topology is therefore neither
+a positive nor a negative example for plugin resource authorization.
+
+A user-configured V3 endpoint is different even when its host belongs to
+NuGet.org: it follows the configurable-source rules above and does not acquire
+the built-in Gallery's credential-free identity merely from its hostname.
+
+Credential-provider contexts are desktop-only. Browser/Wasm callers cannot
+create a `PluginAuthenticationContextOwner`; creation fails visibly with
+`PlatformNotSupportedException`, and V3 factory composition independently
+rejects a context on that platform. Browser sources continue to use the
+explicit session PAT contract owned by the browser-package-source design.
+
+#### Concurrency and refresh
+
+Acquisition is single-flight per context. Concurrent authorized challenges for
+one context consume a credential published while they waited before asking the
+provider again. Different contexts are independent and may acquire
+concurrently even when their resource scopes are equal.
+
+Refresh after a rejected cached credential remains single-flight within the
+same context. Concurrent requests may reject the same observed credential
+version, but only one provider acquisition runs. A waiter consumes a newer
+credential published while it waited before deciding whether another
+acquisition is needed. Same-context provider acquisitions therefore do not
+overlap and cannot complete out of order.
+
+Only a completion authorized by the current live context state may publish.
+Retirement or replacement makes an in-progress completion stale; stale work
+cannot populate, clear, or replay from the context.
+
+The existing retry bound, `IsRetry` behavior, provider ordering, cancellation,
+and challenge reporting do not change.
+
+#### Required implementation gates
+
+The target is unverified until Release gates establish:
+
+- `AnonymousSourceSharingOriginNeverReceivesPrivateSourceCredential`: a
+  private source populates its context, then a distinct anonymous source on
+  the same origin succeeds without receiving authorization or consulting the
+  provider;
+- `AuthorizedResourceReusesItsSourceContextCredential`: a source challenge
+  populates one context and its associated resource reuses that credential;
+- `ResourceFirstChallengeUsesConfiguredProviderQuery`: an anonymous service
+  index advertises an authorized resource that supplies the first challenge;
+  a provider that answers only for the configured service-index URI is queried
+  with that URI, and the resulting credential is replayed only to the
+  authorized resource;
+- `CredentialRequestPreservesOriginalSourceSpelling`: raw-distinct configured
+  service-index spellings remain distinct in plugin protocol requests rather
+  than collapsing through parsed-URI presentation;
+- `SharedAssociationPipelinesShareAuthenticationContext`: two V3 pipelines
+  constructed with the same `PackageSourceAssociation` share credential
+  publication and coalesce concurrent challenges into one provider
+  acquisition;
+- `SharedContextSurvivesIndividualPipelineDisposal`: with two pipelines
+  carrying one association, disposing either pipeline neither clears a cached
+  credential used by the survivor nor retires or cancels context-owned
+  provider work joined by the survivor;
+- `CrossContextResourceCannotReadAcquireOrReplayCredential`: equal resource
+  scope does not permit a request carrying another or no context to consume
+  the credential;
+- `OutOfScopeResourceCannotReadAcquireOrReplayCredential`: a foreign resource
+  challenge remains visible without plugin participation;
+- `OrdinaryResourceScopeUsesCanonicalOrigin`: hermetic associated-request
+  vectors authorize scheme and canonical IDN host case variants, Unicode and
+  punycode host equivalents, implicit and explicit default ports, and changes
+  only to path, query, fragment, or user information; different schemes,
+  canonical hosts, or effective ports and any derivation failure cannot read
+  cache state, invoke the provider, or replay authorization;
+- `AzureResourceScopeIncludesOrganizationButAllowsNameGuidAliases`: name and
+  GUID paths inside one organization are authorized while another
+  organization is rejected;
+- `ConcurrentAcquisitionIsSingleFlightPerContextAndIndependentAcrossContexts`:
+  one context coalesces acquisition without serializing another;
+- `RetiredContextRejectsLateCredentialPublication`: retirement during
+  acquisition cannot publish or replay the result;
+- `RetiredContextRejectsPendingChallengeJoinAndLaterRequest`: retirement after
+  an authorized challenge but before resolution, including while another
+  request has active provider work, makes the challenged waiter surface its
+  response without joining or waiting on that work; a later request through
+  the retired context cannot read cache state, start or join provider work, or
+  replay authorization;
+- `ConcurrentRejectedCredentialRefreshesPublishOneNewVersion`: two requests
+  that reject one cached version produce one provider acquisition, one newer
+  published version, and waiter replay from that newer version without a stale
+  overwrite or clear;
+- `ExplicitAuthorizationBypassesPluginContext`: an explicit configured
+  `Authorization` header neither reads nor populates the plugin context, never
+  invokes the provider, and leaves a resulting challenge visible;
+- `RequestClonePropagationPreservesContextAndRejection`: the source-owned
+  redirect layer wraps the authentication handler so every clone re-enters
+  target authorization, preserves its association and any resource rejection,
+  and carries no plugin-produced header unless the new target is independently
+  authorized; an Azure cross-organization redirect cannot read cache state,
+  invoke the provider, or replay authorization;
+- `AuthenticationContextReferenceIsOpaque`: the public context reference
+  exposes no credential, configured-source text, serialization value, or
+  display value; and
+- `NuGetGalleryTransportCannotReachPluginAuthentication`: the built-in Gallery
+  transport has no plugin handler or context path.
+
+`LiveAzureResourcePreservesConfiguredOrganizationSegment` is an optional,
+non-gating service-drift sensor. When an authenticated live feed is available,
+it confirms that Azure keeps the configured organization segment on an
+advertised package resource. The hermetic
+`AzureResourceScopeIncludesOrganizationButAllowsNameGuidAliases` Release gate,
+not this environment-dependent sensor, establishes the target behavior.
+
+The
+[source-authentication context models](models/nuget-source-authentication-context/README.md)
+are two focused TLA+ modules. The context model checks context isolation,
+target authorization, authorized acquisition and publication, single-flight
+acquisition within a context and independence across contexts, exogenous
+retirement, Gallery and excluded-request non-participation, and
+admitted-request progress. It consumes the association-to-context mapping as
+an input; `SharedAssociationPipelinesShareAuthenticationContext` is the
+required implementation gate for that mapping. It also omits provider-query
+identity, consumes already derived resource scopes, and has no pipeline
+lifetime; the resource-first challenge, ordinary-scope, and
+individual-pipeline-disposal gates named above establish those implementation
+boundaries. The refresh model checks one bounded rejected-version refresh
+episode: single-flight refresh, joining an in-flight refresh, superseded
+requests consuming the newer version instead of acquiring, read-only
+consumption, and monotonic publication. Those checks establish the design
+interaction, not implementation correspondence.
+
+The context bound contains two distinct configurable contexts sharing one
+resource scope, one foreign scope, and nine requests covering concurrent
+challenges, later cache use, unassociated/ineligible/foreign targets, and
+Gallery. Retirement is enabled for any live context in any state. TLC explored
+6,794,613 generated and 1,485,245 distinct states to depth 29 without an
+invariant or liveness violation. Separate reachability configurations exhibit
+pre-acquisition retirement, retirement during active provider work,
+populated-context retirement followed by a later request, simultaneous
+equal-scope acquisitions, source isolation, and excluded/Gallery
+non-participation. Mutations that removed the live-context gate, selected
+credentials by resource scope, or published after retirement violated
+`AllRetiredParticipationViolationsNotObserved`,
+`PostRetirementRequestCannotUsePlugin`, `CacheReadsStayContextBound`, and
+`PublicationIsAuthorized`.
+
+The refresh bound contains one live context, two requests, one initial cached
+version, and two distinct possible provider results. Sending, rejection, and
+provider progress interleave freely inside one episode. TLC explored 91
+generated and 65 distinct states to depth 11 without a violation.
+Reachability configurations exhibit an in-flight join followed by follower
+consumption, a rejection arriving after publication, and a request that first
+observes the published version being accepted outside the episode. Mutations
+that removed single-flight admission, admitted superseded requests to provider
+work, let consumption write back an older observation, or published a
+candidate verbatim violated `AtMostOneProviderAcquisition`,
+`AtMostOneProviderCompletion`, `StaleObservedRequestCannotAcquire`,
+`StaleObservedConsumptionIsReadOnly`, and `CredentialVersionNeverRegresses`.
+
+Redirect mechanics, target-scope derivation, provider failure and
+cancellation, HTTP retry bounds, plugin protocol, more than one refresh
+episode, and implementation correspondence remain outside both models.
 
 The `-IsRetry` flag matters more than it looks. The provider's own help says that without it
 "INVALID CREDENTIALS MAY BE RETURNED. The caller is required to validate returned credentials
@@ -307,12 +677,13 @@ The status is known inside
 [`HttpRetryHelper`](../../src/DotnetInspector.Packages/HttpRetryHelper.cs), but the signatures
 between there and the caller return `string?` and `List<string>?`, so it cannot be returned
 without changing every one of them. Instead
-[`FeedFailureTelemetry`](../../src/DotnetInspector.Core/FeedFailureTelemetry.cs) follows the
-ambient-scope shape already used by `NetworkTelemetry`: a scope is opened at each command
-boundary that turns those nullable results into an operator-facing answer. Package acquisition
-opens one around each acquisition hop; direct `--version`, `--latest-version`, and `--versions`
-queries open one around the complete query. Nested async work records into the same collector,
-and the "nothing resolved" path consults it before choosing a message.
+[`FeedFailureTelemetry`](../../src/NuGetFetch/FeedFailureTelemetry.cs) uses an
+ambient scope opened at each command boundary that turns those nullable
+results into an operator-facing answer. Package acquisition opens one around
+each acquisition hop; direct `--version`, `--latest-version`, and `--versions`
+queries open one around the complete query. Nested async work records into the
+same collector, and the "nothing resolved" path consults it before choosing a
+message.
 
 The scope is opened per *hop*, inside the tool-wrapper redirect loop, rather than once around
 the whole traversal. Each hop resolves a different package id, so a shared collector would let
@@ -330,15 +701,18 @@ Two further rules keep the message honest:
   overall lookup produced nothing, so if one source 401s and another answers, the successful
   result stands. That is this codebase's answer to the third open design question in #3417.
 
-The phase (`reading the service index`, `listing versions`) is taken from the ambient
-`NetworkTrafficKind`, which the network telemetry scope already tracks, so command boundaries do
-not duplicate the phase labels.
+The collector stores a NuGet-owned `FeedFailurePhase`. Product HTTP helpers
+continue to identify traffic with `NetworkTrafficKind`;
+`DotnetInspector.Packages.FeedFailureRecorder` maps that ambient product
+currency to the NuGet phase at the recording boundary. `NuGetFetch` therefore
+retains useful phase labels without depending on a `DotnetInspector.*`
+assembly.
 
 ### The URL is redacted before it is stored
 
 This message prints a source URL, and some feeds put a credential in one. The URL is passed
-through `NetworkRequestObservation.RedactSensitiveUrlText` on the way *into* the collector
-rather than on the way out to the console — `FeedFailureCollector.Failures` is public, so an
+through `InertText.UrlRedaction` on the way *into* the collector rather than on
+the way out to the console — `FeedFailureCollector.Failures` is public, so an
 unredacted URL sitting in it would already be an exposure.
 
 ```console
@@ -434,18 +808,26 @@ The CLI does not hit this, because its package path does not go through `NuGetCl
 service-index reader that passes `source.GetAuthHeader()` on the discovery request. The gap is
 confined to the `NuGetFetch` library.
 
-Where a credential provider is available the handler covers this case anyway, since it sits in
-the HTTP pipeline and so sees the anonymous service index request 401 like any other. That is a
-second reason NuGet put the loop in a handler: no call site can forget to participate. It is not
-a fix for the `nuget.config` path, which still depends on the caller threading a credential
-through.
+Where a credential provider is available, the current shared handler covers
+this case because it sees the anonymous service-index request's 401. The target
+source-scoped handler preserves that coverage only for requests made through
+the associated V3 source pipeline; an unassociated call site cannot acquire
+plugin authority. Neither shape fixes the `nuget.config` path, which still
+depends on the caller threading an explicit credential through.
 
-Acquired credentials are normally cached by origin so the service index and discovered package
-endpoints share one challenge response. Azure Artifacts needs a narrower identity: every
-organization uses `pkgs.dev.azure.com`. For that host the cache key includes the first path
-segment, which is the organization. Organizations therefore acquire independently, while one
-organization's configured service-index URL and Azure's project/feed-GUID endpoint aliases reuse
-the same credential.
+The legacy shared handler caches acquired credentials by request-target origin
+so the service index and discovered package endpoints share one challenge
+response. Azure Artifacts adds the first path segment, which is the
+organization. This separates Azure organizations, but neither rule separates
+distinct configured sources inside one cache scope.
+
+The
+[source-scoped context](#source-scoped-plugin-authentication-context) is
+implemented for owner-composed V3 source pipelines through
+`PackageSourceClientFactory.CreateWithPluginAuthentication`. Package-source
+composition issue #5603 is the named consumer that will replace the legacy
+shared-handler path; until then, that path does not claim source-scoped
+isolation.
 
 When an automatic redirect ends in an authentication challenge, credential acquisition remains
 scoped to the caller-selected source URI and the retry starts again from that URI. A redirect
@@ -455,7 +837,7 @@ valid credentials, it can serve the requested resource instead of redirecting to
 
 ## Tests
 
-Two tiers, in `src/NuGetFetch.Tests`:
+Two tiers, in `tests/NuGetFetch.Tests`:
 
 - **Hermetic**, no network and no real plugin binary, runs in PR CI:
   - `CredentialMechanismTests` pins every row of the ranking table above.
@@ -463,13 +845,24 @@ Two tiers, in `src/NuGetFetch.Tests`:
     that a 401 stays distinguishable from a 404.
   - `PluginDiscoveryTests` pins all three discovery routes and their precedence, over a temporary
     directory tree and `PATH`.
-  - `PluginAuthenticationHandlerTests` pins the 401 loop: retry bound, `IsRetry` progression,
-    origin scoping for ordinary hosts, organization scoping and GUID-alias reuse for Azure
-    Artifacts, redirect isolation from credential scope and returned content, 403 opt-in, and that
-    an existing credential is not overwritten.
-  - `PluginProtocolTests` runs a **real plugin process** — a shell script that genuinely speaks
-    the line protocol — so framing, the symmetric handshake, `Progress`-driven timeout extension,
-    and shutdown are exercised end to end rather than mocked.
+  - `PluginAuthenticationHandlerTests` pins the current 401 loop: retry bound,
+    `IsRetry` progression, request-target cache scoping for ordinary hosts,
+    organization scoping and GUID-alias reuse for Azure Artifacts, redirect
+    isolation from credential scope and returned content, 403 opt-in, and that
+    an existing credential is not overwritten. It establishes only the legacy
+    shared-handler behavior.
+  - `PluginAuthenticationContextTests` pins every required source-scoped
+    context gate above. Pipeline mapping, disposal, resource-first challenge,
+    and redirect composition run through owner-composed V3 clients; focused
+    state, scope, refresh, and retirement vectors use hermetic handler
+    transports.
+  - `PluginProtocolTests` runs a **real plugin process** — a cross-platform managed fixture that
+    genuinely speaks the line protocol — so framing, the symmetric handshake, process death,
+    selected shutdown behavior, and caller-cancellation classification are exercised end to end
+    rather than mocked. The suite runs on Windows and Unix; only executable-bit discovery coverage
+    remains Unix-specific.
+    Concurrent request correlation, `Progress`-driven timeout extension, and pipe-loss admission
+    remain unverified at the implementation boundary.
 - **Live**, tagged `[Trait("Network", "Live")]` and skipped unless a feed and token are supplied.
   `AzureDevOpsFeedTests` covers the config path; `AzureDevOpsCredentialProviderTests` covers the
   provider path against a genuinely installed provider. Only a real Azure DevOps feed exercises
@@ -478,7 +871,7 @@ Two tiers, in `src/NuGetFetch.Tests`:
 CI runs the offline tier only:
 
 ```bash
-dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 ```
 
 The live tier needs a private feed, which CI and fork PRs do not have. To run it locally, mint a
@@ -489,7 +882,7 @@ PAT:
 export DOTNET_INSPECT_TEST_AZDO_FEED=https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
 export DOTNET_INSPECT_TEST_AZDO_TOKEN=$(az account get-access-token \
   --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
-dotnet run --project src/NuGetFetch.Tests -c Release -- -trait "Network=Live"
+dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-trait "Network=Live"
 ```
 
 The token is read from the environment and never written to a config file.

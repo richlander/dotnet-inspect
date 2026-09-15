@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>ILInspector.JsExportSurface.Fixtures</AssemblyName>
+    <RootNamespace>ILInspector.JsExportSurface.Fixtures</RootNamespace>
+    <Features>$(Features);runtime-async=on</Features>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile
+      Include="../ILInspector.JsExportSurface.Fixtures/*.cs"
+      Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

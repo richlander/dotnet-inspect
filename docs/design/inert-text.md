@@ -163,26 +163,6 @@ that assumes the payload is dangerous and the wrapper is what holds it back. Her
 the payload is already inert. Losing the wrapper loses provenance, not
 protection.
 
-The generated TypeScript boundary preserves that provenance as an opaque
-`InertString` string brand when a JSON DTO property is typed as
-`InertText.InertString`. The wire value remains a JSON string and the browser
-runtime receives a JavaScript string; the brand exists only for compile-time
-flow checking. It does not mean HTML-safe, URL-safe, or attribute-safe text, so
-every browser sink still applies its own structural escaping.
-
-The brand carries the same deliberately narrow claim as the C# type: some
-policy was applied. It does not distinguish `Field` from `Prose`, because the
-C# value itself does not retain its producing policy and composition may
-tighten one policy into another. The string-valued wire contract also
-intentionally erases `Forms`, `Concerns`, and `IsTruncated`; callers that need
-those facts must define an explicit envelope rather than inferring them from
-the brand. Deserialization is rejected because the scalar wire value carries no
-policy with which to validate and restore an `InertString`.
-`InertStringJsonTests.Converter_IsAttachedToTheCurrencyType`,
-`DtsEmitterTests.Emit_MapsInertStringPropertyToOpaqueStringBrand`, and
-`DtsEmitterTests.Emit_DirectInertWireReturnAlsoDeclaresTheBrand` gate this
-contract.
-
 `TextConcern` retains why visual containment occurred: control, format/bidi,
 unpaired surrogate, line separator, or paragraph separator. The flags are
 captured while the untreated scalar is available and travel with the
@@ -235,13 +215,56 @@ So containment goes late — but not "as late as possible", which is just the
 per-site approach with better manners. It goes at **the last structural boundary
 every rendered value must cross**.
 
+### Package skills entering agent context
+
+A NuGet package can author `skills/**/SKILL.md`, and dotnet-inspect deliberately
+projects those documents into an autonomous agent's context. The package author
+is therefore the external actor, the package archive or restored package cache
+is the input path, and skill inventory or document output is the affected
+presentation boundary.
+
+The YAML frontmatter parser trims only YAML spacing (space, tab, and a CR left
+by CRLF line splitting), so concerning separators survive parsing. The project
+skill inventory then folds only a description's ordinary CR/LF line endings to
+the inventory's single-line shape, leaving every other separator available for
+concern classification. It applies `TextPolicy.Field` to every parsed `name`
+and normalized `description`, then uses
+`InertString.ReplaceIfContainmentRequired` to represent a value carrying a
+`TextConcern` as `[Text omitted: required containment]` instead of sharing the
+package-authored field through the inventory. Structurally invalid Agent Skills
+metadata still fails visibly under the existing validation rules.
+
+Every package-relative `skills/**/SKILL.md` document applies `TextPolicy.Prose`
+before link normalization and before any stdout, JSON, JSONL, or `--output`
+destination, whether reached through the skill section, `--content`, or a
+package README declaration. A document carrying a `TextConcern` is replaced as
+a whole by `InertString.ContainmentRequiredPlaceholder`; otherwise its full
+safe presented text is retained, including literal backslashes that required
+only reversible disambiguation inside `InertString`. A constrained
+`ContainmentSelectedText` is produced only after that classification and is
+carried through the shared content and print projections without re-encoding.
+Exact package bytes are never retained for a skill document, so an alternate
+selection or file-output route cannot bypass the decision used for agent
+context. This behavior is gated by
+`Project_SkillsInventory_ReplacesContainedYamlFields`,
+`Project_SkillsInventory_PreservesBlockIndicatorConcerns`,
+`Project_SkillsInventory_FoldsLiteralBlockDescription`,
+`SkillDocuments_OmitPayloadsThatRequireContainment`, and
+`SkillDocuments_PreserveSafeOriginalText`,
+`SkillDocuments_ClassifyRawContentBeforeNormalizingGitHubLinks`,
+`Package_SkillDocumentDeclaredAsReadmeUsesSkillContainment`, and
+`SkillDocuments_OutputAliasesWritePackageAndProjectPayloads` in the Release
+`DotnetInspect.Cli.Tests` suite. The close negative
+`Package_OrdinaryDocumentOutputStillPreservesExactBytes` keeps the exception
+limited to package skill paths.
+
 ### Why a structural boundary and not a rule
 
 A boundary is worth something only if it cannot be walked around, so the claim
 has to be measured rather than asserted. The table path holds up: of 113 direct
 `Console.Write` calls in the tree only 24 interpolate anything, and all 24 are
 in a cache command, an analysis dev app and a decompiler fixture. None are in
-`src/dotnet-inspect/Output/`, which writes content the serializer has already
+`src/DotnetInspect.Cli/Output/`, which writes content the serializer has already
 rendered. Foreign text cannot reach stdout as a table cell without passing
 through a row property.
 
@@ -263,7 +286,7 @@ Two are known, and neither is complete on its own:
 
 | Boundary | Measured size | Tracked by |
 | -------- | ------------- | ---------- |
-| Row and view types | 279 columns across 65 row types, pinned by `MarkoutRowContainmentTests` | #3463 |
+| Row and view types | 240 columns across 54 row types, pinned by `MarkoutRowContainmentTests` | #3463 |
 | Diagnostic and log callbacks | 97 `Action<string>` sites | #3606 |
 
 Those cover the table path and the logging path. They are not exhaustive: the
@@ -611,6 +634,16 @@ Backslash disambiguation does not set it. A view may OR that signal across its
 artifact-derived values so a CLI can refuse the view or require an explicit
 trust-axis opt-out. It still does not answer whether the value suits another
 policy.
+
+`ReplaceIfContainmentRequired(InertString)` is the typed suppression form for a
+caller that must not share even the inert spelling of text carrying a
+`TextConcern`. It returns the supplied inert containment text when
+`RequiredContainment` is true and otherwise preserves the current value,
+including literal-backslash disambiguation that set `WasEncoded` without
+setting a concern. `ReplaceIfContainmentRequired_ReplacesConcernedTextOnly`
+gates that distinction. `ContainmentRequiredPlaceholder` provides the standard
+typed value `[Text omitted: required containment]`; the method still requires
+an argument so a caller can choose a more specific inert replacement.
 
 Unambiguous literal backslashes remain literal. A lone `\`, `\q`, and the
 incomplete `\u2` cannot be mistaken for a complete canonical spelling, so

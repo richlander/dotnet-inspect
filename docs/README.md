@@ -1,99 +1,124 @@
-# dotnet-inspect Documentation
+# dotnet-inspect documentation
 
-dotnet-inspect is a CLI tool for exploring .NET libraries and NuGet packages. It's designed for both humans and LLMs—the structured markdown output is easy to read and easy to parse.
+## Acquire and run
 
-The tool answers questions like:
-
-- What methods does `JsonSerializer` have?
-- What changed between v9 and v10 of a package?
-- Where does this type come from?
-- Was this library built by Microsoft or rebuilt by my distro?
-
-Unlike decompilers, dotnet-inspect focuses on the **public API surface**—the contracts you code against, not implementation details. It pulls from multiple sources (libraries, PDBs, symbol servers, NuGet metadata) to give you a complete picture.
-
-## Quick Example
+Install the global tool:
 
 ```bash
-$ dotnet-inspect type JsonSerializer --package System.Text.Json --shape
-
-# System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
-
-System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
-   ├─ string Serialize<TValue>(TValue value, JsonSerializerOptions? options = null)
-   ├─ string Serialize(object? value, Type inputType, JsonSerializerOptions? options = null)
-   ├─ void Serialize<TValue>(Stream utf8Json, TValue value, JsonSerializerOptions? options = null)
-   └─ ...
-```
-
-## Documentation
-
-### Current system docs
-
-| Document | Need served |
-| -------- | ----------- |
-| [Inspection Space Architecture](inspection-space.md) | Target core workspace, query, acquisition, join, cache, and safety architecture organized around Rich, Fast, and Safe. |
-| [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
-| [Architecture](architecture.md) | Current command and metadata architecture. |
-| [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
-| [Progressive Disclosure](design/progressive-disclosure.md) | Current model for base/domain scope, discovery budgets, `-D`/`-S`, capabilities, counts, and row limits. |
-| [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |
-| [Platform Components](platform-components.md) | Accessing SDK libraries vs NuGet packages. |
-| [Private NuGet Feeds](private-feeds.md) | How to give the tool access to a private feed: installing a credential provider, unattended and CI setup, and the `nuget.config` fallback. |
-| [Signals](assembly-audit.md) | Understanding Signals output and network scope flags. |
-| [SourceLink Exposure](sourcelink-exposure.md) | Where SourceLink appears in package/library/type/member flows and how PDB/network costs are controlled. |
-| [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
-| [Sample References](sample-references.md) | Extracting code samples from XML docs. |
-| [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |
-| [Decompiler Correctness Pipeline](decompiler-correctness-pipeline.md) | The staged gauntlet of decompiler checks, from entry gates to changed-method fidelity. |
-| [Burndown Roles](burndown-curator.md) | Index for curator, runner, ladder tester, and discovery roles. |
-| [Burndown Curator](../agents/burndown-curator.md) | Owns #1568, row reconciliation, PR SLA hygiene, and orphan clustering. |
-| [Burndown Runner](../agents/burndown-runner.md) | Claims one row from a burndown list and drives it to PR, blocker, or pivot. |
-| [Ladder Tester](../agents/ladder-tester.md) | Measures product quality ladder legs and spawns focused issues or linked burndowns. |
-| [Burndown Discovery](../agents/burndown-discovery.md) | Finds high-confidence defects before they become burndown rows. |
-
-### Contributor docs
-
-| Document | Need served |
-| -------- | ----------- |
-| [Style Guide](design/style-guide.md) | Output formatting conventions. |
-| [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
-| [Inspection Graph Document](design/inspection-graph-document.md) | Typed multi-subject graph envelope for calls, metadata, integrations, Findings, occurrences, characteristics, and package/type lenses. |
-| [Inspection Graph Modes](design/inspection-graph-modes.md) | Single-seed, peer-seed, and induced-set requests over member, type, assembly, and package subjects. |
-| [Call Graph Characteristics](design/call-graph-characteristics.md) | Mapping current call nodes, edges, occurrences, signals, and loop state into the inspection-graph descriptor model. |
-| [Graph Signal Annotations](design/graph-signal-annotations.md) | Projecting analysis signals (alloc/copy/unsafe, and exception-risk follow-ups) onto call-graph nodes via `--fields`. |
-| [Allocation Triage Pre-Filters](design/allocation-triage-prefilters.md) | Which allocation candidates Performance Triage surfaces, why the pre-filters prune cold-by-construction shapes, and what realized cost the static side cannot predict. |
-| [Finding Nomenclature](design/finding-nomenclature.md) | Canonical observation/change vocabulary, arity ladder, operation outcomes, and Research composition boundary. |
-| [Finding Producer Design](design/finding-producers.md) | Choosing producer ownership, payloads, identities, result shapes, matching modes, and higher-rung boundaries. |
-| [Performance Analysis Baselines](analysis-baselines.md) | Internal baselines of what each analysis type finds over a fixed corpus, with effectiveness ratings for the one-stop-shop Performance Analysis view. |
-| [Dynamic Leak-Watch](design/dynamic-leak-watch.md) | The retention axis: how `runfaster leak-watch` separates a managed leak from a churn storm from native/committed growth, and why static triage and the allocation-tick join cannot. |
-| [Rendering Model](design/rendering-model.md) | Historical/current rendering model notes; prefer [Progressive Disclosure](design/progressive-disclosure.md) for current agent-facing behavior. |
-| [Section Model](design/section-model.md) | Section selection design notes; use with [Progressive Disclosure](design/progressive-disclosure.md). |
-| [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
-| [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
-| [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
-| [Caret Stacking](design/caret-stacking.md) | `--focus` display model: one caret per fact extent, packed onto as few rows as fit, with the numbered fact texts listed below. |
-| [Decompiler Inspection & Oracle](design/decompiler-inspection-oracle.md) | Unifies single-method inspection (dump/stages) with the corpus-wide fidelity check oracle; product-vs-tool scoping. |
-| [ReturnToSender: Fact-Planned Compile-Back Harness](design/fact-planned-compile-back-harness.md) | Spec for a fresh tools-side compile-back harness with fact-planned TypeProducer/TypePrinter shells. |
-| [Method Body Inspection](design/method-body-inspection.md) | Target service seam for shared `member` and `library --il-offset` method-body facts and coordinate inspection. |
-| [Member Body Substrate](design/member-body-substrate.md) | One base for skeleton/full/merged/diff body rendering: `ApiType` shape, `MemberAnchor` address, one scope, and `MemberBody`'s scalar (whole-body) and vector (offset-keyed) shapes. |
-| [NuGet API](design/nuget.md) | NuGet API endpoints used by the tool. |
-| [NuGet Feed Authentication](design/nuget-authentication.md) | How feeds are authenticated: `nuget.config` credentials, credential provider discovery and the 401-driven plugin protocol, which flow supplies the credential in each environment, which credential forms are supported, and the hermetic/live test tiers. See [Private NuGet Feeds](private-feeds.md) for setup instructions. |
-| [Version Resolution](design/version-resolution.md) | Package/platform version and cache behavior. |
-| [Cache concurrency and publication](design/cache-concurrency.md) | Process-local single-flight, cross-process atomic publication, dependency overlap, and filesystem guarantees. |
-| [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the final shape (why the CLI should not hold a `PEReader`). |
-| [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
-
-### Design history and backlog
-
-Some files under `docs/design/` and `docs/backlog*.md` were written during ideation. They are useful design history, but may not describe current CLI behavior. When current behavior matters, start with Overview, Architecture, Progressive Disclosure, the embedded skill, and tests.
-
-## Getting Started
-
-```bash
-# Install and run with dnx (like npx)
-dnx dotnet-inspect -y -- --help
-
-# Or install globally
 dotnet tool install -g dotnet-inspect
-dotnet-inspect --help
+dotnet-inspect <command>
 ```
+
+Or run without installing:
+
+```bash
+dnx dotnet-inspect -y -- <command>
+```
+
+## Agent guidance
+
+Run the embedded skill for current, version-matched guidance:
+
+```bash
+dotnet-inspect skill
+```
+
+Agents should do this before relying on remembered command patterns. When
+running without a global install, use `dnx dotnet-inspect -y -- skill`.
+
+## Websites
+
+| Site | Channel and update cadence | Runtime |
+| --- | --- | --- |
+| <https://dotnet-inspect.net> | Production; the same commit as the NuGet tool release. | .NET 11 RC1 |
+| <https://dotnet-inspect.ca> | Working version; updated for each commit. | .NET 11 RC1 |
+| <https://coreclr.dotnet-inspect.ca> | Nightly CoreCLR interpreter version. | .NET 12 daily build |
+| <https://coreclr-r2r.dotnet-inspect.ca> | Nightly CoreCLR ReadyToRun version; the same commit as the interpreter version. | .NET 12 daily build |
+
+This page is curated navigation for users and contributors. For the full
+product guide, current commands, examples, supported behavior, and
+user-visible limitations, continue with the root [README](../README.md).
+
+## Documentation entrypoint ownership
+
+| Surface | Owns | Update when |
+| --- | --- | --- |
+| [`README.md`](../README.md) | Full product guide: overview, canonical acquisition, primary workflows, capability and command inventory, examples, requirements, and top-level limitations. | One of those current product claims changes or a capability earns top-level discovery. |
+| [`docs/README.md`](README.md) | User and contributor landing page: minimal acquisition and agent guidance, website channels, curated documentation routes, and the boundaries in this table. | Canonical acquisition, skill guidance, website channels, a high-value route, or an entrypoint's role changes. |
+| [`docs/overview.md`](overview.md) | Subsystem topology and the map from cross-subsystem composition to normative owners. | A subsystem boundary, owner, or cross-subsystem relationship changes. |
+| [`docs/architecture.md`](architecture.md) | Current implementation composition, project boundaries, shared currencies, and code location. | Current code structure or an explicit migration boundary changes. |
+| Focused documents | Their own contracts, status, evidence, consumers, and successor work. | The focused owner's claim changes. |
+
+Update only the surfaces whose owned claims change. Adding or editing a focused
+document does not by itself require a root README, documentation index,
+overview, or architecture edit.
+
+The acquire-and-run commands are intentional duplication between the two
+README entrypoints because both audiences need them immediately. Keep that
+small block aligned; do not copy the rest of the product guide here.
+
+Detailed user behavior belongs with its focused guide or product skill. The
+root README remains current without cataloging every focused capability.
+
+## Start here
+
+| Need | Entry point |
+| --- | --- |
+| Use the current product | [Root README](../README.md) |
+| Understand cross-subsystem ownership | [Overview](overview.md) |
+| Locate current implementation and project boundaries | [Architecture](architecture.md) |
+| Understand the target workspace, query, cache, and safety model | [Inspection Space Architecture](inspection-space.md) |
+| Build a shared inspection from product question to both hosts | [Building Shared Inspections](building-shared-inspections.md) |
+| Contribute under repository workflow rules | [AGENTS.md](../AGENTS.md) |
+
+## Core design routes
+
+| Concern | Entry point |
+| --- | --- |
+| Layering and project families | [Inspection Layers](design/inspection-layers.md) and [Library Family Boundaries](design/library-family-boundaries.md) |
+| Cross-host operation composition | [Inspection Operation Composition](design/inspection-operation-composition.md) |
+| Portable query intent and payload | [Portable Query Intent](design/portable-query-intent.md) and [Portable Query Payload](design/portable-query-payload.md) |
+| Retained state and service orientation | [Stateless Core Services](design/stateless-core-services.md) |
+| Resource ownership and current adoption | [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md) and the [Resource-Owner Type Map](design/resource-owner-type-map.md) |
+| Commands, defaults, and disclosure | [Progressive Disclosure](design/progressive-disclosure.md) and [CLI Host Architecture](cli-architecture.md) |
+| Output data and rendering | [Output Shapes](design/output-shapes.md), [Style Guide](design/style-guide.md), and [Inspection Envelope](design/inspection-envelope.md) |
+| Metadata and API inspection | [Assembly Inspection Query](design/assembly-inspection-query.md) |
+| Package composition | [PackageHouse](design/package-house.md) |
+| Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
+| Source and PDB composition | [SourceHouse](design/source-house.md) and [PDB Acquisition](pdb-acquisition.md) |
+| Documentation composition | [DocumentationHouse](design/documentation-house.md) |
+| Decompiler architecture and correctness | [Decompiler Architecture](decompiler-architecture.md) and [Decompiler Correctness Pipeline](decompiler-correctness-pipeline.md) |
+| Browser host | [Inspect Web](../inspect-web/README.md) |
+
+## Contributor workflow routes
+
+| Need | Entry point |
+| --- | --- |
+| Engineering model and PR demos | [Development Practices](development-practices.md) |
+| Design ownership and scope | [Design Scope and Composition](design-scope.md) |
+| Evidence and validation | [Evidence and Validation](evidence-and-validation.md) |
+| Test fixture placement and ownership | [Fixture Governance](fixture-governance.md) |
+| Local tools, SDKs, and focused test commands | [Local Development Environment](dev-environment.md) |
+| Adversarial review rounds | [Round Orchestration](round-orchestration.md) and the [canonical review prompt](adversarial-review-prompt.md) |
+| Session and tmux state | [Agent Session State](agent-session-state.md) |
+| GitHub automation | [GitHub API Operations](github-api-operations.md) and [GitHub Status Queries](github-status-queries.md) |
+| Multi-PR work | [Stacked PRs](stacked-prs.md) |
+| Release certification and publication | [Release Workflow](release-workflow.md) |
+| TLA+ setup and modeling | [TLA+ Methodology](tla-plus-methodology.md) and [TLA+ Setup](runbooks/tla-plus-setup.md) |
+| Markout co-development | [Markout Co-development](markout-co-development.md) |
+
+## Finding focused documentation
+
+Focused documents under [`docs/design/`](design/) are reached from their
+normative owner, consumers, implementation, issue, or pull request. Search that
+directory by subsystem or identifier when no curated route above applies.
+Templates live under [`docs/templates/`](templates/), runbooks under
+[`docs/runbooks/`](runbooks/), contributor skills under
+[`.github/skills/`](../.github/skills/), shipped product skills under
+[`skills/`](../skills/), and historical/backlog material under `docs/` and
+`docs/design/`.
+
+Some design files record proposals or design history rather than current
+behavior. When current sources disagree, prefer product behavior and tests,
+then resolve which focused owner is authoritative rather than silently
+choosing one.

@@ -452,11 +452,16 @@ public class MetadataRowReferenceSearchTests
         // row counter still reaches RowCount + 1 on the way out, which looks
         // exactly like an ordinary completed table. Truncation is the only thing
         // that separates the two.
-        using var peReader = OpenSelfFromBytes();
+        using var peReader = new PEReader(
+            new MemoryStream(BuildTruncationBoundaryImage()));
         var reader = peReader.GetMetadataReader();
-        int popular = MostReferencedTypeRef(FullProjection(peReader));
+        const int targetTypeRef = 1;
 
-        var full = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeRef, popular, int.MaxValue);
+        var full = MetadataTableProjector.FindReferences(
+            peReader,
+            TableIndex.TypeRef,
+            targetTypeRef,
+            int.MaxValue);
         Assert.False(full.Truncated);
 
         // Find a match that sits on the last row of a multi-row table. Budgeting
@@ -478,7 +483,11 @@ public class MetadataRowReferenceSearchTests
 
         Assert.True(budget >= 0, "No match sat on the last row of a multi-row table.");
 
-        var capped = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeRef, popular, budget);
+        var capped = MetadataTableProjector.FindReferences(
+            peReader,
+            TableIndex.TypeRef,
+            targetTypeRef,
+            budget);
         Assert.True(capped.Truncated, "Expected the budget to stop this scan.");
         Assert.Equal(budget, capped.References.Length);
 
@@ -502,7 +511,8 @@ public class MetadataRowReferenceSearchTests
         // though the scan ended inside it. Reporting it unscanned would be a
         // false blind spot: it would claim an unread row could hide an edge when
         // no row went unread.
-        using var peReader = OpenSelfFromBytes();
+        using var peReader = new PEReader(
+            new MemoryStream(BuildTruncationBoundaryImage()));
         var reader = peReader.GetMetadataReader();
 
         int typeDefRows = reader.GetTableRowCount(TableIndex.TypeDef);
@@ -742,6 +752,66 @@ public class MetadataRowReferenceSearchTests
             methodList: MetadataTokens.MethodDefinitionHandle(1));
 
         var rootBuilder = new MetadataRootBuilder(metadata, suppressValidation: true);
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            rootBuilder,
+            ilStream: new BlobBuilder());
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildTruncationBoundaryImage()
+    {
+        var metadata = new MetadataBuilder();
+        ModuleDefinitionHandle module = metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Boundary.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Boundary"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        TypeReferenceHandle baseType = metadata.AddTypeReference(
+            module,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Base"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Derived"),
+            baseType,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(0, result => result.Void(), _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var rootBuilder = new MetadataRootBuilder(
+            metadata,
+            suppressValidation: true);
         var peBuilder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             rootBuilder,

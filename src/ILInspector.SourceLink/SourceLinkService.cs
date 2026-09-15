@@ -2,7 +2,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ILInspector.Metadata;
-using SLF = SourceLinkFetch;
 
 namespace ILInspector.SourceLink;
 
@@ -17,7 +16,10 @@ public record SourceDocument(
     byte[]? Checksum = null,
     string? ChecksumAlgorithm = null,
     int DocumentRowId = 0,
-    string? CanonicalPath = null);
+    string? CanonicalPath = null)
+{
+    public SourceDocumentResolutionStatus ResolutionStatus { get; init; }
+}
 
 /// <summary>Pre-allocation limits for reading an embedded PDB and its SourceLink map.</summary>
 public sealed class SourceLinkReadLimits
@@ -69,10 +71,10 @@ public sealed class SourceLinkService : IDisposable
     string? _sourceLinkError;
     int _sourceLinkEncodedBytes;
     SourceLinkMapLimitKind _sourceLinkLimitKind;
-    SLF.SourceLinkResolver? _map;
+    SourceLinkDocumentMap? _map;
     SourceDocumentPathResolver _pathResolver = SourceDocumentPathResolver.Empty;
     SourceLinkResolver? _resolver;
-    SourceLinkFetch.SourceLinkProvenanceResult? _provenance;
+    SourceLinkProvenanceResult? _provenance;
     IReadOnlyList<SourceDocument>? _trackedFiles;
     Dictionary<string, string[]>? _typeFileIndex;
     int _observedPdbVersion = -1;
@@ -161,8 +163,8 @@ public sealed class SourceLinkService : IDisposable
         try
         {
             string json = StrictUtf8.GetString(sourceLink.Value);
-            SLF.SourceLinkResolver map =
-                SLF.SourceLinkResolver.Parse(json, maxMappings);
+            SourceLinkDocumentMap map =
+                SourceLinkDocumentMap.Parse(json, maxMappings);
             SourceLinkMapInspection inspection = CreateMapInspection(map);
             if (map.MappingLimitExceeded)
             {
@@ -233,6 +235,23 @@ public sealed class SourceLinkService : IDisposable
             limits);
     }
 
+    public static SourceLinkService OpenEmbeddedPdbOnlyPrefetched(
+        string assemblyPath,
+        SourceLinkReadLimits limits,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        return new(
+            PdbContext.OpenEmbeddedPdbOnlyPrefetched(
+                assemblyPath,
+                limits.MaxEmbeddedPdbBytes,
+                log,
+                limits.EmbeddedPdbBudget),
+            DefaultCache,
+            log,
+            limits);
+    }
+
     public static SourceLinkService OpenEmbeddedPdbOnly(
         ResolvedAssemblyReference assembly,
         Action<string>? log = null)
@@ -259,6 +278,24 @@ public sealed class SourceLinkService : IDisposable
         ArgumentNullException.ThrowIfNull(limits);
         return new(
             PdbContext.OpenEmbeddedPdbOnly(
+                assembly,
+                limits.MaxEmbeddedPdbBytes,
+                log,
+                limits.EmbeddedPdbBudget),
+            cache,
+            log,
+            limits);
+    }
+
+    public static SourceLinkService OpenEmbeddedPdbOnlyPrefetched(
+        ResolvedAssemblyReference assembly,
+        SourceLinkReadLimits limits,
+        Action<string>? log = null,
+        ISourceLinkIndexCache? cache = null)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        return new(
+            PdbContext.OpenEmbeddedPdbOnlyPrefetched(
                 assembly,
                 limits.MaxEmbeddedPdbBytes,
                 log,
@@ -403,7 +440,10 @@ public sealed class SourceLinkService : IDisposable
                     document.Checksum,
                     document.ChecksumAlgorithm,
                     document.DocumentRowId,
-                    resolution.CanonicalPath);
+                    resolution.CanonicalPath)
+                {
+                    ResolutionStatus = resolution.Status,
+                };
             }),
         ];
         return _trackedFiles;
@@ -465,7 +505,7 @@ public sealed class SourceLinkService : IDisposable
             sourceUrl,
             location.Line,
             location.MatchedOffset,
-            SLF.SourceLinkProvenance.BrowseUrl(sourceUrl),
+            SourceLinkProvenance.BrowseUrl(sourceUrl),
             document?.Checksum,
             document?.ChecksumAlgorithm);
     }
@@ -477,14 +517,14 @@ public sealed class SourceLinkService : IDisposable
         return index.TryGetValue(typeName, out var files) ? files : [];
     }
 
-    public SourceLinkFetch.SourceLinkProvenanceResult Provenance()
+    public SourceLinkProvenanceResult Provenance()
     {
         EnsureCurrentPdbState();
         return _provenance ??= _map is null
-            ? new SourceLinkFetch.SourceLinkProvenanceResult(
+            ? new SourceLinkProvenanceResult(
                 null,
                 _sourceLinkError ?? "the PDB carries no SourceLink map")
-            : SLF.SourceLinkProvenance.Determine(
+            : SourceLinkProvenance.Determine(
                 _map,
                 _context.EnumeratePdbDocumentPaths());
     }
@@ -550,7 +590,7 @@ public sealed class SourceLinkService : IDisposable
             }
 
             _sourceLinkJson = StrictUtf8.GetString(sourceLink.Value);
-            _map = SLF.SourceLinkResolver.Parse(
+            _map = SourceLinkDocumentMap.Parse(
                 _sourceLinkJson,
                 _readLimits.MaxMappings);
             if (_map.MappingLimitExceeded)
@@ -583,7 +623,7 @@ public sealed class SourceLinkService : IDisposable
             RefreshPdbState();
     }
 
-    static SourceLinkMapInspection CreateMapInspection(SLF.SourceLinkResolver map)
+    static SourceLinkMapInspection CreateMapInspection(SourceLinkDocumentMap map)
     {
         if (map.ParseError is not null)
         {

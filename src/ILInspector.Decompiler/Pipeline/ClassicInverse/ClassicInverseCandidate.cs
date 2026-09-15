@@ -1,0 +1,236 @@
+using System.Collections.Immutable;
+
+namespace ILInspector.Decompiler.Pipeline;
+
+/// <summary>
+/// Semantic field identity, independent of display and property annotations.
+/// </summary>
+internal readonly record struct MachineFieldId(
+    TypeRef DeclaringType,
+    string Name,
+    TypeRef Type)
+{
+    internal static MachineFieldId Of(FieldRef field)
+        => new(field.DeclaringType, field.Name, field.Type);
+}
+
+/// <summary>
+/// One recipe's ephemeral proposal. It may hold IR references — it is never
+/// published — and is consumed by <see cref="ClassicInverseAccountant"/>, which
+/// either turns it into a detached plan or declines.
+/// </summary>
+internal sealed class ClassicInverseCandidate
+{
+    readonly List<ClassicInverseClaim> _claims = [];
+    readonly Dictionary<IrNode, string> _protocol =
+        new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<IrNode, ClassicInverseContainerDeclaration> _containers =
+        new(ReferenceEqualityComparer.Instance);
+    readonly List<ClassicInverseControlRegion> _controlRegions = [];
+    readonly Dictionary<MachineFieldId, int> _hoistedLocals = [];
+    readonly Dictionary<int, int> _localRemap = [];
+    readonly Dictionary<MachineFieldId, int> _parameterFields = [];
+    readonly Dictionary<int, IrNode> _localValues = [];
+
+    internal ClassicInverseCandidate(string recipe) => Recipe = recipe;
+
+    internal string Recipe { get; }
+
+    internal ClassicInverseTypeBinding TypeBinding { get; set; } = ClassicInverseTypeBinding.Identity;
+
+    /// <summary>Freshly built output statements; never aliased from the request.</summary>
+    internal List<IrNode> Statements { get; } = [];
+
+    internal ImmutableArray<TypeRef> Locals { get; set; } = [];
+
+    internal ImmutableArray<string?> LocalNames { get; set; } = [];
+
+    internal ImmutableArray<string?> SynthesizedLocalNames { get; set; } = [];
+
+    internal IReadOnlyList<ClassicInverseClaim> Claims => _claims;
+
+    internal IReadOnlyDictionary<IrNode, string> DeclaredProtocol => _protocol;
+
+    internal IReadOnlyDictionary<IrNode, ClassicInverseContainerDeclaration>
+        DeclaredContainers => _containers;
+
+    internal IReadOnlyList<ClassicInverseControlRegion> ControlRegions =>
+        _controlRegions;
+
+    /// <summary>Hoisted state-machine field to the output local it became.</summary>
+    internal IReadOnlyDictionary<MachineFieldId, int> HoistedLocals => _hoistedLocals;
+
+    /// <summary>Execution-body local slot to the output local it became.</summary>
+    internal IReadOnlyDictionary<int, int> LocalRemap => _localRemap;
+
+    /// <summary>Kickoff parameter-transfer field to its output argument index.</summary>
+    internal IReadOnlyDictionary<MachineFieldId, int> ParameterFields => _parameterFields;
+
+    /// <summary>
+    /// Execution-body local slots whose value is realized by one output node
+    /// rather than by another local — an awaited temporary, or a conditional
+    /// merge slot. A read of the slot must correspond to that exact output node.
+    /// </summary>
+    internal IReadOnlyDictionary<int, IrNode> LocalValueRealizations => _localValues;
+
+    internal void MapLocalValue(int sourceIndex, IrNode output)
+    {
+        if (!_localValues.TryAdd(sourceIndex, output))
+            Sound = false;
+    }
+
+    /// <summary>The execution-body local the shell's completion call reads, or -1.</summary>
+    internal int ResultLocal { get; set; } = -1;
+
+    /// <summary>
+    /// The exact state-machine storage a foreach recipe proved, or <c>null</c>
+    /// when the recipe models no loop. Nothing about a loop element is
+    /// authorized without it.
+    /// </summary>
+    internal ClassicInverseLoopStorage? LoopStorage { get; set; }
+
+    internal ClassicInverseAwaitTemporaryTransfer? InlinedAwaitTemporary { get; set; }
+
+    /// <summary>False once a recipe hits a state its own rules do not allow.</summary>
+    internal bool Sound { get; private set; } = true;
+
+    internal void Unsound() => Sound = false;
+
+    internal void MapParameterField(FieldRef field, int argumentIndex)
+    {
+        MachineFieldId id = MachineFieldId.Of(field);
+        if (_parameterFields.TryGetValue(id, out int existing)
+            && existing != argumentIndex)
+        {
+            Sound = false;
+            return;
+        }
+        _parameterFields[id] = argumentIndex;
+    }
+
+    internal void MapHoistedLocal(FieldRef field, int localIndex)
+    {
+        if (!_hoistedLocals.TryAdd(MachineFieldId.Of(field), localIndex))
+            Sound = false;
+    }
+
+    internal void MapLocal(int sourceIndex, int outputIndex)
+    {
+        if (!_localRemap.TryAdd(sourceIndex, outputIndex))
+            Sound = false;
+    }
+
+    /// <summary>
+    /// Records that <paramref name="source"/> is realized by
+    /// <paramref name="output"/>. A source or output node may be claimed once;
+    /// a second claim makes the candidate unsound so the core declines rather
+    /// than silently duplicating or swapping a realized effect.
+    /// </summary>
+    internal void Claim(
+        IrNode source,
+        IrNode output,
+        ClassicInverseRealizationRule rule)
+    {
+        if (_claims.Any(c =>
+                ReferenceEquals(c.Source, source)
+                || ReferenceEquals(c.Output, output)))
+        {
+            Sound = false;
+            return;
+        }
+        _claims.Add(new ClassicInverseClaim(source, output, rule));
+    }
+
+    /// <summary>Declares one node as exact lowering scaffolding, owning its subtree.</summary>
+    internal void DeclareProtocol(IrNode node, string rule)
+    {
+        if (!_protocol.TryAdd(node, rule))
+            Sound = false;
+    }
+
+    /// <summary>Declares how a structured container on a consumed node's path is accounted.</summary>
+    internal void DeclareContainer(
+        IrNode container,
+        ClassicInverseAncestorKind kind,
+        string rule,
+        IrNode? outputContext)
+    {
+        if (!_containers.TryAdd(
+                container,
+                new ClassicInverseContainerDeclaration(kind, rule, outputContext)))
+        {
+            Sound = false;
+        }
+    }
+
+    /// <summary>
+    /// Declares that every claim whose source lies inside
+    /// <paramref name="sourceRoots"/> executes under one reproduced control
+    /// context, and must therefore realize inside
+    /// <paramref name="outputContext"/>. This is the flat-IR counterpart of a
+    /// structured ancestor: the classic execution body carries its user loops
+    /// and conditions as branches, not as tree ancestors.
+    /// </summary>
+    internal void DeclareControlRegion(
+        string rule,
+        IEnumerable<IrNode> sourceRoots,
+        IrNode outputContext)
+        => _controlRegions.Add(new ClassicInverseControlRegion(
+            rule,
+            [.. sourceRoots],
+            outputContext));
+}
+
+internal sealed record ClassicInverseClaim(
+    IrNode Source,
+    IrNode Output,
+    ClassicInverseRealizationRule Rule);
+
+internal sealed record ClassicInverseContainerDeclaration(
+    ClassicInverseAncestorKind Kind,
+    string Rule,
+    IrNode? OutputContext);
+
+internal sealed record ClassicInverseControlRegion(
+    string Rule,
+    ImmutableArray<IrNode> SourceRoots,
+    IrNode OutputContext);
+
+internal sealed record ClassicInverseAwaitTemporaryTransfer(
+    StoreLocal RawStore,
+    IrExpression RawUse,
+    Call PlanningValue);
+
+/// <summary>
+/// The exact state-machine fields one foreach recipe proved: the hoisted
+/// collection it iterates, the loop index it advances, and the accumulator it
+/// folds into. Every element read the recipe claims must load exactly this
+/// array at exactly this index.
+/// <para>
+/// Identity is the <see cref="FieldRef"/> itself, never the compiler's
+/// <c>&lt;&gt;7__wrap</c> name family: those names are ordinary metadata
+/// strings, and two of them belong to two different storage locations. A body
+/// that reads some other machine field — even a valid one of the right type —
+/// is a different loop and carries no proof here.
+/// </para>
+/// </summary>
+internal sealed record ClassicInverseLoopStorage(
+    FieldRef Collection,
+    FieldRef Index,
+    FieldRef Accumulator)
+{
+    /// <summary>
+    /// Whether <paramref name="node"/> is exactly this loop's element read:
+    /// <c>this.Collection[this.Index]</c>.
+    /// </summary>
+    internal bool IsElementLoad(IrNode node, TypeRef machine)
+        => node is LoadElement
+        {
+            Array: LoadField { Instance: LoadArgument { Index: 0 } } array,
+            Index: LoadField { Instance: LoadArgument { Index: 0 } } index,
+        }
+            && ClassicInverseNodeFacts.IsMachineField(array.Field, machine)
+            && ClassicInverseNodeFacts.IsMachineField(index.Field, machine)
+            && array.Field == Collection
+            && index.Field == Index;
+}

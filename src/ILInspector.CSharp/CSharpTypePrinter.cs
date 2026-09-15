@@ -1,12 +1,12 @@
 using System.Collections.Immutable;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.CSharp;
 
 public sealed class CSharpTypePrinter
 {
-    public CSharpTypePrintResult Print(
+    public CSharpTypePrintOutcome Print(
         CSharpTypePrintRequest request,
         CSharpTypePrintOptions? options = null)
     {
@@ -14,7 +14,7 @@ public sealed class CSharpTypePrinter
         return PrintBatch([request], options);
     }
 
-    public CSharpTypePrintResult PrintBatch(
+    public CSharpTypePrintOutcome PrintBatch(
         IEnumerable<CSharpTypePrintRequest> requests,
         CSharpTypePrintOptions? options = null)
     {
@@ -22,6 +22,8 @@ public sealed class CSharpTypePrinter
         options ??= new CSharpTypePrintOptions();
         if (!Enum.IsDefined(options.TypeNamePolicy))
             throw new ArgumentOutOfRangeException(nameof(options), options.TypeNamePolicy, "C# type-name policy must be defined.");
+        if (options.MemorySafetyLanguage is { } language && !Enum.IsDefined(language))
+            throw new ArgumentOutOfRangeException(nameof(options), language, "C# memory-safety language must be defined.");
         var configuredUsings = options.Usings?.ToArray()
             ?? throw new ArgumentException("C# type printer usings cannot be null.", nameof(options));
 
@@ -42,8 +44,6 @@ public sealed class CSharpTypePrinter
         bool useFileScopedNamespace = requestList.Length == 1;
 
         var preparedTypes = new List<PreparedType>();
-        var canonicalIdentities = new HashSet<TypeOutputIdentity>();
-        var outputIdentities = new HashSet<TypeOutputIdentity>();
         var diagnostics = ImmutableArray.CreateBuilder<CSharpTypePrintDiagnostic>();
         foreach (var request in requestList)
         {
@@ -52,10 +52,20 @@ public sealed class CSharpTypePrinter
                 containingNamespace: null,
                 canonicalParent: null,
                 outputParent: null,
-                canonicalIdentities,
-                outputIdentities,
                 nameof(requests)));
         }
+
+        var selfNameFailures = preparedTypes
+            .SelectMany(SelfNameFailures)
+            .ToImmutableArray();
+        ImmutableArray<CSharpTypePrintDiagnostic> memorySafetyFailures =
+            options.MemorySafetyLanguage is { } selectedLanguage
+                ? BatchMemorySafetyFailures(preparedTypes, selectedLanguage).ToImmutableArray()
+                : [];
+        if (selfNameFailures.Length > 0 || memorySafetyFailures.Length > 0)
+            return new CSharpTypePrintOutcome.NotRendered(selfNameFailures, memorySafetyFailures);
+
+        ValidateDuplicateTypes(preparedTypes, nameof(requests));
 
         var typeNameContext = ComputeTypeNameContext(preparedTypes, options);
         var safeUsings = typeNameContext.SafeUsings;
@@ -190,16 +200,17 @@ public sealed class CSharpTypePrinter
 
         var unitList = units.ToImmutable();
         var renderedUnitList = renderedUnits.ToImmutable();
-        return new CSharpTypePrintResult(
-            unitList,
-            effectiveUsings,
-            diagnostics.Distinct().ToImmutableArray(),
-            () => ComposeSource(
-                renderedUnitList,
+        return new CSharpTypePrintOutcome.Printed(
+            new CSharpTypePrintResult(
+                unitList,
                 effectiveUsings,
-                plannedAssemblyAttributes.Attributes,
-                plannedModuleAttributes.Attributes,
-                options));
+                diagnostics.Distinct().ToImmutableArray(),
+                () => ComposeSource(
+                    renderedUnitList,
+                    effectiveUsings,
+                    plannedAssemblyAttributes.Attributes,
+                    plannedModuleAttributes.Attributes,
+                    options)));
     }
 
     /// <summary>
@@ -340,8 +351,6 @@ public sealed class CSharpTypePrinter
         string? containingNamespace,
         string? canonicalParent,
         string? outputParent,
-        HashSet<TypeOutputIdentity> canonicalIdentities,
-        HashSet<TypeOutputIdentity> outputIdentities,
         string parameterName)
     {
         var memberArray = request.Members.ToArray();
@@ -353,14 +362,44 @@ public sealed class CSharpTypePrinter
         }
 
         var type = SnapshotTypeForRendering(request.Type, memberArray);
-        if (string.IsNullOrWhiteSpace(type.Name))
+        if (type.Name is null)
             throw new ArgumentException("Type print requests require a non-empty type name.");
+        if (type.TypeParameters is null)
+            throw new ArgumentException($"Type '{type.FullName}' has a null type-parameter collection.");
         var metadataName = string.IsNullOrWhiteSpace(type.MetadataName)
             ? type.Name
             : type.MetadataName;
-        bool hasGeneratedMetadataName = CSharpFormatter.IsGeneratedMetadataName(type.Name);
-        type.Name = CSharpFormatter.NormalizeGeneratedMetadataTypeName(type.Name);
-        ValidateRequiredShape(type, hasGeneratedMetadataName);
+        string classificationLeaf = type.DefinitionName is { } definitionName
+            ? definitionName.Segments[^1]
+            : type.Name;
+        bool hasGeneratedMetadataName =
+            CSharpFormatter.IsGeneratedMetadataName(classificationLeaf);
+        bool hasExactOrdinaryEvidence =
+            !hasGeneratedMetadataName
+            && type.DefinitionName is not null
+            && type.IntroducedTypeParameterCounts is { Count: > 0 };
+        CSharpDeclaredTypeSelfNameAdmission? selfNameAdmission =
+            hasExactOrdinaryEvidence
+                ? CSharpDeclaredTypeSelfName.Admit(
+                    type.DefinitionName!,
+                    type.IntroducedTypeParameterCounts!,
+                    type.TypeParameters)
+                : null;
+        string? legacyDeclaredTypeIdentifier =
+            hasGeneratedMetadataName
+                ? CSharpFormatter.NormalizeGeneratedMetadataTypeName(
+                    classificationLeaf)
+                : null;
+        if (legacyDeclaredTypeIdentifier is not null)
+            type.Name = legacyDeclaredTypeIdentifier;
+        else if (hasExactOrdinaryEvidence)
+            type.Name = classificationLeaf;
+        ValidateRequiredShape(
+            type,
+            validateMetadataArity: !hasGeneratedMetadataName
+                && !hasExactOrdinaryEvidence,
+            validateTypeNameSpelling: !hasGeneratedMetadataName
+                && !hasExactOrdinaryEvidence);
         bool isNested = canonicalParent is not null;
         ValidateTypeKindAndContainment(type, isNested);
 
@@ -378,13 +417,6 @@ public sealed class CSharpTypePrinter
         var outputName = CSharpFormatter.FormatTypeName(type);
         var canonicalPath = canonicalParent is null ? metadataName : $"{canonicalParent}+{metadataName}";
         var outputPath = outputParent is null ? outputName : $"{outputParent}.{outputName}";
-        if (!canonicalIdentities.Add(new TypeOutputIdentity(typeNamespace, canonicalPath))
-            || !outputIdentities.Add(new TypeOutputIdentity(typeNamespace, outputPath)))
-        {
-            throw new ArgumentException(
-                $"Type print requests contain duplicate C# type '{type.FullName}'.",
-                parameterName);
-        }
 
         var overrides = ValidateAndIndexPolicies(request, memberArray, parameterName);
         var members = ImmutableArray.CreateBuilder<PreparedMember>(memberArray.Length);
@@ -413,16 +445,140 @@ public sealed class CSharpTypePrinter
                 typeNamespace,
                 canonicalPath,
                 outputPath,
-                canonicalIdentities,
-                outputIdentities,
                 parameterName))
             .ToImmutableArray();
         return new PreparedType(
             typeNamespace,
+            metadataName,
             type,
             members.ToImmutable(),
             primaryConstructorParameters,
-            nestedTypes);
+            nestedTypes,
+            selfNameAdmission,
+            legacyDeclaredTypeIdentifier);
+    }
+
+    static IEnumerable<CSharpDeclaredTypeSelfNameFailure> SelfNameFailures(
+        PreparedType prepared)
+    {
+        if (prepared.SelfNameAdmission
+            is CSharpDeclaredTypeSelfNameAdmission.Unrepresentable unrepresentable)
+        {
+            yield return unrepresentable.Failure;
+        }
+
+        foreach (PreparedType nested in prepared.NestedTypes)
+        {
+            foreach (CSharpDeclaredTypeSelfNameFailure failure in SelfNameFailures(nested))
+                yield return failure;
+        }
+    }
+
+    static IEnumerable<CSharpTypePrintDiagnostic> MemorySafetyFailures(
+        PreparedType prepared,
+        CSharpMemorySafetyLanguage language)
+    {
+        if (CSharpMemorySafetySpelling.TypeFailure(
+            prepared.Type, language, prepared.PrimaryConstructorParameters.Length) is { } typeFailure)
+        {
+            yield return new(prepared.Type.FullName, typeFailure);
+        }
+        else
+        {
+            foreach (var member in prepared.Members)
+            {
+                var decision = CSharpMemorySafetySpelling.Member(
+                    prepared.Type,
+                    member.Member,
+                    language,
+                    isExtern: member.Policy == CSharpBodyPolicy.Extern,
+                    requiresUnsafeContext: member.Body?.RequiresUnsafeModifier == true);
+                if (decision.Failure is { } failure)
+                    yield return new(prepared.Type.FullName, failure);
+            }
+        }
+        foreach (var nested in prepared.NestedTypes)
+        {
+            foreach (var failure in MemorySafetyFailures(nested, language))
+                yield return failure;
+        }
+    }
+
+    static IEnumerable<CSharpTypePrintDiagnostic> BatchMemorySafetyFailures(
+        IReadOnlyList<PreparedType> preparedTypes,
+        CSharpMemorySafetyLanguage language)
+    {
+        foreach (var prepared in preparedTypes)
+        {
+            foreach (var failure in MemorySafetyFailures(prepared, language))
+                yield return failure;
+        }
+
+        MemorySafetyRulesState[] states = preparedTypes
+            .SelectMany(Flatten)
+            .Select(prepared => prepared.Type.MemorySafety?.Rules)
+            .OfType<MemorySafetyRulesResult.Available>()
+            .Select(rules => rules.State)
+            .Where(state => state is MemorySafetyRulesState.Legacy or MemorySafetyRulesState.Updated)
+            .Distinct()
+            .ToArray();
+        if (states.Length > 1)
+        {
+            yield return new CSharpTypePrintDiagnostic(
+                "<batch>",
+                "A single C# source batch cannot preserve both legacy and updated module memory-safety rules.");
+        }
+
+        static IEnumerable<PreparedType> Flatten(PreparedType prepared)
+        {
+            yield return prepared;
+            foreach (var nested in prepared.NestedTypes)
+            {
+                foreach (var descendant in Flatten(nested))
+                    yield return descendant;
+            }
+        }
+    }
+
+    static void ValidateDuplicateTypes(
+        IReadOnlyList<PreparedType> preparedTypes,
+        string parameterName)
+    {
+        var canonicalIdentities = new HashSet<TypeOutputIdentity>();
+        var outputIdentities = new HashSet<TypeOutputIdentity>();
+        foreach (PreparedType prepared in preparedTypes)
+            Validate(prepared, canonicalParent: null, outputParent: null);
+
+        void Validate(
+            PreparedType prepared,
+            string? canonicalParent,
+            string? outputParent)
+        {
+            ApiType type = prepared.Type;
+            string outputName = prepared.LegacyDeclaredTypeIdentifier is { } legacyIdentifier
+                ? type.TypeParameters.Count == 0
+                    ? legacyIdentifier
+                    : $"{legacyIdentifier}`{type.TypeParameters.Count}"
+                : CSharpFormatter.FormatTypeName(type);
+            string canonicalPath = canonicalParent is null
+                ? prepared.CanonicalMetadataName
+                : $"{canonicalParent}+{prepared.CanonicalMetadataName}";
+            string outputPath = outputParent is null
+                ? outputName
+                : $"{outputParent}.{outputName}";
+            if (!canonicalIdentities.Add(
+                    new TypeOutputIdentity(prepared.Namespace, canonicalPath))
+                || !outputIdentities.Add(
+                    new TypeOutputIdentity(prepared.Namespace, outputPath)))
+            {
+                throw new ArgumentException(
+                    $"Type print requests contain duplicate C# type '{type.FullName}'.",
+                    parameterName);
+            }
+
+            foreach (PreparedType nested in prepared.NestedTypes)
+                Validate(nested, canonicalPath, outputPath);
+        }
     }
 
     static Dictionary<ApiMember, CSharpMemberPolicy> ValidateAndIndexPolicies(
@@ -478,10 +634,14 @@ public sealed class CSharpTypePrinter
             unresolvableRootNames,
             declaredTypeFullNames,
             importedDeclaredTypeFullNames,
-            knownNamespaces);
+            knownNamespaces,
+            prepared.AdmittedSelfName,
+            prepared.LegacyDeclaredTypeIdentifier);
         var diagnosticPass = DeclarationFormatter(
             prepared.Namespace,
-            options,
+            // This pass collects name diagnostics, not body-policy declarations.
+            // Memory-safety admission above already used each member's actual shape.
+            options with { MemorySafetyLanguage = null },
             contextualUsings,
             inScopeShadowingNames,
             inheritedRootShadowingNames,
@@ -489,6 +649,8 @@ public sealed class CSharpTypePrinter
             declaredTypeFullNames,
             importedDeclaredTypeFullNames,
             knownNamespaces,
+            prepared.AdmittedSelfName,
+            prepared.LegacyDeclaredTypeIdentifier,
             terminateMemberDeclaration: true)
             .FormatTypeUnit(
                 prepared.Type,
@@ -509,6 +671,8 @@ public sealed class CSharpTypePrinter
             declaredTypeFullNames,
             importedDeclaredTypeFullNames,
             knownNamespaces,
+            prepared.AdmittedSelfName,
+            prepared.LegacyDeclaredTypeIdentifier,
             omitPropertyAccessors: true);
         string pad = new(' ', indent * 4);
         string declaration = formatter.FormatTypeDeclaration(
@@ -563,7 +727,9 @@ public sealed class CSharpTypePrinter
         string pad = new(' ', indent * 4);
         if (member.Member.Kind == "field")
         {
-            string declaration = formatter.FormatMember(type.Type, member.Member);
+            string declaration = member.Body is not null && formatter.UsesModelAwareMemorySafety
+                ? formatter.FormatMemberWithBody(type.Type, member.Member, member.Body)
+                : formatter.FormatMember(type.Type, member.Member);
             if (member.Body is CSharpFieldInitializer fieldInitializer)
                 return new RenderedFragment($"{PadDeclaration(declaration, pad)} = {fieldInitializer.Source};");
             return new RenderedFragment(PadDeclaration(EnsureTerminated(declaration), pad));
@@ -575,12 +741,14 @@ public sealed class CSharpTypePrinter
         if (IsEvent(member.Member))
             return RenderEvent(type, member, formatter, indent);
 
+        if (member.Policy == CSharpBodyPolicy.Extern)
+            formatter = formatter.ForExternDeclaration();
         string memberDeclaration = member.Body is null
             ? formatter.FormatMember(type.Type, member.Member)
             : formatter.FormatMemberWithBody(type.Type, member.Member, member.Body);
         if (type.Type.Kind == "interface"
             || member.Member.IsAbstract
-            || member.Policy == CSharpBodyPolicy.Skeleton)
+            || member.Policy is CSharpBodyPolicy.Skeleton or CSharpBodyPolicy.Extern)
         {
             return new RenderedFragment(PadDeclaration(EnsureTerminated(memberDeclaration), pad));
         }
@@ -753,6 +921,8 @@ public sealed class CSharpTypePrinter
         IReadOnlyCollection<string> additionalDeclaredTypeFullNames,
         IReadOnlyCollection<string> additionalImportedDeclaredTypeFullNames,
         IReadOnlyCollection<string> additionalKnownNamespaces,
+        CSharpDeclaredTypeSelfNameAdmission.Admitted? declaredTypeSelfName = null,
+        string? legacyDeclaredTypeIdentifier = null,
         bool omitPropertyAccessors = false,
         bool terminateMemberDeclaration = false)
         => new(new CSharpFormatOptions
@@ -768,8 +938,11 @@ public sealed class CSharpTypePrinter
             AdditionalDeclaredTypeFullNames = additionalDeclaredTypeFullNames,
             AdditionalImportedDeclaredTypeFullNames = additionalImportedDeclaredTypeFullNames,
             AdditionalKnownNamespaces = additionalKnownNamespaces,
+            DeclaredTypeSelfName = declaredTypeSelfName,
+            LegacyDeclaredTypeIdentifier = legacyDeclaredTypeIdentifier,
             NamespacePolicy = CSharpNamespacePolicy.Omit,
             IncludeCustomAttributes = options.IncludeCustomAttributes,
+            MemorySafetyLanguage = options.MemorySafetyLanguage,
             OmitPropertyAccessors = omitPropertyAccessors,
             TerminateMemberDeclaration = terminateMemberDeclaration
         });
@@ -829,10 +1002,14 @@ public sealed class CSharpTypePrinter
             Name = type.Name,
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            MetadataToken = type.MetadataToken,
             IntroducedTypeParameterCounts =
                 type.IntroducedTypeParameterCounts?.ToList(),
             Accessibility = type.Accessibility,
             Kind = type.Kind,
+            Layout = type.Layout,
+            LayoutDetails = type.LayoutDetails,
+            MemorySafety = type.MemorySafety,
             Attributes = attributes?.ToList()!,
             EnumUnderlyingType = type.EnumUnderlyingType,
             IsSealed = type.IsSealed,
@@ -855,6 +1032,9 @@ public sealed class CSharpTypePrinter
         {
             Name = member.Name,
             Kind = member.Kind,
+            MethodSemantics = member.MethodSemantics,
+            MetadataToken = member.MetadataToken,
+            DeclarationMetadataToken = member.DeclarationMetadataToken,
             Attributes = attributes?.ToList()!,
             ReturnType = member.ReturnType,
             Signature = member.Signature,
@@ -869,6 +1049,13 @@ public sealed class CSharpTypePrinter
             IsReadOnly = member.IsReadOnly,
             IsConst = member.IsConst,
             IsUnsafe = member.IsUnsafe,
+            MemorySafety = member.MemorySafety,
+            AccessorMemorySafety = member.AccessorMemorySafety,
+            BackingStorage = member.BackingStorage,
+            MethodImplementation = member.MethodImplementation,
+            FieldLayout = member.FieldLayout,
+            AccessorImplementations = member.AccessorImplementations,
+            HasMethodBody = member.HasMethodBody,
             IsAsync = member.IsAsync,
             Accessibility = member.Accessibility,
             IsExtension = member.IsExtension,
@@ -936,18 +1123,24 @@ public sealed class CSharpTypePrinter
         };
     }
 
-    static void ValidateRequiredShape(ApiType type, bool allowMissingMetadataArity)
+    static void ValidateRequiredShape(
+        ApiType type,
+        bool validateMetadataArity,
+        bool validateTypeNameSpelling)
     {
-        if (string.IsNullOrWhiteSpace(type.Name))
+        if (validateTypeNameSpelling && string.IsNullOrWhiteSpace(type.Name))
             throw new ArgumentException("Type print requests require a non-empty type name.");
         if (type.TypeParameters is null)
             throw new ArgumentException($"Type '{type.FullName}' has a null type-parameter collection.");
-        if (type.Name.Contains('<', StringComparison.Ordinal)
-            || type.Name.Contains('>', StringComparison.Ordinal))
+        if (validateTypeNameSpelling
+            && (type.Name.Contains('<', StringComparison.Ordinal)
+                || type.Name.Contains('>', StringComparison.Ordinal)))
         {
             throw new ArgumentException(
                 $"Type '{type.FullName}' must use a metadata name rather than C# type-argument spelling.");
         }
+        if (!validateMetadataArity)
+            return;
 
         // Only a canonical `N is arity (MetadataNameArity): int.TryParse would
         // accept "Widget`+1", padded digits, and non-ASCII digits, letting a name
@@ -962,7 +1155,6 @@ public sealed class CSharpTypePrinter
                 && introduced[^1]
                     == type.TypeParameters.Count;
             if (type.TypeParameters.Count > 0
-                && !allowMissingMetadataArity
                 && !trustedMissingArity)
             {
                 throw new ArgumentException(
@@ -1006,6 +1198,15 @@ public sealed class CSharpTypePrinter
         int primaryConstructorParameterCount,
         string parameterName)
     {
+        if (policy.BodyPolicy == CSharpBodyPolicy.Extern)
+        {
+            if (policy.Body is not null)
+                throw new ArgumentException($"Extern member '{member.Name}' cannot carry a body.", parameterName);
+            var decision = CSharpMemorySafetySpelling.Member(type, member, language: null, isExtern: true);
+            if (decision.Failure is { } failure)
+                throw new NotSupportedException(failure);
+            return;
+        }
         if (policy.BodyPolicy == CSharpBodyPolicy.Skeleton && policy.Body is not null)
         {
             throw new ArgumentException(
@@ -1192,10 +1393,17 @@ public sealed class CSharpTypePrinter
 
     sealed record PreparedType(
         string Namespace,
+        string CanonicalMetadataName,
         ApiType Type,
         ImmutableArray<PreparedMember> Members,
         ImmutableArray<ApiParameter> PrimaryConstructorParameters,
-        ImmutableArray<PreparedType> NestedTypes);
+        ImmutableArray<PreparedType> NestedTypes,
+        CSharpDeclaredTypeSelfNameAdmission? SelfNameAdmission,
+        string? LegacyDeclaredTypeIdentifier)
+    {
+        internal CSharpDeclaredTypeSelfNameAdmission.Admitted? AdmittedSelfName
+            => SelfNameAdmission as CSharpDeclaredTypeSelfNameAdmission.Admitted;
+    }
 
     readonly record struct PreparedMember(
         ApiMember Member,

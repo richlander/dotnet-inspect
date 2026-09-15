@@ -43,6 +43,9 @@ public sealed class MetadataSource : IDisposable
     bool _ownsCrossContext;
     CrossAssemblyTypeResolver? _crossAssembly;
     readonly object _crossLock = new();
+    readonly object _acquisitionGuard = new();
+    readonly Lazy<StateMachineRelationshipIndex> _stateMachineRelationships;
+    readonly Lazy<MemorySafetyMetadataIndex> _memorySafety;
 
     MetadataSource(string path, string? filePath, Stream? stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
     {
@@ -57,6 +60,9 @@ public sealed class MetadataSource : IDisposable
         _readSymbols = readSymbols;
         _bindingPolicy = bindingPolicy;
         _suppliedContext = context;
+        _stateMachineRelationships =
+            new(() => StateMachineRelationshipIndex.Create(reader));
+        _memorySafety = new(() => MemorySafetyMetadataIndex.Create(reader));
     }
 
     public string Path { get; }
@@ -91,9 +97,28 @@ public sealed class MetadataSource : IDisposable
     /// </summary>
     public bool SimulateNewRules { get; set; }
 
+    internal MemorySafetyModeDecision MemorySafetyMode
+        => MemorySafetyModeDecision.Resolve(
+            MemorySafety.Rules,
+            SimulateNewRules);
+
     internal PEReader Pe { get; }
 
     internal MetadataReader Reader { get; }
+
+    internal object AcquisitionGuard => _acquisitionGuard;
+
+    internal MemorySafetyMetadataIndex MemorySafety => _memorySafety.Value;
+
+    internal ClassicAsyncRequestAdapterResult AdaptClassicAsyncRequest(
+        MethodDefinitionHandle method,
+        MethodClassification? classification) =>
+        ClassicAsyncRequestAdapter.Adapt(
+            Reader,
+            _stateMachineRelationships.Value,
+            method,
+            classification,
+            _acquisitionGuard);
 
     /// <summary>
     /// The symbol source consulted for local names so far: <see cref="DecompilerSymbolSource.None"/>
@@ -119,6 +144,21 @@ public sealed class MetadataSource : IDisposable
     /// (docs/design/member-body-substrate.md, <c>ApiMember.IsAsync</c>), so callers that need
     /// an accurate async signal recover it here from live metadata.
     /// </summary>
+    /// <summary>
+    /// Reports whether <paramref name="methodDefToken"/> names an existing row in this image's
+    /// MethodDef table. A caller that accepts a raw token from a user needs to answer that before
+    /// handing the token to analysis, which validates handles by throwing.
+    /// </summary>
+    public bool ContainsMethodDefinition(int methodDefToken)
+    {
+        var entity = MetadataTokens.EntityHandle(methodDefToken);
+        if (entity.Kind != HandleKind.MethodDefinition)
+            return false;
+
+        int row = MetadataTokens.GetRowNumber(entity);
+        return row > 0 && row <= Reader.GetTableRowCount(TableIndex.MethodDef);
+    }
+
     public MethodClassification? ClassifyAsync(int methodDefToken)
     {
         var entity = MetadataTokens.EntityHandle(methodDefToken);
@@ -250,7 +290,15 @@ public sealed class MetadataSource : IDisposable
                 AssemblyResolutionProvenance.Local("MetadataSource snapshot"));
             var bindingPolicy = new AssemblyReferenceBindingPolicy(
                 resolver ?? DefaultAssemblyReferenceResolver(path));
-            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(reader);
+            // The caller named this exact image, which is a designation, so it
+            // is entitled to core-library identity; see CoreLibraryIdentityTrust.
+            // The resolved reference above records Local provenance because that
+            // describes how the stream is reopened, not how the assembly was
+            // acquired. Routing through GrantIfEntitled keeps the rule the only
+            // source of entitlement.
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                reader,
+                AssemblyResolutionProvenance.Designated("MetadataSource snapshot"));
             return new MetadataSource(
                 path,
                 fullPath,
@@ -306,7 +354,11 @@ public sealed class MetadataSource : IDisposable
                 fullPath,
                 () => File.OpenRead(fullPath),
                 AssemblyResolutionProvenance.Local("MetadataSource"));
-            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(reader);
+            // The caller named this exact path, which is a designation; see the
+            // sibling site above and CoreLibraryIdentityTrust.
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                reader,
+                AssemblyResolutionProvenance.Designated("MetadataSource"));
             return new MetadataSource(
                 path,
                 path,
@@ -359,8 +411,7 @@ public sealed class MetadataSource : IDisposable
             string path = assembly.Path ?? assembly.Identity.Name;
             CoreLibraryIdentityTrust.GrantIfEntitled(
                 reader,
-                assembly.Provenance,
-                context?.CoreLibraryTrust ?? CoreLibraryTrustPolicy.DesignatedAndPlatform);
+                assembly.Provenance);
             return new MetadataSource(
                 path,
                 assembly.Path,
@@ -1537,9 +1588,10 @@ public sealed class MetadataSource : IDisposable
                     if (variable.Index < 0 || variable.Index >= localCount)
                         continue;
                     names[variable.Index] = pdb.GetString(variable.Name);
-                    // A slot listed in more than one scope is malformed or merged
-                    // metadata. Keep the narrowest range: it is the weaker claim about
-                    // how far the declaration reaches, so it cannot widen a scope.
+                    // The current model retains only one range per slot. Keep the
+                    // narrowest range so collapsing legal scope-qualified slot reuse
+                    // cannot widen a declaration; #5617 tracks retaining every name
+                    // and scope instead.
                     var candidate = new LocalSlotScope(scope.StartOffset, scope.EndOffset);
                     if (scopes[variable.Index] is not { } existing || candidate.Length < existing.Length)
                         scopes[variable.Index] = candidate;

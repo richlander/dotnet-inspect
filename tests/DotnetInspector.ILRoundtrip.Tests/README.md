@@ -19,8 +19,12 @@ Run the fast subset used for pull-request validation:
 
 ```bash
 dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- \
-  -trait- "Speed=Slow"
+  --filter-not-trait "Speed=Slow"
 ```
+
+The fast suite includes canonical array-bound signatures and requires the
+vendored assembler to preserve their signature blobs byte-for-byte through the
+product-owned `CanonicalIL` scaffold.
 
 Run the full suite, including the assembly-wide sweep:
 

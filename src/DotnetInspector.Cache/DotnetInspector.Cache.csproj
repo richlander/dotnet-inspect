@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Persistent application caching and cache observations for dotnet-inspect</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspector.Cache.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\InertText\InertText.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
+  </ItemGroup>
+</Project>

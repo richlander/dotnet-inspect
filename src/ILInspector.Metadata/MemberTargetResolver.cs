@@ -76,7 +76,7 @@ public sealed record MemberTargetSelector(
         var (digestHead, digest, accessorIndex) = SplitDigest(work);
         var (overloadHead, overloadIndex) = FqnParser.TrySplitOverload(digestHead);
         overloadIndex ??= accessorIndex;
-        var genericArity = TryGetGenericArity(overloadHead);
+        var genericArity = FqnParser.GetMemberGenericArity(overloadHead);
         var name = FqnParser.NormalizeMemberName(overloadHead);
         return new MemberTargetSelector(
             requested,
@@ -117,34 +117,6 @@ public sealed record MemberTargetSelector(
             accessorIndex);
     }
 
-    static int? TryGetGenericArity(string value)
-    {
-        var angleStart = value.IndexOf('<');
-        if (angleStart <= 0)
-            return null;
-
-        var angleEnd = value.LastIndexOf('>');
-        if (angleEnd <= angleStart || angleEnd != value.Length - 1)
-            return null;
-
-        var arguments = value.AsSpan((angleStart + 1)..angleEnd);
-        if (arguments.IsEmpty || arguments.IsWhiteSpace())
-            return 0;
-
-        var count = 1;
-        var depth = 0;
-        foreach (var ch in arguments)
-        {
-            if (ch == '<')
-                depth++;
-            else if (ch == '>')
-                depth--;
-            else if (ch == ',' && depth == 0)
-                count++;
-        }
-
-        return count;
-    }
 }
 
 public sealed record BodyTarget(
@@ -434,9 +406,11 @@ public static class MemberTargetResolver
     }
 
     /// <summary>
-    /// The number of body-backed accessors a member exposes: get/set for a property or
-    /// indexer, add/remove for an event. Zero for methods, fields, and any member with no
-    /// accessor tokens. Used to address accessors through the overload-index path (#3265).
+    /// The number of addressable accessors a member exposes: get/set for a property or
+    /// indexer, add/remove for an event. This counts MethodDef tokens, not managed body
+    /// RVAs; body-requiring consumers must evaluate the selected accessor separately.
+    /// Zero for methods, fields, and any member with no accessor tokens. Used to address
+    /// accessors through the overload-index path (#3265).
     /// </summary>
     static int AccessorCount(ApiMember member)
         => member.Kind switch

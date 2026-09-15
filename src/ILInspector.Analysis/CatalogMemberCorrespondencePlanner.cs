@@ -69,7 +69,8 @@ internal sealed class CatalogMemberCorrespondencePlanner
                 }
                 return PlannedType.Named(
                     requestIndex,
-                    type.Resolution.Type);
+                    type.Resolution.Type,
+                    type.RawTypeKind);
 
             case TypeRefKind.GenericInstance:
                 if (type.ElementType is null
@@ -94,12 +95,17 @@ internal sealed class CatalogMemberCorrespondencePlanner
                     Plan(type.ElementType, depth + 1));
 
             case TypeRefKind.Array:
-                if (type.ElementType is null || type.Rank <= 0)
+                if (type.ElementType is null
+                    || type.Rank <= 0
+                    || type.ArraySizes.Length > type.Rank
+                    || type.ArrayLowerBounds.Length > type.Rank)
                     return Malformed(type, "array shape is invalid");
                 return PlannedType.Unary(
                     type.Kind,
                     Plan(type.ElementType, depth + 1),
-                    type.Rank);
+                    type.Rank,
+                    type.ArraySizes,
+                    type.ArrayLowerBounds);
 
             case TypeRefKind.GenericParameter:
             case TypeRefKind.MethodGenericParameter:
@@ -223,6 +229,9 @@ internal sealed class PlannedType
         PlannedType? elementType = null,
         ImmutableArray<PlannedType> components = default,
         int rank = 0,
+        ImmutableArray<int> arraySizes = default,
+        ImmutableArray<int> arrayLowerBounds = default,
+        byte rawTypeKind = 0,
         int genericParameterIndex = -1,
         bool isRequiredModifier = false,
         byte signatureHeader = 0,
@@ -235,6 +244,10 @@ internal sealed class PlannedType
         ElementType = elementType;
         Components = components.IsDefault ? [] : components;
         Rank = rank;
+        ArraySizes = arraySizes.IsDefault ? [] : arraySizes;
+        ArrayLowerBounds =
+            arrayLowerBounds.IsDefault ? [] : arrayLowerBounds;
+        RawTypeKind = rawTypeKind;
         GenericParameterIndex = genericParameterIndex;
         IsRequiredModifier = isRequiredModifier;
         SignatureHeader = signatureHeader;
@@ -251,6 +264,9 @@ internal sealed class PlannedType
     internal PlannedType? ElementType { get; }
     internal ImmutableArray<PlannedType> Components { get; }
     internal int Rank { get; }
+    internal ImmutableArray<int> ArraySizes { get; }
+    internal ImmutableArray<int> ArrayLowerBounds { get; }
+    internal byte RawTypeKind { get; }
     internal int GenericParameterIndex { get; }
     internal bool IsRequiredModifier { get; }
     internal byte SignatureHeader { get; }
@@ -259,11 +275,13 @@ internal sealed class PlannedType
 
     internal static PlannedType Named(
         int requestIndex,
-        MetadataTypeDefinitionName typeName) =>
+        MetadataTypeDefinitionName typeName,
+        byte rawTypeKind) =>
         new(
             PlannedTypeKind.Named,
             requestIndex: requestIndex,
-            typeName: typeName);
+            typeName: typeName,
+            rawTypeKind: rawTypeKind);
 
     internal static PlannedType GenericInstance(
         PlannedType definition,
@@ -276,7 +294,9 @@ internal sealed class PlannedType
     internal static PlannedType Unary(
         TypeRefKind kind,
         PlannedType element,
-        int rank = 0) =>
+        int rank = 0,
+        ImmutableArray<int> arraySizes = default,
+        ImmutableArray<int> arrayLowerBounds = default) =>
         new(
             kind switch
             {
@@ -289,7 +309,9 @@ internal sealed class PlannedType
                     "Type is not unary."),
             },
             elementType: element,
-            rank: rank);
+            rank: rank,
+            arraySizes: arraySizes,
+            arrayLowerBounds: arrayLowerBounds);
 
     internal static PlannedType Modified(
         PlannedType modifier,

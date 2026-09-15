@@ -6,6 +6,10 @@ public sealed class CSharpIdentifierTests
     [InlineData("return", "@return")]
     [InlineData("class", "@class")]
     [InlineData("await", "@await")] // contextual, but illegal bare inside async bodies
+    [InlineData("__arglist", "@__arglist")]
+    [InlineData("__makeref", "@__makeref")]
+    [InlineData("__reftype", "@__reftype")]
+    [InlineData("__refvalue", "@__refvalue")]
     [InlineData("value", "value")]
     [InlineData("Foo", "Foo")]
     public void Escape_EscapesReservedKeywordsOnly(string input, string expected)

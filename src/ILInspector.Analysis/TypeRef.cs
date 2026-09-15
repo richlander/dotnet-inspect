@@ -208,6 +208,77 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 }
                 return changed ? GenericInstance(definition, builder.MoveToImmutable()) : this;
             }
+            case TypeRefKind.Unsupported
+                when ModifierType is not null
+                    && UnmodifiedType is not null:
+            {
+                TypeRef modifier =
+                    ModifierType.Instantiate(
+                        typeArguments,
+                        methodArguments);
+                TypeRef unmodified =
+                    UnmodifiedType.Instantiate(
+                        typeArguments,
+                        methodArguments);
+                return ReferenceEquals(modifier, ModifierType)
+                        && ReferenceEquals(unmodified, UnmodifiedType)
+                    ? this
+                    : new TypeRef(TypeRefKind.Unsupported)
+                    {
+                        UnsupportedReason = UnsupportedReason,
+                        ModifierType = modifier,
+                        UnmodifiedType = unmodified,
+                        IsRequiredModifier = IsRequiredModifier,
+                        RawTypeKind = RawTypeKind,
+                    };
+            }
+            case TypeRefKind.Unsupported
+                when FunctionPointerSignature is { } signature:
+            {
+                TypeRef returnType =
+                    signature.ReturnType.Instantiate(
+                        typeArguments,
+                        methodArguments);
+                bool changed =
+                    !ReferenceEquals(
+                        returnType,
+                        signature.ReturnType);
+                ImmutableArray<TypeRef> parameters =
+                    signature.ParameterTypes;
+                if (!parameters.IsDefault)
+                {
+                    var builder =
+                        ImmutableArray.CreateBuilder<TypeRef>(
+                            parameters.Length);
+                    foreach (TypeRef parameter in parameters)
+                    {
+                        TypeRef substituted =
+                            parameter.Instantiate(
+                                typeArguments,
+                                methodArguments);
+                        changed |= !ReferenceEquals(
+                            substituted,
+                            parameter);
+                        builder.Add(substituted);
+                    }
+                    parameters = builder.MoveToImmutable();
+                }
+                if (!changed)
+                    return this;
+
+                return new TypeRef(TypeRefKind.Unsupported)
+                {
+                    UnsupportedReason = UnsupportedReason,
+                    FunctionPointerSignature =
+                        new MethodSignature<TypeRef>(
+                            signature.Header,
+                            returnType,
+                            signature.RequiredParameterCount,
+                            signature.GenericParameterCount,
+                            parameters),
+                    RawTypeKind = RawTypeKind,
+                };
+            }
             default:
                 return this;
         }
@@ -218,7 +289,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         TypeRefKind.Definition => DisplayName(),
         TypeRefKind.GenericInstance => RenderGenericInstance(qualified: false),
         TypeRefKind.SzArray => $"{ElementType!.ToDisplayString()}[]",
-        TypeRefKind.Array => $"{ElementType!.ToDisplayString()}[{new string(',', Rank - 1)}]",
+        TypeRefKind.Array => $"{ElementType!.ToDisplayString()}[{ArrayShapeText.FormatDimensions(Rank)}]",
         TypeRefKind.ByRef => $"ref {ElementType!.ToDisplayString()}",
         TypeRefKind.Pointer => $"{ElementType!.ToDisplayString()}*",
         TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString()}",
@@ -232,7 +303,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         TypeRefKind.Definition => QualifiedDisplayName(),
         TypeRefKind.GenericInstance => RenderGenericInstance(qualified: true),
         TypeRefKind.SzArray => $"{ElementType!.ToQualifiedDisplayString()}[]",
-        TypeRefKind.Array => $"{ElementType!.ToQualifiedDisplayString()}[{new string(',', Rank - 1)}]",
+        TypeRefKind.Array => $"{ElementType!.ToQualifiedDisplayString()}[{ArrayShapeText.FormatDimensions(Rank)}]",
         TypeRefKind.ByRef => $"ref {ElementType!.ToQualifiedDisplayString()}",
         TypeRefKind.Pointer => $"{ElementType!.ToQualifiedDisplayString()}*",
         TypeRefKind.Pinned => $"pinned {ElementType!.ToQualifiedDisplayString()}",
@@ -248,6 +319,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// call site). Pinned is a local-only modifier, not a signature pointer, so
     /// it is deliberately excluded — matching Roslyn's signature check.
     /// </summary>
+    /// <remarks>
+    /// <c>TypeRef_ContainsPointer_TraversesCustomModifierPayload</c> gates
+    /// custom-modifier traversal.
+    /// </remarks>
     public bool ContainsPointer()
     {
         if (Kind == TypeRefKind.Pointer)
@@ -257,6 +332,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return true;
         if (ElementType is not null && ElementType.ContainsPointer())
             return true;
+        if (UnmodifiedType is not null
+            && UnmodifiedType.ContainsPointer())
+        {
+            return true;
+        }
         return TypeArguments.Any(argument => argument.ContainsPointer());
     }
 

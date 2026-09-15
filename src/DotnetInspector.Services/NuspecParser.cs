@@ -1,5 +1,5 @@
 using System.Xml.Linq;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 using DotnetInspector.Packages;
 using InertText;
 
@@ -88,10 +88,50 @@ public static class NuspecParser
     {
         var result = new NuspecData();
 
-        XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+        XElement root = doc.Root
+            ?? throw new InvalidDataException(
+                "The package manifest is missing its document root.");
+        if (!IsPackageRoot(root))
+        {
+            throw new InvalidDataException(
+                "The package manifest has an invalid document root.");
+        }
+
+        XElement[] metadataCandidates =
+        [
+            .. root.Elements().Where(element =>
+                element.Name.LocalName.Equals(
+                    "metadata",
+                    StringComparison.Ordinal)),
+        ];
+        XElement[] nuspecMetadataCandidates =
+        [
+            .. metadataCandidates.Where(element =>
+                IsNuspecNamespace(element.Name.Namespace)),
+        ];
+        XElement[] metadataElements =
+        [
+            .. nuspecMetadataCandidates.Where(element =>
+                IsCompatibleMetadataNamespace(
+                    root.Name.Namespace,
+                    element.Name.Namespace)),
+        ];
+        if (nuspecMetadataCandidates.Length != metadataElements.Length)
+        {
+            throw new InvalidDataException(
+                "The package manifest metadata namespace does not match its document root.");
+        }
+
+        if (metadataElements.Length > 1)
+        {
+            throw new InvalidDataException(
+                "The package manifest contains multiple metadata elements.");
+        }
+
+        XElement? metadata = metadataElements.SingleOrDefault();
+        XNamespace ns = metadata?.Name.Namespace ?? root.Name.Namespace;
         result.ManifestVersion = GetManifestVersion(ns);
 
-        var metadata = doc.Root?.Element(ns + "metadata");
         if (metadata == null) return result;
 
         result.PackageName = metadata.Element(ns + "id")?.Value;
@@ -156,7 +196,9 @@ public static class NuspecParser
             }
         }
 
-        // Parse readme file path
+        // Parse embedded and legacy presentation assets.
+        result.IconFile = metadata.Element(ns + "icon")?.Value;
+        result.IconUrl = metadata.Element(ns + "iconUrl")?.Value;
         result.ReadmeFile = metadata.Element(ns + "readme")?.Value;
 
         // Parse dependencies
@@ -219,12 +261,29 @@ public static class NuspecParser
 
         const string prefix = "http://schemas.microsoft.com/packaging/";
         const string suffix = "/nuspec.xsd";
-        if (uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            && uri.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-        {
-            return uri[prefix.Length..^suffix.Length];
-        }
-
-        return uri;
+        return uri[prefix.Length..^suffix.Length];
     }
+
+    internal static bool IsPackageRoot(XElement root) =>
+        root.Name.LocalName.Equals("package", StringComparison.Ordinal)
+        && IsNuspecNamespace(root.Name.Namespace);
+
+    private static bool IsNuspecNamespace(XNamespace ns)
+    {
+        var uri = ns.NamespaceName;
+        if (uri.Length == 0)
+            return true;
+
+        const string prefix = "http://schemas.microsoft.com/packaging/";
+        const string suffix = "/nuspec.xsd";
+        return uri.Length > prefix.Length + suffix.Length
+            && uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            && uri.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCompatibleMetadataNamespace(
+        XNamespace rootNamespace,
+        XNamespace metadataNamespace) =>
+        string.IsNullOrEmpty(rootNamespace.NamespaceName)
+            || rootNamespace == metadataNamespace;
 }

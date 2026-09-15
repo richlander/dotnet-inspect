@@ -8,7 +8,16 @@ The importer separates three roles and makes the metadata lifetime explicit, bec
 
 - **`MethodBody`** — plain data: IL bytes, exception regions, max stack, local signature. No metadata handles, no lifetime; safe to hold forever.
 - **`MetadataSource`** — `IDisposable` owner of the PE and metadata readers. Everything that resolves tokens borrows from it, and the rule is structural: *no analysis result that escapes a `MetadataSource`'s scope may hold metadata handles* — escaping results must be fully materialized (resolved `TypeRef`s, strings, byte arrays).
-- **`SymbolSource`** — optional PDB access: local names, local scopes, sequence points, state-machine debug info, tuple element names. Absence lowers fidelity; it never changes the shape of the API.
+- **`SymbolSource`** — optional PDB-backed facts. The current importer consumes
+  at most one `LocalVariable` name and one `LocalScope`-derived placement fact
+  per IL slot. Scope-qualified names for a reused slot remain a tracked gap
+  (#5617). Other Portable PDB tables and custom debug records require explicit
+  typed consumers; their presence alone is not a Decompiler guarantee. The
+  [name and symbol preservation contract](design/decompiler-symbol-preservation.md)
+  owns that adoption boundary. Symbol absence changes naming and provenance,
+  not the shape of the API, and does not by itself lower decompilation fidelity.
+  `RaisingPassTests.OpenWithoutSymbols_IgnoresPdb_RendersVSlotsNotSourceNames`
+  gates the supported no-symbol path.
 
 ## Type identity
 
@@ -27,7 +36,7 @@ A mutable tree of typed instruction nodes, in the ILSpy `ILInstruction` traditio
 - **Typed by `TypeRef` and stack type.** Every expression node carries its result type, so there is no opcode-guessing (`IsNonBooleanNumeric`-style heuristics, a classic decompiler bug source) — the information is present.
 - **Explicit unrepresentable nodes.** IL with no C# spelling becomes an `UnsupportedNode` carrying the raw instruction and a diagnostic, rendered honestly and counted toward the result's fidelity level.
 - **Hand-written, small.** ILSpy generates a 60 KB node set from T4; our node count is far smaller and stays reviewable by hand. If it grows past that, generation is a later option, not a founding requirement.
-- **`CheckInvariant` from day one.** Parent/child consistency, slot integrity, type-fullness — validated after every pass in debug builds, the discipline all three neighbor codebases share.
+- **`CheckInvariant` from day one.** Parent/child consistency and declared-slot integrity are validated by runtime-controlled checks, including in Release. The [correctness pipeline](decompiler-correctness-pipeline.md#ir-invariant-checks-hosts-levels-and-fixtures) owns the host defaults and structural/semantic levels.
 
 ## Pass infrastructure
 
@@ -59,4 +68,4 @@ Per the stage-projection principle: every boundary prints. The importer output p
 | Node base | parent + slots + `ReplaceWith` | `BoundNode` (immutable) | `GenTree` | `ILInstruction` |
 | Unrepresentable | `UnsupportedNode` + diagnostic | — | `BADCODE` | error expressions |
 | Step recording | `PassContext.Step` + replay-to-limit | — | `JitDump` phases | `Stepper` + DebugSteps pane |
-| Validation | `CheckInvariant` per pass (debug) | assert culture | per-phase asserts | `CheckInvariant(ILPhase)` |
+| Validation | `CheckInvariant` per pass (runtime-controlled) | assert culture | per-phase asserts | `CheckInvariant(ILPhase)` |

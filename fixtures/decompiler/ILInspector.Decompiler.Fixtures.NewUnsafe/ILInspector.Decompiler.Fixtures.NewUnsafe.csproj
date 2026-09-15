@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    New-rules ("memory safety") unsafe fixtures.
+
+    This assembly is stamped with a module-level MemorySafetyRulesAttribute.
+    That module attribute is the signal the decompiler keys on to render
+    new-rules unsafe code: the member `unsafe` modifier no longer introduces a
+    body unsafe context, so the printer must emit explicit `unsafe { }` blocks
+    around the unsafe operations instead.
+
+    MemorySafetyRules is the repo-local fixture-axis switch consumed by
+    Directory.Build.targets; "updated" adds /features:updated-memory-safety-rules.
+
+    The IL emitted here is byte-identical to the LegacyUnsafe fixture assembly.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <Features>runtime-async=on</Features>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <MemorySafetyRules>updated</MemorySafetyRules>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
