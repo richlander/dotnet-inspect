@@ -280,6 +280,83 @@ public sealed class ExactTypeInspectionOperationTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_UnresolvedMatchingRootTakesPrecedenceOverAmbiguity()
+    {
+        const string typeNamespace = "Exact";
+        const string typeName = "Collision";
+        byte[] first = BuildMetadataAssembly(
+            "First",
+            Guid.NewGuid(),
+            definesType: true,
+            typeNamespace,
+            typeName);
+        byte[] second = BuildMetadataAssembly(
+            "Second",
+            Guid.NewGuid(),
+            definesType: true,
+            typeNamespace,
+            typeName);
+        byte[] unresolvedForwarder = BuildMetadataAssembly(
+            "Facade",
+            Guid.NewGuid(),
+            definesType: false,
+            typeNamespace,
+            typeName,
+            new AssemblyReferenceIdentity(
+                "Missing",
+                new Version(1, 0, 0, 0),
+                null,
+                null));
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Facade.dll", unresolvedForwarder),
+            ("lib/net11.0/First.dll", first),
+            ("lib/net11.0/Second.dll", second));
+        using var client = new HttpClient(new FailingHandler());
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            $"{typeNamespace}.{typeName}");
+
+        InspectionEnvelope<ExactTypeInspectionResult> unbounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> bounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                new ApiSurfaceProjectionLimits(
+                    maxParticipants: 10,
+                    maxTypes: 100,
+                    maxMembers: 100,
+                    maxInspectionFailures: 100,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 10_000),
+                TestContext.Current.CancellationToken);
+
+        Assert.All(
+            new[] { unbounded, bounded },
+            envelope =>
+            {
+                Assert.Equal(
+                    ExactTypeInspectionOutcome.Unavailable,
+                    envelope.Content.Outcome);
+                Assert.Null(envelope.Content.Type);
+                Assert.Contains(
+                    envelope.Content.Failures,
+                    failure => failure.Kind
+                        == ExactTypeInspectionFailureKind
+                            .TypeResolutionUnavailable);
+                Assert.DoesNotContain(
+                    envelope.Diagnostics,
+                    diagnostic => diagnostic.Code
+                        == "exact-type.ambiguous");
+            });
+    }
+
+    [Fact]
     public async Task ExecuteAsync_DistinctExactDefinitionsAreAmbiguous()
     {
         const string typeName = "Exact.Type.Ambiguous";
@@ -438,7 +515,7 @@ public sealed class ExactTypeInspectionOperationTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_BoundedProjectionPreservesPartialTypeAndPreventsFalseAbsence()
+    public async Task ExecuteAsync_BoundedProjectionPreventsFalseSelectionAndAbsence()
     {
         const string selectedType = "Exact.Type.Selected";
         const string omittedType = "Exact.Type.Omitted";
@@ -462,7 +539,7 @@ public sealed class ExactTypeInspectionOperationTests
             maxTypeForwarders: 100,
             maxMetadataRows: 10_000);
 
-        InspectionEnvelope<ExactTypeInspectionResult> available =
+        InspectionEnvelope<ExactTypeInspectionResult> selected =
             await ExactTypeInspectionOperation.ExecuteAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
@@ -484,15 +561,16 @@ public sealed class ExactTypeInspectionOperationTests
                 TestContext.Current.CancellationToken);
 
         Assert.Equal(
-            ExactTypeInspectionOutcome.Available,
-            available.Content.Outcome);
-        Assert.False(available.Content.IsComplete);
+            ExactTypeInspectionOutcome.Unavailable,
+            selected.Content.Outcome);
+        Assert.Null(selected.Content.Type);
+        Assert.False(selected.Content.IsComplete);
         Assert.Contains(
-            available.Content.Failures,
+            selected.Content.Failures,
             failure => failure.Kind
                 == ExactTypeInspectionFailureKind.ProjectionTruncated);
         Assert.Contains(
-            available.Diagnostics,
+            selected.Diagnostics,
             diagnostic => diagnostic.Code
                     == "exact-type.projection-truncated"
                 && diagnostic.Severity
@@ -507,6 +585,47 @@ public sealed class ExactTypeInspectionOperationTests
             unavailable.Diagnostics,
             diagnostic => diagnostic.Code
                 == "exact-type.projection-truncated");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BoundedProjectionDoesNotHideDistinctExactDefinition()
+    {
+        const string typeName = "Exact.Type.Collision";
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/First.dll",
+                BuildAssembly("First", typeName, typeof(IDisposable))),
+            ("lib/net11.0/Second.dll",
+                BuildAssembly("Second", typeName, typeof(IAsyncDisposable))));
+        using var client = new HttpClient(new FailingHandler());
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    typeName),
+                LoadOptions(client, store),
+                new ApiSurfaceProjectionLimits(
+                    maxParticipants: 2,
+                    maxTypes: 1,
+                    maxMembers: 100,
+                    maxInspectionFailures: 100,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 10_000),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Unavailable,
+            envelope.Content.Outcome);
+        Assert.Null(envelope.Content.Type);
+        Assert.Contains(
+            envelope.Content.Failures,
+            failure => failure.Kind
+                == ExactTypeInspectionFailureKind.ProjectionTruncated);
+        Assert.DoesNotContain(
+            envelope.Diagnostics,
+            diagnostic => diagnostic.Code == "exact-type.ambiguous");
     }
 
     [Fact]

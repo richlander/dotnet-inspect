@@ -457,6 +457,25 @@ internal static class ExactTypeInspectionQuery
         string? matchedType = matchingNames.Length == 1
             ? matchingNames[0]
             : null;
+        if (boundedProjection?.Truncation is not null)
+        {
+            return new ExactTypeInspectionResult(
+                ExactTypeInspectionOutcome.Unavailable,
+                request.Type,
+                matchedType,
+                Type: null,
+                RequestedAssembly: null,
+                SupplierAssembly: null,
+                ForwardingHops: [],
+                Suggestions: [],
+                InspectionFailures: detachedInspectionFailures,
+                Failures:
+                [
+                    .. participantFailures,
+                    .. incompleteness,
+                ]);
+        }
+
         var resolved = ImmutableArray.CreateBuilder<ResolvedCandidate>();
         var resolutionFailures =
             ImmutableArray.CreateBuilder<ExactTypeInspectionFailure>();
@@ -510,6 +529,25 @@ internal static class ExactTypeInspectionQuery
             }
         }
 
+        if (resolutionFailures.Count > 0)
+        {
+            return new ExactTypeInspectionResult(
+                ExactTypeInspectionOutcome.Unavailable,
+                request.Type,
+                matchedType,
+                Type: null,
+                RequestedAssembly: null,
+                SupplierAssembly: null,
+                ForwardingHops: [],
+                Suggestions: [],
+                InspectionFailures: detachedInspectionFailures,
+                Failures:
+                [
+                    .. participantFailures,
+                    .. resolutionFailures,
+                    .. incompleteness,
+                ]);
+        }
         if (ambiguous || DistinctTerminalCount(resolved) > 1)
         {
             return new ExactTypeInspectionResult(
@@ -529,8 +567,7 @@ internal static class ExactTypeInspectionQuery
                     .. incompleteness,
                 ]);
         }
-        if (resolved.Count == 0
-            || resolutionFailures.Count > 0)
+        if (resolved.Count == 0)
         {
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,

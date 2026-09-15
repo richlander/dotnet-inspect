@@ -1030,10 +1030,11 @@ overload, while Browser/Wasm must supply
 `BrowserApiSurfacePolicy.Limits`. Bounded execution uses the resolution-aware
 `AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved` path over the requested
 package participants. Both modes use resolution-aware extraction so retained
-generic-constraint failures have the same typed meaning. A selected Type
-projected before a later stop remains available but incomplete with typed
-`ProjectionTruncated` evidence; when a stop prevents a conclusive match, the
-outcome is `Unavailable`, never a false `NotFound`.
+generic-constraint failures have the same typed meaning. Any bounded projection
+stop makes terminal selection `Unavailable` with typed
+`ProjectionTruncated` evidence: an omitted participant may contain another
+matching root, so a retained declaration is not a conclusive exact answer.
+Truncated absence likewise never becomes a false `NotFound`.
 `NotFound` likewise requires a declaration scan conclusive for the requested
 Type across every participant. A failed participant, a failure without a
 Type-scoped identity, or a failure scoped to a definition matching the request
