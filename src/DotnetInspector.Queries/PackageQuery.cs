@@ -250,6 +250,14 @@ public sealed record PackageQuerySummary(
     public int? SourceCandidates { get; init; }
 }
 
+/// <summary>
+/// The settled semantic content of one completed Package Query operation.
+/// </summary>
+public sealed record PackageQueryDocument(
+    ImmutableArray<PackageQueryMatch> Results,
+    ImmutableArray<PackageQueryFailure> Failures,
+    PackageQuerySummary Summary);
+
 /// <summary>A bounded checkpoint in package-query work.</summary>
 public sealed record PackageQueryProgress(
     PackageQueryProgressPhase Phase,
@@ -271,11 +279,19 @@ public abstract record PackageQueryEvent
     {
     }
 
-    public sealed record Progress(PackageQueryProgress Value)
-        : PackageQueryEvent;
+    /// <summary>An operation event that may be published before settlement.</summary>
+    public abstract record Nonterminal : PackageQueryEvent
+    {
+        private protected Nonterminal()
+        {
+        }
+    }
 
-    public sealed record Match(PackageQueryMatch Value) : PackageQueryEvent;
-    public sealed record Failure(PackageQueryFailure Value) : PackageQueryEvent;
+    public sealed record Progress(PackageQueryProgress Value)
+        : Nonterminal;
+
+    public sealed record Match(PackageQueryMatch Value) : Nonterminal;
+    public sealed record Failure(PackageQueryFailure Value) : Nonterminal;
     public sealed record Completed(PackageQuerySummary Value) : PackageQueryEvent;
 }
 
@@ -300,17 +316,6 @@ public interface IPackageQueryContentProvider
 {
     ValueTask<PackageQueryContentResult> GetContentAsync(
         PackageQueryPackage package,
-        CancellationToken cancellationToken);
-}
-
-/// <summary>
-/// Optional progress sink for a host that presents Package Query events while
-/// the completed inspection envelope is being produced.
-/// </summary>
-public interface IPackageQueryEventObserver
-{
-    ValueTask ObserveAsync(
-        PackageQueryEvent queryEvent,
         CancellationToken cancellationToken);
 }
 
@@ -631,19 +636,25 @@ public static partial class PackageQuery
             IPackageSourceClient source,
             PackageQueryPlan plan,
             CancellationToken cancellationToken = default)
-        => await ExecuteToArrayAsync(
+    {
+        var events = ImmutableArray.CreateBuilder<PackageQueryEvent>();
+        await foreach (PackageQueryEvent queryEvent in ExecuteAsync(
             source,
             plan,
             contentProvider: null,
-            observer: null,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false))
+        {
+            events.Add(queryEvent);
+        }
+
+        return events.ToImmutable();
+    }
 
     internal static async ValueTask<ImmutableArray<PackageQueryEvent>>
         ExecuteToArrayAsync(
             IPackageSourceClient source,
             PackageQueryPlan plan,
             IPackageQueryContentProvider? contentProvider,
-            IPackageQueryEventObserver? observer,
             CancellationToken cancellationToken = default)
     {
         var events = ImmutableArray.CreateBuilder<PackageQueryEvent>();
@@ -654,12 +665,6 @@ public static partial class PackageQuery
             cancellationToken).ConfigureAwait(false))
         {
             events.Add(queryEvent);
-            if (observer is not null)
-            {
-                await observer.ObserveAsync(
-                    queryEvent,
-                    cancellationToken).ConfigureAwait(false);
-            }
         }
 
         return events.ToImmutable();
