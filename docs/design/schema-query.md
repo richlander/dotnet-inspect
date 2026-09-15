@@ -14,7 +14,10 @@ migration is tracked by
 [#7138](https://github.com/richlander/dotnet-inspect/issues/7138). Package-info
 rendering and structural discovery also retain independent field vocabularies;
 their convergence is tracked by
-[#7140](https://github.com/richlander/dotnet-inspect/issues/7140). The earlier
+[#7140](https://github.com/richlander/dotnet-inspect/issues/7140).
+Clone-candidate discovery, field validation, and summary rendering have a
+separate known divergence tracked by
+[#7141](https://github.com/richlander/dotnet-inspect/issues/7141). The earlier
 [auto-generated schema note](auto-schema.md) records the first generated-schema
 migration but is not a current owner.
 
@@ -112,12 +115,12 @@ discovery augmenting generated sections with metadata and clone-candidate
 vocabulary. These are examples of the composition forms, not a normative
 call-site inventory.
 
-`Package Info` is a current compatibility exception to the preferred shared
-definition. `InspectionResultView.GetMetadataFields()` emits rendered field
-keys, while `PackageCommand.PackageInfoFieldNames` supplies structural
-discovery and projection resolution. The current names appear aligned, but
-complete equivalence is unverified and tracked by
-[#7140](https://github.com/richlander/dotnet-inspect/issues/7140).
+Known compatibility exceptions to the preferred shared definition are:
+
+| Surface | Current split | Evidence boundary |
+| --- | --- | --- |
+| `Package Info` | `InspectionResultView.GetMetadataFields()` emits rendered field keys; `PackageCommand.PackageInfoFieldNames` supplies structural discovery and projection resolution. | The names appear aligned, but complete equivalence is unverified and tracked by [#7140](https://github.com/richlander/dotnet-inspect/issues/7140). |
+| `Clone Candidates` | `CandidateColumnNames` supplies library structural discovery, `SummaryFieldNames` validates fields, and `SummaryFields()` emits the rendered summary. The field definitions already differ. | Complete discovery, validation, and render equivalence is unverified and tracked by [#7141](https://github.com/richlander/dotnet-inspect/issues/7141). |
 
 An augmentation must have a reason the generated view cannot express. It must
 reuse the renderer's owner-issued names and order rather than creating a
@@ -268,7 +271,7 @@ Runtime field tables, alternate row shapes, or product-defined columns use the
 product owner's stable vocabulary. One shared typed definition is preferred.
 When legacy rendering and schema definitions remain independent, their complete
 equivalence needs an enforcing gate or must be marked unverified and tracked.
-The `Package Info` exception is the current unverified case.
+Known current unverified cases include `Package Info` and `Clone Candidates`.
 
 ### A field exists in only one selected section
 
@@ -307,13 +310,14 @@ The current Release CLI suite owns the executable contract:
 | `CommandExecutionTests.Project_Discover_ExplicitTableDoesNotPromoteToTree`, `Project_Discover_TsvNoHeaderOmitsHeader`, and `Project_Discover_JsonOutWritesOnlyToFile` | Discovery preserves explicit format, header, and destination intent. |
 | `PackageQueryCliTests.DataDiscovery_UsesPackageQuerySchemaWithoutAcquisition` and `LibraryIntegrationQueryTests.StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget` | Structural discovery uses owner-issued schema without triggering domain acquisition or scanner execution. |
 | `CommandExecutionTests.Package_DiscoverSchema_ListsPublishedPackageInfoField` | Package structural discovery samples one runtime field; complete renderer/schema vocabulary equivalence remains unverified under #7140. |
+| `CloneCandidatesSectionTests.Type_JsonProjectionSupportsFieldsColumnsAndRows` and `Library_JsonProjectionSupportsSummaryFields` | Clone-candidate projection samples overlapping field and column names; complete discovery/validation/render equivalence remains unverified under #7141. |
 
 New schema composition forms require a focused gate that proves their generated,
 merged, augmented, or dynamic vocabulary matches the product document. The
-current package field-vocabulary equality is explicitly unverified; no safety
-or completeness claim rests on the sampled `Published` gate. A documentation-
-only change to this owner requires Markdown validation and verification that
-every named gate still exists.
+known package and clone-candidate equalities are explicitly unverified; no
+safety or completeness claim rests on their sampled gates. A documentation-only
+change to this owner requires Markdown validation and verification that every
+named gate still exists.
 
 ## Non-claims and staged work
 
@@ -335,7 +339,9 @@ or typed identity evidence is staged in
 [#7138](https://github.com/richlander/dotnet-inspect/issues/7138); no stronger
 section-scoped claim rests on that compatibility path. Unifying or completely
 gating the package field vocabulary is staged in
-[#7140](https://github.com/richlander/dotnet-inspect/issues/7140). Any new
+[#7140](https://github.com/richlander/dotnet-inspect/issues/7140).
+Clone-candidate vocabulary convergence is staged in
+[#7141](https://github.com/richlander/dotnet-inspect/issues/7141). Any new
 cross-host query language, generated accessor model, schema serialization
 contract, or additional pattern semantics requires a focused issue and owner;
 the retired proposal checklist is not standing authorization.
