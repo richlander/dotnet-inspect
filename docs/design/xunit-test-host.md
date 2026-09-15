@@ -289,6 +289,13 @@ or visible-failure evidence. The migration also retires the oversized-version
 fixture harness: metadata admission now rejects its invalid version length
 before rendering, and the Metadata owner separately gates that typed rejection.
 
+`DotnetInspector.Presentation.Tests` is the twenty-third migrated adopter. Its
+required PR, Windows, Deep Inspect platform, and developer commands remain
+unfiltered. These paths reuse the pinned outcome-level host gate without
+changing the suite's ecosystem-change report, clone-candidate, Library API
+diff, Member source-diff, or detached inspection-envelope presentation
+evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

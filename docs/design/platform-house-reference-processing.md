@@ -963,13 +963,20 @@ facts that a separately owned documentation adapter may bind into a
 - Metadata forwarding evidence when a facade led to that terminal supplier;
 - the exact implementation supplier and view correspondence when authored
   source is requested;
-- artifact, source, and content generation evidence; and
-- the provenance-retaining library handoff and its owner-issued lifetime.
+- the exact shared `LibraryReference` and request-selected API assembly content;
+- the exact implementation content reference when authored source is
+  requested; and
+- resource-free platform, Artifact-registration, and provenance evidence.
 
-The platform documentation adapter, not PlatformHouse, associates an XML
-companion with that terminal supplier evidence. A separate source integration
-adapter may bind a pre-authorized deferred SourceHouse `AuthoredOnly` provider
-to the exact implementation supplier and view correspondence.
+The platform documentation adapter, not PlatformHouse, binds an exact compiled
+XML `LibraryContentReference` and its owner-issued companion correspondence to
+that terminal supplier evidence. It carries no live content authority. A
+separate source integration adapter may bind a pre-authorized deferred
+SourceHouse `AuthoredOnly` provider to the exact implementation supplier and
+view correspondence. Live operation authority and downstream settlement follow
+the separately owned Library, DocumentationHouse, and SourceHouse contracts;
+PlatformHouse and its documentation adapter neither issue, retain, nor settle
+that authority.
 DocumentationHouse owns channel demand, compiled-XML and authored-source
 attempts, field provenance, conflict preservation, and terminal documentation
 outcomes.
