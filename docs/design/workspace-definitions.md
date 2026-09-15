@@ -1563,19 +1563,21 @@ validation. A legacy token is never submitted to the Registry, and Workspace
 Definitions never reads or duplicates a facet's private execution binding.
 
 When the focused source is not a direct Package coordinate, dispatch retains
-the exact version-1 semantic plan for its existing compatibility executor.
-That path never enters version-2 Registry or Navigation composition and never
-claims a portable Workspace/Package subject. It is an explicit compatibility
-boundary, not shape sniffing or partial lowering.
+the exact version-1 semantic plan and returns
+`LegacyCompatibilityRequired`. The consuming host passes that owner-issued
+plan to its existing version-1 compatibility executor. This result occurs
+before fresh-Workspace construction and never enters version-2 Registry or
+Navigation composition or claims a portable Workspace/Package subject. It is
+an explicit compatibility boundary, not shape sniffing or partial lowering.
 
 The version dispatch matrix is closed:
 
 | Input | Parse and lowering path |
 | --- | --- |
-| Packet with exact `f:1` | Strict format-1 decode, then direct-Package whole-composition lowering or retained non-Package v1 execution |
+| Packet with exact `f:1` | Strict format-1 decode, then direct-Package whole-composition lowering or `LegacyCompatibilityRequired` |
 | Packet with exact `f:2` | Strict format-2 decode and direct version-2 validation |
 | Packet with absent, unknown, or non-integer `f` | `UnsupportedFormat`; no shape sniffing or lowering |
-| Definition scenario graph containing only version-1 records | Strict version-1 bind, then direct-Package whole-graph lowering or retained non-Package v1 execution |
+| Definition scenario graph containing only version-1 records | Strict version-1 bind, then direct-Package whole-graph lowering or `LegacyCompatibilityRequired` |
 | Definition scenario graph containing only version-2 records | Strict version-2 bind and direct validation |
 | Definition scenario graph mixing record versions | `InvalidDefinitionSet`; no partial lowering |
 
@@ -1699,11 +1701,13 @@ occurrence. A direct Package-focused version-1 composition with no view fields
 likewise becomes recommendation state.
 
 A non-Package-focused format-1 plan is not lowered. Its unchanged decoded basis
-continues through the retained compatibility executor. Any captured structural
+and exact semantic plan return through `LegacyCompatibilityRequired`. The
+consumer may pass only that plan to its existing compatibility executor; it
+does not reconstruct the request from display state. Any captured structural
 change from that session is `NonProjectable`; no format-2 writer emits a
 non-Package active subject. Filters, body targets, source targets, and overload
-ordinals have no version-1 field and are never inferred from courtesy routes
-or host state.
+ordinals have no version-1 field and are never inferred from courtesy routes or
+host state.
 
 The adapter retains the exact decoded version-1 packet as the requested packet
 basis. If the fresh Workspace realizes the same semantic state, that original
@@ -1715,12 +1719,15 @@ Registry ID.
 
 ### Complete restoration
 
-Complete restoration lowers one definition to resource-free construction input,
-then prepares an independent host-owned Workspace. Each Workspace is
-constructed solely from its own definition; no other Workspace or Workspace
-definition participates.
+Complete restoration first classifies one definition or packet. Version-2 and
+direct-Package-lowerable version-1 inputs continue to resource-free
+construction input and prepare an independent host-owned Workspace. Each such
+Workspace is constructed solely from its own definition; no other Workspace or
+Workspace definition participates. A focused non-Package version-1 input
+returns `LegacyCompatibilityRequired` before construction and remains on its
+immutable compatibility path.
 
-This rule applies to saved definitions, share packets, Browser history,
+This operation applies to saved definitions, share packets, Browser history,
 product demos, Spotlight package selections classified as
 `RestoreExternalPackageWorkspace` by the
 [Spotlight destination-activation
@@ -1751,7 +1758,11 @@ One restoration attempt proceeds in this order:
    supersedes every remaining phase of the older attempt.
 2. Perform bounded format dispatch and strict decode. Format 2 produces one
    closed version-2 composition plan. Format 1 produces one unresolved legacy
-   plan and retains its exact canonical packet basis.
+   plan and retains its exact canonical packet basis. A focused non-Package
+   version-1 plan returns `LegacyCompatibilityRequired` now, before any
+   Workspace, Root, Scope, reader, session, lease, acquisition, Registry
+   resolution, or Navigation operation exists. The consumer passes the exact
+   returned plan to its existing version-1 compatibility adapter.
 3. Resolve syntax, Registry IDs, query migrations, Platform/package pruning,
    and complete context, Root, and registration construction intent into one
    immutable `WorkspacePlan` and restoration recipe. Preserve selectors or
@@ -1797,14 +1808,14 @@ One restoration attempt proceeds in this order:
    Workspace and return the exact failure. A host must not replace its active
    realization from a failed or late result.
 
-One restoration transaction prepares exactly one unpublished Workspace. It is
-not selectable, addressable through ordinary host actions, or recorded in
-history before activation. A host may render its construction progress or
-prepared result while the attempt remains current, but provisional
-presentation has no active Workspace authority. A newer attempt supersedes the
-older result and the owning realization lifecycle closes or drains its
-resources. Host-level concurrent transaction and aggregate realization bounds
-belong to the consuming host.
+A restoration transaction that continues past source classification prepares
+exactly one unpublished Workspace. It is not selectable, addressable through
+ordinary host actions, or recorded in history before activation. A host may
+render its construction progress or prepared result while the attempt remains
+current, but provisional presentation has no active Workspace authority. A
+newer attempt supersedes the older result and the owning realization lifecycle
+closes or drains its resources. Host-level concurrent transaction and
+aggregate realization bounds belong to the consuming host.
 
 Inspect Web may retain a bounded list of resource-free definitions for
 presentation. Selecting a retained definition performs fresh restoration and
@@ -1845,6 +1856,10 @@ CompleteRestorationResult
     NavigationDisposition
                          opaque current result and effect authority
     OwnerEvidence        ordered complete evidence
+  LegacyCompatibilityRequired
+    IntentToken
+    RequestBasis
+    LegacyPlan           exact source-identified v1 semantic plan
   Failed
     IntentToken
     RequestBasis
@@ -1855,9 +1870,17 @@ CompleteRestorationResult
 `RequestBasis` distinguishes retained packet input from an immutable
 definition request; it never invents packet bytes for a definition. Owner
 evidence follows deterministic plan order, not asynchronous completion order.
-`Activated` is the only arm carrying a new Workspace. `Failed` and
-`Superseded` produce no Workspace value and grant no host publication
-authority.
+`Activated` is the only arm carrying a new Workspace.
+`LegacyCompatibilityRequired`, `Failed`, and `Superseded` produce no Workspace
+value and grant no host publication authority.
+`LegacyCompatibilityRequired` is not success-shaped restoration: it is the
+typed pre-construction classification that preserves immutable non-Package v1
+support outside the Package-only v2 path. The Browser passes its exact
+Definitions-owned plan to the existing v1 share/history adapter; the CLI passes
+it to the existing v1 scenario/demo adapter. Neither host derives a replacement
+plan from labels, routes, or snapshot state. No retirement of this narrow
+compatibility route is claimed by #5525; a future structural owner may make
+those inputs directly version-2-projectable.
 
 The existing
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
@@ -2101,9 +2124,9 @@ Implementation must add, at minimum:
   added, inactive direct Package coordinates become recommendation states,
   inactive non-Package coordinates become undecorated dormant rows, and exact
   format-1 packet restoration retains its byte basis. Focused non-Package v1
-  plans must remain on the retained compatibility executor, never enter
-  Registry/Navigation v2 composition, and classify changed capture as
-  `NonProjectable`;
+  plans must return `LegacyCompatibilityRequired` before construction, retain
+  their exact semantic plan and request basis, never enter Registry/Navigation
+  v2 composition, and classify changed capture as `NonProjectable`;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable format-2 committed state, including distinct
   inactive-coordinate views, Workspace with and without retained occurrence
@@ -2149,14 +2172,17 @@ Implementation must add, at minimum:
 - a complete-restoration conformance gate with controllable Workspace
   construction, Navigation, query, projection, and host installation. It must
   cover inert packet/definition input with absent, stale, revoked, and
-  incompatible activation authority; stale decode success and failure after a
-  newer intent; Root or Navigation failure after partial new-Workspace
-  construction; projectable and validly non-projectable installation;
-  projection failure; supersession before installation; late completion; and
-  initial failure with no active Workspace. Unauthorized input must reserve,
-  acquire, and publish nothing. Every non-install outcome must close the
-  unpublished Workspace, return no Workspace value, and carry the
-  source-identifying failure evidence. Successful
+  incompatible activation authority; exact focused non-Package v1
+  classification to `LegacyCompatibilityRequired` before construction; stale
+  decode success and failure after a newer intent; Root or Navigation failure
+  after partial new-Workspace construction; projectable and validly
+  non-projectable installation; projection failure; supersession before
+  installation; late completion; and initial failure with no active Workspace.
+  Unauthorized input must reserve, acquire, and publish nothing.
+  `LegacyCompatibilityRequired` must preserve the exact source plan and basis
+  while reserving, acquiring, and constructing nothing. Every other non-install
+  outcome must close the unpublished Workspace, return no Workspace value, and
+  carry the source-identifying failure evidence. Successful
   installation must return the exact prepared Workspace once, preserve the
   request's packet or definition basis and projection classification, and
   remain usable only through current host effect authority. Browser gates
