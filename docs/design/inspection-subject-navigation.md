@@ -1524,11 +1524,12 @@ snapshot inside the new Workspace when structural preparation succeeds and the
 optional exact Registry request is `Available`, `Unavailable`, or `Failed`.
 The latter two retain the exact request basis and Registry evidence with no
 effective lens; they remain complete, installable Navigation snapshots.
-Registry `Unknown` or `Inapplicable`, incomplete structural evidence, and
-invalid or absent requested subjects produce typed non-prepared results with no
-Navigation state or effect authority. Definitions closes that unpublished
-Workspace, and supersession prevents an older attempt's Workspace from becoming
-active. The focused local state machine is
+Registry `Unknown` or `Inapplicable`, incomplete structural evidence, invalid
+requested subjects, and absent requested subjects outside the Package-only
+recommendation form produce typed non-prepared results with no Navigation state
+or effect authority. Definitions closes that unpublished Workspace, and
+supersession prevents an older attempt's Workspace from becoming active. The
+focused local state machine is
 [`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
 This owner does not install the new Workspace or coordinate its

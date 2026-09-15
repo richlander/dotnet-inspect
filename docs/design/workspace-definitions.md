@@ -520,14 +520,15 @@ dependency-injection key, path, URI, or dynamic provider lookup.
 
 `states` has exactly one leading Workspace entry followed by exactly one entry
 for every tab ID in the composed version-2 navigation record. The leading
-entry has required `navigation: null`; it is the only state with no Package
-occurrence and must request the Workspace subject. Remaining entries use
-navigation order, and `navigation` must equal the corresponding tab ID. A
-direct Package-coordinate entry may carry the structural state defined below.
-Every other source kind is a dormant coordinate entry and must contain only
-`navigation`; `retained`, `subject`, `facet`, `queries`, and `libraries` are
-forbidden. A missing, duplicated, reordered, unknown, foreign, or structurally
-decorated non-Package tab reference is an invalid definition set.
+entry has required `navigation: null`; it is the only state with no navigation
+source and must request the Workspace subject. Remaining entries use navigation
+order, and `navigation` must equal the corresponding tab ID. A direct
+Package-coordinate entry may carry the structural state defined below. Every
+other source kind is a dormant coordinate entry and must contain only
+`navigation`; it also resolves no Package occurrence. `retained`, `subject`,
+`facet`, `queries`, and `libraries` are forbidden. A missing, duplicated,
+reordered, unknown, foreign, or structurally decorated non-Package tab reference
+is an invalid definition set.
 
 `navigation.focus` chooses the active state. A string selects the corresponding
 direct Package-coordinate entry; a non-Package tab ID is invalid as version-2
