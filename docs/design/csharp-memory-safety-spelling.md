@@ -188,17 +188,30 @@ form is unavailable. The existing self-name failures remain independent;
 neither failure category exposes partial source. String-returning formatter
 entry points report the same refusal through `NotSupportedException`.
 
-Properties, events, accessors, whole delegate or enum type forms, and
-primary-constructor syntax remain explicitly unavailable in this opt-in slice.
-A standalone selected enum value is narrower: it emits only the
-declaration-contained member name and exact metadata constant after verifying
-that the member carries no caller contract or pointer shape. The enum's special
-`value__` storage slot supplies the underlying type but is not a declarable
-member and does not enter the API surface. A caller can select the supported
-members or supply the product-selected explicit-field and ordinary-constructor
-shape. The printer does not silently drop an unsupported selected member. This
-slice proves safety-modifier spelling and caller-contract preservation, not
-body reconstruction or general layout reconstruction.
+Properties in whole-type output, events, direct accessor declarations, whole
+delegate or enum type forms, and primary-constructor syntax remain explicitly
+unavailable in this opt-in slice. Two standalone selected-member forms are
+narrower:
+
+- An enum value emits only the declaration-contained member name and exact
+  metadata constant after verifying that the member carries no caller contract
+  or pointer shape. The enum's special `value__` storage slot supplies the
+  underlying type but is not a declarable member and does not enter the API
+  surface.
+- A non-indexed ordinary property emits its complete structured property
+  signature only when the declaring layout is known and ordinary, and the
+  PropertyDef and every represented get/set/init MethodDef have same-module,
+  same-rules, pointer-absent, contract-neutral evidence and exact metadata-token
+  correspondence. Explicit- and extended-layout owners, body-owned unsafe
+  contexts, unsupported or ambiguous accessor shapes, accessor contracts, and
+  unavailable evidence remain unavailable. This selected declaration does not
+  enable direct accessor or whole-type property spelling.
+
+A caller can select the supported members or supply the product-selected
+explicit-field and ordinary-constructor shape. The printer does not silently
+drop an unsupported selected member. This slice proves safety-modifier spelling
+and caller-contract preservation, not body reconstruction or general layout
+reconstruction.
 
 Method-like admission requires the Metadata-owned
 `ApiMember.MethodSemantics` fact. A positive `None` permits the ordinary
@@ -283,8 +296,10 @@ pseudo-package as a NuGet package.
 An older surface with no module memory-safety facts takes the distinguishable
 compatibility arm. A current surface whose selected declaration is unsupported
 or whose required evidence is unavailable reports the typed CSharp diagnostic
-in place of a declaration. The first production slice supports methods,
-ordinary constructors, and fields; properties, events, accessors, delegates,
+in place of a declaration. The production selected-member slice supports
+methods, ordinary constructors, fields, standalone enum values, and
+contract-neutral pointer-free ordinary properties. Property or event accessor
+contracts, direct accessors, whole-type properties, events, delegates, whole
 enums, and primary-constructor spelling remain unavailable in the selected
 model-aware view.
 

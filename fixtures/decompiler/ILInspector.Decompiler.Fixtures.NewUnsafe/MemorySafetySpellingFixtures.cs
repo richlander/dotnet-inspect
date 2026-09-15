@@ -27,6 +27,8 @@ public sealed class MemorySafetySpellingFixture
 
     public static int NormalMethod() => 42;
 
+    public string Type { get; set; } = "";
+
     [DllImport("__dotnet_inspect_memory_safety_fixture__")]
     public static safe extern int SafeExtern();
 }

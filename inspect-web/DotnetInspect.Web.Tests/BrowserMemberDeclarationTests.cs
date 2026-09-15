@@ -78,6 +78,15 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Null(pointerNoneDeclaration.Unavailable);
         Assert.False(pointerNoneDeclaration.Compatibility);
 
+        BrowserMemberDeclaration propertyDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "Type"));
+        Assert.Equal(
+            "public string Type { get; set; }",
+            Assert.IsType<string>(propertyDeclaration.Text));
+        Assert.Null(propertyDeclaration.Unavailable);
+        Assert.False(propertyDeclaration.Compatibility);
+
         JsonElement explicitLayoutType =
             Type(surfaceDocument.RootElement, ExplicitLayoutType);
         BrowserMemberDeclaration safeFieldDeclaration = await Declaration(
@@ -94,14 +103,14 @@ public sealed class BrowserMemberDeclarationTests
         Assert.False(safeFieldDeclaration.Compatibility);
 
         JsonElement accessorType = Type(surfaceDocument.RootElement, AccessorType);
-        BrowserMemberDeclaration propertyDeclaration =
+        BrowserMemberDeclaration accessorContractDeclaration =
             await Declaration(accessorType, Member(accessorType, "Value"));
-        Assert.Null(propertyDeclaration.Text);
+        Assert.Null(accessorContractDeclaration.Text);
         Assert.Contains(
-            "not supported",
-            Assert.IsType<string>(propertyDeclaration.Unavailable),
+            "contract",
+            Assert.IsType<string>(accessorContractDeclaration.Unavailable),
             StringComparison.OrdinalIgnoreCase);
-        Assert.False(propertyDeclaration.Compatibility);
+        Assert.False(accessorContractDeclaration.Compatibility);
 
         JsonElement enumType = Type(surfaceDocument.RootElement, EnumType);
         Assert.DoesNotContain(

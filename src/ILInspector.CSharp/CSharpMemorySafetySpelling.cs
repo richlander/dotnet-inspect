@@ -113,6 +113,8 @@ internal static class CSharpMemorySafetySpelling
 
         bool isStandaloneEnumMember =
             IsStandaloneEnumMember(type, member, isStandaloneMember);
+        bool isStandaloneProperty =
+            isStandaloneMember && member.Kind == "property";
         string? typeFailure = isStandaloneMember
                 && (member.Kind == "extension-method"
                     || isStandaloneEnumMember)
@@ -120,8 +122,12 @@ internal static class CSharpMemorySafetySpelling
             : TypeFailure(type, selectedLanguage);
         if (typeFailure is not null)
             return Refuse(typeFailure);
-        if (member.Kind is not ("method" or "extension-method" or "explicit-interface-implementation" or "constructor" or "finalizer" or "field")
-            || member.SignatureModel?.Accessors is { Count: > 0 })
+        if (member.Kind is not ("method" or "extension-method"
+                or "explicit-interface-implementation" or "constructor"
+                or "finalizer" or "field" or "property")
+            || (member.Kind == "property" && !isStandaloneProperty)
+            || (member.Kind != "property"
+                && member.SignatureModel?.Accessors is { Count: > 0 }))
         {
             return Refuse($"model-aware {member.Kind} spelling is not supported.");
         }
@@ -147,7 +153,7 @@ internal static class CSharpMemorySafetySpelling
         {
             return Refuse("the declaring module's memory-safety evidence does not match the member.");
         }
-        int? declarationToken = member.Kind == "field"
+        int? declarationToken = member.Kind is "field" or "property"
             ? member.DeclarationMetadataToken
             : member.MetadataToken;
         if (declarationToken is not int memberToken)
@@ -167,6 +173,109 @@ internal static class CSharpMemorySafetySpelling
                 return Refuse("enum-member pointer evidence is unavailable or invalid.");
             if (member.EnumValueLiteral is null)
                 return Refuse("the enum value literal is unavailable.");
+            return new(null, null);
+        }
+
+        if (isStandaloneProperty)
+        {
+            if (requiresUnsafeContext)
+            {
+                return Refuse(
+                    "standalone property spelling does not support a body-owned unsafe context.");
+            }
+            if (facts.CallerContract is not MemorySafetyMemberContractResult.None)
+                return Refuse("standalone property spelling requires a contract-neutral property declaration.");
+            if (facts.SignaturePointer != MemorySafetyPointerEvidence.Absent)
+                return Refuse("standalone property spelling requires pointer-free property evidence.");
+            if (type.Layout is null)
+                return Refuse("the declaring type's layout is unavailable.");
+            if (type.Layout is ApiTypeLayout.Explicit or ApiTypeLayout.Extended)
+            {
+                return Refuse(
+                    "standalone property spelling is unavailable for explicit- or extended-layout types.");
+            }
+            if (member.SignatureModel is not { } propertyModel
+                || string.IsNullOrWhiteSpace(propertyModel.ReturnType)
+                || string.IsNullOrWhiteSpace(propertyModel.MemberName)
+                || propertyModel.MemberName == "this[]"
+                || propertyModel.MemberName.Contains('.', StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(member.Name)
+                || member.Name.Contains('.', StringComparison.Ordinal)
+                || member.IndexParameterCount != 0
+                || propertyModel.Parameters.Count != 0)
+            {
+                return Refuse(
+                    "a complete non-indexed ordinary property signature is unavailable.");
+            }
+            if (propertyModel.Accessors is not { Count: > 0 } accessors)
+                return Refuse("a complete structured property accessor shape is unavailable.");
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.Kind is not ("get" or "set" or "init")))
+            {
+                return Refuse("the structured property contains an unsupported accessor kind.");
+            }
+            if (accessors.GroupBy(static accessor => accessor.Kind)
+                    .Any(static group => group.Count() != 1)
+                || (accessors.Any(static accessor => accessor.Kind == "set")
+                    && accessors.Any(static accessor => accessor.Kind == "init")))
+            {
+                return Refuse("the structured property accessor shape is ambiguous.");
+            }
+
+            int[] accessorTokens = accessors.Select(accessor => accessor.Kind switch
+                {
+                    "get" => member.GetterToken,
+                    "set" or "init" => member.SetterToken,
+                    _ => null,
+                })
+                .OfType<int>()
+                .Distinct()
+                .ToArray();
+            if (accessorTokens.Length != accessors.Count)
+                return Refuse("the defining accessor tokens are unavailable or ambiguous.");
+            if (member.AccessorMemorySafety is not { } accessorFacts
+                || accessorFacts.Length != accessorTokens.Length)
+            {
+                return Refuse("complete accessor memory-safety facts are unavailable.");
+            }
+            foreach (ApiMemberMemorySafetyFacts accessorFact in accessorFacts)
+            {
+                if (accessorFact.ModuleVersionId != type.MemorySafety.ModuleVersionId)
+                    return Refuse("accessor memory-safety evidence comes from a different module.");
+                MemorySafetyMemberContractEvidence evidence =
+                    accessorFact.CallerContract.Evidence;
+                if (!accessorTokens.Contains(evidence.MemberToken))
+                    return Refuse("accessor memory-safety evidence identifies a different declaration.");
+                if (evidence.RulesState != rules.State)
+                    return Refuse("the declaring module's rules state does not match an accessor.");
+                if (accessorFact.CallerContract
+                    is MemorySafetyMemberContractResult.Unavailable accessorUnavailable)
+                {
+                    return Refuse(
+                        $"accessor caller contract is unavailable: {accessorUnavailable.Failure.Detail}");
+                }
+                if (accessorFact.CallerContract
+                    is not MemorySafetyMemberContractResult.None)
+                {
+                    return Refuse(
+                        "standalone property spelling does not support accessor caller contracts.");
+                }
+                if (accessorFact.SignaturePointer
+                    != MemorySafetyPointerEvidence.Absent)
+                {
+                    return Refuse(
+                        "standalone property spelling requires pointer-free accessor evidence.");
+                }
+            }
+            if (accessorFacts.Select(
+                    static accessor =>
+                        accessor.CallerContract.Evidence.MemberToken)
+                .Distinct()
+                .Count() != accessorTokens.Length)
+            {
+                return Refuse("accessor memory-safety evidence is ambiguous.");
+            }
             return new(null, null);
         }
 
