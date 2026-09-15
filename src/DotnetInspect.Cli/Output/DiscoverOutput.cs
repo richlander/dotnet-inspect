@@ -635,7 +635,7 @@ public static class DiscoverOutput
     {
         // Bare -D. Curated pipelines (listedCategoryDoors provided) lead with the topical category
         // doors, then a single alpha group of effective sections, with no cost annotations. Legacy
-        // pipelines keep the original section/category/opt-in grouping.
+        // pipelines use the same category/section/opt-in grouping.
         if (discover is null or { Length: 0 })
         {
             var items = schema.Discover()!;
@@ -851,10 +851,10 @@ public static class DiscoverOutput
     private static int GetDiscoveryRowSortRank(DiscoveryRow row)
     {
         if (row.Kind.Equals("category", StringComparison.OrdinalIgnoreCase))
-            return 1;
+            return 0;
         if (row.Kind.Contains(SectionAnnotations.OptIn, StringComparison.OrdinalIgnoreCase))
             return 2;
-        return 0;
+        return 1;
     }
 
     private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null,
@@ -964,7 +964,7 @@ public static class DiscoverOutput
                 .Select(name => new DiscoveryRow(name, "category"))
                 .ToList() ?? new List<DiscoveryRow>();
 
-            // Full tree: regular sections, @categories, then opt-in sections.
+            // Full tree: @categories, regular sections, then opt-in sections.
             // Each group is alpha sorted.
             var orderedRows = sectionRows.Concat(categoryRows)
                 .OrderBy(GetDiscoveryRowSortRank)

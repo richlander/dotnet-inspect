@@ -24,8 +24,9 @@ combined implementation PR.
 Metadata's body and physical clause types, closed result, and current-surface
 migration are implemented in step 2. Instructions topology, location, and
 normal-transfer facts plus the `MethodInstructions` / `BlockGraph` migration
-are implemented in step 3. Peer-consumer adoption and remaining retirement
-stay unverified until their focused steps land.
+are implemented in step 3. Analysis production paths adopt both owners in step
+4. Decompiler adoption and remaining retirement stay unverified until their
+focused steps land.
 
 ## Handoff
 
@@ -80,6 +81,21 @@ Analysis does not route through Decompiler, and Decompiler does not route
 through Analysis. Neither reconstructs shared clause or normal-transfer
 identity from offsets, display rows, or handler names.
 
+Analysis's adopted per-method context is constructed from one Metadata-issued
+`MethodBodyData`. It validates the physical method address before preserving
+the catalog and decoding Instructions facts. Body signals, stable-getter
+admission, and structural-clone EH admission consume the catalog directly.
+Reaching definitions reuse the same `MethodInstructions`. ArrayPool exception
+path policy consumes Instructions-issued location and handler identities while
+retaining Analysis-owned conservative catch-interception policy; it does not
+claim shared exceptional-search or unwind facts.
+
+Raw byte/`ExceptionRegion` leak-triage and reaching-definitions overloads remain
+explicit Layer 0 compatibility entry points. They cannot publish correlated
+facts and are not used by the production `LibraryBodyIndex` path. An
+instruction-only lifted-owner scan decodes only instructions rather than
+constructing an unused raw EH graph.
+
 Decompiler's structured projection is an adapter, not a third general EH facts
 API. A structured node can carry exact association to Instructions-issued
 region and continuation identities; current ancestry can supply descendant
@@ -109,6 +125,10 @@ Tracker #6965 owns this complete sequence:
 Steps 2 through 8 are focused owner/adopter efforts; this design does not
 authorize one implementation PR to sweep them. The current total is nine
 steps. Changing that total requires updating #6965 and this map together.
+
+Step 4 is implemented by the Metadata-backed `MethodBodyAnalysisContext`,
+body-signal and admission consumers, shared reaching-definitions decode, and
+the ArrayPool exception-path adapter. Steps 5 through 9 remain.
 
 ## Production-host path
 
@@ -144,6 +164,13 @@ No TLA+ model is planned. The owners publish immutable, single-body,
 single-threaded results without scheduling or distributed state. Focused
 construction, correspondence, consumer, and product-host gates are the direct
 evidence.
+
+`LeakTriageAnalyzerTests` gates exact body/clause identity preservation,
+refusal of uncorrelated body signals, compiler-produced nested `finally`
+contexts, catch-all cleanup, typed-catch near misses, and nested catch
+interception through the production assembly-analysis path. Existing method
+signal, stable-getter, structural-clone, and reaching-definitions tests gate
+their migrated consumers.
 
 This composition does not add exceptional search/unwind semantics, a
 cross-method exception graph, shared Analysis/Decompiler policy, or a new

@@ -951,9 +951,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             method.GetDeclaringType());
         GenericScope scope =
             _primaryMetadataResolver.CreateScope(ownerType, method);
-        foreach (var instruction in LibraryMethodAnalysisRunner.DecodeBody(
-            body.GetILBytes() ?? [],
-            body.ExceptionRegions).Instructions)
+        foreach (var instruction in InstructionDecoder.Decode(
+            body.GetILBytes() ?? []))
         {
             bool call = instruction.OpCode
                 is ILOpCode.Call or ILOpCode.Callvirt;

@@ -16,7 +16,7 @@ const referenceList: BrowserAssemblyReferenceList = {
 const data: BrowserPackageDependencies = {
   package: "Example.Package", version: "1.0.0", activeFramework: "net10.0",
   assembly: "Example.Core",
-  dependencyGroups: [], dependencyGroupError: null,
+  dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
   assemblyReferences: referenceList,
   compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
 };

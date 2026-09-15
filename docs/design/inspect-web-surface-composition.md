@@ -89,6 +89,11 @@ This document consumes, without redefining:
   whose canonical lines, relations, statistics, mapped changes, and provenance
   remain owned by
   [Member source diff presentation](member-source-diff-presentation.md);
+- normalized package dependency evidence and PackageHouse pruning results
+  supplied by
+  [Package input and dependency evidence](package-dependency-evidence.md),
+  whose selection, candidate, platform inventory, policy, and completion
+  semantics remain outside this placement owner;
 - registration, enablement, multi-selection, capability, authentication, and
   cache-action descriptors owned by
   [Browser package sources](browser-package-sources.md);
@@ -883,7 +888,9 @@ The surface contains:
 ```text
 Dependencies                         package and reference count or state
 Version · Framework
-target-framework groups, graph, package dependencies, assembly references
+target-framework groups and graph
+explicit platform pruning evaluation
+package dependencies and assembly references
 package@version                                             active framework
 ```
 
@@ -898,6 +905,27 @@ target-framework selector, dependency graph, package dependency list, assembly
 references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
+
+Between the graph and package dependency list, an eligible package exposes a
+**Platform pruning** section. The section contains a runtime or ASP.NET Core
+family selector and an explicit **Evaluate** action. Opening Package
+Dependencies does not start candidate discovery or platform pruning. Evaluation
+may perform source-authorized version discovery for non-exact ranges, so its
+loading, failure, and retry state remain local to this section. Every explicit
+evaluation after settlement starts a new request. Loading and settled states
+name the normalized active dependency group; settled results also name the
+exact platform framework, family, and version used for comparison. Selecting a
+different display group does not change that evaluated identity.
+
+Pruning always evaluates the normalized owner-selected active dependency group,
+not a manually displayed alternate group. It is absent for Platform packages,
+non-exact platform target frameworks, and active groups with no dependencies.
+Its result table keeps the declared range, selected candidate, platform-supplied
+version, and disposition distinct. A supplied older version remains visible
+beside a retained newer candidate; candidate failures and non-evaluated rows do
+not disappear. The section states that evaluation does not change the graph.
+It acquires no dependency payload and does not turn the selected family into a
+Workspace participant.
 
 The inline graph is a bounded structural preview so the selected group's direct
 NuGet dependency rows enter the initial result viewport. At wide inspector
@@ -927,9 +955,8 @@ empty results.
 At narrow widths, the `Types` return control shares the quiet header, controls
 wrap within their row, and header and footer values may elide as complete
 strings. The surface creates no page-level horizontal overflow. This slice
-does not change dependency selection, graph construction or navigation,
-Package Overview, Integrations, Analysis, Package Metadata, or
-the Metadata Explorer.
+does not change graph construction or navigation, Package Overview,
+Integrations, Analysis, Package Metadata, or the Metadata Explorer.
 
 ### Library References
 
@@ -1534,7 +1561,8 @@ issued for the current browser session:
 - aggregate acquired-package, resident-payload, Workspace, and resident-byte
   cache statistics; and
 - acquisition-owner limits for package entries, Workspace slots, aggregate
-  resident bytes, and retained assembly-image bytes per Workspace.
+  resident bytes, selected assemblies per Workspace role, and retained
+  assembly-image bytes per Workspace.
 
 Runtime, build, and package-cache absence or failure remain visible in the same
 route geometry. A cache-statistics failure does not preserve prior counts as an

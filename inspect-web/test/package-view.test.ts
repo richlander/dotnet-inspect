@@ -13,11 +13,13 @@ import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  readonly value: string;
   private readonly listeners = new Map<string, EventListener[]>();
   onclick: EventListener | null = null;
 
   constructor(dataset: Record<string, string | undefined> = {}) {
     this.dataset = dataset;
+    this.value = dataset.value ?? "";
   }
 
   addEventListener(type: string, listener: EventListener) {
@@ -50,6 +52,8 @@ class FakeRoot {
 function recordingActions(calls: string[]): PackageViewBindingActions {
   return {
     onDependencyGroupSelect: value => calls.push(`dependency-group:${value}`),
+    onPruningEvaluate: () => calls.push("pruning-evaluate"),
+    onPruningFamilySelect: family => calls.push(`pruning-family:${family}`),
     onDependencyLoad: (id, version) =>
       calls.push(`dependency-load:${id}@${version}`),
     onDependencyOpen: value => calls.push(`dependency-open:${value}`),
@@ -68,6 +72,8 @@ test("package view bindings decode navigation controls without eager work", () =
   const root = new FakeRoot();
   const group = new FakeElement({ depGroup: "2" });
   const defaultGroup = new FakeElement();
+  const pruningFamily = new FakeElement({ value: "Microsoft.AspNetCore.App" });
+  const pruningEvaluate = new FakeElement();
   const open = new FakeElement({ depOpen: "Example@1.0.0::net10.0" });
   const secondOpen = new FakeElement({ depOpen: "Other@2.0.0::net9.0" });
   const emptyOpen = new FakeElement({ depOpen: "" });
@@ -95,6 +101,8 @@ test("package view bindings decode navigation controls without eager work", () =
   });
   const defaultPerformance = new FakeElement();
   root.addAll("[data-dep-group]", group, defaultGroup);
+  root.addAll("[data-pruning-family]", pruningFamily);
+  root.addAll("[data-pruning-evaluate]", pruningEvaluate);
   root.addAll("[data-dep-open]", open, secondOpen, emptyOpen);
   root.addAll("[data-dep-load]", load, defaultVersion, emptyLoad);
   root.addAll("[data-kind-jump]", kind, defaultKind);
@@ -111,6 +119,8 @@ test("package view bindings decode navigation controls without eager work", () =
   assert.deepEqual(calls, []);
   group.dispatch("click");
   defaultGroup.dispatch("click");
+  pruningFamily.dispatch("change");
+  pruningEvaluate.dispatch("click");
   open.dispatch("click");
   secondOpen.dispatch("click");
   emptyOpen.dispatch("click");
@@ -131,6 +141,8 @@ test("package view bindings decode navigation controls without eager work", () =
   assert.deepEqual(calls, [
     "dependency-group:2",
     "dependency-group:NaN",
+    "pruning-family:Microsoft.AspNetCore.App",
+    "pruning-evaluate",
     "dependency-open:Example@1.0.0::net10.0",
     "dependency-open:Other@2.0.0::net9.0",
     "dependency-load:Other.Package@[2.0.0,)",

@@ -1290,7 +1290,6 @@ public sealed class MethodCallResolvedValueTests
                 IsStatic: true),
             instructions,
             [],
-            [],
             locals);
     }
 
