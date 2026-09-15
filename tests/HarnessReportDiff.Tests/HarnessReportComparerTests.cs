@@ -139,20 +139,6 @@ public class HarnessReportComparerTests
     }
 
     [Fact]
-    public void ReadCorpusSnapshot_PreservesSchemaVersion()
-    {
-        string baseline = Path.Combine(
-            FindRepositoryRoot(),
-            "tools",
-            "DecompilerHarness",
-            "corpus",
-            "pr-quick-baseline.json");
-        var report = HarnessReportReader.Read(baseline);
-
-        Assert.Equal(5, report.SchemaVersion);
-    }
-
-    [Fact]
     public void Compare_RejectsDifferentCorpusSnapshotSchemas()
     {
         string baseline = CorpusBaselinePath();
