@@ -87,7 +87,10 @@ yet carry Metadata-owned `EditorBrowsable(Never)` and obsolete discoverability
 facts. Complete literal-pattern misses return to the compatibility classifier
 so namespace-prefix and similarity fallback remain available. Incomplete or
 rejected locator outcomes remain visible with their Coverage and Gaps rather
-than being replaced by a success-shaped compatibility result.
+than being replaced by a success-shaped compatibility result. Locator
+`--count` reduces the selected candidate rows directly, independent of
+column/field presentation; incomplete or rejected count requests render the
+unprojected typed evidence before returning the count error.
 
 ## Candidate collection
 

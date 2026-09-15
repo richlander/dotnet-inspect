@@ -1927,7 +1927,11 @@ public class FindCommandIntegrationTests
         var result = new TypeDeclarationLocatorResult.Rejected(
             TypeDeclarationLocatorRejectionKind.InvalidRequest,
             requestIndex: 0);
-        var options = new FindOptions { Count = true };
+        var options = new FindOptions
+        {
+            Count = true,
+            Columns = ["Type"],
+        };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(

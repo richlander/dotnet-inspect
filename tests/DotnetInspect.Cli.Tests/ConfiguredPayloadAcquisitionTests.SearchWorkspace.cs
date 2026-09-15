@@ -414,6 +414,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source", FirstFeed,
                 "--all",
                 "--count",
+                "--columns", "Type",
                 "--tips", "q",
             ]);
 
@@ -438,6 +439,47 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "Cannot count type-location rows because the Workspace search was incomplete.",
             result.Error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_CompleteLocatorCountIsProjectionIndependent()
+    {
+        string id =
+            $"Workspace.Search.CountComplete.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "complete count package",
+            library: assembly,
+            libraryName: "Workspace.Search.dll");
+        ConfigureCommandFeed(id, package);
+
+        string[] arguments =
+        [
+            "find", typeof(WorkspaceImplementation).FullName!,
+            "--package", $"{id}@{Version}",
+            "--tfm", "net11.0",
+            "--source", FirstFeed,
+            "--all",
+            "--count",
+            "--tips", "q",
+        ];
+
+        var unprojected = await RunCommandAsync(arguments);
+        var projected = await RunCommandAsync(
+            [.. arguments, "--columns", "Type"]);
+
+        Assert.Equal(0, unprojected.Exit);
+        Assert.Empty(unprojected.Error);
+        Assert.Equal("1", unprojected.Output.Trim());
+
+        Assert.Equal(0, projected.Exit);
+        Assert.Empty(projected.Error);
+        Assert.Equal(
+            unprojected.Output,
+            projected.Output);
     }
 
     [Fact]

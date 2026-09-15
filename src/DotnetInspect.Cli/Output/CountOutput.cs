@@ -144,8 +144,11 @@ public static class CountOutput
         string? outputPath = null)
         where T : class
     {
-        var schema = context.GetSchemaInfo<T>()!.ToDocumentSchema();
-        if (!ProjectionDiagnostics.ValidateProjection(schema, section, fields, columns))
+        if (!ValidateProjection<T>(
+                context,
+                section,
+                columns,
+                fields))
             return false;
 
         var writerOptions = OutputFormatter.CreateProjectedWriterOptions(columns, fields);
@@ -159,6 +162,42 @@ public static class CountOutput
             outputPath: outputPath,
             rows: rows);
         return true;
+    }
+
+    internal static bool TryWriteKnownCount<T>(
+        int count,
+        MarkoutSerializerContext context,
+        string section,
+        string[]? columns,
+        string[]? fields)
+        where T : class
+    {
+        if (!ValidateProjection<T>(
+                context,
+                section,
+                columns,
+                fields))
+        {
+            return false;
+        }
+
+        WriteCount(count);
+        return true;
+    }
+
+    private static bool ValidateProjection<T>(
+        MarkoutSerializerContext context,
+        string section,
+        string[]? columns,
+        string[]? fields)
+        where T : class
+    {
+        var schema = context.GetSchemaInfo<T>()!.ToDocumentSchema();
+        return ProjectionDiagnostics.ValidateProjection(
+            schema,
+            section,
+            fields,
+            columns);
     }
 
     internal static string RenderSectionCounts(

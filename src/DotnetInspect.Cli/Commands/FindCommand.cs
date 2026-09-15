@@ -401,19 +401,25 @@ public class FindCommand
             {
                 _ = WriteTypeDeclarationLocator(
                     result,
-                    options with { Count = false });
+                    options with
+                    {
+                        Count = false,
+                        Columns = null,
+                        Fields = null,
+                    });
                 CommandError.Write(
                     "Cannot count type-location rows because the Workspace search was incomplete.");
                 return 1;
             }
 
-            return CountOutput.TryWriteProjected(
-                    view,
+            return CountOutput.TryWriteKnownCount<
+                    TypeDeclarationLocatorView>(
+                    evaluated.Answers.Sum(
+                        static answer => answer.Candidates.Length),
                     TypeDeclarationLocatorViewContext.Default,
                     "Results",
                     options.Columns,
-                    options.Fields,
-                    rows: null)
+                    options.Fields)
                 ? 0
                 : 1;
         }
