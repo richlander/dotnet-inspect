@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Views;
 using DotnetInspect.Cli;
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -354,6 +355,22 @@ public class InspectionResultTests
             && packageInfo.IndexOf("| Highest TFM |", StringComparison.Ordinal) < packageInfo.IndexOf("| License |", StringComparison.Ordinal)
             && packageInfo.IndexOf("| License |", StringComparison.Ordinal) < packageInfo.IndexOf("| Version |", StringComparison.Ordinal),
             output);
+    }
+
+    [Fact]
+    public void PackageInfo_OwnerVocabularyDrivesDiscoverySchema()
+    {
+        SectionSchema section = Assert.IsType<SectionSchema>(
+            PackageCommand.PackageDiscoverySchema()
+                .GetSection(PackageSections.PackageInfo));
+
+        string[] names = [.. InspectionResultView.PackageInfoFieldNames];
+
+        Assert.Equal(names.Order(StringComparer.OrdinalIgnoreCase), names);
+        Assert.Equal(names.Length, names.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(
+            names,
+            section.Items.Select(item => item.Name));
     }
 
     [Fact]

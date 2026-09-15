@@ -11,13 +11,9 @@ validation, and rendered-manifest filtering are implemented. Some older
 post-render projection paths still use Markout's rendered-string diagnostic;
 that nonconforming path does not own section-scoped rendered truth and its
 removal is tracked by
-[#7138](https://github.com/richlander/dotnet-inspect/issues/7138). Package-info
-rendering and structural discovery also retain independent field vocabularies;
-their replacement with one owner-issued vocabulary is tracked by
-[#7140](https://github.com/richlander/dotnet-inspect/issues/7140).
-Clone-candidate discovery, field validation, and summary rendering have a
-separate known divergence; the unsupported field-projection affordance is
-removed under
+[#7138](https://github.com/richlander/dotnet-inspect/issues/7138).
+Clone-candidate discovery, field validation, and summary rendering retain a
+known divergence; the unsupported field-projection affordance is removed under
 [#7141](https://github.com/richlander/dotnet-inspect/issues/7141). The earlier
 [auto-generated schema note](auto-schema.md) records the first generated-schema
 migration but is not a current owner.
@@ -117,11 +113,10 @@ discovery augmenting generated sections with metadata and clone-candidate
 vocabulary. These are examples of the composition forms, not a normative
 call-site inventory.
 
-Known nonconforming paths pending removal are:
+The remaining known nonconforming path is:
 
 | Surface | Current defect | Required removal |
 | --- | --- | --- |
-| `Package Info` | `InspectionResultView.GetMetadataFields()` emits rendered field keys; `PackageCommand.PackageInfoFieldNames` independently supplies structural discovery and projection resolution. | #7140 replaces both with one typed owner-issued catalog; no duplicate vocabulary or forwarding alias remains. |
 | `Clone Candidates` | `CandidateColumnNames` supplies structural discovery, while `SummaryFieldNames` accepts stale field selectors and `SummaryFields()` emits different names. | #7141 removes `--fields` from this row-oriented section, deletes the stale selectors and manual projected-summary path, and retains columns as its sole addressable item kind. |
 
 An augmentation must have a reason the generated view cannot express. It must
@@ -317,15 +312,15 @@ The current Release CLI suite owns the executable contract:
 | `CommandExecutionTests.Project_Discover_ExplicitTableDoesNotPromoteToTree`, `Project_Discover_TsvNoHeaderOmitsHeader`, and `Project_Discover_JsonOutWritesOnlyToFile` | Discovery preserves explicit format, header, and destination intent. |
 | `CommandExecutionTests.Member_DiscoverEffective_ListsCategoriesBeforeSections` | Bare effective discovery presents category doors before regular sections. |
 | `PackageQueryCliTests.DataDiscovery_UsesPackageQuerySchemaWithoutAcquisition` and `LibraryIntegrationQueryTests.StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget` | Structural discovery uses owner-issued schema without triggering domain acquisition or scanner execution. |
-| `CommandExecutionTests.Package_DiscoverSchema_ListsPublishedPackageInfoField` | Package structural discovery samples one runtime field before #7140 replaces the duplicate vocabulary with a complete shared-owner gate. |
+| `InspectionResultTests.PackageInfo_OwnerVocabularyDrivesDiscoverySchema` | The complete package-info discovery vocabulary is derived from the same typed descriptor catalog that drives rendering, with stable order and no duplicate names. |
 | `CloneCandidatesSectionTests.Type_JsonProjectionSupportsFieldsColumnsAndRows` and `Library_JsonProjectionSupportsSummaryFields` | These gates record the field-projection affordance that #7141 removes rather than preserves. |
 
 New schema composition forms require a focused gate that proves their generated,
 merged, augmented, or dynamic vocabulary matches the product document. The
-known package duplicate and clone-candidate field affordance are required
-removals; no safety, completeness, or compatibility claim rests on their
-sampled gates. A documentation-only change to this owner requires Markdown
-validation and verification that every named gate still exists.
+known clone-candidate field affordance is a required removal; no safety,
+completeness, or compatibility claim rests on its sampled gates. A
+documentation-only change to this owner requires Markdown validation and
+verification that every named gate still exists.
 
 ## Non-claims and required removals
 
@@ -345,11 +340,8 @@ filtering, and rendered-manifest effective discovery are current behavior.
 Replacing the remaining rendered-string projection diagnostics with manifest
 or typed identity evidence is required by
 [#7138](https://github.com/richlander/dotnet-inspect/issues/7138); no stronger
-section-scoped claim rests on the string path. Replacing the package field
-duplicate with one owner-issued vocabulary is required by
-[#7140](https://github.com/richlander/dotnet-inspect/issues/7140).
-Removing clone-candidate field projection and its stale vocabulary is required
-by
+section-scoped claim rests on the string path. Removing clone-candidate field
+projection and its stale vocabulary is required by
 [#7141](https://github.com/richlander/dotnet-inspect/issues/7141). Any new
 cross-host query language, generated accessor model, schema serialization
 contract, or additional pattern semantics requires a focused issue and owner;
