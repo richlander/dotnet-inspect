@@ -149,22 +149,12 @@ stays separate from Demos` in `library-hierarchy.spec.ts` gate the production
 page composition and motivating navigation flow using the existing typed
 facade fixtures. Product demo execution remains covered by the neighboring
 package and Platform Methods and Call Graph cases.
-`Demos keeps a loading state when opened before its catalog is ready` covers
-the data-bar entry during startup. The `Demos preserves Settings` browser
-cases cover both an open dialog and a dismissed dialog through a later Build
-identity render, including a user's new focus selection after dismissal.
-`Demos restores Spotlight dismissal focus` covers the heading, a demo action,
-and a data-bar link. The failed-demo-publication case also activates Retry
-after recovery. Delayed Package encoding cases cover Back and superseding
-navigation; an encoding failure retains the inspection with a visible notice.
-Rejected predecessor replacement and rejected Demos-entry publication likewise
-retain the current inspection or Home surface and expose the history failure.
-The Demos data-bar self-link is idempotent, so it cannot insert another catalog
-entry between the inspection and browser Back, including while a catalog-origin
-inspection is visible but its canonical destination publication remains
-pending.
-These cases consume the existing modal-focus, retry, and canonical-history
-contracts rather than introducing new navigation semantics.
+
+This composition gate begins from a settled canonical inspection and ordinary
+successful browser-history writes. Atomicity while a URL projection is pending,
+browser-history rejection recovery, and cross-surface modal focus are separate
+Navigation Consumer and Shell Interaction concerns; this page-composition
+adoption does not broaden or re-gate those contracts.
 
 Loading, catalog-unavailable, query-notice, and long-label states retain the
 same primary hierarchy. They do not replace Search with artwork, turn failure

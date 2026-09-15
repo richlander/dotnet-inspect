@@ -26,7 +26,6 @@ export interface HomeShellBindingActions {
   onDismissNotice: () => void;
   onOpenDemos: () => void;
   onToggleTheme: () => void;
-  onRetryNotice: () => void;
 }
 
 export interface LoadErrorShellBindingActions {
@@ -488,8 +487,6 @@ export function bindHomeShell(
     ?.addEventListener("click", actions.onDismissNotice);
   root.querySelector("#home-demos")
     ?.addEventListener("click", actions.onOpenDemos);
-  root.querySelector("#retry-notice")
-    ?.addEventListener("click", actions.onRetryNotice);
 }
 
 export function bindLoadErrorShell(

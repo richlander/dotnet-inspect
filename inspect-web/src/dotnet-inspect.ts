@@ -2669,7 +2669,6 @@ let callGraphRenderOperation: {
 } | null = null;
 let spotlightFocusGeneration = 0;
 let documentFocusGeneration = 0;
-let spotlightDemosReturnFocus: (() => boolean) | null = null;
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 interface ContentFrameReplacementAuthority {
@@ -2847,7 +2846,6 @@ const spotlight = createSpotlight({
 });
 
 function beginSpotlightNavigation() {
-  spotlightDemosReturnFocus = null;
   return ++spotlightFocusGeneration;
 }
 
@@ -2914,12 +2912,6 @@ function restoreContentFrameFocusAfterDismiss(
   afterCurrentNavigationFrame(() => {
     if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
     restoreOrdinaryModalDismissFocus(() => {
-      if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
-        const restoreFocus = spotlightDemosReturnFocus;
-        spotlightDemosReturnFocus = null;
-        if (!restoreFocus?.()) focusLevelOneHeading();
-        return;
-      }
       if (contentFrameUsesPush() && contentFrameMedia.matches) {
         if (contentFramePane === "navigation")
           focusContentNavigation(document);
@@ -3029,17 +3021,6 @@ function handleContentFrameResize(event: MediaQueryListEvent) {
 function openSpotlight(seed = "", spotlightScope: SpotlightScope = "all") {
   if (state.loading || state.error) return;
   beginSpotlightNavigation();
-  if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
-    const focused = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    const workspaceFocus = captureWorkspaceFocus(focused);
-    const homeFocus = captureHomeFocus(focused);
-    spotlightDemosReturnFocus = () =>
-      workspaceFocus ? restoreWorkspaceFocus(document, workspaceFocus)
-        : homeFocus ? restoreHomeFocus(homeFocus)
-          : false;
-  }
   spotlight.open(seed, spotlightScope);
 }
 
@@ -4643,21 +4624,15 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
     renderProductDemosPage();
     if (state.settings) {
-      if (!homeFocus
-        || !settingsOwnsHomeFocusTarget(homeFocus)
-        || !restoreHomeFocus(homeFocus)) {
-        document.querySelector<HTMLElement>("#settings-title")
-          ?.focus({ preventScroll: true });
-      }
+      document.querySelector<HTMLElement>("#settings-title")
+        ?.focus({ preventScroll: true });
     } else if (state.keyboardHelp) {
       document.querySelector<HTMLElement>("#keyboard-help-title")
         ?.focus({ preventScroll: true });
     } else if (workspaceFocus) {
       restoreWorkspaceFocus(document, workspaceFocus);
-    } else if (homeFocus && restoreHomeFocus(homeFocus)) {
-      if (homeFocus === pendingHomeFocusTarget) {
-        pendingHomeFocusTarget = null;
-      }
+    } else if (homeFocus) {
+      restoreHomeFocus(homeFocus);
     } else if (levelOneHeadingHadFocus) {
       focusLevelOneHeading();
     }
@@ -10548,7 +10523,6 @@ const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: dismissQueryNotice,
   onOpenDemos: openProductDemos,
   onToggleTheme: toggleTheme,
-  onRetryNotice: workbenchShellActions.onRetryNotice,
 };
 
 function bindHomeEvents(preservedFocus: HomeFocusTarget | null) {
@@ -10614,46 +10588,14 @@ function focusWorkspaceOrHeading(): void {
 }
 
 function openProductDemos(): void {
-  observeAsync(openProductDemosRoute(), "Opening Demos");
-}
-
-async function openProductDemosRoute(): Promise<void> {
-  const demosEntryActive = isProductHomeDemosPath(location.pathname);
-  if (state.workspaceSubjectOpen && demosEntryActive) {
-    return;
-  }
-  const navigationSeq = navigationSequence.begin();
+  dismissModalsForRoutedNavigation();
+  navigationSequence.begin();
+  state.loading = false;
+  clearNavigationError();
   if (!clearWorkspaceRouteFailure()) {
     render();
     return;
   }
-  if (!state.home && !state.loading && !state.error
-    && !state.packageQueryOpen && location.pathname === "/"
-    && (state.package || state.platformSelection)) {
-    const projection = workspaceUrlProjection();
-    let predecessor: URL;
-    try {
-      predecessor = await buildStateUrl();
-    } catch (error) {
-      if (navigationSequence.isCurrent(navigationSeq)) throw error;
-      return;
-    }
-    if (!navigationSequence.isCurrent(navigationSeq)
-      || projection !== workspaceUrlProjection()) return;
-    if (!workspaceLocation.replace(predecessor.toString(), history.state)) {
-      throw new Error(
-        "The browser rejected the current inspection history update.");
-    }
-    if (retainedWorkspaces.activeWorkspaceId !== null)
-      activeWorkspaceUrl = predecessor.toString();
-  }
-  if (!demosEntryActive && !workspaceLocation.push("/demos")) {
-    throw new Error("The browser rejected the Demos history entry.");
-  }
-  ++syncUrlRevision;
-  dismissModalsForRoutedNavigation();
-  state.loading = !state.engineReady;
-  clearNavigationError();
   state.home = false;
   state.credits = false;
   state.packageQueryOpen = false;
@@ -10662,6 +10604,7 @@ async function openProductDemosRoute(): Promise<void> {
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
+  workspaceLocation.push("/demos");
   render();
   afterCurrentNavigationFrame(() =>
     focusWorkspaceOrHeading());

@@ -423,11 +423,12 @@ test("opens the real inspect-web project and preserves DOM overload provenance",
     const candidates = expectResolved(session.getCallSignatures(propertyType.handle));
     assert.ok(candidates.length > 1);
 
-    const call = nodes.find(node =>
-      node.kind === NodeKind.CallExpression
-      && node.location.start === firstQuerySelector
-      && nodeText(node, text) === 'root.querySelector("#retry-notice")');
-    assert.ok(call !== undefined);
+    const call = oneNode(
+      nodes,
+      text,
+      NodeKind.CallExpression,
+      'root.querySelector("#retry-notice")',
+    );
     const selected = expectResolved(session.getResolvedSignature(call.handle));
     assert.equal(selected.category, "Call");
     assert.equal(selected.parameters.length, 1);

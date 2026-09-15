@@ -249,7 +249,6 @@ async function installFacades(
   homeDemos?: HomeDemoFixture,
   diagnostics: DiagnosticsFixture = {},
   packageLoading: PackageLoadingFixture = {},
-  workspaceEncoding: "ready" | "deferred-package" | "failed-package" = "ready",
 ) {
   const catalogTarget: PlatformCatalogTarget = {
     ...platformTarget,
@@ -793,31 +792,7 @@ async function installFacades(
           callGraph: null,
         };
       }
-      let deferPackageEncoding = ${workspaceEncoding === "deferred-package"};
-      let deferNextPackageEncoding = false;
-      let packageEncodingRequests = 0;
-      let packageEncodingCompletions = 0;
-      document.addEventListener("defer-next-package-encoding", () => {
-        deferNextPackageEncoding = true;
-      });
-      export async function encodeWorkspaceShareState(json) {
-        const deferredNextEncoding = deferNextPackageEncoding;
-        if (JSON.parse(json).view.lens === "overview" || deferredNextEncoding) {
-          document.documentElement.dataset.packageEncodingRequests =
-            String(++packageEncodingRequests);
-          if (${workspaceEncoding === "failed-package"}) {
-            throw new Error("Package encoding unavailable");
-          }
-          if (deferPackageEncoding || deferredNextEncoding) {
-            deferNextPackageEncoding = false;
-            document.documentElement.dataset.packageEncodingPending = "true";
-            await new Promise(resolve => document.addEventListener(
-              "finish-package-encoding", resolve, { once: true }));
-            deferPackageEncoding = false;
-          }
-          document.documentElement.dataset.packageEncodingCompletions =
-            String(++packageEncodingCompletions);
-        }
+      export function encodeWorkspaceShareState(json) {
         return { succeeded: true, packet: btoa(json), failure: null };
       }
       export function decodeWorkspaceShareState(packet) {
@@ -2045,57 +2020,6 @@ async function openHomeDemo(
   return share;
 }
 
-test("Demos keeps a loading state when opened before its catalog is ready", async ({
-  page,
-}) => {
-  await installFacades(
-    page, surface, [], "ready", "ready", undefined, "ready", "ready", {
-      catalog: [{
-        id: "stj-serializer",
-        title: "System.Text.Json",
-        summary: "Browse a real package API",
-      }],
-      results: {},
-      catalogPending: true,
-    });
-  await page.goto("/");
-  await expect(page.locator("html"))
-    .toHaveAttribute("data-home-demo-catalog-pending", "true");
-  await page.getByRole("link", { name: "Demos", exact: true }).click();
-  await expect(page).toHaveURL("/demos");
-  await expect(page.locator(".loading-screen")).toBeVisible();
-  await expect(page.getByText("No product demos are available.", { exact: true }))
-    .toHaveCount(0);
-  await releaseFacade(page, "finish-home-demo-catalog");
-  await expect(page.getByRole("heading", { name: "Demos", exact: true })).toBeFocused();
-  await expect(page.locator('[data-workspace-demo="stj-serializer"]')).toBeVisible();
-});
-
-for (const dismissSettings of [false, true]) {
-  test(`Demos preserves Settings ${dismissSettings ? "dismissal" : "control"} focus through a later rerender`, async ({
-    page,
-  }) => {
-    await installDiagnosticsFacades(page, { buildIdentity: "pending" });
-    await page.goto("/demos");
-    await expect(page.getByRole("heading", { name: "Demos", exact: true }))
-      .toBeVisible();
-    await page.getByRole("button", { name: "Open settings" }).click();
-    const focusTarget = dismissSettings
-      ? page.getByRole("link", { name: "Credits", exact: true })
-      : page.getByRole("button", { name: "Dark", exact: true });
-    if (dismissSettings) {
-      await page.keyboard.press("Escape");
-      await expect(page.getByRole("button", { name: "Open settings" })).toBeFocused();
-    }
-    await focusTarget.focus();
-    await expect(focusTarget).toBeFocused();
-    await releaseFacade(page, "finish-build-identity");
-    await expect(page.locator(".data-bar-product"))
-      .toContainText("dotnet-inspect vfixture");
-    await expect(focusTarget).toBeFocused();
-  });
-}
-
 test("Demos is a dedicated page reached from Home and the data bar", async ({
   page,
 }, testInfo) => {
@@ -2131,53 +2055,6 @@ test("Demos is a dedicated page reached from Home and the data bar", async ({
   await expect(page.locator("#spotlight-input")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.locator("#spotlight-input")).toHaveCount(0);
-});
-
-test("Demos self-link preserves the preceding inspection for Back", async ({
-  page,
-}) => {
-  await installFacades(page);
-  await page.goto("/?package=Example.Package&version=1.0.0&framework=net10.0");
-  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
-  const inspectionUrl = page.url();
-  await page.getByRole("link", { name: "Demos", exact: true }).click();
-  await expect(page).toHaveURL("/demos");
-  await page.getByRole("link", { name: "Demos", exact: true }).click();
-  await expect(page).toHaveURL("/demos");
-  await page.goBack();
-  await expect(page).toHaveURL(inspectionUrl);
-  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-});
-
-test("Demos preserves the preceding inspection when a staged inspection returns to its catalog entry", async ({
-  page,
-}) => {
-  await installFacades(page);
-  await page.goto("/?package=Example.Package&version=1.0.0&framework=net10.0");
-  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
-  const inspectionUrl = page.url();
-  await page.getByRole("link", { name: "Demos", exact: true }).click();
-  await expect(page).toHaveURL("/demos");
-
-  await releaseFacade(page, "defer-next-package-encoding");
-  await page.keyboard.press("Control+p");
-  await expect(page.locator('[data-sl-pkg-open="Example.Package"]')).toBeVisible();
-  await page.locator('[data-sl-pkg-open="Example.Package"]').click();
-  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("html"))
-    .toHaveAttribute("data-package-encoding-pending", "true");
-  await expect(page).toHaveURL("/demos");
-
-  await page.getByRole("link", { name: "Demos", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
-    .toBeVisible();
-  await expect(page).toHaveURL("/demos");
-  await releaseFacade(page, "finish-package-encoding");
-  await page.goBack();
-  await expect(page).toHaveURL(inspectionUrl);
-  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
 });
 
 test("Package navigation retains the shared System.Text.Json packet and Workspace stays separate from Demos", async ({
@@ -2238,139 +2115,6 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   await expect(page.locator("[data-workspace-activate]")).toContainText("netstandard2.0");
   await expect(page.locator("[data-workspace-demo]")).toHaveCount(0);
 });
-
-for (const superseded of [false, true]) {
-  test(`Demos preserves delayed Package encoding ${superseded ? "when a newer navigation supersedes it" : "through browser Back"}`, async ({
-    page,
-  }) => {
-    await installFacades(page, surface, [], "ready", "ready", undefined,
-      "ready", "ready", undefined, {}, {}, "deferred-package");
-    await page.goto("/?package=Example.Package&version=1.0.0&framework=net10.0");
-    await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-    await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
-    await chooseSubject(page, "package", "Package");
-    await expect(page.locator("html"))
-      .toHaveAttribute("data-package-encoding-pending", "true");
-    await page.getByRole("link", { name: "Demos", exact: true }).click();
-    await expect.poll(() => page.locator("html")
-      .getAttribute("data-package-encoding-requests").then(Number))
-      .toBeGreaterThanOrEqual(2);
-    if (superseded) {
-      await page.getByRole("link", { name: "dotnet inspect home" }).click();
-      await expect(page).toHaveURL("/");
-    }
-    await releaseFacade(page, "finish-package-encoding");
-    await expect.poll(() => page.locator("html")
-      .getAttribute("data-package-encoding-completions").then(Number))
-      .toBeGreaterThanOrEqual(2);
-    if (superseded) {
-      await expect(page.locator("#home-demos")).toBeVisible();
-      await expect(page).toHaveURL("/");
-      return;
-    }
-    await expect(page).toHaveURL("/demos");
-    await page.goBack();
-    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
-    expect(await page.evaluate((): unknown => {
-      const packet = new URL(location.href).searchParams.get("w");
-      return packet ? JSON.parse(atob(packet)) : null;
-    })).toMatchObject({
-      tabs: [{ source: "Example.Package", version: "1.0.0", framework: "net10.0" }],
-      view: { lens: "overview" },
-    });
-  });
-}
-
-test("Demos keeps the inspection visible when its predecessor encoding fails", async ({
-  page,
-}) => {
-  await installFacades(page, surface, [], "ready", "ready", undefined,
-    "ready", "ready", undefined, {}, {}, "failed-package");
-  await page.goto("/?package=Example.Package&version=1.0.0&framework=net10.0");
-  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await chooseSubject(page, "package", "Package");
-  await page.getByRole("link", { name: "Demos", exact: true }).click();
-  await expect(page.locator(".query-notice-text"))
-    .toContainText("Opening Demos failed");
-  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
-  expect(new URL(page.url()).pathname).toBe("/");
-});
-
-test("Demos keeps the inspection visible when predecessor history replacement fails", async ({
-  page,
-}) => {
-  await installFacades(page);
-  await page.goto("/?package=Example.Package&version=1.0.0&framework=net10.0");
-  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
-  await chooseSubject(page, "package", "Package");
-  await page.waitForFunction((): boolean => {
-    const packet = new URL(location.href).searchParams.get("w");
-    if (!packet) return false;
-    const state: unknown = JSON.parse(atob(packet));
-    return typeof state === "object" && state !== null
-      && "view" in state
-      && typeof state.view === "object" && state.view !== null
-      && "lens" in state.view
-      && state.view.lens === "overview";
-  });
-  await page.evaluate(() => {
-    Object.defineProperty(history, "replaceState", {
-      configurable: true,
-      value: () => {
-        throw new DOMException("History blocked");
-      },
-    });
-  });
-  await page.getByRole("link", { name: "Demos", exact: true }).click();
-  await expect(page.locator(".query-notice-text"))
-    .toContainText("browser rejected the current inspection history update");
-  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
-    .toHaveCount(0);
-});
-
-test("Demos keeps Home visible when its history entry is rejected", async ({
-  page,
-}) => {
-  await installHomeDemo(page, "Methods", "package");
-  await page.goto("/");
-  await expect(page.locator("#home-demos")).toBeEnabled();
-  await page.evaluate(() => {
-    Object.defineProperty(history, "pushState", {
-      configurable: true,
-      value: () => {
-        throw new DOMException("History blocked");
-      },
-    });
-  });
-  await page.locator("#home-demos").click();
-  await expect(page.locator(".query-notice-text"))
-    .toContainText("browser rejected the Demos history entry");
-  await expect(page.locator("#home-demos")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
-    .toHaveCount(0);
-  await expect(page).toHaveURL("/");
-});
-
-for (const invoker of ["heading", "demo", "credits"]) {
-  test(`Demos restores Spotlight dismissal focus to its ${invoker}`, async ({ page }) => {
-    const id = await installHomeDemo(page, "Methods", "package");
-    await page.goto("/");
-    await page.locator("#home-demos").click();
-    const target = invoker === "heading"
-      ? page.getByRole("heading", { name: "Demos", exact: true })
-      : invoker === "demo"
-        ? page.locator(`[data-workspace-demo="${id}"]`)
-        : page.getByRole("link", { name: "Credits", exact: true });
-    await target.focus();
-    await page.keyboard.press("Control+p");
-    await expect(page.locator("#spotlight-input")).toBeFocused();
-    await page.keyboard.press("Escape");
-    await expect(page.locator("#spotlight-input")).toHaveCount(0);
-    await expect(target).toBeFocused();
-  });
-}
 
 test("package Methods demo retains all returned coordinates and publishes its exact type", async ({
   page,
@@ -2491,17 +2235,6 @@ test("home demo history failure restores the catalog without publication", async
   await expect(page.locator(`[data-workspace-demo="${id}"]`)).toBeFocused();
   await expect(page.locator("[data-workspace-switch]"))
     .toHaveCount(retainedBefore);
-  await page.evaluate(() => {
-    Object.defineProperty(history, "pushState", {
-      configurable: true,
-      value: History.prototype.pushState.bind(history),
-    });
-    delete document.documentElement.dataset.homeDemoRun;
-  });
-  await page.locator("#retry-notice").click();
-  await expect(page.locator("html")).toHaveAttribute("data-home-demo-run", id);
-  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
-  await expect(page).not.toHaveURL(/\/demos$/);
 });
 
 async function openPlatform(page: Page, options: PlatformFixture = {}) {
