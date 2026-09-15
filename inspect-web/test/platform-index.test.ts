@@ -3,10 +3,22 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   DEFAULT_PLATFORM_FRAMEWORK,
+  isExactPlatformPruningFramework,
   parsePlatformCatalogTarget,
   parsePlatformIndex,
   platformCatalogFramework,
+  requirePlatformPackageSupplies,
 } from "../src/platform-index.ts";
+
+test("platform pruning accepts only exact modern .NET TFMs", () => {
+  assert.equal(isExactPlatformPruningFramework("net11.0"), true);
+  assert.equal(isExactPlatformPruningFramework("NET8.0"), true);
+  assert.equal(isExactPlatformPruningFramework("netstandard2.0"), false);
+  assert.equal(isExactPlatformPruningFramework("net472"), false);
+  assert.equal(isExactPlatformPruningFramework("net4.8"), false);
+  assert.equal(isExactPlatformPruningFramework("net8.0-windows"), false);
+  assert.equal(isExactPlatformPruningFramework("netcoreapp3.1"), false);
+});
 
 function row(assembly: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -111,9 +123,9 @@ test("catalog rejects mismatched versions and invalid rather than empty inventor
     supplies: [...target.supplies, target.supplies[0]!],
   }), /Duplicate platform package supply/);
   const targetWithoutSupplies = { ...target, supplies: undefined };
-  assert.deepEqual(
+  assert.equal(
     parsePlatformCatalogTarget(targetWithoutSupplies).supplies,
-    []);
+    null);
   assert.throws(
     () => parsePlatformIndex({
       ...catalog(),
@@ -121,6 +133,25 @@ test("catalog rejects mismatched versions and invalid rather than empty inventor
     }),
     /no exact package supply inventory/);
   assert.throws(() => parsePlatformIndex({ ...catalog(), defaultFramework: "net12.0" }), /default target/);
+});
+
+test("discovered targets without supply evidence cannot authorize pruning", () => {
+  const index = parsePlatformIndex(catalog());
+  const version = "12.0.0-preview.1";
+  index.addTarget(parsePlatformCatalogTarget({
+    tfm: "net12.0",
+    version,
+    rows: [row("System.Runtime", {
+      tfm: "net12.0",
+      packVersion: version,
+    })],
+  }));
+  const target = index.target("net12.0");
+  assert.ok(target);
+  assert.equal(target.supplies, null);
+  assert.throws(
+    () => requirePlatformPackageSupplies(target),
+    /no exact package supply inventory/);
 });
 
 test("library identity includes its pack instead of choosing a colliding name", () => {
@@ -150,7 +181,8 @@ test("shipped catalog supplies the exact default target and representative libra
   assert.equal(core?.kind, "impl");
   assert.equal(core?.inReferencePack, false);
   assert.equal(core?.hasImplementation, true);
-  const supply = target.supplies.find(entry => entry.package === "System.Text.Json");
+  const supplies = requirePlatformPackageSupplies(target);
+  const supply = supplies.find(entry => entry.package === "System.Text.Json");
   assert.equal(supply?.pack, "netcore.app");
   assert.equal(supply?.family, "Microsoft.NETCore.App");
   assert.equal(supply?.version, target.version);

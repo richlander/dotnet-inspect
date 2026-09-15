@@ -50,6 +50,7 @@ type PackageOperationName =
   | "getPackageDocument"
   | "queryMemberDocumentation"
   | "queryPackageDependencies"
+  | "queryPackagePruning"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion";
@@ -835,6 +836,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
     ),
+    queryPackagePruning: valueOperation(
+      "ordinary-package-query-pruning",
+      4,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackagePruning"]>
+      ) => facades.package.queryPackagePruning(...args),
+    ),
     queryPackageVersions: valueOperation(
       "ordinary-package-query-versions",
       2,
@@ -1251,6 +1260,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
+      ),
+      queryPackagePruning: bind(
+        engineWorkerOrdinaryOperations.package.queryPackagePruning,
       ),
       queryPackageVersions: bind(
         engineWorkerOrdinaryOperations.package.queryPackageVersions,
