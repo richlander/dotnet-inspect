@@ -95,7 +95,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 StringComparison.Ordinal);
         }
         Assert.Contains(
-            $"\"source\": \"{(operation == "type" ? id.ToLowerInvariant() : id)}\"",
+            $"\"source\": \"{id}\"",
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -263,11 +263,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Theory]
-    [InlineData("README.md", false)]
-    [InlineData("ref/net11.0/_._", true)]
-    public async Task Find_PackageWithoutSurfaceRemainsQueryableRoot(
-        string packageEntry,
-        bool expectedComplete)
+    [InlineData("README.md")]
+    [InlineData("ref/net11.0/_._")]
+    public async Task Find_PackageWithoutSurfaceReturnsStableEmptyResultArray(
+        string packageEntry)
     {
         string id =
             $"Workspace.Search.Empty.{Guid.NewGuid():N}";
@@ -305,21 +304,17 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
         Assert.Equal(
-            expectedComplete,
-            document.RootElement.GetProperty("complete").GetBoolean());
-        Assert.Empty(
-            document.RootElement.GetProperty("results").EnumerateArray());
-        if (!expectedComplete)
-        {
-            Assert.Contains(
-                "PackageAssetUnavailable",
-                result.Output,
-                StringComparison.Ordinal);
-        }
+            System.Text.Json.JsonValueKind.Array,
+            document.RootElement.ValueKind);
+        Assert.Empty(document.RootElement.EnumerateArray());
+        Assert.DoesNotContain(
+            "PackageAssetUnavailable",
+            result.Output,
+            StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Find_PackageRootPreparationFailureIsVisible()
+    public async Task Find_PackageRootPreparationFailureReturnsStableEmptyResultArray()
     {
         string id =
             $"Workspace.Search.Invalid.{Guid.NewGuid():N}";
@@ -342,15 +337,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal(0, result.Exit);
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
-        Assert.False(
-            document.RootElement.GetProperty("complete").GetBoolean());
-        Assert.Empty(
-            document.RootElement.GetProperty("results").EnumerateArray());
-        Assert.Contains(
+        Assert.Equal(
+            System.Text.Json.JsonValueKind.Array,
+            document.RootElement.ValueKind);
+        Assert.Empty(document.RootElement.EnumerateArray());
+        Assert.DoesNotContain(
             "PackageAssetUnavailable",
             result.Output,
             StringComparison.Ordinal);
-        Assert.Contains(
+        Assert.DoesNotContain(
             id.ToLowerInvariant(),
             result.Output,
             StringComparison.Ordinal);
