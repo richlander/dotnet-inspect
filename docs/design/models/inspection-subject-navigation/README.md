@@ -71,8 +71,8 @@ read that way:
   atomic subject+lens initialization inside one fresh Workspace. Replacement
   Workspace construction, cleanup, and active-reference installation belong to
   [Workspace Definitions](../../workspace-definitions.md) and the retained
-  host. #4787 established the current version-2 shape; #5525 tracks
-  Workspace/Package subject and retained-context adoption.
+  host. #4787 established the version-2 record family; #5525 owns
+  Workspace/Package subject and retained-context implementation.
 - **Retained occurrence context.** `AtomicRestoration.tla` does not model the
   exact retained occurrence or descendant Library/Type/Member path supplied
   independently from an active Workspace subject. It also does not model the
