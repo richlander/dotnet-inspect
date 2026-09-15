@@ -1,3 +1,7 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
 using ILInspector.Metadata;
 
@@ -95,6 +99,52 @@ public sealed class CSharpMemorySafetySpellingTests
 
         Assert.True(HasWord(rendered.Declaration.Text, "unsafe"));
         Assert.False(rendered.UsesCompatibilitySpelling);
+    }
+
+    [Theory]
+    [InlineData(MemorySafetyRulesState.Legacy)]
+    [InlineData(MemorySafetyRulesState.Updated)]
+    public void SingleDeclarationOutcomeRendersExactEnumValue(
+        MemorySafetyRulesState rules)
+    {
+        ApiType type = Type(rules, kind: "enum");
+        ApiMember member = Field(
+            "NotIpAddress",
+            rules,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            isStatic: true);
+        member.IsConst = true;
+        member.ReturnType = null;
+        member.SignatureModel = null;
+        member.EnumValueLiteral = "1";
+
+        CSharpMemberDeclarationOutcome.Rendered rendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.Rendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, member));
+
+        Assert.Equal("NotIpAddress = 1", rendered.Declaration.Text);
+        Assert.False(rendered.UsesCompatibilitySpelling);
+    }
+
+    [Fact]
+    public void ExtractedEnumValueContainsMetadataName()
+    {
+        byte[] image = BuildEnumImage("First\nInjected");
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader).Types,
+            candidate => candidate.Name == "TargetEnum");
+        ApiMember member = Assert.Single(type.Members);
+
+        CSharpMemberDeclarationOutcome.Rendered rendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.Rendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, member));
+
+        Assert.Equal("First_Injected = 1", rendered.Declaration.Text);
     }
 
     [Fact]
@@ -1777,6 +1827,76 @@ public sealed class CSharpMemorySafetySpellingTests
 
     static CSharpTypePrintResult Printed(CSharpTypePrintOutcome outcome)
         => Assert.IsType<CSharpTypePrintOutcome.Printed>(outcome).Result;
+
+    static byte[] BuildEnumImage(string memberName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("EnumNameFixture.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("EnumNameFixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle enumBase = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("TargetEnum"),
+            enumBase,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06);
+        fieldSignature.WriteByte(0x08);
+        BlobHandle signature = metadata.GetOrAddBlob(fieldSignature);
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public
+                | FieldAttributes.SpecialName
+                | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            signature);
+        FieldDefinitionHandle literal = metadata.AddFieldDefinition(
+            FieldAttributes.Public
+                | FieldAttributes.Static
+                | FieldAttributes.Literal,
+            metadata.GetOrAddString(memberName),
+            signature);
+        metadata.AddConstant(literal, 1);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 
     static ApiType Type(
         MemorySafetyRulesState rules,
