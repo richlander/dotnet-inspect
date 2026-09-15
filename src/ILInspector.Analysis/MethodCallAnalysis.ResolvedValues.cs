@@ -989,7 +989,7 @@ internal static partial class MethodCallAnalysis
             }
 
             ResolvedValueSet value =
-                sources.ResolveReturnedValue(instruction.Offset);
+                sources.ResolveTopValue(instruction.Offset);
             if (!value.IsResolved)
             {
                 resolved = false;
@@ -1034,16 +1034,16 @@ internal static partial class MethodCallAnalysis
             => new([source], isResolved: true);
 
         /// <summary>
-        /// The proven producers of the value one <c>ret</c> hands back, expanded across a
+        /// The proven producers of the top value consumed at an instruction, expanded across a
         /// control-flow merge when the evaluation-stack join left no single producer.
         /// </summary>
-        internal ResolvedValueSet ResolveReturnedValue(int returnOffset)
+        internal ResolvedValueSet ResolveTopValue(int offset)
         {
             if (!IsComplete)
                 return ResolvedValueSet.Unresolved;
 
             ImmutableArray<StackValue> stack =
-                _stack.StackBeforeOffset(returnOffset);
+                _stack.StackBeforeOffset(offset);
             if (stack.IsEmpty)
                 return ResolvedValueSet.Unresolved;
 
@@ -1053,7 +1053,7 @@ internal static partial class MethodCallAnalysis
 
             // The join collapsed the producer. The alternatives are whatever each reachable
             // predecessor left in that slot, so walk them instead of guessing.
-            int blockIndex = _context.Blocks.BlockIndexAt(returnOffset);
+            int blockIndex = _context.Blocks.BlockIndexAt(offset);
             return blockIndex < 0
                     || !IsSlotFromBlockEntry(blockIndex, stack, slotIndex)
                 ? ResolvedValueSet.Unresolved

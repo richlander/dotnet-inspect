@@ -151,6 +151,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [ReturnToSender: Fact-Planned Compile-Back Harness](design/fact-planned-compile-back-harness.md) | Spec for a fresh tools-side compile-back harness with fact-planned TypeProducer/TypePrinter shells. |
 | [Memory-Safety Models and Evidence](design/memory-safety-models.md) | v1/v2 vocabulary and composition of project policy, binary contracts, implementation evidence, and provenance. |
 | [Method Body Inspection](design/method-body-inspection.md) | Target service seam for shared `member` and `library --il-offset` method-body facts and coordinate inspection. |
+| [Analysis Local-Throw Evidence](design/analysis-local-throw-evidence.md) | Opt-in physical throw sites, construction provenance, qualified exception definitions, and explicit incomplete body coverage for future Relations adoption. |
 | [Member Body Substrate](design/member-body-substrate.md) | One base for skeleton/full/merged/diff body rendering: `ApiType` shape, `MemberAnchor` address, one scope, and `MemberBody`'s scalar (whole-body) and vector (offset-keyed) shapes. |
 | [NuGet API Selection](design/nuget.md) | Scenario-to-API decisions, endpoint roles, first/last-result performance evidence, and current versus proposed adoption. |
 | [NuGet Catalog Acquisition](design/nuget-catalog-acquisition.md) | Bounded incremental acquisition of advertised Catalog event windows with source identity, horizon, completion, and typed failure. |
@@ -231,7 +232,9 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |
 | [Call Graph Projection](design/call-graph-projection.md) | Projecting the inspection graph into a call graph. |
 | [Instruction Substrate](design/instruction-substrate.md) | Shared IL/control-flow substrate consumed by Analysis and the Decompiler. |
-| [Decompiler Exception-flow Facts](design/decompiler-exception-flow-facts.md) | Target immutable per-function exception-region identity, topology, membership, transfer, and raw/structured correspondence shared by Decompiler consumers. |
+| [Metadata Exception-region Facts](design/metadata-exception-region-facts.md) | Target closed physical method-body exception-clause catalog shared by Metadata, Analysis, Decompiler, and presentation consumers. |
+| [Instruction Exception-flow Facts](design/instruction-exception-flow-facts.md) | Target decoded-IL topology, location context, and normal-transfer facts shared by Analysis and Decompiler. |
+| [Exception Facts Composition](design/exception-facts-composition.md) | Metadata-to-Instructions identity handoff and peer Analysis/Decompiler adoption map. |
 | [TypeScript Facades for `[JSExport]`](design/ts-jsexport.md) | Generating TypeScript facades for JSExport members. |
 | [Classic Async Request Adapter](design/classic-async-request-adapter.md) | Carries exact Metadata relationship evidence and owner failures into the Decompiler classic-inverse boundary. |
 | [Classic Async Inverse Core](design/classic-async-reconstruction.md) | Proof-carrying reconstruction of authenticated classic async requests. |
