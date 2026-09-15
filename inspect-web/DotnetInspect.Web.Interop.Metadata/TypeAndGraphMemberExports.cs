@@ -219,7 +219,7 @@ public static partial class MetadataExports
                 root.Version,
                 root.Framework);
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.WorkspaceId,
             [
                 new WorkspaceContextDefinition(
@@ -228,7 +228,7 @@ public static partial class MetadataExports
                     members: [coordinate]),
             ]);
         var navigation = new NavigationDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.NavigationId,
             [
                 new NavigationTabDefinition(
@@ -237,12 +237,12 @@ public static partial class MetadataExports
             ],
             "t0");
         var view = new ViewDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.ViewId,
             lens: "dependencies",
             type: typeName);
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.ScenarioId,
             workspace: workspace.Id,
             context: "g0",

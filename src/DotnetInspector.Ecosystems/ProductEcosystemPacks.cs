@@ -217,7 +217,7 @@ internal static class ProductEcosystemPacks
 
     private static InspectionDefinitionRecord[] CreateStjSerializerRecords()
     {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int v = InspectionDefinitionSchema.Version1;
         var stjPlatform = Platform(
             "runtime",
             "System.Text.Json",
@@ -260,7 +260,7 @@ internal static class ProductEcosystemPacks
 
     private static InspectionDefinitionRecord[] CreateExtensionsCallGraphRecords()
     {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int v = InspectionDefinitionSchema.Version1;
         var diAbstractions = Platform(
             "aspnetcore",
             "Microsoft.Extensions.DependencyInjection.Abstractions",
@@ -323,7 +323,7 @@ internal static class ProductEcosystemPacks
     /// </summary>
     private static InspectionDefinitionRecord[] CreateStjSerializeCallGraphRecords()
     {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int v = InspectionDefinitionSchema.Version1;
         var stjPlatform = Platform(
             "runtime",
             "System.Text.Json",
@@ -372,7 +372,7 @@ internal static class ProductEcosystemPacks
     /// </summary>
     private static InspectionDefinitionRecord[] CreateConfigBindCallGraphRecords()
     {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int v = InspectionDefinitionSchema.Version1;
         var binder = Platform(
             "aspnetcore",
             "Microsoft.Extensions.Configuration.Binder",
@@ -421,7 +421,7 @@ internal static class ProductEcosystemPacks
     /// </summary>
     private static InspectionDefinitionRecord[] CreateOptionsAddCallGraphRecords()
     {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int v = InspectionDefinitionSchema.Version1;
         var options = Platform(
             "aspnetcore",
             "Microsoft.Extensions.Options",
@@ -470,7 +470,7 @@ internal static class ProductEcosystemPacks
     /// </summary>
     private static InspectionDefinitionRecord[] CreateDiTryAddCallGraphRecords()
     {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int v = InspectionDefinitionSchema.Version1;
         var di = Platform(
             "aspnetcore",
             "Microsoft.Extensions.DependencyInjection.Abstractions",
@@ -520,7 +520,7 @@ internal static class ProductEcosystemPacks
     /// </summary>
     private static InspectionDefinitionRecord[] CreateHttpAddHttpClientCallGraphRecords()
     {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int v = InspectionDefinitionSchema.Version1;
         var http = Platform(
             "aspnetcore",
             "Microsoft.Extensions.Http",
@@ -569,7 +569,7 @@ internal static class ProductEcosystemPacks
     /// </summary>
     private static InspectionDefinitionRecord[] CreateStjGetDecimalCallGraphRecords()
     {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int v = InspectionDefinitionSchema.Version1;
         var stj = Platform(
             "runtime",
             "System.Text.Json",
@@ -614,7 +614,7 @@ internal static class ProductEcosystemPacks
 
     private static InspectionDefinitionRecord[] CreateAspirePostgresCallGraphRecords()
     {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int v = InspectionDefinitionSchema.Version1;
         var postgres = Package("Aspire.Hosting.PostgreSQL", "13.5.3", "net8.0");
         return
         [
@@ -655,7 +655,7 @@ internal static class ProductEcosystemPacks
 
     private static InspectionDefinitionRecord[] CreateAspireRedisCallGraphRecords()
     {
-        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int v = InspectionDefinitionSchema.Version1;
         var redis = Package("Aspire.Hosting.Redis", "13.5.3", "net8.0");
         return
         [
