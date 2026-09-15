@@ -80,9 +80,10 @@ public sealed class PortableQueryPayloadVectorTests
 
         Assert.Equal(vector.GetProperty("same").GetBoolean(), left == right);
 
-        static PortableQueryIdentity Read(JsonElement state) => new(
-            state.GetProperty("queryId").GetString()!,
-            state.GetProperty("canonical").GetString()!);
+        static PortableQueryIdentity Read(JsonElement state) =>
+            CodecUnderTest.IdentityOf(
+                state.GetProperty("queryId").GetString()!,
+                state.GetProperty("canonical").GetString()!);
     }
 
     /// <summary>Every vector file kind is populated, so a silent empty read fails.</summary>

@@ -166,26 +166,118 @@ public sealed class PortableQueryCodecContractTests
     }
 
     /// <summary>
-    /// A ranking role must name a ranking stage, whichever path built the intent.
+    /// The model's aggregate invariants hold at construction, so an intent a host
+    /// never serializes still cannot be a contradiction.
     /// </summary>
+    /// <remarks>
+    /// These are the model's, not the payload's: a dimension bounded twice and a
+    /// role claimed twice are contradictions rather than narrower requests, and a
+    /// ranking that names no ranking stage is not a request at all. Deferring them
+    /// to the codec would let an in-process intent — which need never touch one —
+    /// hold a state the contract forbids.
+    /// </remarks>
     [Fact]
-    public void TypedIntent_RefusesARoleThatNamesNoRankingStage()
+    public void TypedIntent_RefusesContradictionsAtConstruction()
     {
-        PortableQueryIntent intent = PortableQueryIntent.Create(
+        Assert.Throws<ArgumentException>(() => PortableQueryIntent.Create(
+            [],
+            [new PortableQueryBound("candidates", 1), new PortableQueryBound("candidates", 2)],
+            [],
+            []));
+
+        Assert.Throws<ArgumentException>(() => PortableQueryIntent.Create(
+            [],
+            [new PortableQueryBound("candidates", 1), new PortableQueryBound("candidates", 1)],
+            [],
+            []));
+
+        Assert.Throws<ArgumentException>(() => PortableQueryIntent.Create(
             [],
             [],
             [PortableQueryStage.Head(5)],
+            [Ranking(0, "relevance")]));
+
+        Assert.Throws<ArgumentException>(() => PortableQueryIntent.Create(
+            [],
+            [],
+            [],
+            [Ranking(3, "relevance")]));
+
+        Assert.Throws<ArgumentException>(() => PortableQueryIntent.Create(
+            [],
+            [],
+            [PortableQueryStage.Top(5)],
+            [Ranking(0, "a"), Ranking(0, "b")]));
+
+        Assert.Throws<ArgumentException>(() => PortableQueryIntent.Create(
+            [],
+            [],
+            [],
             [
                 PortableQueryOrderOperation.Named(
-                    PortableQueryOrderRole.ForStage(0),
-                    "relevance",
-                    PortableQueryDirection.Descending)
-            ]);
+                    PortableQueryOrderRole.Baseline, "a", PortableQueryDirection.Ascending),
+                PortableQueryOrderOperation.Named(
+                    PortableQueryOrderRole.Baseline, "b", PortableQueryDirection.Ascending)
+            ]));
+
+        static PortableQueryOrderOperation Ranking(int stage, string reference) =>
+            PortableQueryOrderOperation.Named(
+                PortableQueryOrderRole.ForStage(stage),
+                reference,
+                PortableQueryDirection.Descending);
+    }
+
+    /// <summary>
+    /// The payload's byte ceiling belongs to the payload, and each entry point
+    /// charges it where that artifact exists.
+    /// </summary>
+    /// <remarks>
+    /// <c>Decode</c> charges it before parsing, because its input is the payload
+    /// and the untrusted path should never parse more than the declared maximum.
+    /// <c>Encode</c> charges it against the canonical form it just produced.
+    /// <c>ParseJson</c> charges neither, because it returns an intent rather than
+    /// a payload, and its input may be spelled with whitespace a payload cannot
+    /// carry — <c>payload-at-exact-byte-maximum</c> and three other admissible
+    /// vectors are witnessed exactly that way.
+    /// </remarks>
+    [Fact]
+    public void ThePayloadCeiling_IsChargedWhereThePayloadExists()
+    {
+        string oversized = @"{""t"":[[""k"",""eq"","""
+            + new string('v', PortableQueryPayloadCodec.MaxPayloadBytes)
+            + @"""]]}";
 
         Assert.Equal(
-            PortableQueryPayloadFailureKind.RoleNotTop,
+            PortableQueryPayloadFailureKind.LimitExceeded,
             Assert.Throws<PortableQueryPayloadException>(
-                () => CodecUnderTest.Encode(intent)).Kind);
+                () => CodecUnderTest.Decode(oversized)).Kind);
+
+        // The same request, spelled with padding no payload may carry, is still a
+        // valid intent; the ceiling catches it when the payload is written.
+        string padded = "{ \"t\" : [ [ \"k\" , \"eq\" , \"v\" ] ] }"
+            + new string(' ', PortableQueryPayloadCodec.MaxPayloadBytes);
+        PortableQueryIntent intent = CodecUnderTest.ParseJson(padded);
+        Assert.Equal(@"{""t"":[[""k"",""eq"",""v""]]}", CodecUnderTest.Encode(intent));
+
+        Assert.Equal(
+            PortableQueryPayloadFailureKind.LimitExceeded,
+            Assert.Throws<PortableQueryPayloadException>(
+                () => CodecUnderTest.Encode(CodecUnderTest.ParseJson(oversized))).Kind);
+    }
+
+    /// <summary>
+    /// An identity is only ever a vocabulary with a payload this codec vouched
+    /// for: emitted here, or confirmed canonical here.
+    /// </summary>
+    [Fact]
+    public void Identity_CannotBeBuiltFromUnvouchedBytes()
+    {
+        Assert.Equal(
+            PortableQueryPayloadFailureKind.EmptyPart,
+            Assert.Throws<PortableQueryPayloadException>(
+                () => CodecUnderTest.IdentityOf("v", @"{""t"":[]}")).Kind);
+
+        Assert.Equal("{}", CodecUnderTest.IdentityOf("v", "{}").Payload);
     }
 
     /// <summary>

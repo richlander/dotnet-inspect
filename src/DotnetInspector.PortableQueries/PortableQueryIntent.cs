@@ -379,16 +379,92 @@ public sealed class PortableQueryIntent
         ArgumentNullException.ThrowIfNull(stages);
         ArgumentNullException.ThrowIfNull(order);
 
-        return terms.Count == 0
+        if (terms.Count == 0
             && bounds.Count == 0
             && stages.Count == 0
-            && order.Count == 0
-                ? Empty
-                : new(
-                    PortableQuerySnapshot.Copy(terms, nameof(terms)),
-                    PortableQuerySnapshot.Copy(bounds, nameof(bounds)),
-                    PortableQuerySnapshot.Copy(stages, nameof(stages)),
-                    PortableQuerySnapshot.Copy(order, nameof(order)));
+            && order.Count == 0)
+        {
+            return Empty;
+        }
+
+        IReadOnlyList<PortableQueryBound> boundsCopy =
+            PortableQuerySnapshot.Copy(bounds, nameof(bounds));
+        IReadOnlyList<PortableQueryStage> stagesCopy =
+            PortableQuerySnapshot.Copy(stages, nameof(stages));
+        IReadOnlyList<PortableQueryOrderOperation> orderCopy =
+            PortableQuerySnapshot.Copy(order, nameof(order));
+
+        RequireOneBoundPerDimension(boundsCopy);
+        RequireOneOperationPerRole(orderCopy, stagesCopy);
+
+        return new(
+            PortableQuerySnapshot.Copy(terms, nameof(terms)),
+            boundsCopy,
+            stagesCopy,
+            orderCopy);
+    }
+
+    // A dimension bounded twice and a role claimed twice are contradictions
+    // rather than narrower requests, and a ranking that names no ranking stage
+    // is not a request at all. They are the model's invariants, so an intent
+    // cannot hold one even in a host that never serializes it. The codec's
+    // declared maxima are a separate matter and stay with the codec.
+    private static void RequireOneBoundPerDimension(
+        IReadOnlyList<PortableQueryBound> bounds)
+    {
+        if (bounds.Count < 2) return;
+
+        var dimensions = new HashSet<string>(StringComparer.Ordinal);
+        foreach (PortableQueryBound bound in bounds)
+        {
+            if (!dimensions.Add(bound.Dimension))
+            {
+                throw new ArgumentException(
+                    $"Dimension '{bound.Dimension}' carries more than one execution bound.",
+                    nameof(bounds));
+            }
+        }
+    }
+
+    private static void RequireOneOperationPerRole(
+        IReadOnlyList<PortableQueryOrderOperation> order,
+        IReadOnlyList<PortableQueryStage> stages)
+    {
+        if (order.Count == 0) return;
+
+        bool sawBaseline = false;
+        var stageRoles = new HashSet<int>();
+        foreach (PortableQueryOrderOperation operation in order)
+        {
+            if (operation.Role.IsBaseline)
+            {
+                if (sawBaseline)
+                {
+                    throw new ArgumentException(
+                        "At most one order operation carries the baseline role.",
+                        nameof(order));
+                }
+
+                sawBaseline = true;
+                continue;
+            }
+
+            int index = operation.Role.StageIndex;
+            if (index >= stages.Count
+                || stages[index].Kind is not RowSelectionStageKind.Top)
+            {
+                throw new ArgumentException(
+                    $"Role {index} names no ranking stage.",
+                    nameof(order));
+            }
+
+            if (!stageRoles.Add(index))
+            {
+                throw new ArgumentException(
+                    $"Stage {index} carries more than one ranking operation.",
+                    nameof(order));
+            }
+        }
     }
 }
 

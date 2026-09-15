@@ -136,7 +136,17 @@ public static class PortableQueryPayloadCodec
     /// element order, exact duplicate terms, empty parts, insignificant whitespace,
     /// and equivalent JSON string escapes are all accepted, and
     /// <see cref="Encode"/> restores the one canonical spelling. Every layout,
-    /// token, role, uniqueness, and limit rule still applies.
+    /// token, role, and uniqueness rule still applies, and so does every limit that
+    /// is a property of the intent — the part counts and the text lengths.
+    /// <para>
+    /// The payload's byte ceiling is not among them, because what this returns is
+    /// an intent and not a payload: the text it reads may be spelled with
+    /// whitespace a payload cannot carry, and several admissible intents are
+    /// witnessed that way. <see cref="Encode"/> charges that ceiling against the
+    /// canonical form, which is the artifact the limit is about. Untrusted bytes
+    /// arrive through <see cref="Decode"/>, which charges it before parsing,
+    /// because there the input <em>is</em> the payload.
+    /// </para>
     /// </remarks>
     /// <exception cref="PortableQueryPayloadException">The text is not one.</exception>
     public static PortableQueryIntent ParseJson(
@@ -166,14 +176,8 @@ public static class PortableQueryPayloadCodec
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(payload);
 
+        RequireWithinPayloadCeiling(payload);
         PortableQueryIntent intent = Read(payload, onTheWire: true);
-
-        if (s_utf8Strict.GetByteCount(payload) > MaxPayloadBytes)
-        {
-            throw Failure(
-                PortableQueryPayloadFailureKind.LimitExceeded,
-                $"The payload exceeds the {MaxPayloadBytes}-byte limit.");
-        }
 
         if (!string.Equals(Write(intent), payload, StringComparison.Ordinal))
         {
@@ -183,6 +187,33 @@ public static class PortableQueryPayloadCodec
         }
 
         return intent;
+    }
+
+    /// <summary>
+    /// Charges the payload's byte ceiling against arriving bytes, before they are
+    /// parsed, so the untrusted path never parses more than the declared maximum.
+    /// </summary>
+    private static void RequireWithinPayloadCeiling(string text)
+    {
+        int bytes;
+        try
+        {
+            bytes = s_utf8Strict.GetByteCount(text);
+        }
+        catch (EncoderFallbackException exception)
+        {
+            throw Failure(
+                PortableQueryPayloadFailureKind.UnpairedSurrogate,
+                "The text carries an unpaired surrogate.",
+                exception);
+        }
+
+        if (bytes > MaxPayloadBytes)
+        {
+            throw Failure(
+                PortableQueryPayloadFailureKind.LimitExceeded,
+                $"The payload exceeds the {MaxPayloadBytes}-byte limit.");
+        }
     }
 
     // ─── Canonical write ──────────────────────────────────────────────────────
@@ -397,58 +428,21 @@ public static class PortableQueryPayloadCodec
         }
 
         if (intent.Bounds.Count > MaxBounds) throw TooMany("execution bounds", MaxBounds);
-        var dimensions = new HashSet<string>(StringComparer.Ordinal);
         foreach (PortableQueryBound bound in intent.Bounds)
-        {
             ValidateText(bound.Dimension, identity: true);
-            if (!dimensions.Add(bound.Dimension))
-            {
-                throw Failure(
-                    PortableQueryPayloadFailureKind.RepeatedBoundDimension,
-                    "One dimension carries at most one execution bound.");
-            }
-        }
 
         if (intent.Stages.Count > MaxStages) throw TooMany("selection stages", MaxStages);
 
         if (intent.Order.Count > MaxOrderOperations)
             throw TooMany("order operations", MaxOrderOperations);
 
+        // One bound per dimension, one operation per role, and a ranking role that
+        // names a ranking stage are guaranteed by PortableQueryIntent.Create. They
+        // are the model's invariants, not the payload's, and are not re-checked
+        // here: an intent that reached this method cannot violate one.
         int fieldTerms = 0;
-        bool sawBaseline = false;
-        var stageRoles = new HashSet<int>();
         foreach (PortableQueryOrderOperation operation in intent.Order)
         {
-            if (operation.Role.IsBaseline)
-            {
-                if (sawBaseline)
-                {
-                    throw Failure(
-                        PortableQueryPayloadFailureKind.DuplicateRole,
-                        "At most one order operation carries the baseline role.");
-                }
-
-                sawBaseline = true;
-            }
-            else
-            {
-                int index = operation.Role.StageIndex;
-                if (index >= intent.Stages.Count
-                    || intent.Stages[index].Kind is not RowSelectionStageKind.Top)
-                {
-                    throw Failure(
-                        PortableQueryPayloadFailureKind.RoleNotTop,
-                        "A ranking role must name an existing ranking stage.");
-                }
-
-                if (!stageRoles.Add(index))
-                {
-                    throw Failure(
-                        PortableQueryPayloadFailureKind.DuplicateRole,
-                        "At most one order operation per ranking stage.");
-                }
-            }
-
             if (operation.Kind is PortableQueryOrderKind.Named)
             {
                 ValidateText(operation.Reference, identity: true);

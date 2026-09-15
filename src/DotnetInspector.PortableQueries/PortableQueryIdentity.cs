@@ -14,16 +14,36 @@ namespace DotnetInspector.PortableQueries;
 /// so it appears exactly once and cannot disagree with itself.
 /// </para>
 /// <para>
+/// Both halves are validated on the way in, and there is no other way in. An
+/// identity built from a payload that is merely payload-shaped would compare
+/// unequal to the same query's canonical form, which is exactly the deduplication
+/// failure the pair exists to prevent, so a payload becomes an identity only by
+/// being emitted here or by being confirmed canonical here.
+/// </para>
+/// <para>
 /// Identity is syntactic, like canonical form: two spellings a vocabulary would
 /// treat as equal can share as different links. A vocabulary that wants
 /// spelling-independent identity normalizes before constructing intent, where the
 /// user can see it happen.
 /// </para>
 /// </remarks>
-/// <param name="Vocabulary">Owner-issued identity of the vocabulary the terms resolve against.</param>
-/// <param name="Payload">The canonical payload, exactly as <see cref="PortableQueryPayloadCodec.Encode"/> emits it.</param>
-public readonly record struct PortableQueryIdentity(string Vocabulary, string Payload)
+public sealed record PortableQueryIdentity
 {
+    private PortableQueryIdentity(string vocabulary, string payload)
+    {
+        Vocabulary = vocabulary;
+        Payload = payload;
+    }
+
+    /// <summary>Owner-issued identity of the vocabulary the terms resolve against.</summary>
+    public string Vocabulary { get; }
+
+    /// <summary>
+    /// The canonical payload, exactly as
+    /// <see cref="PortableQueryPayloadCodec.Encode"/> emits it.
+    /// </summary>
+    public string Payload { get; }
+
     /// <summary>
     /// Pairs a vocabulary with the canonical payload of an intent.
     /// </summary>
@@ -38,5 +58,24 @@ public readonly record struct PortableQueryIdentity(string Vocabulary, string Pa
         return new(
             vocabulary,
             PortableQueryPayloadCodec.Encode(intent, cancellationToken));
+    }
+
+    /// <summary>
+    /// Pairs a vocabulary with a payload that arrived already encoded — from a
+    /// packet's query table, a stored record, or a share link.
+    /// </summary>
+    /// <exception cref="PortableQueryPayloadException">
+    /// The payload is not the one canonical spelling of an admissible intent.
+    /// </exception>
+    public static PortableQueryIdentity FromCanonicalPayload(
+        string vocabulary,
+        string payload,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(vocabulary);
+        ArgumentNullException.ThrowIfNull(payload);
+
+        PortableQueryPayloadCodec.Decode(payload, cancellationToken);
+        return new(vocabulary, payload);
     }
 }

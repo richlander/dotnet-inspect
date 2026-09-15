@@ -17,4 +17,10 @@ internal static class CodecUnderTest
 
     public static PortableQueryIdentity Identity(string vocabulary, PortableQueryIntent intent) =>
         PortableQueryIdentity.Create(vocabulary, intent, TestContext.Current.CancellationToken);
+
+    public static PortableQueryIdentity IdentityOf(string vocabulary, string payload) =>
+        PortableQueryIdentity.FromCanonicalPayload(
+            vocabulary,
+            payload,
+            TestContext.Current.CancellationToken);
 }
