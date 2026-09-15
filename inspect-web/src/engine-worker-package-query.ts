@@ -1527,25 +1527,15 @@ export function mapEngineWorkerPackageQueryCredit(
 function encodeQueryRequest(
   request: QueryRequest,
 ): BoundedPayloadDecodeResult<unknown> {
-  const payload: EngineWorkerPackageQueryInput =
-    request.assemblyPattern === undefined
-      ? {
-          kind: "query",
-          searchText: request.scopeQuery,
-          facetIds: request.facets.map(facet => facet.key),
-          maximumCandidates: request.requestedLimit,
-          maximumMatches: request.requestedMatchLimit,
-          includePrerelease: request.includePrerelease,
-          initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-        }
-      : {
-          kind: "assembly",
-          patternId: request.assemblyPattern.patternId,
-          operand: request.assemblyPattern.operand,
-          packageCoordinates: [...request.assemblyPattern.packageCoordinates],
-          targetFramework: request.assemblyPattern.targetFramework,
-          initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-        };
+  const payload: EngineWorkerPackageQueryInput = {
+    kind: "query",
+    searchText: request.scopeQuery,
+    facetIds: request.facets.map(facet => facet.key),
+    maximumCandidates: request.requestedLimit,
+    maximumMatches: request.requestedMatchLimit,
+    includePrerelease: request.includePrerelease,
+    initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+  };
   return engineWorkerPackageQueryInput.decode(payload);
 }
 

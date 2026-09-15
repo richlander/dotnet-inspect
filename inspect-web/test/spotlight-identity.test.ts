@@ -3469,9 +3469,6 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     appSource,
     /queryPackageRoot: rootRequest =>\s*inspectOpenPackageAssemblyQueryResult\(rootRequest\)/);
   assert.match(
-    appSource,
-    /runAssembly: \([\s\S]*?\) => inspectRunPackageAssemblyQuery\([\s\S]*?eventSink\)/);
-  assert.match(
     syncUrl,
     /function syncUrl\(\) \{\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(pendingDemoNavigation[\s\S]*navigationSequence\.isCurrent\(pendingDemoNavigation\.navigationSeq\)\) return;\s*if \(pendingWorkspaceConstruction[\s\S]*pendingWorkspaceConstruction\.navigationSeq\)\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
   assert.match(
@@ -3559,9 +3556,6 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     1);
   assert.match(
     appSource,
-    /onAssemblyRun: request => \{\s*state\.packageQueryNavigationError = "";\s*packageQueryLiveAnnouncer\.reset\(\);\s*void packageQueryController\.run\(request\)/);
-  assert.match(
-    appSource,
     /function submitPackageQueryRequest\(request: QueryRequest\) \{\s*packageQueryLiveAnnouncer\.reset\(\);\s*if \(!shouldExecuteQuery\(request\)\) \{\s*packageQueryController\.configure\(request\);\s*return;\s*\}\s*void packageQueryController\.run\(request\)/);
   assert.match(
     appSource,
@@ -3575,7 +3569,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /state\.packageQueryCatalogError =\s*`Package-query facets are unavailable/);
   assert.match(
     appSource,
-    /try \{\s*state\.packageQueryFacets =\s*packageQueryFacets\(await engineClient\.package\.listPackageQueryFacets\(\)\);\s*\} catch \(error\) \{[\s\S]*state\.packageQueryCatalogError =[\s\S]*\}\s*try \{\s*state\.packageQueryAssemblyPatterns =\s*packageQueryAssemblyPatterns\(\s*await engineClient\.package\.listPackageAssemblyQueryPatterns\(\)\);\s*\} catch \(error\) \{\s*state\.packageQueryAssemblyPatterns = \[\];\s*console\.error\("Package-query assembly patterns are unavailable\.", error\);\s*\}/);
+    /try \{\s*state\.packageQueryFacets =\s*packageQueryFacets\(await engineClient\.package\.listPackageQueryFacets\(\)\);\s*\} catch \(error\) \{[\s\S]*state\.packageQueryCatalogError =[\s\S]*\}/);
   assert.doesNotMatch(
     appSource,
     /state\.packageQuerySourceCatalog/);

@@ -245,7 +245,7 @@ function packageQueryRequest(
   };
 }
 
-function packageAssemblyQueryRequest(
+function assemblyQueryRequest(
   patternId: string,
   operand: string,
   packageCoordinatesJson: string,
@@ -268,12 +268,6 @@ function packageAssemblyQueryRequest(
     requestedLimit: Math.max(1, rawCoordinates.length),
     requestedMatchLimit: Math.max(1, rawCoordinates.length),
     includePrerelease: false,
-    assemblyPattern: {
-      patternId,
-      operand,
-      packageCoordinates: rawCoordinates,
-      targetFramework,
-    },
   };
 }
 
@@ -578,7 +572,7 @@ export function bindPackageQueryFacade(
     ) {
       return run(
         operationId,
-        packageAssemblyQueryRequest(
+        assemblyQueryRequest(
           patternId,
           operand,
           packageCoordinatesJson,
