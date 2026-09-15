@@ -265,7 +265,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-single-library",
                 "schema-static-before-package-acquisition/"
                     + "effective-after-package-acquisition",
-                "Library[schema:150:D6B4AD26E655]",
+                "Library[schema:151:1898992BB0AE]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -277,7 +277,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-all-libraries",
                 "schema-static-before-package-acquisition/"
                     + "render-after-package-acquisition",
-                "Library[schema:150:D6B4AD26E655]",
+                "Library[schema:151:1898992BB0AE]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -287,7 +287,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:173:6B8E4E0244E2]",
+                "Library[schema:174:BFC346B3F2CE]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -310,31 +310,31 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:70:58CD3C71C258]",
+                "ApiMember[schema:72:9AA6EF0DD181]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:70:58CD3C71C258]",
+                "ApiMember[schema:72:9AA6EF0DD181]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:87:0F21F6075CD8]",
+                "ApiMemberOverload[schema:89:B39F45D705A5]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:63:68C978C71635]",
+                "ApiMemberDetail[schema:65:B6F8C32CB8FA]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:173:121AF40A3D5D]",
+                "ApiType[schema:177:A9CB22122D7E]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -124,6 +125,31 @@ public class ImplementationProfilesSectionTests
         Assert.DoesNotContain(
             "## Implementation Profiles",
             result.Output);
+    }
+
+    [Fact]
+    public async Task
+        TypeImplementationProfiles_AllDocumentJsonSkipsExactOnlySection()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(new TypeOptions
+            {
+                TypeName =
+                    "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "ImplementationProfileSample",
+                AssemblyPath =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                Select = ["@All"],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            JsonValueKind.Object,
+            json.RootElement.ValueKind);
     }
 
     [Fact]

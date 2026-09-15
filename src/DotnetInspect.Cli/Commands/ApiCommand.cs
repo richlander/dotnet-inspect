@@ -632,6 +632,16 @@ public class ApiCommand
             CommandError.Write(cloneCandidatesSelectionError);
             return (null!, 1);
         }
+        (options, string? implementationProfilesSelectionError) =
+            NormalizeExactOnlySectionSelection(
+                options,
+                memberPipeline.SelectableSectionNames,
+                SectionNames.ImplementationProfiles);
+        if (implementationProfilesSelectionError is not null)
+        {
+            CommandError.Write(implementationProfilesSelectionError);
+            return (null!, 1);
+        }
         if (options is
             {
                 BodyKindQuery.HasFilter: true,

@@ -341,6 +341,24 @@ public class LibraryCommand
             return 1;
         }
         options = options with { IncludeSections = cloneSelection.Sections };
+        var implementationProfilesSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.ImplementationProfiles);
+        if (implementationProfilesSelection.Error is not null)
+        {
+            CommandError.Write(
+                implementationProfilesSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                implementationProfilesSelection.Sections,
+        };
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {
