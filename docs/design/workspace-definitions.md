@@ -27,11 +27,13 @@ composition and schema-dispatch substrate are implemented by
 to require the view/navigation pair and explicit leading Workspace subject and
 to complete pre-construction version-1 compatibility classification.
 Runtime subject/context selector resolution against one fresh Workspace,
-including inactive direct-Package state, is implemented by
-[#7094](https://github.com/richlander/dotnet-inspect/pull/7094), closing
-[#7049](https://github.com/richlander/dotnet-inspect/issues/7049). Query
-payload codecs, complete view binding, and the restoration coordinator defined
-here are not yet implemented.
+including inactive direct-Package state, is mostly implemented by
+[#7094](https://github.com/richlander/dotnet-inspect/pull/7094).
+[#7049](https://github.com/richlander/dotnet-inspect/issues/7049) remains open
+to materialize omitted direct-Package context as exact Package-only Navigation
+context and gate it through Navigation restoration. Query payload codecs,
+complete view binding, and the restoration coordinator defined here are not
+yet implemented.
 [#7087](https://github.com/richlander/dotnet-inspect/issues/7087) owns
 query-free packet-format-2 transposition. Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
@@ -653,7 +655,9 @@ preserves Navigation's distinction between active subject and retained context:
 two Workspace-selected states for the same occurrence but different retained
 Types are distinct committed states. An absent subject with lower retained
 context is invalid because recommendation would have ambiguous starting
-context.
+context. Portable selector resolution must materialize the exact
+`NavigationRetainedSubjectContext` containing the row's Package subject when
+the portable field is omitted; it must not pass null context to Navigation.
 
 `context.library` is one closed `PortableLibraryIdentity`:
 
@@ -814,29 +818,28 @@ canonical-ID composition.
 
 Strict version-1 decode first preserves one unresolved legacy plan. A
 workspace-free scenario remains on its existing source- or query-owner
-execution path and does not enter complete Workspace restoration. For a
-workspace-backed scenario whose focused source is a direct Package coordinate,
-the explicit legacy lowerer
-resolves each flat Type or Member selector after realization to its exact
-defining Library and forms the complete version-2 state table: one explicit
-Workspace state, one direct Package structural state per Package tab, and one
-undecorated dormant row per non-Package tab. Only that realized, exact output
-enters ordinary version-2 composition validation. A missing or ambiguous
-defining Library is `LegacyLoweringFailed`; the lowerer never invents a
-Library, stores a display-name approximation, or emits a partially specified
-version-2 state.
+execution path and does not enter complete Workspace restoration. A
+workspace-backed direct-Package scenario lowers to version 2 only when its
+recognized view requests Package-only recommendation, Package Overview, or
+Package Dependencies. That lowerer forms one explicit Workspace state, one
+direct Package structural state per Package tab, and one undecorated dormant
+row per non-Package tab, then enters ordinary version-2 composition validation.
+Recognized Type, Member, and aggregate-Library active requests remain unchanged
+in `LegacyCompatibilityRequired` before realization because those kinds are
+retained context, not active subjects, in version 2.
 
 A workspace-backed version-1 graph with no navigation, or focused on a group,
-Platform, embedded, project, directory, or local source, remains on the
-explicit version-1 compatibility execution path. It does not acquire Registry
-semantics in place and does not claim to be a complete version-2 composition.
-Its unchanged source record or canonical packet remains its location basis.
-Capturing a changed structural state from that active source is
-`NonProjectable` until an owning structural grammar exists; Workspace
-Definitions never fabricates Package ancestry or a missing coordinate to force
-the conversion. Version-1 support therefore remains behavior-compatible
-without claiming impossible Package-rooted lowering for non-Package or
-no-navigation inputs.
+Platform, embedded, project, directory, or local source, also remains on the
+explicit version-1 compatibility execution path, as does every definition-v1
+view carrying `library` or `libraries`. None acquires Registry semantics in
+place or claims to be a complete version-2 composition. Its unchanged source
+record or canonical packet remains its location basis. Capturing a changed
+structural state from that active source is `NonProjectable` until an owning
+structural grammar exists; Workspace Definitions never fabricates Package
+ancestry, promotes retained context into an active subject, or creates a
+missing coordinate to force the conversion. Version-1 support therefore
+remains behavior-compatible without claiming impossible Package-rooted
+lowering for descendant, non-Package, Library-scoped, or no-navigation inputs.
 
 ### The dependency boundary
 
@@ -2335,7 +2338,9 @@ Definition records and product demos (this slice):
   returns a source-associated typed failure without partial state for missing,
   ambiguous, incomplete, foreign, superseded, or noncontiguous input. It does
   not construct, publish, activate, or close a Workspace and does not resolve
-  Registry applicability;
+  Registry applicability. #7049 still must materialize omitted direct-Package
+  context as the exact Package-only Navigation context rather than returning a
+  null retained context;
 - `ProductDemoSourceBinding` is the Workspace-owned target-free static
   method-group binding. It validates exactly one matching scenario record,
   resolves that exact scenario, and enforces `ProductDemoSections`; the
@@ -2394,6 +2399,9 @@ Definition records and product demos (this slice):
   `Resolve_AllLibrariesRequiresOneLibraryButPackageContextDoesNot` gate
   runtime selector resolution, exact occurrence association, atomic typed
   failure, incomplete-inventory disclosure, and contiguous retained paths.
+  End-to-end Navigation restoration for subjectless and Workspace-subject
+  direct-Package rows with omitted portable context remains unverified under
+  #7049.
   `ProductDemoSourceBindingTests` gates source shape, exactly-once source
   invocation per resolve, exact scenario resolution, section admission, and
   visible failures.
@@ -2563,7 +2571,8 @@ Definition records and product demos (this slice):
   implemented; and
 - **not yet:** the designed View Facet Registry implementation, complete
   schema-version-2 validation and version-1 compatibility dispatch under
-  #7047, query-free packet format 2
+  #7047, omitted direct-Package context materialization under #7049,
+  query-free packet format 2
   ([#7087](https://github.com/richlander/dotnet-inspect/issues/7087)),
   query-bearing packet projection, legacy lowering, per-coordinate view/query
   binding, complete-restoration coordinator, CLI use of the codec/transposer for
