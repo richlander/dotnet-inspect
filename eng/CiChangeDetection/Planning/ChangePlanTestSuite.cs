@@ -214,6 +214,8 @@ internal static class ChangePlanTestSuite
                 "web"),
             (".github/workflows/deploy-inspect-web-coreclr.yml",
                 "web"),
+            (".github/workflows/deploy-inspect-web-runtime-sites.yml",
+                "web"),
             (".github/workflows/promote-inspect-web.yml",
                 "web"),
             (".github/workflows/other.yml", "code"),

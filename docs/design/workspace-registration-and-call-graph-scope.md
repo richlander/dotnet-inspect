@@ -24,7 +24,8 @@ The operator explicitly approved this bounded cross-owner replacement:
 - the Ecosystems API owns product curation: the initial platform composition
   contains Platform, ASP.NET Core, and Microsoft.Extensions; #6763 subsequently
   approved separate all-known construction, now including Aspire, AI, and
-  Azure;
+  Azure, and #7001 adds construction from an explicit ordered ecosystem
+  selection;
 - callers explicitly choose raw or curated construction according to their
   operation;
 - registration describes what the Workspace is about and supplies typed
@@ -128,6 +129,11 @@ not enumerate, rank, acquire, or continuously maintain the packages matching
 that prefix. A call-graph request selecting that prefix supplies its own
 finite discovery and acquisition bounds.
 
+Find does not select or expand this population arm. It searches only concrete
+content presented to its Workspace. Package-service queries and separately
+authorized graph operations may consume the declaration under their own finite
+source and work policies.
+
 ### Ecosystem
 
 An ecosystem registration names one product-owned ecosystem contribution.
@@ -169,16 +175,18 @@ acquisition, traversal, persistence, or lifetime semantics.
 
 The separate all-known plan factory includes Aspire, AI, and Azure, as required
 by [Subject Relations](subject-relations-workflows.md#broad-discovery-by-default).
-The focused handoff owns validation and construction for both choices. Neither
-is a compatibility catalog of earlier compositions. The catalog may change
-its manifests over time as product policy. A change affects only later curated
-construction. It does not mutate an existing Workspace or reinterpret a saved
-or shared definition.
+The focused handoff owns validation and construction for the two presets and
+explicit selected-set plans. None is a compatibility catalog of earlier
+compositions. The catalog may change its manifests over time as product policy.
+A change affects only later curated construction. It does not mutate an
+existing Workspace or reinterpret a saved or shared definition.
 
 Callers choose the construction owner according to their purpose:
 
 - a discovery experience such as the new `find` workflow chooses the all-known
-  Workspace; a consumer that wants platform curation selects it explicitly;
+  Workspace by default; an explicit ecosystem sequence chooses the
+  Ecosystems-owned selected-set plan, while a consumer that wants platform
+  curation selects that preset explicitly;
 - a high-fidelity or explicitly scoped operation may construct a raw Workspace
   and add only its declared inputs; and
 - restoration constructs a raw Workspace and applies the complete persisted
@@ -523,6 +531,7 @@ The following are required future outcome-level scenarios:
 | --- | --- |
 | Construct directly through the Workspace API | The registration set is empty; no catalog lookup, acquisition, or analysis occurs |
 | Construct through the Ecosystems factories | The platform variant contains Platform, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire, AI, and Azure. Neither performs registration-triggered acquisition or analysis. |
+| Construct through selected ecosystems | The plan contains exactly the requested registrations in caller order. Find still searches only concrete content presented to the Workspace and does not expand package-prefix arms. |
 | Remove one or all curated registrations, then navigate, open another subject, save, and restore | The exact registration set survives; the current curated composition does not reappear |
 | Change the curated manifest in a later product build | Later curated construction uses the new complete manifest; existing and restored Workspaces retain their exact registrations |
 | Run `find` for the real `System.Text.Json` overlap | The command explicitly chooses curated construction and can discover the Platform library without making curation intrinsic to Workspace |

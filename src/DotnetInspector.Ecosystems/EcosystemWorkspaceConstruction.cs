@@ -44,6 +44,16 @@ public static partial class EcosystemPackCatalog
     public static WorkspacePlan CreateWorkspacePlan() =>
         ProductEcosystemPacks.AllKnownWorkspacePlan;
 
+    /// <summary>
+    /// Returns a resource-free plan registering exactly the selected ecosystems
+    /// in caller order.
+    /// </summary>
+    public static WorkspacePlan CreateWorkspacePlan(
+        IEnumerable<EcosystemPackId> ecosystems) =>
+        EcosystemWorkspacePlanFactory.Create(
+            ProductEcosystemPacks.Registry,
+            ecosystems);
+
     /// <summary>Returns a resource-free plan with platform-curated registrations.</summary>
     public static WorkspacePlan CreatePlatformWorkspacePlan() =>
         ProductEcosystemPacks.PlatformWorkspacePlan;
