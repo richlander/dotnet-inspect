@@ -150,6 +150,7 @@ public sealed class EcosystemCommandTests
         Assert.Contains("ecosystem.ai", result.Output);
         Assert.Contains("ecosystem.azure", result.Output);
         Assert.Contains("ecosystem.blazor", result.Output);
+        Assert.Contains("ecosystem.maui", result.Output);
         Assert.Contains(
             "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 1 | 2 |",
             result.Output);
@@ -161,6 +162,9 @@ public sealed class EcosystemCommandTests
             result.Output);
         Assert.Contains(
             "| ecosystem.blazor | Blazor | Blazor browser, Hybrid, data, and authentication integrations. | none | 0 | 0 |",
+            result.Output);
+        Assert.Contains(
+            "| ecosystem.maui | .NET MAUI | .NET MAUI controls, Hybrid, toolkit, and graphics integrations. | none | 0 | 0 |",
             result.Output);
     }
 
@@ -235,6 +239,30 @@ public sealed class EcosystemCommandTests
             Microsoft.AspNetCore.Components.WebView.Maui
             Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter
             Microsoft.Authentication.WebAssembly.Msal
+            """,
+            result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task MauiCorePackagesExposeRegisteredCallGraphRoots()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "maui",
+            "-S",
+            "Core Packages",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            """
+            package
+            Microsoft.Maui.Controls
+            Microsoft.AspNetCore.Components.WebView.Maui
+            CommunityToolkit.Maui
+            Microsoft.Maui.Graphics.Skia
+            Microsoft.Maui.Graphics.Text.Markdig
             """,
             result.Output.Trim());
     }
@@ -621,6 +649,7 @@ public sealed class EcosystemCommandTests
         Assert.Contains("ai (ecosystem.ai)", result.Error);
         Assert.Contains("azure (ecosystem.azure)", result.Error);
         Assert.Contains("blazor (ecosystem.blazor)", result.Error);
+        Assert.Contains("maui (ecosystem.maui)", result.Error);
     }
 
     [Theory]
