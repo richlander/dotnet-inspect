@@ -398,6 +398,17 @@ dotnet-inspect find Serialize --members --type System.Text.Json.JsonSerializer \
   --package-prefix System.Text
 ```
 
+Use `depends=<package-id>` to require a direct dependency declared in any
+package manifest group. Repeat the term to require every named dependency:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends=Microsoft.Extensions.DependencyInjection"
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends=Microsoft.Extensions.DependencyInjection" \
+  --where "depends=Microsoft.Extensions.Configuration" --count
+```
+
 Add `--where "facet=<ID>"` to select a host-neutral Package Query facet, with
 one matched package per row and product-authored evidence. The initial CLI
 facet set identifies .NET tool packages and their CLI v1/v2 format. Discover

@@ -59,6 +59,15 @@ query's optional match budget; direct package rows also use that Head as their
 candidate bound. Existing Browser requests retain their numeric match-stop
 budget.
 
+The first parameterized term adoption under
+[#6972](https://github.com/richlander/dotnet-inspect/issues/6972) adds
+`depends=<package-id>` beside that existing facet surface. It is the first
+production consumer of the Package Query term descriptor and typed term plan;
+the existing parameterless facets remain active until their own term spellings
+and the Browser active-term editor land. This staged boundary does not define
+the portable intent codec or claim that the Browser already consumes
+parameterized terms.
+
 Related docs:
 
 - [Package Query inspection evidence](package-query-inspection-evidence.md)
@@ -91,6 +100,55 @@ Related docs:
 - [Inspection graph document](inspection-graph-document.md) — owns the
   relational (`graph integrations`) shape a subset of "wide query" questions
   actually need, instead of this document's flat, per-package row model.
+
+## Parameterized term binding
+
+The Package Query owner publishes one initial parameterized term:
+
+```text
+key: depends
+operator: eq
+value: <package-id>
+```
+
+The CLI spells it through the existing predicate grammar:
+
+```console
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends=Microsoft.Extensions.DependencyInjection"
+```
+
+`depends` admits equality only. Its value must be one canonical NuGet package
+ID, and planning rejects an invalid value before source work. It matches a
+direct dependency declared in any nuspec dependency group using NuGet
+package-ID comparison semantics. It does not select a target-framework group,
+evaluate version-range satisfiability, or traverse transitively.
+
+Repeated `depends` terms AND together. An exact duplicate input term is
+idempotent; two distinct spellings that resolve to the same case-insensitive
+package identity are rejected as one duplicated predicate. A matching
+package's evidence remains attributed to the exact term and names every
+distinct observed dependency spelling and declared range, subject to the
+existing bounded evidence preview.
+
+The term is nuspec-tier work. It uses dependency groups already acquired for a
+manifest candidate, performs no package download, and keeps the existing
+200-candidate default and 1,000-candidate maximum. A lone semantic Head may
+stop after its requested number of matching package witnesses; explicit
+`--take` fixes the candidate population, and `--count` requires that population
+or another accepted row selection to be complete under the existing Count
+rules.
+
+`PackageQueryTests.TermDescriptors_ExposeTheInitialDependsVocabulary`,
+`PlanInput_RejectsInvalidTermsBeforeExecution`,
+`PlanInput_CollapsesExactTermsAndRejectsBoundDuplicates`,
+`PlanInput_AppliesTheTermLimitAfterExactDuplicateCollapse`, and
+`ExecuteAsync_DependsTermsUseNuGetIdentityAndRetainRanges` gate the L1
+descriptor, planning, matching, evidence, and acquisition boundary.
+`PackageQueryCliTests.DependsTerm_LowersToTheProductPlan`,
+`DependsTerms_AndAcrossManifestDependenciesWithoutPackageContent`, and
+`DependsTerm_HeadStopsAfterItsWitnessAndCountEvaluatesThePopulation` gate the
+CLI spelling and its Head/Count behavior.
 
 ## CLI facet binding
 
@@ -714,6 +772,11 @@ the CLI's named facets as canonical for the browser's facet rail.
 8. **Define the shared save/resume file shape**, coordinated with whatever
    the browser experience's local-storage record settles on when it is
    implemented.
+9. **Adopt the first parameterized term.** `depends=<package-id>` lowers to one
+   typed nuspec term, repeated terms AND, evidence retains the observed
+   dependency and range, and the existing candidate and row-selection
+   contracts remain in force. Existing parameterless facets remain staged for
+   later conversion rather than being assigned speculative replacement keys.
 
 Each step should name its own gating tests as it lands, per this project's
 "asserted properties name their gate" rule — this document is not itself a
