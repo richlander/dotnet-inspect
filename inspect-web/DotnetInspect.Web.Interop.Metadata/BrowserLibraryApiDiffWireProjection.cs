@@ -34,8 +34,8 @@ internal static class BrowserLibraryApiDiffWireProjection
 {
     internal const int MaxChangedTypes = 10_000;
     internal const int MaxTypeTextCharacters = 6_000_000;
-    internal const int MaxOrdinaryWorkerJsonCharacters = 8_388_608;
-    internal const int MaxOrdinaryWorkerCollectionEntries = 262_144;
+    internal const int MaxOrdinaryWorkerJsonCharacters = 16_777_216;
+    internal const int MaxOrdinaryWorkerCollectionEntries = 524_288;
     internal const int OrdinaryWorkerResultTupleOverhead = 2;
 
     internal static BrowserLibraryApiDiffResult Project(

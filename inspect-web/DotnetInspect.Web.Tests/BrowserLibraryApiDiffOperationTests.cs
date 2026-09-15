@@ -380,7 +380,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 request,
                 Available(
                     BrowserLibraryApiDiffWireProjection.MaxChangedTypes,
-                    segmentCount: 2),
+                    segmentCount: 15),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
 
@@ -408,7 +408,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffResult result =
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
-                Available(1, new string('\u0001', 500_000)),
+                Available(1, new string('\u0001', 1_000_000)),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
 
@@ -441,7 +441,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         var operation = new InertString(TextPolicy.Field, "constraint");
         var kind = new InertString(TextPolicy.Field, "MalformedSignature");
         var detail = new InertString(TextPolicy.Field, "failure");
-        const int failureCount = 30_000;
+        const int failureCount = 60_000;
         var failures =
             new LibraryApiDiffEndpointIssue.InspectionFailures(failureCount)
             {
@@ -714,8 +714,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     ? [segment]
                     :
                     [
-                        .. Enumerable.Range(0, segmentCount)
-                            .Select(index => $"{segment}_{index}"),
+                        segment,
+                        .. Enumerable.Repeat("T", segmentCount - 1),
                     ])).Name;
 
     static BrowserLibraryApiDiffRequest Request(string packageId) =>
