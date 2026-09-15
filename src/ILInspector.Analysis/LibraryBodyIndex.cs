@@ -265,7 +265,8 @@ public sealed class LibraryBodyIndex
     /// <summary>
     /// Drops the maps that back the single-assembly call-tree builders: the
     /// definition map, distinct-caller counts and edges, and direct-call
-    /// grouping.
+    /// grouping. It also drops implementation-profile projections derived
+    /// from those call relationships.
     /// <para>
     /// For a consumer under a hard memory ceiling that is done asking call-graph questions. This
     /// deliberately does <em>not</em> drop the evidence-domain caches — method signals, caller-loop
@@ -287,6 +288,8 @@ public sealed class LibraryBodyIndex
         _distinctCallerEdgesByCallee = null;
         _directCallsByCaller = null;
         _directCallsByEvidenceMethod = null;
+        _overloadRelationships = default;
+        _projectedImplementationProfiles = default;
     }
 
     /// <summary>

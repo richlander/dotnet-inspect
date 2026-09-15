@@ -10791,6 +10791,8 @@ public class LibraryBodyIndexTests
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
             "_methodMap",
+            "_overloadRelationships",
+            "_projectedImplementationProfiles",
         ];
 
         // Evidence-domain caches the release methods deliberately retain.
@@ -10825,11 +10827,16 @@ public class LibraryBodyIndexTests
 
         static LibraryBodyIndex Exercised(string path)
         {
-            var index = LibraryBodyIndex.Open(path);
+            var index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.Default
+                    | LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles);
             int token = index.Methods.First().MetadataToken;
             index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
             index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
             _ = index.GetDirectCallsByEvidenceMethod();
+            _ = index.ImplementationProfiles();
             // The retained half of the contract is only gated on caches this workload actually
             // populates, and the call-tree builders alone reach just one of the seven. Touch the
             // evidence-domain producers too; OptimizationOpportunities is what pulls in
@@ -11979,6 +11986,141 @@ public class LibraryBodyIndexTests
 
         Assert.Equal(0, relationship.Caller.GenericArity);
         Assert.Equal(2, relationship.Callee.GenericArity);
+    }
+
+    [Fact]
+    public void
+        OverloadRelationships_LocalMemberReferenceUsesExactReturnType()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "ReturnOverloads.dll",
+                EmitReturnOverloadAssembly(),
+                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+        OverloadCallRelationship relationship =
+            Assert.Single(index.OverloadRelationships());
+        Assert.Equal(0x06000002, relationship.Callee.MetadataToken);
+        Assert.Equal(
+            "String",
+            relationship.Callee.ReturnType.Name);
+
+        MethodImplementationProfile integer =
+            Assert.Single(
+                index.ImplementationProfiles(),
+                profile =>
+                    profile.Method.MetadataToken == 0x06000001);
+        MethodImplementationProfile text =
+            Assert.Single(
+                index.ImplementationProfiles(),
+                profile =>
+                    profile.Method.MetadataToken == 0x06000002);
+        Assert.Equal(0, integer.IncomingOverloadCallerCount);
+        Assert.Equal(1, text.IncomingOverloadCallerCount);
+    }
+
+    static ImmutableArray<byte> EmitReturnOverloadAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ReturnOverloads.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ReturnOverloads"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Probe"),
+            metadata.GetOrAddString("Sample"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        BlobHandle returnsInt = AddSignature(0x08);
+        BlobHandle returnsString = AddSignature(0x0e);
+        BlobHandle takesInt = AddSignature(0x01, 0x08);
+        MemberReferenceHandle stringTarget =
+            metadata.AddMemberReference(
+                type,
+                metadata.GetOrAddString("Route"),
+                returnsString);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int intBody = AddBody(0x16, 0x2a);
+        int stringBody = AddBody(0x14, 0x2a);
+        var callerIl = new BlobBuilder();
+        callerIl.WriteByte(0x28);
+        callerIl.WriteInt32(
+            MetadataTokens.GetToken(stringTarget));
+        callerIl.WriteByte(0x26);
+        callerIl.WriteByte(0x2a);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerIl),
+            maxStack: 1);
+
+        AddMethod(returnsInt, intBody);
+        AddMethod(returnsString, stringBody);
+        AddMethod(takesInt, callerBody);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.CreateRange(image.ToArray());
+
+        BlobHandle AddSignature(
+            byte returnType,
+            params byte[] parameters)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x00);
+            signature.WriteCompressedInteger(parameters.Length);
+            signature.WriteByte(returnType);
+            foreach (byte parameter in parameters)
+                signature.WriteByte(parameter);
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        int AddBody(params byte[] il)
+        {
+            var code = new BlobBuilder();
+            code.WriteBytes(il);
+            return bodyEncoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        }
+
+        void AddMethod(
+            BlobHandle signature,
+            int bodyOffset)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Route"),
+                signature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
     }
 
     [Fact]
