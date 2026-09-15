@@ -21,7 +21,7 @@ body equivalence, or evidence that an inspector is available. Equal names or
 keys outside the designated pair establish nothing.
 
 The producer does not choose the image pair. Queries' separate
-[Library-pairing prerequisite #7072](https://github.com/richlander/dotnet-inspect/issues/7072)
+[coordinate Library-pairing contract](coordinate-library-pairing.md)
 must supply exact admitted Library endpoints for Navigation. Scope owns
 replacement occurrences; Navigation owns ancestor fallback and inspector
 requests; Registry owns inspector resolution. This document changes none of
