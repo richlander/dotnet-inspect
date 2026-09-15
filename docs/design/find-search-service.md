@@ -80,11 +80,12 @@ or Member consumer may reconstruct identity from its `FullName`, `Library`,
 
 For a direct miss, namespace-prefix and similarity work remains CLI-owned.
 Prefix fallback is issued as a separate `<pattern>*` locator request. A
-similarity census is issued as a separate `*` locator request and is performed
-only when a direct or prefix answer does not settle the pattern. The original
-answer and every fallback answer keep their own coverage. An incomplete direct
-answer is never described as a scoped miss merely because a later fallback
-produced no row.
+successful prefix answer settles that pattern without issuing or retaining a
+wildcard census. A similarity census is issued as a separate `*` locator
+request only when at least one non-wildcard pattern remains unresolved after
+its applicable prefix answer. The original answer and every issued fallback
+answer keep their own coverage. An incomplete direct answer is never described
+as a scoped miss merely because a later fallback produced no row.
 
 `FindOptions.Limit` is applied only to classified candidate rows. It is not
 passed to `WorkspaceDeclarationLocatorOptions` and cannot reduce inventory
@@ -97,14 +98,19 @@ The selected-candidate handoff is an owner-issued
 Package or Platform source arguments from the candidate's coordinate and
 attached realization/selection context, binds the candidate's structured
 Metadata name, and lets Member apply its exact Metadata-issued selector only
-after that Type binding. Package reopening is generated only when the
-invocation's existing source authorization can reacquire the observed
-producer. Platform implementation-pack observations have no public Type/Member
-source syntax that preserves their view, so their copyable commands visibly
-decline. Applying such a candidate to Type or Member is likewise unavailable
-until a source-owned exact implementation-view route exists. A candidate
-without a representable authorized reopening target retains its locator row
-and reports navigation unavailable rather than emitting a lossy command.
+after that Type binding. Package reopening uses the selection context's exact
+package-relative implementation asset path and selected compatible target
+framework, not the Library simple name or the realization's requested target
+framework. The path remains observation selection context rather than Package
+or Library identity. Package navigation is generated only when both values are
+present and the invocation's existing source authorization can reacquire the
+observed producer. Platform implementation-pack observations have no public
+Type/Member source syntax that preserves their view, so their copyable commands
+visibly decline. Applying such a candidate to Type or Member is likewise
+unavailable until a source-owned exact implementation-view route exists. A
+candidate without a representable authorized reopening target retains its
+locator row and reports navigation unavailable rather than emitting a lossy
+command.
 
 Automatic Platform Type/Member routing keeps the current definition and
 namespace-prefix preference in the Platform routing owner and remains on its
@@ -280,7 +286,10 @@ collection and source behavior:
 - distinct exact Package and Platform choices for
   `System.Text.Json.JsonSerializer`;
 - post-locator result limiting without an inventory bound;
-- typed Package Type and exact Member consumption;
+- typed Package Type and exact Member consumption through the selected
+  package-relative implementation asset;
+- selected-compatible-TFM replay when the request targets a newer framework;
+- staged namespace-prefix fallback without an unrelated wildcard census;
 - visible Platform implementation-view handoff and command decline;
 - configured-source command decline; and
 - separate `System.Object` definition and forwarder choices.

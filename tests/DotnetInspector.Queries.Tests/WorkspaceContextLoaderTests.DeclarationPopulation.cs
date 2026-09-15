@@ -120,8 +120,13 @@ public sealed partial class WorkspaceContextLoaderTests
             Assert.IsType<RealizedMemberCoordinate.Package>(p2.Receipt.Members[1].Realized).Producer);
         Assert.NotSame(p1.Receipt.Identity, p2.Receipt.Identity);
         Assert.True(p1.Receipt.IsRealizationComplete);
-        Assert.Equal(Framework,
-            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(earlier.Selection).Tfm);
+        var selection =
+            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+                earlier.Selection);
+        Assert.Equal(Framework, selection.Tfm);
+        Assert.Equal(
+            $"lib/{Framework}/{Path.GetFileName(TargetPath)}",
+            selection.AssetPath);
         Assert.Equal(WorkspaceDeclarationPopulationFailure.OccurrenceNotSelected,
             Assert.IsType<WorkspaceDeclarationInventoryOutcome.Unavailable>(
                 p1.ReadDeclarations(p2.Receipt.Members[1].Occurrence,

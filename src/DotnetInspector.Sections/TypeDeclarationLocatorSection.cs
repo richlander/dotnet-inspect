@@ -274,7 +274,8 @@ public abstract record TypeDeclarationLocatorSelection
         string PackageId,
         string PackageVersion,
         string? Tfm,
-        string? Rid)
+        string? Rid,
+        string? AssetPath)
         : TypeDeclarationLocatorSelection;
 
     public sealed record PlatformSelection(
@@ -806,7 +807,8 @@ public static class TypeDeclarationLocatorSection
                         package.PackageId,
                         package.PackageVersion,
                         package.Tfm,
-                        package.Rid),
+                        package.Rid,
+                        package.AssetPath),
                 AssemblyResolutionProvenance.PlatformAsset platform =>
                     new TypeDeclarationLocatorSelection.PlatformSelection(
                         platform.Framework,

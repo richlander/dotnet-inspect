@@ -42,18 +42,7 @@ internal sealed class TypeFindInspectionTarget
             TypeDeclarationLocatorRealization.PlatformRealization =>
                 throw PlatformReopeningUnavailable(),
             TypeDeclarationLocatorRealization.PackageRealization package =>
-                options with
-                {
-                    TypeName = typeName,
-                    PackagePath =
-                        $"{package.PackageId}@{package.Version}",
-                    AssemblyPath = AssemblyName(),
-                    PlatformAssembly = null,
-                    Tfm = package.Framework,
-                    OriginalTypeQuery = typeName,
-                    PlatformPrefixQuery = null,
-                    AllowPlatformPrefixFallback = false,
-                },
+                ApplyPackage(options, package, typeName),
             _ => throw new InvalidOperationException(
                 "The selected locator candidate has no CLI Type reopening path."),
         };
@@ -68,15 +57,7 @@ internal sealed class TypeFindInspectionTarget
             TypeDeclarationLocatorRealization.PlatformRealization =>
                 throw PlatformReopeningUnavailable(),
             TypeDeclarationLocatorRealization.PackageRealization package =>
-                options with
-                {
-                    TypeName = typeName,
-                    PackagePath =
-                        $"{package.PackageId}@{package.Version}",
-                    AssemblyPath = AssemblyName(),
-                    PlatformAssembly = null,
-                    Tfm = package.Framework,
-                },
+                ApplyPackage(options, package, typeName),
             _ => throw new InvalidOperationException(
                 "The selected locator candidate has no CLI Member reopening path."),
         };
@@ -87,7 +68,6 @@ internal sealed class TypeFindInspectionTarget
         bool includeAll)
     {
         string type = ShellCommandText.Quote(TypeName());
-        string library = ShellCommandText.Quote(AssemblyName());
         string sourceArguments;
         switch (_candidate.Observation.Realization)
         {
@@ -99,17 +79,24 @@ internal sealed class TypeFindInspectionTarget
                 {
                     return new(null, null, unavailable);
                 }
+                if (!TryGetPackageSelection(
+                        package,
+                        out string selectedTfm,
+                        out string assetPath,
+                        out unavailable))
+                {
+                    return new(null, null, unavailable);
+                }
 
                 sourceArguments =
                     $"--package "
                     + ShellCommandText.Quote(
                         $"{package.PackageId}@{package.Version}")
-                    + $" --library {library}"
+                    + " --library "
+                    + ShellCommandText.Quote(assetPath)
                     + (includeAll ? " --all" : "")
-                    + (package.Framework is null
-                        ? ""
-                        : " --tfm "
-                            + ShellCommandText.Quote(package.Framework));
+                    + " --tfm "
+                    + ShellCommandText.Quote(selectedTfm);
                 break;
 
             case TypeDeclarationLocatorRealization.PlatformRealization:
@@ -138,13 +125,94 @@ internal sealed class TypeFindInspectionTarget
         MetadataTypeNameFormatter.FormatGenericTypeName(
             _candidate.Name.ToMetadataFullName());
 
-    string AssemblyName() =>
-        _candidate.Observation.AssemblyIdentity.Name;
+    TypeOptions ApplyPackage(
+        TypeOptions options,
+        TypeDeclarationLocatorRealization.PackageRealization package,
+        string typeName)
+    {
+        if (!TryGetPackageSelection(
+                package,
+                out string selectedTfm,
+                out string assetPath,
+                out string? unavailable))
+        {
+            throw new InvalidOperationException(unavailable);
+        }
+
+        return options with
+        {
+            TypeName = typeName,
+            PackagePath = $"{package.PackageId}@{package.Version}",
+            AssemblyPath = assetPath,
+            PlatformAssembly = null,
+            Tfm = selectedTfm,
+            OriginalTypeQuery = typeName,
+            PlatformPrefixQuery = null,
+            AllowPlatformPrefixFallback = false,
+        };
+    }
+
+    MemberOptions ApplyPackage(
+        MemberOptions options,
+        TypeDeclarationLocatorRealization.PackageRealization package,
+        string typeName)
+    {
+        if (!TryGetPackageSelection(
+                package,
+                out string selectedTfm,
+                out string assetPath,
+                out string? unavailable))
+        {
+            throw new InvalidOperationException(unavailable);
+        }
+
+        return options with
+        {
+            TypeName = typeName,
+            PackagePath = $"{package.PackageId}@{package.Version}",
+            AssemblyPath = assetPath,
+            PlatformAssembly = null,
+            Tfm = selectedTfm,
+        };
+    }
 
     static InvalidOperationException PlatformReopeningUnavailable() =>
         new(
             "The selected Platform implementation observation has no exact "
                 + "Type or Member reopening path.");
+
+    bool TryGetPackageSelection(
+        TypeDeclarationLocatorRealization.PackageRealization package,
+        out string selectedTfm,
+        out string assetPath,
+        out string? unavailable)
+    {
+        if (_candidate.Observation.Selection
+                is TypeDeclarationLocatorSelection.PackageSelection selection
+            && string.Equals(
+                selection.PackageId,
+                package.PackageId,
+                StringComparison.OrdinalIgnoreCase)
+            && string.Equals(
+                selection.PackageVersion,
+                package.Version,
+                StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(selection.Tfm)
+            && !string.IsNullOrWhiteSpace(selection.AssetPath))
+        {
+            selectedTfm = selection.Tfm;
+            assetPath = selection.AssetPath;
+            unavailable = null;
+            return true;
+        }
+
+        selectedTfm = "";
+        assetPath = "";
+        unavailable =
+            "The selected package observation has no exact asset path and "
+                + "target framework for Type or Member reopening.";
+        return false;
+    }
 
     static bool CanReplayPackage(
         TypeDeclarationLocatorRealization.PackageRealization package,

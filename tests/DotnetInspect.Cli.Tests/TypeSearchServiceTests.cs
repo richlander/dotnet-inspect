@@ -98,11 +98,13 @@ public class TypeSearchServiceTests
         Assert.Equal(
             "system.text.json@10.0.0",
             packageType.PackagePath);
-        Assert.Equal("System.Text.Json", packageType.AssemblyPath);
+        Assert.Equal(
+            "lib/net10.0/System.Text.Json.dll",
+            packageType.AssemblyPath);
         Assert.Equal("net10.0", packageType.Tfm);
         Assert.Null(package.Navigation!.UnavailableReason);
         Assert.Contains(
-            package.Library,
+            "lib/net10.0/System.Text.Json.dll",
             package.Navigation.TypeCommand,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -172,6 +174,153 @@ public class TypeSearchServiceTests
             "System.Text.Json.JsonSerializer.Serialize",
             memberOutput,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task FindTypesAsync_PackageReopeningPreservesImplementationAsset()
+    {
+        using var httpClient = new HttpClient();
+        var options = new FindOptions
+        {
+            Pattern = "RuntimeBinder",
+            Packages = ["Microsoft.CSharp@4.7.0"],
+            Tfm = "netstandard2.0",
+        };
+
+        FindSearchResult<TypeFindResult> result =
+            await TypeSearchService.FindTypesAsync(
+                options,
+                [options.Pattern],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.HasFailures);
+        TypeFindResult row = Assert.Single(result.Rows);
+        Assert.Equal(
+            "Microsoft.CSharp.RuntimeBinder.RuntimeBinderException",
+            row.FullName);
+        TypeOptions typeOptions =
+            TypeFindIfMissResult.Found(options.Pattern, row)
+                .ApplyTo(new TypeOptions());
+        Assert.Equal(
+            "lib/netstandard2.0/Microsoft.CSharp.dll",
+            typeOptions.AssemblyPath);
+        Assert.Equal("netstandard2.0", typeOptions.Tfm);
+        Assert.Contains(
+            "lib/netstandard2.0/Microsoft.CSharp.dll",
+            row.Navigation!.TypeCommand,
+            StringComparison.Ordinal);
+        Assert.Collection(
+            result.LocatorSections,
+            section => Assert.Equal(
+                "RuntimeBinder",
+                SinglePatternRequest(section)),
+            section => Assert.Equal(
+                "*",
+                SinglePatternRequest(section)));
+
+        var (exitCode, output, _) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(typeOptions));
+        Assert.Equal(0, exitCode);
+        Assert.Contains(row.FullName, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task FindTypesAsync_PackageReopeningUsesSelectedCompatibleTfm()
+    {
+        using var httpClient = new HttpClient();
+        var options = new FindOptions
+        {
+            Pattern = "System.Text.Json.JsonSerializer",
+            Packages = ["System.Text.Json@10.0.0"],
+            Tfm = "net11.0",
+        };
+
+        FindSearchResult<TypeFindResult> result =
+            await TypeSearchService.FindTypesAsync(
+                options,
+                [options.Pattern],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.HasFailures);
+        TypeFindResult row = Assert.Single(result.Rows);
+        TypeDeclarationLocatorSelection.PackageSelection selection =
+            Assert.IsType<
+                TypeDeclarationLocatorSelection.PackageSelection>(
+                    row.Location!.Observation.Selection);
+        Assert.Equal("net10.0", selection.Tfm);
+        Assert.Equal(
+            "lib/net10.0/System.Text.Json.dll",
+            selection.AssetPath);
+
+        TypeOptions typeOptions =
+            TypeFindIfMissResult.Found(options.Pattern, row)
+                .ApplyTo(new TypeOptions());
+        Assert.Equal("net10.0", typeOptions.Tfm);
+        Assert.Equal(selection.AssetPath, typeOptions.AssemblyPath);
+        Assert.Contains(
+            "--tfm 'net10.0'",
+            row.Navigation!.TypeCommand,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "net11.0",
+            row.Navigation.TypeCommand,
+            StringComparison.Ordinal);
+
+        var (exitCode, output, _) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(typeOptions));
+        Assert.Equal(0, exitCode);
+        Assert.Contains(row.FullName, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task FindTypesAsync_PrefixMatchDoesNotRetainWildcardCensus()
+    {
+        using var httpClient = new HttpClient();
+        var options = new FindOptions
+        {
+            Pattern = "System.Text",
+            PlatformAssemblies = ["System.Private.CoreLib"],
+            Tfm = "net10.0",
+        };
+
+        FindSearchResult<TypeFindResult> result =
+            await TypeSearchService.FindTypesAsync(
+                options,
+                [options.Pattern],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.HasFailures);
+        Assert.NotEmpty(result.Rows);
+        Assert.All(
+            result.Rows,
+            static row =>
+                Assert.StartsWith(
+                    "System.Text",
+                    row.FullName,
+                    StringComparison.Ordinal));
+        Assert.Collection(
+            result.LocatorSections,
+            section => Assert.Equal(
+                "System.Text",
+                SinglePatternRequest(section)),
+            section => Assert.Equal(
+                "System.Text*",
+                SinglePatternRequest(section)));
+        Assert.DoesNotContain(
+            result.LocatorSections,
+            static section =>
+                SinglePatternRequest(section) == "*");
     }
 
     [Fact]
@@ -425,5 +574,19 @@ public class TypeSearchServiceTests
         Assert.NotNull(results);
         Assert.NotEmpty(results);
         Assert.DoesNotContain("Directory not found", capture.Error);
+    }
+
+    static string SinglePatternRequest(
+        TypeDeclarationLocatorSectionResult section)
+    {
+        TypeDeclarationLocatorSectionResult.Evaluated evaluated =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
+                section);
+        TypeDeclarationLocatorSectionAnswer answer =
+            Assert.Single(evaluated.Answers);
+        return Assert.IsType<
+                TypeDeclarationLocatorSectionRequest.PatternRequest>(
+                    answer.Request)
+            .Text;
     }
 }

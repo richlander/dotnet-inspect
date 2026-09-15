@@ -175,43 +175,59 @@ internal static class TypeSearchService
                     && LooksLikeNamespacePrefix(miss.Pattern))
                 .Select(static miss => $"{miss.Pattern}*")
                 .ToArray();
-        bool needsCensus =
-            misses.Any(
-                static miss =>
-                    !miss.Pattern.Contains('*')
-                    && !miss.Pattern.Contains('?'));
-        string[] fallbackRequests =
-        [
-            .. prefixRequests,
-                .. needsCensus ? ["*"] : Array.Empty<string>(),
-            ];
-        TypeDeclarationLocatorSectionResult.Evaluated? fallback = null;
-        if (fallbackRequests.Length > 0)
+        TypeDeclarationLocatorSectionResult.Evaluated? prefixSection = null;
+        if (prefixRequests.Length > 0)
         {
-            fallback =
+            prefixSection =
                 await workspace.LocateAsync(
-                    fallbackRequests,
+                    prefixRequests,
                     cancellationToken)
                 as TypeDeclarationLocatorSectionResult.Evaluated;
         }
 
         var prefixes = new Dictionary<string, List<TypeSearchResult>>(
             StringComparer.Ordinal);
-        if (fallback is not null)
+        var prefixCompletion = new Dictionary<string, bool>(
+            StringComparer.Ordinal);
+        if (prefixSection is not null)
         {
             for (int index = 0; index < prefixRequests.Length; index++)
             {
                 prefixes[prefixRequests[index]] =
                     ProjectCandidates(
-                        fallback.Answers[index].Candidates,
+                        prefixSection.Answers[index].Candidates,
                         options.TypeFilter);
+                prefixCompletion[prefixRequests[index]] =
+                    prefixSection.Answers[index].IsComplete;
             }
         }
 
+        bool needsCensus =
+            misses.Any(
+                miss =>
+                    !miss.Pattern.Contains('*')
+                    && !miss.Pattern.Contains('?')
+                    && (!LooksLikeNamespacePrefix(miss.Pattern)
+                        || !prefixes.TryGetValue(
+                            $"{miss.Pattern}*",
+                            out List<TypeSearchResult>? candidates)
+                        || candidates.Count == 0));
+        TypeDeclarationLocatorSectionResult.Evaluated? censusSection = null;
+        if (needsCensus)
+        {
+            censusSection =
+                await workspace.LocateAsync(
+                    ["*"],
+                    cancellationToken)
+                as TypeDeclarationLocatorSectionResult.Evaluated;
+        }
+
+        TypeDeclarationLocatorSectionAnswer? censusAnswer =
+            censusSection?.Answers[0];
         List<TypeSearchResult> census =
-            fallback is not null && needsCensus
+            censusAnswer is not null
                 ? ProjectCandidates(
-                    fallback.Answers[^1].Candidates,
+                    censusAnswer.Candidates,
                     options.TypeFilter)
                 : [];
         List<string> typeNames =
@@ -286,11 +302,24 @@ internal static class TypeSearchService
                 }
             }
 
-            bool fallbackComplete =
-                fallback is null
-                || fallback.Answers.All(
-                    static answer => answer.IsComplete);
-            if (directComplete && fallbackComplete)
+            bool prefixIsComplete =
+                !LooksLikeNamespacePrefix(pattern)
+                || prefixCompletion.GetValueOrDefault(
+                    $"{pattern}*");
+            bool patternNeedsCensus =
+                !pattern.Contains('*')
+                && !pattern.Contains('?')
+                && (!LooksLikeNamespacePrefix(pattern)
+                    || !prefixes.TryGetValue(
+                        $"{pattern}*",
+                        out List<TypeSearchResult>? candidates)
+                    || candidates.Count == 0);
+            bool censusIsComplete =
+                !patternNeedsCensus
+                || censusAnswer?.IsComplete is true;
+            if (directComplete
+                && prefixIsComplete
+                && censusIsComplete)
             {
                 results.Add(
                     new TypeFindResult
