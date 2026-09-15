@@ -274,4 +274,209 @@ public sealed partial class ArtifactSetSessionTests
                 cancellation.Token));
         Assert.Equal(1, calls);
     }
+
+    [Fact]
+    public async Task ArtifactContentLease_StatefulBorrowSupportsRefLikeState()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("stateful"),
+                [8, 9],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        using ArtifactQueryLease query =
+            session.IssueLease(
+                session.CreateQueryAuthorization());
+        ArtifactContentReference reference =
+            session.GetContentReference(
+                Assert.Single(session.GetCatalog(query)).Identity,
+                query);
+        using ArtifactContentLease content =
+            session.IssueContentLease(reference, query);
+        using var cancellation = new CancellationTokenSource();
+        ReadOnlySpan<byte> expected = stackalloc byte[] { 8, 9 };
+        var state = new StatefulBorrowState(
+            expected,
+            content,
+            cancellation);
+
+        var accessed =
+            Assert.IsType<
+                ArtifactContentAccessOutcome<int>.Accessed>(
+                    content.WithContent(
+                        state,
+                        static (view, state, token) =>
+                        {
+                            Assert.Equal(
+                                state.Cancellation.Token,
+                                token);
+                            Assert.Same(
+                                state.Lease.Reference,
+                                view.Reference);
+                            Assert.True(
+                                view.Content.SequenceEqual(
+                                    state.Expected));
+                            Assert.Throws<InvalidOperationException>(
+                                state.Lease.Dispose);
+                            state.Cancellation.Cancel();
+                            return view.Content.Length;
+                        },
+                        cancellation.Token));
+
+        Assert.Equal(2, accessed.Value);
+    }
+
+    [Fact]
+    public async Task ArtifactContentLease_StatefulBorrowComposesNestedExactBorrows()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using var session = new ArtifactSetSession();
+        ArtifactIdentity? firstIdentity = null;
+        ArtifactIdentity? secondIdentity = null;
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("first"),
+                    _ => new MemoryStream([1], writable: false));
+                firstIdentity = contribution.Descriptor.Identity;
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("second"),
+                    _ => new MemoryStream([2], writable: false));
+                secondIdentity = contribution.Descriptor.Identity;
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        using ArtifactQueryLease query =
+            session.IssueLease(
+                session.CreateQueryAuthorization());
+        ArtifactContentReference firstReference =
+            session.GetContentReference(
+                firstIdentity
+                ?? throw new InvalidOperationException(
+                    "The first Artifact identity was not captured."),
+                query);
+        ArtifactContentReference secondReference =
+            session.GetContentReference(
+                secondIdentity
+                ?? throw new InvalidOperationException(
+                    "The second Artifact identity was not captured."),
+                query);
+        using ArtifactContentLease first =
+            session.IssueContentLease(firstReference, query);
+        using ArtifactContentLease second =
+            session.IssueContentLease(secondReference, query);
+        var failure =
+            new InvalidOperationException("Nested callback failed.");
+
+        Assert.Same(
+            failure,
+            Assert.Throws<InvalidOperationException>(
+                () => first.WithContent(
+                    new NestedBorrowRequest(
+                        first,
+                        second,
+                        failure),
+                    BorrowNested,
+                    cancellationToken)));
+        var accessed =
+            Assert.IsType<
+                ArtifactContentAccessOutcome<int>.Accessed>(
+                    first.WithContent(
+                        new NestedBorrowRequest(
+                            first,
+                            second,
+                            Failure: null),
+                        BorrowNested,
+                        cancellationToken));
+
+        Assert.Equal(3, accessed.Value);
+    }
+
+    private static int BorrowNested(
+        scoped ArtifactContentView firstView,
+        NestedBorrowRequest request,
+        CancellationToken cancellationToken)
+    {
+        var state = new NestedBorrowState(
+            firstView,
+            request);
+        return Assert.IsType<
+            ArtifactContentAccessOutcome<int>.Accessed>(
+                request.Second.WithContent(
+                    state,
+                    BorrowNestedPair,
+                    cancellationToken)).Value;
+    }
+
+    private static int BorrowNestedPair(
+        scoped ArtifactContentView secondView,
+        scoped NestedBorrowState state,
+        CancellationToken _)
+    {
+        Assert.Same(
+            state.Request.First.Reference,
+            state.FirstView.Reference);
+        Assert.Same(
+            state.Request.Second.Reference,
+            secondView.Reference);
+        Assert.Equal(1, state.FirstView.Content[0]);
+        Assert.Equal(2, secondView.Content[0]);
+        Assert.Throws<InvalidOperationException>(
+            state.Request.First.Dispose);
+        Assert.Throws<InvalidOperationException>(
+            state.Request.Second.Dispose);
+        if (state.Request.Failure is { } failure)
+            throw failure;
+
+        return state.FirstView.Content[0]
+            + secondView.Content[0];
+    }
+
+    private readonly ref struct StatefulBorrowState(
+        ReadOnlySpan<byte> expected,
+        ArtifactContentLease lease,
+        CancellationTokenSource cancellation)
+    {
+        public ReadOnlySpan<byte> Expected { get; } = expected;
+        public ArtifactContentLease Lease { get; } = lease;
+        public CancellationTokenSource Cancellation { get; } =
+            cancellation;
+    }
+
+    private readonly record struct NestedBorrowRequest(
+        ArtifactContentLease First,
+        ArtifactContentLease Second,
+        Exception? Failure);
+
+    private readonly ref struct NestedBorrowState(
+        ArtifactContentView firstView,
+        NestedBorrowRequest request)
+    {
+        public ArtifactContentView FirstView { get; } =
+            firstView;
+        public NestedBorrowRequest Request { get; } =
+            request;
+    }
 }

@@ -14,7 +14,7 @@ Integration scanner implementation, plus product demos that exercise ordinary
 shipping sections over exact pinned inputs.
 
 The Package Set Registry includes Microsoft.Extensions, ASP.NET Core, and the
-audited 82-package Aspire inventory. The static pack registry, five-pack
+audited 82-package Aspire inventory. The static pack registry, six-pack
 manifest, ten-demo contribution, Workspace-owned lazy source binding, CLI
 handoff, inspect-web facade handoff, and the corresponding active Release gates
 named below are implemented. The assembly-friend tests, solution
@@ -59,6 +59,14 @@ plus four package-prefix populations to the all-known Workspace plan. It has no
 curated package set, scanner, tool, or demo. Its Microsoft.Extensions package
 families deliberately overlap the existing Microsoft.Extensions pack; neither
 registration claims exclusive ownership or rewrites the other's contributions.
+
+The Azure contribution approved in
+[#6235](https://github.com/richlander/dotnet-inspect/issues/6235) is implemented
+as the sixth pack. It contributes the modern `Azure.` package family and the
+`Microsoft.Extensions.Azure` application-integration root to the all-known
+Workspace plan, grounded in Microsoft's current Azure client-registration
+scenario. It has no curated package set, scanner, tool, or demo. Legacy
+`Microsoft.Azure.*` packages remain outside this contribution.
 
 Explicit [tool-package references](#tool-package-references) are implemented
 under #6060, beginning with `Aspire.Cli`. They are independent discovery
@@ -932,7 +940,7 @@ action metadata through their existing presentation owners.
 
 ## Shipped packs and staged adoption
 
-The current application catalog describes five packs from already-owned
+The current application catalog describes six packs from already-owned
 currencies and content:
 
 | Pack identity | Package-set identity | Product demos | Residual capabilities |
@@ -942,6 +950,7 @@ currencies and content:
 | `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | prefix catalog/host adoption remains staged; no scanner contributed yet |
 | `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; CLI supports ordinary-result narrowing, not scanner selection; browser selection remains staged; prefix catalog/host adoption remains staged |
 | `ecosystem.ai` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
+| `ecosystem.azure` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
 
 The eight existing demo IDs, metadata, global order, records, pins, and run
 plans remain unchanged. Their global orders are assigned in their current
@@ -959,9 +968,10 @@ capabilities:
 | ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore.OpenApi`, `Microsoft.AspNetCore.Authentication.JwtBearer` |
 | Aspire | `Aspire` | `Aspire.Hosting` |
 | AI | `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, `ModelContextProtocol` | `Microsoft.Extensions.AI`, `Microsoft.Extensions.AI.Abstractions`, `Microsoft.Extensions.VectorData.Abstractions`, `Microsoft.Agents.AI`, `ModelContextProtocol` |
+| Azure | `Azure`, `Microsoft.Extensions.Azure` | `Microsoft.Extensions.Azure`, `Azure.Identity`, `Azure.Security.KeyVault.Secrets`, `Azure.Storage.Blobs`, `Azure.Messaging.ServiceBus` |
 
 Aspire additionally contributes `Aspire.Cli` in its separate tool-package
-sequence; the other four packs contribute no tool references.
+sequence; the other five packs contribute no tool references.
 
 Each root is a compact descriptive subtree, not a package correspondence.
 The Extensions entries prioritize foundational DI, configuration, and logging
@@ -1004,6 +1014,43 @@ members of the Microsoft.Extensions ecosystem at the same time. The AI pack
 does not reference `package-set.microsoft-extensions`, because that curated set
 contains many packages outside this focused AI contribution.
 
+### Azure contribution evidence
+
+The Azure row is grounded in Microsoft's current Azure SDK for .NET application
+guidance and stable package releases observed on 2026-09-14:
+
+| Scenario role | Package evidence | Namespace hint | Workspace population prefix |
+| --- | --- | --- | --- |
+| Client registration through Microsoft.Extensions | [`Microsoft.Extensions.Azure@1.14.1`](https://www.nuget.org/packages/Microsoft.Extensions.Azure/1.14.1) | `Microsoft.Extensions.Azure` | `Microsoft.Extensions.Azure` |
+| Microsoft Entra authentication | [`Azure.Identity@1.21.0`](https://www.nuget.org/packages/Azure.Identity/1.21.0) | `Azure` | `Azure.` |
+| Key Vault secret client | [`Azure.Security.KeyVault.Secrets@4.11.1`](https://www.nuget.org/packages/Azure.Security.KeyVault.Secrets/4.11.1) | `Azure` | `Azure.` |
+| Blob Storage client | [`Azure.Storage.Blobs@12.29.2`](https://www.nuget.org/packages/Azure.Storage.Blobs/12.29.2) | `Azure` | `Azure.` |
+| Service Bus client | [`Azure.Messaging.ServiceBus@7.20.2`](https://www.nuget.org/packages/Azure.Messaging.ServiceBus/7.20.2) | `Azure` | `Azure.` |
+
+Microsoft's [Azure SDK for .NET
+overview](https://learn.microsoft.com/dotnet/azure/sdk/azure-sdk-for-dotnet)
+identifies authentication followed by a service client as the ordinary
+application path. Its [dependency-injection
+guide](https://learn.microsoft.com/dotnet/azure/sdk/dependency-injection)
+installs `Microsoft.Extensions.Azure` and `Azure.Identity`, then demonstrates
+Key Vault, Blob Storage, and Service Bus clients through one
+`AddAzureClients` composition. The core sequence preserves that concrete
+application order rather than ranking the full SDK or treating the transitive
+`Azure.Core` foundation as a direct application starting point.
+
+`Azure.` is the modern Azure SDK package-family population used by both client
+and management libraries. It intentionally excludes legacy
+`Microsoft.Azure.*` package IDs; the catalog makes no migration, equivalence,
+or completeness claim about those packages. `Microsoft.Extensions.Azure`
+omits a trailing dot so the current root package participates. Matching is
+literal rather than segment-aware, so any package ID beginning with the same
+text also falls in that population; this is not exhaustive membership or
+ownership. The value also matches the broader `Microsoft.Extensions.`
+registration. Both ecosystem registrations survive, while the
+Microsoft.Extensions curated package set continues to omit
+`Microsoft.Extensions.Azure`; prefix relevance, topic grouping, and curated
+membership remain separate authored facts.
+
 The initial Workspace projection is implemented under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
 application-owned platform order is Platform, ASP.NET Core, then
@@ -1013,8 +1060,9 @@ ASP.NET Core requires both its source-owned shared-framework population and
 the recorded `Microsoft.AspNetCore.` prefix; Microsoft.Extensions requires the
 recorded `Microsoft.Extensions.` prefix. Retrieval knowledge alone cannot make
 one of those registrations population-complete. A separate all-known manifest
-uses that order followed by Aspire and AI. Aspire retains its `Aspire.` prefix
-and exact scanner binding; AI retains its four package-prefix populations. The
+uses that order followed by Aspire, AI, and Azure. Aspire retains its `Aspire.`
+prefix and exact scanner binding; AI retains its four package-prefix
+populations; Azure retains `Azure.` and `Microsoft.Extensions.Azure`. The
 handoff owns completeness and fresh-construction semantics for the two intents
 approved in #6763; this is not a compatibility catalog of earlier manifests.
 Later product builds may change either manifest without changing raw Workspace
@@ -1247,7 +1295,7 @@ consumer gates.
 | `EcosystemPackRegistryTests.InvalidNamespaceRootsFailBeforePublication`, `InvalidCorePackagesFailBeforePublication`, and `MissingKnowledgeSequencesFailBeforePublication` | Malformed roots, missing sequences, and null, invalid, duplicate, versioned, or target-specific core coordinates fail complete construction visibly, without invoking demo sources. |
 | `EcosystemPackRegistryTests.EmptyKnowledgePreservesCapabilityRequirements` | Empty contributions remain empty; knowledge-only registrations fail the existing capability requirement. |
 | `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Reading knowledge and selecting one capability preserve the selected owner's outcome without invoking neighboring demo/scanner capabilities. |
-| `ProductEcosystemPackTests.ShippedRetrievalKnowledgeMatchesLiteralPolicy` | All five packs retain literal authored roots and core priorities, including Platform's empty core sequence and AI's four current namespace families and five core starting points. |
+| `ProductEcosystemPackTests.ShippedRetrievalKnowledgeMatchesLiteralPolicy` | All six packs retain literal authored roots and core priorities, including Platform's empty core sequence, AI's four current namespace families, and Azure's current application-client scenario. |
 | `PackageSetRegistryConsumerTests.PublicSurfaceKeepsCoreReferencesSeparateFromCuratedMembership` | An ordinary non-friend consumer reads immutable knowledge through discovery/lookup; Extensions core entries and curated membership remain distinct, Platform gains no package-set or scanner capability, and AI remains uncurated while overlapping existing Microsoft.Extensions membership. |
 
 ### Tool-reference gates
@@ -1360,10 +1408,10 @@ The owner tracks may advance independently:
    four-pack, ten-demo manifest with its focused gates. Do not change current
    package membership, existing demo execution, or search behavior.
 4. Add each remaining contribution slot or pack independently when its owner
-   track lands. #6234 adds the fifth AI pack through existing descriptor,
-   retrieval-knowledge, and Workspace-population currencies without a new
-   curated set or host-private path. No later addition reopens already
-   implemented selection/materialization semantics.
+   track lands. #6234 adds the fifth AI pack and #6235 adds the sixth Azure pack
+   through existing descriptor, retrieval-knowledge, and Workspace-population
+   currencies without a new curated set or host-private path. No later addition
+   reopens already implemented selection/materialization semantics.
 5. Adopt CLI and browser actions through the same implementation slice's
    application-catalog handoff; Integration remains independently adoptable.
 

@@ -32,10 +32,10 @@ Persistence and host activation remain in their separately owned slices.
 approved in #6763, supplies the platform and all-known construction intents
 adopted here. #7001 adds selected-set construction from an explicit ordered
 ecosystem identity sequence. The platform composition keeps its narrower
-meaning; all-known construction adds every shipped ecosystem, including Aspire
-and AI; selected-set construction adds exactly the requested registrations in
-caller order. These application-owned choices add no product policy to
-Workspace.
+meaning; all-known construction adds every shipped ecosystem, including Aspire,
+AI, and Azure; selected-set construction adds exactly the requested
+registrations in caller order. These application-owned choices add no product
+policy to Workspace.
 
 ## Authority and exact claim
 
@@ -191,8 +191,8 @@ application identity boundary. `Unavailable` means the pack is known but the
 product build contributes no lower Workspace declaration. `Unknown` means no
 pack registration has that exact application identity.
 
-Both calls synchronously return complete resource-free plans. They require no
-disposal and start no downloads. The former `CreateWorkspace`,
+All plan factories synchronously return complete resource-free plans. They
+require no disposal and start no downloads. The former `CreateWorkspace`,
 `CreateWorkspaceAsynchronous`, `CreatePlatformWorkspace` and
 `CreatePlatformWorkspaceAsynchronous` methods are retired, not retained as
 aliases. Live ownership is explicit at the caller:
@@ -391,6 +391,7 @@ AllKnownProductWorkspace
   ecosystem.microsoft-extensions
   ecosystem.aspire
   ecosystem.ai
+  ecosystem.azure
 ```
 
 This order is product policy. It is not derived from pack discovery order,
@@ -425,6 +426,7 @@ The current target contributions are:
 | Microsoft.Extensions | `Microsoft.Extensions.` package prefix |
 | Aspire (all-known only) | `Aspire.` package prefix |
 | AI (all-known only) | `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, and `ModelContextProtocol` package prefixes |
+| Azure (all-known only) | `Azure.` and `Microsoft.Extensions.Azure` package prefixes |
 
 Namespace roots and core-package priorities remain additional inert knowledge.
 They cannot satisfy the curated population requirement by themselves.
@@ -442,6 +444,15 @@ families for Microsoft.Extensions.AI, VectorData, Agent Framework, and MCP.
 The first two deliberately overlap the broader `Microsoft.Extensions.` prefix;
 the handoff preserves both authored registrations and neither infers exclusive
 ownership, package equivalence, or traversal authorization.
+
+Azure is absent from platform curation and present in all-known construction.
+Its `Azure.` prefix retains the modern Azure SDK client and management package
+family without including legacy `Microsoft.Azure.*` packages. Its
+`Microsoft.Extensions.Azure` prefix retains the application-integration root
+and deliberately overlaps the broader `Microsoft.Extensions.` registration.
+The handoff preserves both registrations without adding that package to the
+Microsoft.Extensions curated package set or inferring exclusive ownership,
+package equivalence, or traversal authorization.
 
 Adding or removing an entry is an application-manifest change, not a Workspace
 Scope default embedded in CLI, Browser, Queries, or persisted data. All-known
@@ -677,6 +688,7 @@ CreateWorkspacePlan()
        3. ecosystem.microsoft-extensions
        4. ecosystem.aspire
        5. ecosystem.ai
+       6. ecosystem.azure
 
 CreateWorkspacePlan([ecosystem.aspire, ecosystem.platform])
   -> WorkspacePlan
@@ -690,9 +702,9 @@ Direct `new WorkspacePlan()` instead returns an empty registration set.
 Restoring an explicitly empty registration sequence constructs raw and remains
 empty; neither host calls curated construction during restoration.
 
-The neighboring Aspire and AI packs have selectable lower declarations and
-appear only in the all-known sequence. Plans create no live Package membership;
-explicit live construction from either plan starts with empty acquired
+The neighboring Aspire, AI, and Azure packs have selectable lower declarations
+and appear only in the all-known sequence. Plans create no live Package
+membership; explicit live construction from any plan starts with empty acquired
 membership.
 
 ## Required gates
@@ -704,7 +716,7 @@ membership.
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
 | Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required population contributions are enforced without filtering ordinary pack discovery. |
-| All-known product Workspace | The separate current five-row order includes Aspire and AI and every known pack; missing or unavailable projections cannot be silently omitted. |
+| All-known product Workspace | The separate current six-row order includes Aspire, AI, and Azure and every known pack; missing or unavailable projections cannot be silently omitted. |
 | Selected product Workspace | A nonempty unique selected identity sequence produces exactly those retained registrations in caller order; null, duplicate, unknown, unavailable, and hints-only entries fail without a partial plan. |
 | Independent construction | One curated plan can seed distinct live Workspace identities; edits and close preserve the original plan and other owners. |
 | Lifetime preservation | Plans require no disposal; explicit live construction consumes the single Workspace awaited lifetime without an Ecosystems-owned variant. |
