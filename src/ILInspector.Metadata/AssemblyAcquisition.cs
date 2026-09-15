@@ -2,11 +2,19 @@ using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json.Serialization;
 using Inspector.Artifacts;
 
 namespace ILInspector.Metadata;
 
 /// <summary>Structured evidence describing how an assembly candidate was selected.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.PackageAsset), "package")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.PlatformAsset), "platform")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.ProjectAsset), "project")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.LocalAsset), "local")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.EmbeddedAsset), "embedded")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.DesignatedAsset), "designated")]
 public abstract record AssemblyResolutionProvenance
 {
     private protected AssemblyResolutionProvenance()

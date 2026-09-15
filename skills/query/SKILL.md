@@ -15,9 +15,10 @@ field/column projection. `timeline` supports section selection and projection
 but not `-D` discovery. `workspace` supports output formats, `--count`, and
 `--rows`, but not discovery, section selection, or field projection.
 `depends` supports `-D`, `-S`, categories, row windows, count, and field/column
-projection across its dependency graph and evidence sections. Other
-relationship commands may still expose fixed output. Discover the shape first
-where available, then select and project.
+projection across its dependency graph and evidence sections. Positional
+`depends <type>` also has a separate complete-service `--envelope` path
+described below. Other relationship commands may still expose fixed output.
+Discover the shape first where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -39,6 +40,18 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--tree` — a standalone tree for graph sections that support tree lowering.
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
+
+Positional `depends <type>` alone supports presence-only `--envelope`. It
+implies JSON and emits the complete service value with
+`schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
+Its `content` is semantically identical to the owner-issued camelCase
+`TypeDependencySectionResult` selected by unprojected `depends <type> --json`;
+whitespace and property order may differ. `--compact`, `--depth`, and semantic
+relationship row selection remain available. Presentation formats,
+Discover/schema/effective modes, `-S`, explicit `-v`, Count, field/column or
+scalar projection, decoration, and rendered-line clipping are incompatible.
+Asset-mode `depends`, other commands, and `--evidence-envelope` remain
+unadopted.
 
 On `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a

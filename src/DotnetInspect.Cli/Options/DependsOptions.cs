@@ -90,6 +90,8 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public bool JsonOutput { get; init; }
 
+    public bool EnvelopeOutput { get; init; }
+
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>The selected output format for the graph projection.</summary>
@@ -194,7 +196,8 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// True when output is raw text (not rendered markdown).
     /// </summary>
     public bool IsRawOutput =>
-        JsonOutput
+        EnvelopeOutput
+        || JsonOutput
         || ShareFormat is not null
         || Tree
         || Format is OutputFormat.PlainText

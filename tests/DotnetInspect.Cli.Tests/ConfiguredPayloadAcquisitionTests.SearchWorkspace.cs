@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
@@ -231,7 +232,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "Type 'No.Such.Type' not found in the specified scope.",
             result.Error,
             StringComparison.Ordinal);
-        Assert.Equal("", result.Output.Trim());
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.False(document.RootElement.GetProperty("queryResult").GetProperty("dependency")
+            .GetProperty("found").GetBoolean());
+        Assert.Empty(document.RootElement.GetProperty("rowSelection").GetProperty("relationships")
+            .EnumerateArray());
     }
 
     [Fact]

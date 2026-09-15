@@ -277,7 +277,16 @@ public class SearchSourceAdapterTests
 
         Assert.Equal(command == "depends" ? DependsCommand.TypeNotFoundExitCode : 0, exit);
         Assert.Equal(command == "depends" ? "" : "0", output.Trim());
-        Assert.Empty(error);
+        if (command == "depends")
+        {
+            Assert.Contains(
+                "Error: Type 'System.String' not found in the specified scope.",
+                error);
+        }
+        else
+        {
+            Assert.Empty(error);
+        }
     }
 
     [Theory]
