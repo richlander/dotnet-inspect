@@ -296,6 +296,14 @@ changing the suite's ecosystem-change report, clone-candidate, Library API
 diff, Member source-diff, or detached inspection-envelope presentation
 evidence.
 
+`CSharpText.MemberSlicing.Tests` is the twenty-fourth migrated adopter. The
+tracker called this project `DotnetInspector.CSharpBodySlicer.Tests` before its
+rename in [#6340](https://github.com/richlander/dotnet-inspect/pull/6340). Its
+developer command remains unfiltered. This path reuses the pinned outcome-level
+host gate without changing the suite's declaration slicing, conditional
+recovery, exact metadata-name correspondence, corpus breadth, or Roslyn
+parse-validity evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

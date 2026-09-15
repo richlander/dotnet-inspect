@@ -95,6 +95,23 @@ cues. A focused control on the strong selected fill uses its contrasting
 foreground for the inset focus ring. The browser palette gate checks the shared
 CSS roles, their representative consumers, and contrast in both themes.
 
+### Overlays and elevation
+
+Overlay scrims use a purple-black neutral rather than an unrelated green or
+gray cast. Dark mode uses the deeper and more opaque scrim; light mode uses a
+lighter purple-neutral scrim so the underlying page remains recognizable.
+
+Elevation communicates spatial hierarchy rather than brand identity. Menu,
+dialog, and drawer shadows therefore use neutral dark tones, with lower
+opacity in light mode. Floating menus and transient toasts use menu elevation;
+modal surfaces use dialog elevation; and drawers keep directional geometry
+while sharing one drawer-shadow color.
+
+Only detached surfaces receive elevation. Attached search results, inline
+cards, and full-surface explorers rely on layout and boundaries instead of
+shadows. The browser palette gate checks the shared roles and representative
+menu, dialog, drawer, toast, and scrim consumers in both themes.
+
 ## Selector controls
 
 Selector controls are compact pill-shaped buttons used to choose a value or
@@ -330,7 +347,7 @@ type, member, and graph source surfaces; page-level placement and related
 action placement remain with their owning surfaces.
 
 For type and member Source, the placement of provenance relative to content and
-the placement of Copy and optional Open are owned by
+the placement of Copy, optional Open, and Explore are owned by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source).
 Graph Source retains its modal-local composition.
 

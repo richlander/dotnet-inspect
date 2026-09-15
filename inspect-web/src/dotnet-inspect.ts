@@ -445,7 +445,15 @@ import {
   bindPackageComparisonTargets,
   createPackageComparisonTargets,
   renderPackageComparisonTargets,
+  resolveEffectiveDiffTarget,
 } from "./package-comparison-targets.ts";
+import {
+  bindLibraryApiDiff,
+  createLibraryApiDiffCoordinator,
+  renderLibraryApiDiff,
+  type LibraryApiDiffSelection,
+  type LibraryApiDiffState,
+} from "./library-api-diff.ts";
 import { dataBarHtml, fmtBytes } from "./data-bar.ts";
 import {
   DIAGNOSTICS_PATH,
@@ -594,6 +602,10 @@ let inspectPlatformMetadata:
 let inspectPlatformMetadataTable:
   EngineClient["metadata"]["queryPlatformMetadataTable"];
 let inspectTypeProjection: EngineClient["metadata"]["queryTypeProjection"];
+let cancelLibraryApiDiff:
+  EngineClient["metadata"]["cancelLibraryApiDiff"];
+let inspectLibraryApiDiff:
+  EngineClient["metadata"]["queryLibraryApiDiff"];
 let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
 let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
@@ -696,6 +708,8 @@ async function loadEngineModule() {
         inspectClearWorkspacePackageOccurrences,
     } = engineClient.package);
     ({
+      cancelLibraryApiDiff,
+      queryLibraryApiDiff: inspectLibraryApiDiff,
       queryGraphMemberSurface: inspectGraphMemberSurface,
       queryMemberDeclaration: inspectMemberDeclaration,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
@@ -999,6 +1013,7 @@ const initialState = {
   lens: "api" as const,
   packageLens: "overview" as const,
   libraryLens: "overview" as const,
+  libraryApiDiff: { status: "idle" as const },
   integrationMode: "integrations" as IntegrationMode,
   workspaceOccurrences: null,
   workspaceOccurrenceSignature: "",
@@ -1097,6 +1112,7 @@ interface StateOverrides {
   lens: TypeLens;
   packageLens: PackageLens;
   libraryLens: LibraryLens;
+  libraryApiDiff: LibraryApiDiffState;
   platformRecent: PlatformRecent[];
   recentPackages: RecentPackage[];
   selectedBodyTarget: BodyTarget | null;
@@ -1184,6 +1200,7 @@ async function projectCurrentWorkspaceUrl(): Promise<string> {
 function captureCanonicalWorkspaceRestoreSnapshot():
 CanonicalWorkspaceRestoreSnapshot {
   sourceInspection.cancelCurrentRequest();
+  libraryApiDiff.cancelCurrentRequest();
   cancelFindingCensusRequest(state);
   const packages = structuredClone(state.packages);
   const copies = new Map<AppPackage, AppPackage>();
@@ -1298,6 +1315,7 @@ function normalizeWorkspaceAsyncSnapshotState(
     normalizeSourceResultSnapshot(snapshotState.memberSource);
   snapshotState.typeSource =
     normalizeSourceResultSnapshot(snapshotState.typeSource);
+  snapshotState.libraryApiDiff = { status: "idle" };
   snapshotState.workspaceOccurrenceLoading = false;
   snapshotState.workspaceDependencyLoads = new Set();
   snapshotState.typeMetadataGeneration++;
@@ -2752,6 +2770,23 @@ const catalogRequests = createCatalogRequests({
 });
 const packageComparisonTargets =
   createPackageComparisonTargets(() => state.packages);
+const libraryApiDiff = createLibraryApiDiffCoordinator({
+  state,
+  operationAuthority,
+  query: (operationId, requestJson) =>
+    inspectLibraryApiDiff(operationId, requestJson),
+  cancel: (operationId, reason) => {
+    observeAsync(
+      cancelLibraryApiDiff(operationId, reason),
+      "Cancelling Library API Diff");
+  },
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Library API Diff operation authority failure.", diagnostic);
+    return undefined;
+  },
+  render,
+});
 const packageRemoval = createPackageRemoval({
   state,
   persistRecent: entries =>
@@ -3963,8 +3998,42 @@ function packageLensesFor(pkg: AppPackage | null) {
 }
 
 function libraryLensesFor(pkg: AppPackage | null) {
-  if (!pkg?.isRuntimePack) return libraryLenses;
-  return libraryLenses.filter(([id]) => id !== "references");
+  return libraryLenses.filter(([id]) => {
+    if (id === "compare")
+      return pkg?.source.kind === "nuget.org" && !pkg.isRuntimePack;
+    return !pkg?.isRuntimePack || id !== "references";
+  });
+}
+
+function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
+  const pkg = state.package;
+  const library = selectedLibrary();
+  if (!pkg
+    || !library
+    || state.home
+    || state.credits
+    || state.packageQueryOpen
+    || isDiagnosticsPath(location.pathname)
+    || !state.engineReady
+    || state.loading
+    || Boolean(state.error)
+    || pkg.source.kind !== "nuget.org"
+    || pkg.isRuntimePack
+    || !state.atLibraryRoot
+    || state.libraryLens !== "compare") {
+    return null;
+  }
+  return {
+    packageModel: pkg,
+    packageId: pkg.id,
+    currentVersion: pkg.version,
+    targetFramework: pkg.activeFramework,
+    compileAssetId: library.id,
+    target: resolveEffectiveDiffTarget(
+      packageComparisonTargets.get(pkg).diff,
+      catalogRequests.packageVersions(pkg),
+    ),
+  };
 }
 
 function scopedPlatformLibrary() {
@@ -4452,6 +4521,7 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
+  libraryApiDiff.reconcile(currentLibraryApiDiffSelection());
   const graphExplorerWasOpen = graphExplorer.isOpen;
   graphExplorer.beforeRender(graphExplorerKey());
   if (graphExplorerWasOpen && !graphExplorer.isOpen) {
@@ -4568,8 +4638,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     if (workspaceCatalogVisible) {
       renderWorkspaceCatalogView();
       if (state.settings) {
-        document.querySelector<HTMLElement>("#settings-title")
-          ?.focus({ preventScroll: true });
+        focusSettingsEntry();
       } else if (state.keyboardHelp) {
         document.querySelector<HTMLElement>("#keyboard-help-title")
           ?.focus({ preventScroll: true });
@@ -4679,6 +4748,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "package" && state.packageLens === "dependencies";
   const libraryMetadataWorkingSurface =
     activeScope === "library" && state.libraryLens === "metadata";
+  const libraryCompareWorkingSurface =
+    activeScope === "library" && state.libraryLens === "compare";
   const libraryReferencesWorkingSurface =
     activeScope === "library" && state.libraryLens === "references";
   const libraryIntegrationsWorkingSurface =
@@ -4720,6 +4791,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || metadataWorkingSurface
     || overviewWorkingSurface
     || packageDependenciesWorkingSurface
+    || libraryCompareWorkingSurface
     || libraryMetadataWorkingSurface
     || libraryReferencesWorkingSurface
     || libraryIntegrationsWorkingSurface
@@ -4803,7 +4875,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
+          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryCompareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
               ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${state.requestedVersion !== pkg.version ? "package-version" : "framework"}"><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
@@ -4843,8 +4915,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     }
   }
   if (state.settings) {
-    document.querySelector<HTMLElement>("#settings-title")
-      ?.focus({ preventScroll: true });
+    focusSettingsEntry();
   } else if (state.keyboardHelp) {
     document.querySelector<HTMLElement>("#keyboard-help-title")
       ?.focus({ preventScroll: true });
@@ -4860,8 +4931,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     focusLevelOneHeading();
   } else if (isIntegrationMode(integrationTabFocus)) {
     restoreIntegrationTabFocus(document, integrationTabFocus);
-  } else if (packageRetryHadFocus
-    || (packageControlHadFocus && (packageLoadingHadFocus || loadingPackageContent))) {
+  } else if (packageRetryHadFocus || packageControlHadFocus) {
     document.querySelector<HTMLElement>(
       loadingPackageContent ? "#package-content-loading" : `#${packageLoadingControl}`)
       ?.focus({ preventScroll: true });
@@ -5293,6 +5363,7 @@ function libraryHeading() {
 function renderLibraryView() {
   const body = libraryLensBody();
   if (state.libraryLens === "overview"
+    || state.libraryLens === "compare"
     || state.libraryLens === "references"
     || state.libraryLens === "integrations"
     || state.libraryLens === "analysis"
@@ -5334,6 +5405,7 @@ function packageLensBody() {
 function libraryLensBody() {
   switch (state.libraryLens) {
     case "overview": return renderLibraryOverview();
+    case "compare": return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml);
     case "references": return renderLibraryReferences();
     case "integrations": return state.integrationMode === "opportunities"
       ? renderPackageOpportunities()
@@ -7164,6 +7236,7 @@ function bindTypePanelEvents() {
       if (state.typeSource.status === "ready")
         void copyText(state.typeSource.source.text, "source copied");
     },
+    onExploreSource: () => openSettings("source"),
     onKindSelect: kind => {
       state.kindFilter = kind;
       state.typeCursor = 0;
@@ -7803,6 +7876,7 @@ function bindEvents() {
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
   bindPackageComparisonControls();
+  bindLibraryApiDiffEvents();
   bindLibraryControlsEvents();
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
@@ -8802,10 +8876,36 @@ function bindPackageComparisonControls() {
   });
 }
 
+function bindLibraryApiDiffEvents() {
+  bindLibraryApiDiff(document, {
+    changeTarget: () => {
+      state.atPackageRoot = true;
+      state.atLibraryRoot = false;
+      state.packageLens = "overview";
+      contentFramePane = "detail";
+      render();
+      afterCurrentNavigationFrame(() => {
+        document.querySelector<HTMLElement>("#package-diff-target")
+          ?.focus({ preventScroll: true });
+      });
+    },
+    retry: () => {
+      const selection = currentLibraryApiDiffSelection();
+      if (!selection || selection.target.kind !== "available") return;
+      libraryApiDiff.retry(selection);
+      render();
+    },
+  });
+}
+
 // Repaint just the version <select> options without a full re-render, so an async index
 // fetch never disturbs focus, scroll, or the rest of the workbench.
 function updateVersionSelect(pkg: CatalogPackage) {
   if (!state.package || state.package !== pkg) return;
+  if (state.atLibraryRoot && state.libraryLens === "compare") {
+    render();
+    return;
+  }
   const select = document.querySelector("#package-version");
   if (select) select.innerHTML = versionOptionsHtml(state.package);
   updatePackageComparisonControls();
@@ -8823,6 +8923,7 @@ async function switchPackageVersion(newVersion: string) {
   const framework = pkg.activeFramework;
   await loadPackage(id, newVersion, framework, {
     replacePackage: pkg,
+    packageLens: state.atPackageRoot ? state.packageLens : "overview",
     invalidateWorkspaceShareBasis: true,
     loadingPresentation: "content",
   });
@@ -8839,6 +8940,7 @@ async function switchPackageFramework(newFramework: string) {
     newFramework,
     {
       replacePackage: pkg,
+      packageLens: state.atPackageRoot ? state.packageLens : "overview",
       invalidateWorkspaceShareBasis: true,
       loadingPresentation: "content",
     });
@@ -10389,8 +10491,7 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
     if (!preservedFocus
       || !settingsOwnsHomeFocusTarget(preservedFocus)
       || !restoreHomeFocus(preservedFocus)) {
-      document.querySelector<HTMLElement>("#settings-title")
-        ?.focus({ preventScroll: true });
+      focusSettingsEntry();
     }
   }
 }
@@ -13854,9 +13955,17 @@ function dispatchApplicationAction(action: ApplicationAction) {
   }
 }
 
+function focusSettingsEntry() {
+  const selector = state.settingsReturn === "source"
+    ? "#settings-decompiler-title"
+    : "#settings-title";
+  document.querySelector<HTMLElement>(selector)
+    ?.focus({ preventScroll: true });
+}
+
 // Open Settings, remembering the logical control that receives focus after dismissal.
-function openSettings(from: "home" | "workbench") {
-  state.settingsReturn = from === "workbench" ? "workbench" : "home";
+function openSettings(from: "home" | "workbench" | "source") {
+  state.settingsReturn = from;
   state.keyboardHelp = false;
   state.settings = true;
   render();
@@ -13877,11 +13986,17 @@ function closeSettings() {
   render();
   requestAnimationFrame(() => {
     restoreOrdinaryModalDismissFocus(() => {
-      const selector = state.settingsReturn === "workbench"
-        ? "#application-menu-button"
-        : "#home-settings";
-      document.querySelector<HTMLElement>(selector)
-        ?.focus({ preventScroll: true });
+      const selectors = state.settingsReturn === "source"
+        ? ["#explore-source", "#application-menu-button"]
+        : state.settingsReturn === "workbench"
+          ? ["#application-menu-button"]
+          : ["#home-settings"];
+      selectors.some(selector => {
+        const target = document.querySelector<HTMLElement>(selector);
+        if (!target) return false;
+        target.focus({ preventScroll: true });
+        return true;
+      });
     });
   });
 }
@@ -14043,6 +14158,7 @@ interface LoadPackageOptions {
   navigationSeq?: number;
   queryNotice?: string;
   replacePackage?: AppPackage | null;
+  packageLens?: PackageLens;
   location?: ParsedLocation;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
@@ -14128,7 +14244,7 @@ async function loadPackage(
     } else {
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
-      state.packageLens = "overview";
+      state.packageLens = options.packageLens ?? "overview";
     }
     if (deep) {
       applyDeepLink(deep);

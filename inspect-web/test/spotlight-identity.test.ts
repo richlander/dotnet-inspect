@@ -1614,7 +1614,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /\[data-member-kind-filter\][\s\S]*\[data-member-access-filter\][\s\S]*\[data-member-trait-filter\][\s\S]*#clear-member-filter[\s\S]*#member-filter/);
   assert.match(
     typePanelSource,
-    /\[data-member-jump-kind\][\s\S]*\[data-member-jump-access\][\s\S]*\[data-member-jump-trait\][\s\S]*\[data-member\][\s\S]*\[data-overload\][\s\S]*#member-back[\s\S]*#copy-signature[\s\S]*\[data-copy-anchor\][\s\S]*#copy-source[\s\S]*#copy-type-source/);
+    /\[data-member-jump-kind\][\s\S]*\[data-member-jump-access\][\s\S]*\[data-member-jump-trait\][\s\S]*\[data-member\][\s\S]*\[data-overload\][\s\S]*#member-back[\s\S]*#copy-signature[\s\S]*\[data-copy-anchor\][\s\S]*#copy-source[\s\S]*#copy-type-source[\s\S]*#explore-source/);
   assert.doesNotMatch(typePanelSource, /#copy-name|onCopyName/);
   assert.doesNotMatch(
     appSource,
@@ -1627,7 +1627,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /document\.querySelectorAll<HTMLElement>\("\[data-(?:member-jump-(?:kind|access|trait)|member|overload|copy-anchor)\]"\)/);
   assert.doesNotMatch(
     appSource,
-    /document\.querySelector\("#(?:member-back|copy-signature|copy-source|copy-type-source)"\)/);
+    /document\.querySelector\("#(?:member-back|copy-signature|copy-source|copy-type-source|explore-source)"\)/);
   assert.match(
     binding,
     /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*contentFramePane = "navigation";[\s\S]*action\(\);[\s\S]*restoreContentNavigationFocus\(focusGeneration\)/);
@@ -2869,7 +2869,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /navigation: navigationHistory\.snapshot\(\),\s*failedWorkspaceUrlState: failedWorkspaceUrlState[\s\S]*structuredClone\(failedWorkspaceUrlState\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\);[\s\S]*failedWorkspaceUrlState = snapshot\.failedWorkspaceUrlState[\s\S]*structuredClone\(snapshot\.failedWorkspaceUrlState\)/);
   assert.match(
     appSource,
-    /captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*sourceInspection\.cancelCurrentRequest\(\);\s*cancelFindingCensusRequest\(state\)[\s\S]*structuredClone\(state\.packages\)/);
+    /captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*sourceInspection\.cancelCurrentRequest\(\);\s*libraryApiDiff\.cancelCurrentRequest\(\);\s*cancelFindingCensusRequest\(state\)[\s\S]*structuredClone\(state\.packages\)/);
   assert.match(
     appSource,
     /function commitWorkspaceShareBasis\([\s\S]*state\.workspaceShareBasis = basis;[\s\S]*sourceInspection\.clearGraphSource\(\)/);
@@ -5975,7 +5975,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);

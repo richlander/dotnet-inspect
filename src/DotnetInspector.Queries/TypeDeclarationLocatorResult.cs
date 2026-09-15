@@ -58,7 +58,9 @@ public abstract record TypeDeclarationLocatorMemberOutcome(WorkspaceDeclarationM
     public sealed record CoordinateUnavailable(WorkspaceDeclarationMember Member)
         : TypeDeclarationLocatorMemberOutcome(Member);
 
-    public sealed record NotEvaluated(WorkspaceDeclarationMember Member)
+    public sealed record NotEvaluated(
+        WorkspaceDeclarationMember Member,
+        WorkspaceDeclarationInventoryBound? Bound = null)
         : TypeDeclarationLocatorMemberOutcome(Member);
 }
 

@@ -854,13 +854,14 @@ public partial class AuthoredCorpusHarnessProcessTests
 
         Assert.Equal(0, run.ExitCode);
         Assert.Contains("usage: decompiler-harness", run.Output, StringComparison.Ordinal);
-        Assert.Contains("select rts-cutover", run.Output, StringComparison.Ordinal);
+        Assert.Contains("select rts-native", run.Output, StringComparison.Ordinal);
         Assert.Contains("(default; aliases:", run.Output, StringComparison.Ordinal);
-        Assert.Contains("Use compile-back for the legacy oracle", run.Output, StringComparison.Ordinal);
+        Assert.Contains("or a legacy reference pass", run.Output, StringComparison.Ordinal);
+        Assert.Contains("Use rts-cutover", run.Output, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Harness_DefaultCorpusFidelityOracle_UsesNativeCutover()
+    public void Harness_DefaultCorpusFidelityOracle_UsesNativeWithoutLegacyComparison()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -884,11 +885,62 @@ public partial class AuthoredCorpusHarnessProcessTests
 
             Assert.Equal(0, run.ExitCode);
             var baseline = CorpusSensor.ReadBaselineForTesting(snapshot);
-            var cutover = Assert.IsType<ReturnToSenderCutoverMetrics>(
-                baseline.Metrics.Fidelity.ReturnToSenderCutover);
-            Assert.Equal(CorpusFidelityOracle.ReturnToSenderCutover, baseline.FidelityOracle);
-            Assert.Equal(1, cutover.SelectedMethods);
-            Assert.Equal(0, cutover.CompileBackFloorAppliedMethods);
+            var sampled = Assert.Single(
+                baseline.Methods!,
+                method => method.FidelityCheck != "not-sampled");
+            Assert.Equal(CorpusFidelityOracle.ReturnToSenderNative, baseline.FidelityOracle);
+            Assert.Equal(1, baseline.Metrics.Fidelity.CheckedMethods);
+            Assert.Equal(
+                "return-to-sender-native; compile-back-floor=false",
+                sampled.FidelityCapture);
+            Assert.Null(sampled.FidelityReference);
+            Assert.Null(baseline.Metrics.Fidelity.ReturnToSenderCutover);
+            Assert.NotNull(baseline.RunIdentity);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("rts-native")]
+    [InlineData("return-to-sender")]
+    [InlineData("rts")]
+    [InlineData("native-rts")]
+    public void Harness_NativeCorpusFidelityAliases_UseNativeWithoutLegacyComparison(
+        string oracle)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"corpus-native-oracle-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string snapshot = Path.Combine(directory, "corpus.json");
+            HarnessRun run = RunHarness(
+                FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+                "--emit-corpus-snapshot",
+                snapshot,
+                "--compile-cap",
+                "0",
+                "--corpus-fidelity-cap",
+                "1",
+                "--corpus-fidelity-oracle",
+                oracle,
+                "--corpus-method-cap",
+                "10",
+                "--max-examples",
+                "1");
+
+            Assert.Equal(0, run.ExitCode);
+            var baseline = CorpusSensor.ReadBaselineForTesting(snapshot);
+            var sampled = Assert.Single(
+                baseline.Methods!,
+                method => method.FidelityCheck != "not-sampled");
+            Assert.Equal(CorpusFidelityOracle.ReturnToSenderNative, baseline.FidelityOracle);
+            Assert.Null(sampled.FidelityReference);
+            Assert.Null(baseline.Metrics.Fidelity.ReturnToSenderCutover);
         }
         finally
         {

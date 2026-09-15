@@ -118,6 +118,22 @@ to admit it, reconstructs coordinate activation from package keys, and
 reconciles subject levels locally; #5510 and #5511 track removal of those
 migration paths.
 
+Within that current Browser migration boundary, a Package Version or Framework
+change carries the initiating Package inspector preference: Overview stays
+Overview and Dependencies stays Dependencies. This is inspector intent for the
+replacement coordinate, not correspondence for an old subject or bound lens
+identity. Retry retains the same intent; dependency queries use the returned
+coordinate rather than reusing the previous coordinate's results. The existing
+content-local loading path keeps coordinate focus through those result renders.
+`System.Text.Json@10.0.0`, inspecting Dependencies and selecting `net9.0` or
+version `10.0.1`, motivates this bounded behavior. The production-composition
+cases in `inspect-web/browser/library-hierarchy.spec.ts` gate both inspectors,
+both controls, pending/success, immediate return, failure/retry, and narrow
+layout. Initial package selection and Library-level coordinate controls keep
+their existing behavior. Library/Type/Member correspondence and filter retention
+are not part of this user-approved Package-view slice; #5511 retires this
+host-local mechanism when the Browser adopts product-issued Navigation results.
+
 ## Consumer and complexity record
 
 The end-to-end tracker is #5512. The concrete consumers are:
