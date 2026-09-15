@@ -291,18 +291,16 @@ duration remains a future population-construction example, not a new flag.
 
 `InspectionEnvelope<TContent>` already exists, and
 `LibraryApiDiffInspection.Execute` already returns
-`InspectionEnvelope<LibraryApiDiffPresentationResult>`. That current type is a
-transitional owner-issued Outcome: its available case composes endpoint
-summaries and a `ComparisonDocument<LibraryApiTypeDiff>`, while its other cases
-represent unavailable or rejected execution.
+`InspectionEnvelope<LibraryApiDiffOutcome>`. Its available case carries one
+`LibraryApiDiffDocument`, retaining endpoint summaries, the existing
+`ComparisonDocument<LibraryApiTypeDiff>`, verdicts, and evidence. Unavailable
+and rejected execution retain their typed cases. The
+[Library content adoption](library-api-diff-presentation.md#content-kind-adoption-in-both-hosts)
+settles those semantic extents without completing public CLI envelope output
+or full Browser baseline delivery.
 
-Under the host-observable content-kind contract, the target terminal exposes
-an owner-specific `LibraryApiDiffOutcome` whose available case carries one
-`LibraryApiDiffDocument`. The Document retains the existing endpoint summaries,
-comparison document, verdicts, and evidence without changing their owners.
-Reuse the existing terminal behavior while adopting those semantic extents;
-do not add another envelope, universal Diff content type, or host-specific
-semantic copy.
+Reuse that terminal and complete missing terminals and host delivery; do not
+add another envelope, universal Diff content type, or host-specific semantic copy.
 
 The [envelope owner](inspection-envelope.md) requires one owner-issued Content
 value, required Share, and ordered typed diagnostics at the completed shared
