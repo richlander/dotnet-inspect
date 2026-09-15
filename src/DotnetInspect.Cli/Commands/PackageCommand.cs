@@ -4181,13 +4181,17 @@ public class PackageCommand
                 includeExactContent ? exactContent : null);
         }
 
+        string sourceContent = ReadText(exactContent);
         var content = MarkdownContent.ApplyScope(
-            ReadText(exactContent),
-            scope);
+            sourceContent,
+            scope,
+            out int sourceLineOffset);
         if (PackageFileFamily.IsSkillDocument(file))
         {
             ContainmentSelectedText selected = AgentSkillDocument.PrepareForOutput(
+                file.Path,
                 content,
+                sourceLineOffset,
                 normalizeGithubLinksToRaw);
             return new PackageFileContent(
                 packageName,
@@ -4298,9 +4302,13 @@ public class PackageCommand
                 return 1;
             }
 
+            ContainmentDiagnosticOutput.Write(found[0].SelectedContent);
             WritePackageFileExport(found[0], destination);
             return 0;
         }
+
+        foreach (PackageFileContent row in visibleRows.Where(row => row.Found))
+            ContainmentDiagnosticOutput.Write(row.SelectedContent);
 
         var textRows = visibleRows
             .Select(PackageFileContentText.Create)
@@ -4327,6 +4335,7 @@ public class PackageCommand
             return 1;
         }
 
+        ContainmentDiagnosticOutput.Write(found[0].SelectedContent);
         if (ProjectionDestinationWriter.IsFile(destination))
         {
             WritePackageFileExport(found[0], destination);
@@ -4635,6 +4644,7 @@ public class PackageCommand
             PackageFileContentScope.Full,
             normalizeGithubLinksToRaw: !options.BrowsableUrls,
             includeExactContent: HasUnstructuredOutputPath(options));
+        ContainmentDiagnosticOutput.Write(content.SelectedContent);
         if (ProjectionDestinationWriter.IsFile(destination))
         {
             WritePackageFileExport(content, destination);

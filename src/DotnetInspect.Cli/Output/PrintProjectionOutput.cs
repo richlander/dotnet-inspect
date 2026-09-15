@@ -133,6 +133,7 @@ public static class PrintProjectionOutput
             return 1;
 
         PrintableContent payload = readContent(selectedRow);
+        ContainmentDiagnosticOutput.Write(payload.SelectedContent);
         var selected = new PrintableDocument(
             selectedRow.Row,
             selectedRow.Section,
