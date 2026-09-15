@@ -638,11 +638,13 @@ type EngineWorkerPackageChangesProgressEvent =
     readonly progress: BrowserPackageChangesProgress;
   };
 
-type EngineWorkerPackageChangesEvent =
+export type EngineWorkerPackageChangesEvent =
   EngineWorkerPackageChangesProgressEvent
   | EngineWorkerPackageChangesDurableEvent;
 
-function decodeEvent(value: unknown): EngineWorkerPackageChangesEvent {
+export function decodeEngineWorkerPackageChangesEvent(
+  value: unknown,
+): EngineWorkerPackageChangesEvent {
   assertEvent(value);
   const event = value;
   if (event.kind === "Progress"
@@ -701,7 +703,7 @@ const engineWorkerPackageChangesDurableEvent:
 BoundedPayloadDecoder<EngineWorkerPackageChangesDurableEvent> = {
   decode(value) {
     try {
-      const event = decodeEvent(value);
+      const event = decodeEngineWorkerPackageChangesEvent(value);
       if (event.kind === "Progress") {
         throw new PackageChangesPayloadError(
           "Package Changes progress is not a durable event.");
@@ -959,7 +961,7 @@ function createManagedEventSink(
             ? `Package Changes callback JSON was invalid: ${error.message}`
             : "Package Changes callback JSON was invalid.");
       }
-      const event = decodeEvent(parsed);
+      const event = decodeEngineWorkerPackageChangesEvent(parsed);
       const published = event.kind === "Progress"
         ? context.reportEvents([{
             kind: "progress",
