@@ -20,9 +20,11 @@ PackageHouse pruning consumer uses its exact authorship, processing, and
 selection states without redefining them. The CLI `depends -S Pruning`
 consumer is implemented under
 [#6994](https://github.com/richlander/dotnet-inspect/issues/6994);
-Browser/Wasm adoption remains staged work. Restored-project inputs consume typed
-pruning-processing evidence from their artifact owner. Optional owner
-observations remain dependent on issue #5315.
+the inspect-web Browser/Wasm dependency and explicit pruning consumer is
+implemented under
+[#5535](https://github.com/richlander/dotnet-inspect/issues/5535).
+Restored-project inputs consume typed pruning-processing evidence from their
+artifact owner. Optional owner observations remain dependent on issue #5315.
 
 ## Owner
 
@@ -97,7 +99,7 @@ steps are:
 6. Adopt the shape in package-pruning policy (implemented by #6899).
 7. Adopt the composed policy result in the CLI dependency experience
    (implemented by #6994).
-8. Adopt the same result in inspect-web Browser/Wasm.
+8. Adopt the same result in inspect-web Browser/Wasm (implemented under #5535).
 
 Each provider and consumer adoption remains a focused effort owned by that
 component. This document specifies only this owner's immediate typed input and
@@ -128,7 +130,15 @@ JSON-family formats from the same typed information. The browser consumer
 bypasses Markout only for its host-specific interactive DOM presentation,
 consuming the same typed/wire information through the Browser/Wasm boundary.
 That browser path owns gestures and component state, not dependency
-normalization or identity.
+normalization or identity. Its package Dependencies projection retains the
+package-content query's compatible target-framework selection when constructing
+the normalized input. Its separate explicit pruning operation evaluates only
+that normalized active group; TypeScript transports the exact platform-index
+inventory and selected family without selecting dependency candidates,
+comparing versions, or applying pruning policy. Declaration incompleteness and
+typed failures cross the Browser/Wasm boundary with the surviving groups, so a
+removed conflicting declaration cannot become a successful empty group or a
+complete pruning result.
 
 ## The question
 
@@ -1228,7 +1238,9 @@ Release gate lands:
    Markout and JSON-family projections, input spellings, and later
    product-owned predicates.
 8. Under #5535, export the same typed outcome through the Browser/Wasm boundary
-   and adopt it in inspect-web without duplicating dependency semantics.
+   and adopt it in inspect-web without duplicating dependency semantics. The
+   adopted path projects Package Dependencies from normalized declarations and
+   invokes PackageHouse pruning only through a separate explicit operation.
 
 Each adoption is independently reviewable. Later syntax must not move owner
 filtering ahead of required evidence acquisition unless source delegation

@@ -525,7 +525,7 @@ async function installFacades(
         if (scenario === "query-error") throw new Error("Reference query unavailable.");
         return {
           package: id, version, activeFramework: framework, assembly: selected.name,
-          dependencyGroups: [], dependencyGroupError: null,
+          dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
           assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
             : { references: scenario === "empty" ? [] : scenario === "long"
             ? Array.from({ length: 80 }, (_, index) => ({

@@ -409,8 +409,9 @@ import {
 } from "./settings-panel.ts";
 import { renderBrand } from "./brand.ts";
 import {
-  DEFAULT_PLATFORM_FRAMEWORK, loadPlatformIndex, parsePlatformCatalogTarget,
-  platformCatalogFramework,
+  DEFAULT_PLATFORM_FRAMEWORK, isExactPlatformPruningFramework,
+  loadPlatformIndex, parsePlatformCatalogTarget,
+  platformCatalogFramework, requirePlatformPackageSupplies,
   type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
 } from "./platform-index.ts";
 import {
@@ -551,6 +552,7 @@ import type {
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
+  BrowserPackagePruningResult,
   BrowserPackageSurface,
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
@@ -590,6 +592,8 @@ let inspectMemberDocumentation:
 let inspectPackage: EngineClient["package"]["queryPackage"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
+let inspectPackagePruning:
+  EngineClient["package"]["queryPackagePruning"];
 let inspectPackageVersions: EngineClient["package"]["queryPackageVersions"];
 let resolveDependencyVersion:
   EngineClient["package"]["resolvePackageDependencyVersion"];
@@ -721,6 +725,7 @@ async function loadEngineModule() {
       queryMemberDocumentation: inspectMemberDocumentation,
       queryPackage: inspectPackage,
       queryPackageDependencies: inspectPackageDependencies,
+      queryPackagePruning: inspectPackagePruning,
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
       runPackageChanges: inspectRunPackageChanges,
@@ -995,6 +1000,11 @@ const initialState = {
   packageDependenciesLoading: false,
   packageDependenciesError: "",
   packageDependenciesKey: "",
+  packagePruning: null,
+  packagePruningLoading: false,
+  packagePruningError: "",
+  packagePruningKey: "",
+  packagePruningFamily: "Microsoft.NETCore.App",
   dependenciesGroupIndex: null,
   workspaceDependencies: {},
   workspaceDependencyErrors: {},
@@ -1121,6 +1131,7 @@ interface StateOverrides {
   typeSource: SourceResultState;
   typeMetadata: BrowserTypeMetadata | null;
   packageDependencies: BrowserPackageDependencies | null;
+  packagePruning: BrowserPackagePruningResult | null;
   dependenciesGroupIndex: number | null;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
@@ -1308,6 +1319,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberAnnotatedLoading = snapshotState.memberAnnotatedLoading;
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
   const packageDependenciesLoading = snapshotState.packageDependenciesLoading;
+  const packagePruningLoading = snapshotState.packagePruningLoading;
   const packageIntegrationsLoading = snapshotState.packageIntegrationsLoading;
   const packageOpportunitiesLoading = snapshotState.packageOpportunitiesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
@@ -1322,6 +1334,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberAnnotatedLoading = false;
   snapshotState.typeMetadataLoading = false;
   snapshotState.packageDependenciesLoading = false;
+  snapshotState.packagePruningLoading = false;
   snapshotState.packageIntegrationsLoading = false;
   snapshotState.packageOpportunitiesLoading = false;
   snapshotState.packagePerformanceLoading = false;
@@ -1361,6 +1374,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
   if (packageDependenciesLoading) snapshotState.packageDependenciesKey = "";
+  if (packagePruningLoading) snapshotState.packagePruningKey = "";
   if (packageIntegrationsLoading) snapshotState.packageIntegrationsKey = "";
   if (packageOpportunitiesLoading) snapshotState.packageOpportunitiesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
@@ -5520,11 +5534,164 @@ function packageDependenciesStatus(
   const selectedGroup =
     groups.find(group => group.index === selectedGroupIndex) ?? groups[0];
   const dependencyCount = selectedGroup?.dependencies?.length ?? 0;
-  return `${dependencyCount} package${dependencyCount === 1 ? "" : "s"}`;
+  const completion = data.declarationFailures.length > 0
+    ? " · incomplete"
+    : "";
+  return `${dependencyCount} package${
+    dependencyCount === 1 ? "" : "s"
+  }${completion}`;
 }
 
 const DEPENDENCY_GRAPH_SUMMARY =
   "callers above · dependencies below · click a package to open";
+
+const PACKAGE_PRUNING_FAMILIES = [
+  { value: "Microsoft.NETCore.App", label: ".NET Runtime" },
+  { value: "Microsoft.AspNetCore.App", label: "ASP.NET Core" },
+] as const;
+
+function packageDeclarationFailureReason(
+  failure: BrowserPackageDependencies["declarationFailures"][number],
+) {
+  const framework = failure.framework
+    ? ` in ${failure.framework}`
+    : "";
+  const occurrenceCount = failure.sourceOccurrenceCount;
+  const occurrences = occurrenceCount
+    ? ` (${occurrenceCount} source ${
+      occurrenceCount === 1 ? "occurrence" : "occurrences"
+    })`
+    : "";
+  if (failure.kind === "ConflictingPackageDeclaration") {
+    return `Conflicting declarations for ${
+      failure.package || "one package"
+    }${framework} were omitted${occurrences}.`;
+  }
+  if (failure.kind === "InvalidPackageDeclaration") {
+    return `An invalid dependency declaration${framework} was omitted${occurrences}.`;
+  }
+  return `A dependency declaration could not be normalized (${failure.kind}).`;
+}
+
+function renderPackageDeclarationFailures(
+  failures: BrowserPackageDependencies["declarationFailures"],
+) {
+  if (!failures.length) return "";
+  return `<div class="package-pruning-status package-pruning-error">
+    <strong>Dependency declarations incomplete</strong>
+    <ul>${failures.map(failure =>
+      `<li>${escapeHtml(packageDeclarationFailureReason(failure))}</li>`)
+      .join("")}</ul>
+  </div>`;
+}
+
+function packagePruningSignature(family = state.packagePruningFamily) {
+  const pkg = currentPackage();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${family}`;
+}
+
+function packagePruningReason(row: BrowserPackagePruningResult["rows"][number]) {
+  if (row.disposition === "PlatformDelegation") {
+    return "The platform supplies the candidate version or a newer one.";
+  }
+  if (row.disposition === "PackageRetained") {
+    return row.platformSuppliedVersion
+      ? "The selected candidate is newer than the platform-supplied version."
+      : "The platform does not supply this package.";
+  }
+  if (row.disposition === "CandidateUnavailable") {
+    return `Candidate resolution did not complete (${row.reason}).`;
+  }
+  return `Pruning was not evaluated (${row.reason}).`;
+}
+
+function packagePruningDisposition(
+  row: BrowserPackagePruningResult["rows"][number],
+) {
+  switch (row.disposition) {
+    case "PlatformDelegation": return "Use platform";
+    case "PackageRetained": return "Keep package";
+    case "CandidateUnavailable": return "Candidate unavailable";
+    case "NotEvaluated": return "Not evaluated";
+    default: return "Not evaluated";
+  }
+}
+
+function renderPackagePruningSection(
+  data: BrowserPackageDependencies,
+): string {
+  const pkg = currentPackage();
+  const exactPlatformFramework =
+    isExactPlatformPruningFramework(pkg.activeFramework);
+  const activeGroup = data.dependencyGroups.find(group => group.isActive);
+  if (pkg.isRuntimePack
+    || !exactPlatformFramework
+    || !activeGroup?.dependencies.length) {
+    return "";
+  }
+
+  const signature = packagePruningSignature();
+  const fresh = state.packagePruningKey === signature;
+  const result = fresh ? state.packagePruning : null;
+  const loading = fresh && state.packagePruningLoading;
+  const error = fresh ? state.packagePruningError : "";
+  const familyOptions = PACKAGE_PRUNING_FAMILIES.map(family =>
+    `<option value="${family.value}"${family.value === state.packagePruningFamily ? " selected" : ""}>${family.label}</option>`)
+    .join("");
+  const resultRows = result?.rows.map(row => `
+      <tr>
+        <td><code>${escapeHtml(row.package)}</code><small>${escapeHtml(row.requestedRange || "*")}</small></td>
+        <td>${row.candidateVersion ? `<code>${escapeHtml(row.candidateVersion)}</code>` : "—"}</td>
+        <td>${row.platformSuppliedVersion ? `<code>${escapeHtml(row.platformSuppliedVersion)}</code>` : "—"}</td>
+        <td><strong>${escapeHtml(packagePruningDisposition(row))}</strong><small>${escapeHtml(packagePruningReason(row))}</small></td>
+      </tr>`)
+    .join("") ?? "";
+  const declarationFailures = result
+    ? renderPackageDeclarationFailures(result.declarationFailures)
+    : "";
+  const basis = result
+    ? `Evaluated active group <code>${escapeHtml(
+      result.selectedFramework || activeGroup.framework,
+    )}</code> against <code>${escapeHtml(
+      result.family,
+    )}</code> at <code>${escapeHtml(
+      `${result.targetFramework}@${result.platformVersion}`,
+    )}</code>.`
+    : `Evaluation uses the active normalized group <code>${escapeHtml(
+      activeGroup.framework,
+    )}</code> and the selected platform family; choosing another displayed group does not change that input. Candidate version discovery may query nuget.org.`;
+  const resultHtml = loading
+    ? `<div class="package-pruning-status source-progress"><span class="loader"></span><span>Resolving dependency candidates…</span></div>`
+    : error
+      ? `<div class="package-pruning-status package-pruning-error"><strong>Pruning query failed</strong><span>${escapeHtml(error)}</span></div>`
+      : result
+        ? result.message
+          ? `<div class="package-pruning-status"><span>${escapeHtml(result.message)}</span></div>${declarationFailures}`
+          : `<div class="package-pruning-result">
+              <p><strong>${result.summary.delegated}</strong> platform · <strong>${result.summary.retained}</strong> package · <strong>${result.summary.notEvaluated}</strong> not evaluated · <strong>${result.summary.failed}</strong> unresolved · <strong>${result.summary.declarationFailures}</strong> declaration failures</p>
+              <div class="package-pruning-table-scroll">
+                <table class="package-pruning-table">
+                  <thead><tr><th>Dependency</th><th>Candidate</th><th>Supplied</th><th>Disposition</th></tr></thead>
+                  <tbody>${resultRows}</tbody>
+                </table>
+              </div>
+              ${declarationFailures}
+            </div>`
+        : "";
+
+  return `
+    <section class="document-section package-pruning-section">
+      <div class="section-title"><h2>Platform pruning</h2><span>explicit evaluation · no graph changes</span></div>
+      <div class="package-pruning-controls">
+        <label>Platform family
+          <select data-pruning-family${loading ? " disabled" : ""}>${familyOptions}</select>
+        </label>
+        <button type="button" data-pruning-evaluate${loading ? " disabled" : ""}>${result || error ? "Evaluate again" : "Evaluate"}</button>
+      </div>
+      <p class="package-pruning-intro">${basis}</p>
+      ${resultHtml}
+    </section>`;
+}
 
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
@@ -5551,9 +5718,14 @@ function renderPackageDependencies() {
   const dependencyGroupNotice = dependencyGroupError
     ? `<section class="document-section empty-document"><span class="large-glyph">△</span><h2>No exact dependency group</h2><p>${escapeHtml(dependencyGroupError)}</p></section>`
     : "";
+  const declarationFailureNotice =
+    renderPackageDeclarationFailures(data.declarationFailures);
   if (!groups.length) {
+    const emptyMessage = data.declarationFailures.length
+      ? "No dependency rows could be normalized from the package manifest."
+      : "The manifest declares no NuGet dependencies — a self-contained package.";
     return renderPackageDependenciesSurface(
-      `<div data-dependency-graph-surface>${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section></div>`,
+      `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>${escapeHtml(emptyMessage)}</p></section></div>`,
       packageDependenciesStatus(data, null));
   }
 
@@ -5577,9 +5749,10 @@ function renderPackageDependencies() {
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
       ${dependencyGraphLegendHtml()}
     </section>`;
+  const pruningSection = renderPackagePruningSection(data);
 
   return renderPackageDependenciesSurface(
-    `<div data-dependency-graph-surface>${dependencyGroupNotice}${selector}${graphSection}</div>${depList}`,
+    `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}${selector}${graphSection}</div>${pruningSection}${depList}`,
     packageDependenciesStatus(data, selectedGroupIndex));
 }
 
@@ -5712,6 +5885,20 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     packageModel.assemblyId),
+  queryPruning: async (packageModel, family) => {
+    const target = await ensurePlatformCatalog(packageModel.activeFramework);
+    return await inspectPackagePruning(
+      packageModel.id,
+      packageModel.version,
+      packageModel.activeFramework,
+      JSON.stringify({
+        schemaVersion: 1,
+        family,
+        targetFramework: target.tfm,
+        platformVersion: target.version,
+        supplies: requirePlatformPackageSupplies(target),
+      }));
+  },
   queryPackageIntegrations: (packageModel, library) => inspectPackageIntegrations(
     packageModel.id,
     packageModel.version,
@@ -7048,6 +7235,21 @@ const packageViewActions: PackageViewBindingActions = {
     if (state.dependenciesGroupIndex === index) return;
     state.dependenciesGroupIndex = index;
     patchDependenciesGroup();
+  },
+  onPruningEvaluate: () =>
+    observeAsync(
+      packageInspection.loadPruning(
+        currentPackage(),
+        packagePruningSignature(),
+        state.packagePruningFamily),
+      "Evaluating platform pruning"),
+  onPruningFamilySelect: family => {
+    if (state.packagePruningFamily === family) return;
+    state.packagePruningFamily = family;
+    state.packagePruning = null;
+    state.packagePruningError = "";
+    state.packagePruningKey = "";
+    renderPreservingMemberFocus();
   },
   onDependencyLoad: (id, version) =>
     observeAsync(

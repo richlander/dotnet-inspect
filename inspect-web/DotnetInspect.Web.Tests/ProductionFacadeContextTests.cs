@@ -78,6 +78,7 @@ public sealed class ProductionFacadeContextTests
             "QueryMemberDocumentation",
             "QueryPackage",
             "QueryPackageDependencies",
+            "QueryPackagePruning",
             "QueryPackageVersions",
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",

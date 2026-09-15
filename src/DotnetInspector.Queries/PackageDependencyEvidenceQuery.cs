@@ -983,6 +983,26 @@ public static class PackageDependencyEvidenceQuery
             source);
     }
 
+    /// <summary>
+    /// Builds the package-side input from one package-group query result,
+    /// preserving that query's exact target-framework selection outcome.
+    /// </summary>
+    public static PackageDependencyEvidenceInput.Package CreatePackageInput(
+        PackageDependencyGroupsResult.Available available,
+        PackageDependencyEvidenceAcquisitionForm acquisitionForm,
+        InertString? sourceLabel = null,
+        PackageSourceResultIdentity? source = null)
+    {
+        ArgumentNullException.ThrowIfNull(available);
+        RequirePackageAcquisitionForm(acquisitionForm, source);
+        return new PackageDependencyEvidenceInput.Package(
+            available.Manifest,
+            available.Value,
+            acquisitionForm,
+            sourceLabel,
+            source);
+    }
+
     /// <summary>Builds a package-prefix input from one admitted package-profile match.</summary>
     public static PackageDependencyEvidenceInput.Package CreatePackageInput(
         PackageProfileMatch match,
