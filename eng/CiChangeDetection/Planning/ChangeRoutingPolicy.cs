@@ -371,6 +371,7 @@ internal sealed class ChangeRoutingPolicy
             path,
             ".github/workflows/deploy-inspect-web.yml",
             ".github/workflows/deploy-inspect-web-coreclr.yml",
+            ".github/workflows/deploy-inspect-web-runtime-sites.yml",
             ".github/workflows/promote-inspect-web.yml"))
         {
             state.Web = true;

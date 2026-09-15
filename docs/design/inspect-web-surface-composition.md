@@ -187,10 +187,10 @@ elision inside its allocation.
 The optional working-surface action region exists only when the active surface
 supplies page-level contextual actions. It is not part of either navigation
 group and does not add items to the Application menu. Source supplies Copy and
-optional Open there; Annotated Source supplies Copy and Explore there; Member
-Diff supplies its mode, change navigation and position, and any authorized
-Before or After Open actions there. The target yields space while the complete
-action group remains visible.
+optional Open plus Explore there; Annotated Source supplies Copy and Explore
+there; Member Diff supplies its mode, change navigation and position, and any
+authorized Before or After Open actions there. The target yields space while
+the complete action group remains visible.
 
 The menu surface is placed in the shared top-level overlay layer, anchored to
 the button's inline end and constrained to the viewport. It may cover the
@@ -220,9 +220,11 @@ never enter the Application menu. Full-area source surfaces use the dedicated
 page-level working-surface action region; result-local surfaces retain their
 actions in the result:
 
-- Source places `Copy` and optional `Open` in the working-surface action region
-  while source content starts at the top of its pane and compact provenance
-  stays attached to the bottom.
+- Source places `Copy`, optional `Open`, and `Explore` in the working-surface
+  action region while source content starts at the top of its pane and compact
+  provenance stays attached to the bottom. `Explore` opens Settings at
+  **Decompiler style** so the complete source presentation options are
+  available; dismissal returns focus to the same Source action.
 - Annotated Source places `Copy` and `Explore` in the working-surface action
   region while product provenance stays attached to the bottom.
 - Member Diff places the viewer-owned mode control, `Previous`, current change
@@ -803,6 +805,10 @@ loading. No cache-residency preflight is required to choose this presentation.
 Acquisition and partial-package notices otherwise retain their host
 presentation; this introduces no independent Overview query or acquisition
 state machine.
+Package inspector and interim Library-selection preference retention follow the
+current
+[Navigation Browser migration behavior](inspection-subject-navigation.md#status);
+this surface does not define cross-coordinate subject correspondence.
 Empty inventories retain their zero totals and any available package documents.
 Admitted libraries with no public types retain their named Library Overview.
 
@@ -1664,9 +1670,11 @@ with the absence of a synthesized `Default feed` control.
 ### Source working surface
 
 1. Open Type Source with Type navigation visible.
-2. Confirm that the source pane uses all remaining width, Copy and optional
-   Open appear in the working-surface action region, source content begins at
-   the top of the pane, and compact provenance remains attached to its bottom.
+2. Confirm that the source pane uses all remaining width, Copy, optional Open,
+   and Explore appear in the working-surface action region, source content
+   begins at the top of the pane, and compact provenance remains attached to
+   its bottom. Open Explore and confirm that Settings focuses Decompiler style
+   and dismissal returns focus to Explore.
 3. Collapse Type navigation and confirm that source content expands to the full
    viewport width.
 4. Open PDB Source and confirm that no Decompiler style control appears.

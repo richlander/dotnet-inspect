@@ -128,6 +128,15 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
     /class="working-surface-actions" role="group" aria-label="\$\{metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
   assert.match(
     appSource,
+    /onExploreSource: \(\) => openSettings\("source"\)/);
+  assert.match(
+    appSource,
+    /state\.settingsReturn === "source"[\s\S]*"#settings-decompiler-title"/);
+  assert.match(
+    appSource,
+    /state\.settingsReturn === "source"[\s\S]*\["#explore-source", "#application-menu-button"\]/);
+  assert.match(
+    appSource,
     /contextualActionsHtml: !loadingPackageContent && \(annotatedPageContext \|\| sourcePageKind[\s\S]*class="working-surface-actions"/);
   assert.doesNotMatch(
     appSource,

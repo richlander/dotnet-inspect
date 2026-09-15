@@ -1,0 +1,242 @@
+name: Deploy Inspect Web runtime sites
+
+on:
+  schedule:
+    - cron: '47 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+concurrency:
+  group: deploy-inspect-web-runtime-sites
+  cancel-in-progress: false
+
+jobs:
+  source:
+    name: Select green main source
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Require green main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
+            --jq '
+              [.check_runs[] | select(.name == "ci-required")]
+              | sort_by(.id)
+              | last
+              | .status == "completed" and .conclusion == "success"
+            ' | grep -Fx true
+
+  cohort:
+    name: Build and admit runtime cohort
+    needs: source
+    permissions:
+      contents: read
+    uses: ./.github/workflows/inspect-web-runtime-cohort-nightly.yml
+    with:
+      samples: 5
+      member_count: 10
+
+  api:
+    name: Build shared managed API
+    needs: source
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Publish MSDL managed API
+        run: >
+          dotnet publish
+          inspect-web/msdl-proxy/MsdlProxy.csproj
+          -c Release
+          --output artifacts/inspect-web-runtime-sites-api
+
+      - name: Upload managed API
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspect-web-runtime-sites-api
+          path: artifacts/inspect-web-runtime-sites-api
+          if-no-files-found: error
+          retention-days: 1
+          include-hidden-files: true
+
+  prepare:
+    name: Prepare ${{ matrix.variant }} site
+    needs:
+      - cohort
+      - api
+    runs-on: ubuntu-26.04
+    continue-on-error: ${{ matrix.variant == 'coreclr-r2r' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - coreclr-il
+          - coreclr-r2r
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Download runtime variant
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-runtime-cohort-${{ matrix.variant }}
+          path: ${{ runner.temp }}/runtime-site/variant
+          digest-mismatch: error
+
+      - name: Download cohort evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.cohort.outputs.evidence_artifact_name }}
+          path: ${{ runner.temp }}/runtime-site/evidence
+          digest-mismatch: error
+
+      - name: Download managed API
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-runtime-sites-api
+          path: ${{ runner.temp }}/runtime-site/api
+          digest-mismatch: error
+
+      - name: Prepare deployment artifact
+        working-directory: inspect-web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          node scripts/prepare-runtime-site-deployment.ts \
+            --variant-root "$RUNNER_TEMP/runtime-site/variant" \
+            --api-root "$RUNNER_TEMP/runtime-site/api" \
+            --cohort "$RUNNER_TEMP/runtime-site/evidence/runtime-cohort.json" \
+            --source-commit "$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/runtime-site/deployment"
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspect-web-runtime-site-${{ matrix.variant }}
+          path: ${{ runner.temp }}/runtime-site/deployment
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: true
+
+  deploy-il:
+    name: Deploy CoreCLR IL site
+    needs: prepare
+    environment:
+      name: inspect-web-coreclr-staging
+      url: https://coreclr.dotnet-inspect.ca
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Download CoreCLR IL deployment
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-runtime-site-coreclr-il
+          path: artifacts/inspect-web-runtime-site
+          digest-mismatch: error
+
+      - name: Verify CoreCLR IL deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd artifacts/inspect-web-runtime-site
+            sha256sum --check --quiet deployment-sha256.txt
+          )
+          jq -e \
+            --arg source "$GITHUB_SHA" \
+            '
+              .schema == 1
+              and .site == "coreclr-il"
+              and .sourceCommit == $source
+              and .runtime.implementation == "CoreCLR"
+              and .configuration.publishReadyToRun == false
+              and .admission.status == "admitted"
+              and .admission.knownIssue == null
+            ' artifacts/inspect-web-runtime-site/wwwroot/runtime-site.json \
+            >/dev/null
+
+      - name: Deploy CoreCLR IL
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_CORECLR }}
+          action: upload
+          app_location: artifacts/inspect-web-runtime-site/wwwroot
+          api_location: artifacts/inspect-web-runtime-site/api
+          output_location: ''
+          skip_app_build: true
+          skip_api_build: true
+
+  deploy-r2r:
+    name: Deploy CoreCLR ReadyToRun site
+    needs: prepare
+    environment:
+      name: inspect-web-coreclr-r2r-staging
+      url: https://coreclr-r2r.dotnet-inspect.ca
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Download CoreCLR ReadyToRun deployment
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-runtime-site-coreclr-r2r
+          path: artifacts/inspect-web-runtime-site
+          digest-mismatch: error
+
+      - name: Verify CoreCLR ReadyToRun deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd artifacts/inspect-web-runtime-site
+            sha256sum --check --quiet deployment-sha256.txt
+          )
+          jq -e \
+            --arg source "$GITHUB_SHA" \
+            '
+              .schema == 1
+              and .site == "coreclr-r2r"
+              and .sourceCommit == $source
+              and .runtime.implementation == "CoreCLR"
+              and .configuration.publishReadyToRun == true
+              and .configuration.publishReadyToRunComposite == false
+              and (
+                .admission.status == "admitted"
+                or (
+                  .admission.status == "correctness-rejection"
+                  and .admission.knownIssue
+                    == "dotnet/runtime#129622; dotnet/runtime#129857"
+                )
+              )
+            ' artifacts/inspect-web-runtime-site/wwwroot/runtime-site.json \
+            >/dev/null
+
+      - name: Deploy CoreCLR ReadyToRun
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_CORECLR_R2R }}
+          action: upload
+          app_location: artifacts/inspect-web-runtime-site/wwwroot
+          api_location: artifacts/inspect-web-runtime-site/api
+          output_location: ''
+          skip_app_build: true
+          skip_api_build: true

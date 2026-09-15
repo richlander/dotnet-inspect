@@ -1,8 +1,6 @@
 name: Inspect Web controlled runtime cohort
 
 on:
-  schedule:
-    - cron: '47 0 * * *'
   workflow_call:
     outputs:
       evidence_artifact_name:
