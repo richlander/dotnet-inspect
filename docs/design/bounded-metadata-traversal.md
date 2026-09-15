@@ -229,10 +229,10 @@ produce a second general metadata validator.
 
 ### Metadata-root admission guard
 
-Product metadata work must reject unsupported Windows Metadata before
-constructing `MetadataReader`: SRM reader initialization can scan tables, so
-using `MetadataReader.MetadataVersion` would perform attacker-sized row work
-before product admission. The one registered admission guard is
+Adopted `ILInspector.Metadata` entry points reject unsupported Windows Metadata
+before constructing `MetadataReader`: SRM reader initialization can scan
+tables, so using `MetadataReader.MetadataVersion` would perform attacker-sized
+row work before product admission. The one registered admission guard is
 `MetadataImageFormatClassifier` in MetadataPrimitives.
 
 The guard borrows the acquisition-owned `PEReader`, obtains its owner-bound
@@ -262,9 +262,11 @@ reader. A supported result authorizes no metadata fact; it only allows the
 ordinary SRM reader to perform complete structural parsing under the product's
 row admission. `MDP017` in
 [member inspection planning and Metadata
-projection](member-inspection-planning-and-metadata-projection.md) owns exact
-API closure, fixed-work, malformed-root, marker, and no-reader-before-reject
-gates. Adding another root/header probe requires an explicit design change.
+projection](member-inspection-planning-and-metadata-projection.md) owns the
+adopted API inventory and its fixed-work, malformed-root, marker, and
+no-reader-before-reject gates. Repository-wide adoption is unverified under
+[#5559](https://github.com/richlander/dotnet-inspect/issues/5559). Adding
+another root/header probe requires an explicit design change.
 
 ### Lossless-row exception
 
