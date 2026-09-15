@@ -1524,11 +1524,12 @@ snapshot inside the new Workspace when structural preparation succeeds and the
 optional exact Registry request is `Available`, `Unavailable`, or `Failed`.
 The latter two retain the exact request basis and Registry evidence with no
 effective lens; they remain complete, installable Navigation snapshots.
-Registry `Unknown` or `Inapplicable`, incomplete structural evidence, and
-invalid or absent requested subjects produce typed non-prepared results with no
-Navigation state or effect authority. Definitions closes that unpublished
-Workspace, and supersession prevents an older attempt's Workspace from becoming
-active. The focused local state machine is
+Registry `Unknown` or `Inapplicable`, incomplete structural evidence, invalid
+requested subjects, and absent requested subjects outside the Package-only
+recommendation form produce typed non-prepared results with no Navigation state
+or effect authority. Definitions closes that unpublished Workspace, and
+supersession prevents an older attempt's Workspace from becoming active. The
+focused local state machine is
 [`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
 This owner does not install the new Workspace or coordinate its
@@ -1548,9 +1549,11 @@ through owner-issued actions and initialization inputs. This document does not
 define that Spotlight orchestration. Covered Platform Libraries remain outside
 this shared grammar because this version has no Platform structural subject.
 
-The current version-2 shape cannot yet represent an explicitly selected
-Workspace or carry an optional retained occurrence and descendant context
-independently from the active subject. #5525 owns that focused adoption.
+The [Workspace Definitions version-2
+shape](workspace-definitions.md#complete-committed-views) represents an
+explicitly selected Workspace and carries an optional retained occurrence and
+descendant context independently from the active subject. #5525 owns the
+record, JSON, composition, and portable-resolution implementation.
 Section, body, source-target, and other portable state remain outside this
 owner.
 
