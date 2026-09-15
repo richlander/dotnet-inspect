@@ -123,6 +123,7 @@ internal sealed record DependsAssetDocument
             return null;
         IReadOnlyList<TRow> selected =
             rows is { IsUnlimited: false } window
+            && DependsAssetSections.AppliesRowWindow(sections, section)
                 ? window.Apply(values)
                 : values;
         return [.. selected.Select(select)];

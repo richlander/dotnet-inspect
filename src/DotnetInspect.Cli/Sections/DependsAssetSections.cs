@@ -70,6 +70,12 @@ internal static class DependsAssetSections
             _ => 0,
         };
 
+    public static bool AppliesRowWindow(
+        IReadOnlySet<string> selectedSections,
+        string section) =>
+        !section.Equals(Failures, StringComparison.OrdinalIgnoreCase)
+        || !selectedSections.Contains(Pruning);
+
     private static SectionPipeline<DependsAssetProjection> CreatePipeline()
     {
         var pipeline = new SectionPipeline<DependsAssetProjection>()

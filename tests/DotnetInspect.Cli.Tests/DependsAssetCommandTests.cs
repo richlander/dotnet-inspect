@@ -1901,6 +1901,71 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task Pruning_RowWindowRetainsFailuresAndFailureCount()
+    {
+        string source = CreateTemporaryDirectory();
+        WriteLocalSourcePackage(
+            source,
+            "Contoso.Pruning.WindowFailure",
+            "1.0.0",
+            """
+            <group targetFramework="net11.0">
+              <dependency id="Contoso.Missing" version="[1.0.0,2.0.0)" />
+            </group>
+            """);
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependsAssetRootKind.Package,
+                    "Contoso.Pruning.WindowFailure@1.0.0"),
+            ],
+            Tfm = "net11.0",
+            Select =
+            [
+                DependsAssetSections.Pruning,
+                DependsAssetSections.Failures,
+            ],
+            Format = OutputFormat.Json,
+            JsonOutput = true,
+            CompactJson = true,
+            Rows = RowWindow.Head(0),
+            LineWindowExplicitlySet = true,
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources = [source],
+            },
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => DependsCommand.ExecuteAssetDependsAsync(
+                    options,
+                    _ => PruneInventory(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "Package pruning evidence completed as Failed",
+            error,
+            StringComparison.Ordinal);
+        using (JsonDocument document = JsonDocument.Parse(output))
+        {
+            Assert.Empty(
+                document.RootElement.GetProperty("pruning")
+                    .EnumerateArray());
+            JsonElement failure = Assert.Single(
+                document.RootElement.GetProperty("failures")
+                    .EnumerateArray());
+            Assert.Equal(
+                "Pruning",
+                failure.GetProperty("phase").GetString());
+        }
+    }
+
+    [Fact]
     public async Task DependenciesSelectionDoesNotReadPruningInventory()
     {
         string source = CreateTemporaryDirectory();

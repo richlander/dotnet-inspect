@@ -2333,6 +2333,9 @@ public partial class DependsCommand
             counts.SetRows(
                 section,
                 options.Rows is { IsUnlimited: false } window
+                && DependsAssetSections.AppliesRowWindow(
+                    includeSections,
+                    section)
                     ? WindowCount(window, count)
                     : count);
         }
@@ -2598,7 +2601,10 @@ public partial class DependsCommand
     {
         if (!sections.Contains(section))
             return null;
-        IReadOnlyList<TRow> selected = Window(rows, window);
+        IReadOnlyList<TRow> selected =
+            DependsAssetSections.AppliesRowWindow(sections, section)
+                ? Window(rows, window)
+                : rows;
         return [.. selected.Select(select)];
     }
 
