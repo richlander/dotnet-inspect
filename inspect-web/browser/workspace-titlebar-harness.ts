@@ -110,6 +110,7 @@ const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
+let applicationDialogReturn: "application" | "source" = "application";
 const params = new URL(location.href).searchParams;
 const longDataBarMode = params.has("long-data-bar");
 const workspaceMode = params.has("workspace");
@@ -1011,11 +1012,19 @@ function setApplicationDialog(
   if (settings) settings.hidden = next !== "settings";
   if (help) help.hidden = next !== "keyboard-help";
   if (next === "settings") {
-    document.querySelector<HTMLElement>("#settings-title")?.focus();
+    document.querySelector<HTMLElement>(
+      applicationDialogReturn === "source"
+        ? "#settings-decompiler-title"
+        : "#settings-title",
+    )?.focus();
   } else if (next === "keyboard-help") {
     document.querySelector<HTMLElement>("#keyboard-help-title")?.focus();
   } else {
-    document.querySelector<HTMLElement>("#application-menu-button")?.focus();
+    document.querySelector<HTMLElement>(
+      applicationDialogReturn === "source"
+        ? "#explore-source"
+        : "#application-menu-button",
+    )?.focus();
   }
 }
 
@@ -1028,6 +1037,7 @@ function handleApplicationAction(action: ApplicationAction): void {
     }, 50);
     return;
   }
+  applicationDialogReturn = "application";
   setApplicationDialog(applicationDialog === action ? null : action);
 }
 
@@ -1070,6 +1080,10 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
 };
 workbenchShellBinding =
   bindWorkbenchShell(document, workbenchShellActions);
+document.querySelector("#explore-source")?.addEventListener("click", () => {
+  applicationDialogReturn = "source";
+  setApplicationDialog("settings");
+});
 bindSettingsPanel(document, {
   onClose: () => setApplicationDialog(null),
   onOpenDiagnostics: () => {

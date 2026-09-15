@@ -15,10 +15,12 @@ using NetworkHttpClientFactory =
 
 namespace DotnetInspect.Cli.Commands;
 
-internal static class EcosystemChangesCommand
+internal static class PackageChangesCommand
 {
+    internal const string Name = "changes";
+
     internal static async Task<int> ExecuteAsync(
-        EcosystemChangesOptions options,
+        PackageChangesOptions options,
         CommandContext context,
         CancellationToken cancellationToken)
     {
@@ -76,7 +78,7 @@ internal static class EcosystemChangesCommand
     }
 
     internal static async Task<int> ExecuteAsync(
-        EcosystemChangesOptions options,
+        PackageChangesOptions options,
         INuGetCatalogPackageSourceClient source,
         GitHubNuGetAdvisoryService advisoryService,
         VerboseLogger logger,
@@ -95,7 +97,7 @@ internal static class EcosystemChangesCommand
                 or OutputFormat.Json))
         {
             CommandError.Write(
-                $"Output format '{options.Format}' is not supported with --changes; use Markdown, plain text, or JSON.");
+                $"Output format '{options.Format}' is not supported with package changes; use Markdown, plain text, or JSON.");
             return 1;
         }
 
@@ -160,7 +162,7 @@ internal static class EcosystemChangesCommand
 
     private static void WriteOutput(
         EcosystemChangeReportDocument document,
-        EcosystemChangesOptions options)
+        PackageChangesOptions options)
     {
         switch (options.Format)
         {
@@ -185,7 +187,7 @@ internal static class EcosystemChangesCommand
                 return;
             default:
                 throw new InvalidOperationException(
-                    "Unsupported ecosystem change report output format.");
+                    "Unsupported package changes output format.");
         }
     }
 

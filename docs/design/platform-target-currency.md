@@ -360,8 +360,8 @@ The separately owned
 [PlatformHouse Realization and Reference Processing](platform-house-reference-processing.md)
 contract defines the sole product-facing platform realization and
 reference-processing facade, including its requests, policy, settlement,
-bare-library handoff, retained correspondence, and visible non-success
-outcomes. Package-reference pruning remains with its package owner;
+shared Library owner/reference handoff, retained correspondence, and visible
+non-success outcomes. Package-reference pruning remains with its package owner;
 PlatformHouse receives only an ordinary typed platform request after any
 upstream delegation. It composes, rather than redefines, Metadata's structured
 type-forwarding contract. `.NET Standard` does not become a third
@@ -486,8 +486,8 @@ There are nine counted production-adoption steps:
    to the exact family target.
 6. Define and implement `PlatformHouse` source settlement and realization
    receipts over this currency, including its sole-facade reference-processing
-   boundary, explicit target/version settlement, provenance-retaining
-   bare-library handoff, and transparent .NET Standard forwarding, while
+   boundary, explicit target/version settlement, shared Library
+   owner/reference handoff, and transparent .NET Standard forwarding, while
    keeping installed adapters package-free. Package pruning remains with the
    package-processing owner.
 7. Route Queries, Workspace, dependency traversal, and assembly-reference

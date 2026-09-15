@@ -1960,6 +1960,7 @@ test("Source fills the detail area below working-surface actions and above prove
 
     await expect(page.locator("#copy-source")).toBeVisible();
     await expect(page.locator(".shell-action-link")).toHaveText("Open");
+    await expect(page.locator("#explore-source")).toHaveText("Explore");
     await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
     await expect(
       page.getByRole("group", { name: "Source actions" }),
@@ -1999,6 +2000,14 @@ test("Source fills the detail area below working-surface actions and above prove
       document.documentElement.scrollWidth
       - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   }
+
+  await page.setViewportSize({ width: 1120, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
+  await page.locator("#explore-source").click();
+  await expect(page.locator("#settings-backdrop")).toBeVisible();
+  await expect(page.locator("#settings-decompiler-title")).toBeFocused();
+  await page.locator("#settings-close").click();
+  await expect(page.locator("#explore-source")).toBeFocused();
 
   for (const width of [1920, 1440, 1120, 600, 400]) {
     await page.setViewportSize({ width, height: 900 });
