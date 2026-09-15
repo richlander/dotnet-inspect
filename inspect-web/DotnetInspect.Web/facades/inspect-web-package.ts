@@ -177,6 +177,7 @@ export interface BrowserPackageCacheStats {
   readonly maxPackageEntries: number;
   readonly workspaces: number;
   readonly maxWorkspaces: number;
+  readonly maxWorkspaceAssembliesPerRole: number;
   readonly residentBytes: number;
   readonly maxResidentBytes: number;
   readonly maxWorkspaceRetainedImageBytes: number;
