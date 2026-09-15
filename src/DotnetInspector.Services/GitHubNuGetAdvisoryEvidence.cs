@@ -340,9 +340,17 @@ public sealed class GitHubNuGetAdvisoryService
     }
 
     /// <summary>Acquires category-qualified evidence for the requested coordinates.</summary>
+    /// <param name="request">The package coordinates and producer identity.</param>
+    /// <param name="cancellationToken">Caller cancellation, which propagates.</param>
+    /// <param name="deadlineCancellationToken">
+    /// An owner-issued operation deadline translated to typed
+    /// <see cref="GitHubNuGetAdvisoryFailureKind.DeadlineReached"/> evidence,
+    /// distinct from caller cancellation.
+    /// </param>
     public async Task<GitHubNuGetAdvisoryAcquisition> AcquireAsync(
         GitHubNuGetAdvisoryRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        CancellationToken deadlineCancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         var state = new AcquisitionState(request);
@@ -351,7 +359,8 @@ public sealed class GitHubNuGetAdvisoryService
                 _timeProvider.GetUtcNow().ToUniversalTime());
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken);
+            cancellationToken,
+            deadlineCancellationToken);
         deadline.CancelAfter(_options.OperationTimeout);
         var operationDeadline = new OperationDeadline(
             _timeProvider,

@@ -8,6 +8,10 @@ import {
 import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
 import { registerEngineWorkerCpuOperation } from "./engine-worker-cpu.ts";
 import {
+  registerEngineWorkerPackageChangesOperation,
+  type EngineWorkerPackageChangesFacade,
+} from "./engine-worker-package-changes.ts";
+import {
   registerEngineWorkerPackageQueryOperation,
   type EngineWorkerPackageQueryFacade,
 } from "./engine-worker-package-query.ts";
@@ -64,6 +68,14 @@ registerEngineWorkerPackageQueryOperation(operations, () => {
   }
   return packageQueryFacade;
 });
+let packageChangesFacade: EngineWorkerPackageChangesFacade | undefined;
+registerEngineWorkerPackageChangesOperation(operations, () => {
+  if (packageChangesFacade === undefined) {
+    throw new Error(
+      "Package Changes facade is unavailable before Worker readiness.");
+  }
+  return packageChangesFacade;
+});
 operations.register({
   kind: engineWorkerCanaryKind,
   allowance: { kind: "unbounded" },
@@ -108,6 +120,7 @@ const bootstrapWorker = async (value: string): Promise<void> => {
   ]);
   sourceFacade = loadedSourceFacade;
   packageQueryFacade = packageFacade;
+  packageChangesFacade = packageFacade;
   ordinaryFacades = {
     package: packageFacade,
     metadata: metadataFacade,

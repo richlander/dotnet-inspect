@@ -969,6 +969,33 @@ public sealed class GitHubNuGetAdvisoryEvidenceTests
     }
 
     [Fact]
+    public async Task ExternalDeadlineIsUnavailableRatherThanCallerCancellation()
+    {
+        using var client = new HttpClient(new DelayedHandler());
+        var service = new GitHubNuGetAdvisoryService(
+            client,
+            new GitHubNuGetAdvisoryOptions
+            {
+                OperationTimeout = TimeSpan.FromSeconds(10),
+            });
+        using var deadline =
+            new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+
+        GitHubNuGetAdvisoryAcquisition result =
+            await service.AcquireAsync(
+                Request(At("Example.Client", "1.0.0")),
+                TestContext.Current.CancellationToken,
+                deadline.Token);
+
+        Assert.Equal(
+            GitHubNuGetAdvisoryAvailability.Unavailable,
+            Assert.Single(result.Packages).CurrentContextAvailability);
+        Assert.Contains(
+            GitHubNuGetAdvisoryFailureKind.DeadlineReached,
+            result.Failures);
+    }
+
+    [Fact]
     public async Task UriLimitRejectsOversizedSingletonAfterRollover()
     {
         using var handler = new RoutingHandler((_, _) => Json("[]"));

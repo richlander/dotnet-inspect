@@ -50,6 +50,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "CancelPackageChanges.271973316");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageChanges.271973316\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Package");
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "CancelPackageQuery.271973316");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageQuery.271973316\u0027 is not callable.");
@@ -302,6 +314,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "RunPackageChanges.1791926993");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageChanges.1791926993\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Package");
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "RunPackageQuery.52840355");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.52840355\u0027 is not callable.");
@@ -346,6 +370,11 @@ export function runEntryPoint(mainAssemblyName, args) {
 }
 export async function activateWorkspacePackageOccurrence(action) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ActivateWorkspacePackageOccurrence.976702342"](action);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export function cancelPackageChanges(operationId, reason) {
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageChanges.271973316"](operationId, reason);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -441,6 +470,11 @@ export async function resolvePackageDependencyVersion(packageId, declaredRange) 
 }
 export async function runPackageAssemblyQuery(operationId, patternId, operand, packageCoordinatesJson, targetFramework, initialMatchCredit, eventSink) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageAssemblyQuery.990719355"](operationId, patternId, operand, packageCoordinatesJson, targetFramework, initialMatchCredit, eventSink);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function runPackageChanges(operationId, requestJson, eventSink) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageChanges.1791926993"](operationId, requestJson, eventSink);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
