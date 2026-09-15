@@ -3490,7 +3490,7 @@ public sealed partial class BrowserEngineBoundaryTests
     [Fact]
     public void PackageWireProjection_PreservesCoreValues()
     {
-        var stats = new BrowserPackageCacheSnapshot(1, 2, 12, 3, 4, 5, 128, 64);
+        var stats = new BrowserPackageCacheSnapshot(1, 2, 12, 3, 4, 256, 5, 128, 64);
         var entry = new BrowserPackageDocumentEntry(
             "skill",
             "Inspect",
@@ -3506,7 +3506,7 @@ public sealed partial class BrowserEngineBoundaryTests
             "cG5n");
 
         Assert.Equal(
-            new BrowserPackageCacheStats(1, 2, 12, 3, 4, 5, 128, 64),
+            new BrowserPackageCacheStats(1, 2, 12, 3, 4, 256, 5, 128, 64),
             BrowserPackageWireProjection.Project(stats));
         Assert.Equal(
             [
