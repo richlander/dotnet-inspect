@@ -616,14 +616,18 @@ public class ProjectCommand
         ProjectOptions options)
     {
         byte[] exactContent = File.ReadAllBytes(document.FullPath);
+        string sourceContent = ReadText(exactContent);
         string content = MarkdownContent.ApplyScope(
-            ReadText(exactContent),
-            options.ContentScope);
+            sourceContent,
+            options.ContentScope,
+            out int sourceLineOffset);
         if (document.Kind == ProjectDocumentKind.Skill)
         {
             return PrintableContent.FromContainmentSelection(
                 AgentSkillDocument.PrepareForOutput(
+                    document.Path,
                     content,
+                    sourceLineOffset,
                     normalizeGithubLinksToRaw: true));
         }
 

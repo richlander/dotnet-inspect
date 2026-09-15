@@ -32103,13 +32103,27 @@ public partial class CommandExecutionTests
             Assert.Equal(0, contentExit);
             Assert.Equal(0, contentBlocksExit);
             Assert.Equal(0, contentJsonExit);
-            Assert.Empty(packageError);
-            Assert.Empty(projectError);
-            Assert.Empty(packageJsonError);
-            Assert.Empty(projectJsonError);
-            Assert.Empty(contentError);
-            Assert.Empty(contentBlocksError);
-            Assert.Empty(contentJsonError);
+            AssertContainmentWarning(
+                packageError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                projectError,
+                "skills/project-skill/SKILL.md");
+            AssertContainmentWarning(
+                packageJsonError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                projectJsonError,
+                "skills/project-skill/SKILL.md");
+            AssertContainmentWarning(
+                contentError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                contentBlocksError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                contentJsonError,
+                "skills/package-skill/SKILL.md");
             string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
             Assert.Equal(placeholder, packageOutput);
             Assert.Equal(placeholder, projectOutput);
@@ -32138,6 +32152,82 @@ public partial class CommandExecutionTests
             Directory.Delete(packageTempDir, recursive: true);
             Directory.Delete(projectTempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task SkillDocuments_ReportBoundedContainmentRanges()
+    {
+        const string bidi = "\u202E";
+        string content =
+            "---\nname: ranges\n---\nprefix\n  "
+            + bidi
+            + bidi
+            + "x\u001B"
+            + "x"
+            + string.Join("x", Enumerable.Repeat(bidi, 8));
+        const string SkillPath = "skills/ranges/SKILL.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Skills.ContainmentRanges",
+            "README.md",
+            "readme",
+            null,
+            null,
+            (SkillPath, content));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--content",
+                "--path",
+                SkillPath,
+                "--body",
+                "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString() + "\n",
+                output);
+            Assert.Contains(
+                $"Skill document '{SkillPath}' was omitted because 10 text ranges require containment.",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "line 5, columns 3-4: 2 x U+202E (Format)",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "line 5, column 6: U+001B (Control)",
+                error,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                7,
+                error.Split(
+                    "U+202E (Format)",
+                    StringSplitOptions.None).Length - 1);
+            Assert.Contains(
+                "2 additional ranges omitted.",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    private static void AssertContainmentWarning(
+        string error,
+        string source)
+    {
+        Assert.Contains(
+            $"Warning: Skill document '{source}' was omitted because 1 text range requires containment.",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains("U+202E (Format)", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -32266,8 +32356,12 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, packageExit);
             Assert.Equal(0, projectExit);
-            Assert.Empty(packageError);
-            Assert.Empty(projectError);
+            AssertContainmentWarning(
+                packageError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                projectError,
+                "skills/project-skill/SKILL.md");
             string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
             Assert.Equal(placeholder, packageOutput);
             Assert.Equal(placeholder, projectOutput);
@@ -32296,7 +32390,7 @@ public partial class CommandExecutionTests
                 "package", packagePath, "-S", "Package README file", "--print", "--bare");
 
             Assert.Equal(0, exit);
-            Assert.Empty(error);
+            AssertContainmentWarning(error, SkillPath);
             Assert.Equal(
                 InertString.ContainmentRequiredPlaceholder.ToString(),
                 output);
@@ -32350,9 +32444,15 @@ public partial class CommandExecutionTests
             Assert.Empty(packageStdout);
             Assert.Empty(packageContentStdout);
             Assert.Empty(projectStdout);
-            Assert.Empty(packageError);
-            Assert.Empty(packageContentError);
-            Assert.Empty(projectError);
+            AssertContainmentWarning(
+                packageError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                packageContentError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                projectError,
+                "skills/project-skill/SKILL.md");
             Assert.Equal(
                 InertString.ContainmentRequiredPlaceholder.ToString(),
                 File.ReadAllText(packageOutput));
@@ -36726,38 +36826,44 @@ public partial class CommandExecutionTests
             ("skills/example/SKILL.md/payload.txt", "first\nsecond"));
         try
         {
-            (string Name, string[] Arguments, string Stdout, string File)[] cases =
+            (string Name, string[] Arguments, string Stdout, string File, string? WarningSource)[] cases =
             [
                 (
                     "print-safe",
                     ["-S", "Package skill files", "--print", "--row", "2", "--bare", "-n1"],
                     "safe-first\n",
-                    "safe-first\n"),
+                    "safe-first\n",
+                    null),
                 (
                     "content-safe",
                     ["--content", "--path", "skills/safe/SKILL.md", "--bare", "-n1"],
                     "safe-first\n",
-                    "safe-first\n"),
+                    "safe-first\n",
+                    null),
                 (
                     "print-readme-skill",
                     ["-S", "Package README file", "--print", "--bare", "-n1"],
                     "safe-first\n",
-                    "safe-first\n"),
+                    "safe-first\n",
+                    null),
                 (
                     "content-readme-skill",
                     ["--content", "--path", "@readme", "--bare", "-n1"],
                     "safe-first\n",
-                    "safe-first\n"),
+                    "safe-first\n",
+                    null),
                 (
                     "print-contained",
                     ["-S", "Package skill files", "--print", "--row", "1", "--bare", "-n1"],
                     placeholder,
-                    placeholder),
+                    placeholder,
+                    "skills/contained/SKILL.md"),
                 (
                     "content-contained",
                     ["--content", "--path", "skills/contained/SKILL.md", "--bare", "-n1"],
                     placeholder + "\n",
-                    placeholder),
+                    placeholder,
+                    "skills/contained/SKILL.md"),
             ];
 
             foreach (var testCase in cases)
@@ -36775,8 +36881,16 @@ public partial class CommandExecutionTests
 
                 Assert.Equal(0, stdout.Exit);
                 Assert.Equal(0, redirected.Exit);
-                Assert.Empty(stdout.Error);
-                Assert.Empty(redirected.Error);
+                if (testCase.WarningSource is { } warningSource)
+                {
+                    AssertContainmentWarning(stdout.Error, warningSource);
+                    AssertContainmentWarning(redirected.Error, warningSource);
+                }
+                else
+                {
+                    Assert.Empty(stdout.Error);
+                    Assert.Empty(redirected.Error);
+                }
                 Assert.Empty(redirected.Output);
                 Assert.Equal(testCase.Stdout, stdout.Output);
                 Assert.Equal(testCase.File, File.ReadAllText(outputPath));
