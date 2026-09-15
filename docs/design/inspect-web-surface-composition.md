@@ -1487,8 +1487,10 @@ issued for the current browser session:
 - framework asset count, transferred bytes, and decoded bytes;
 - exact product version, full linked commit, UTC build timestamp, and
   Browser/Wasm host; and
-- aggregate package, resident-payload, Workspace, and resident-byte cache
-  statistics.
+- aggregate acquired-package, resident-payload, Workspace, and resident-byte
+  cache statistics; and
+- acquisition-owner limits for resident payloads, open Workspaces, aggregate
+  resident bytes, and retained assembly-image bytes per Workspace.
 
 Runtime, build, and package-cache absence or failure remain visible in the same
 route geometry. A cache-statistics failure does not preserve prior counts as an
@@ -1503,7 +1505,7 @@ Later owner-adoption work may add:
 - package-source health;
 - candidate and payload cache-entry inventory;
 - coordinate, producer, size, and persistence for each cache entry;
-- cache limits and eviction state;
+- cache eviction state;
 - a support-report copy action; and
 - owner-authorized cache-management actions.
 

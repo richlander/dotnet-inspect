@@ -481,7 +481,16 @@ async function installFacades(
             "finish-package-cache-stats", resolve, { once: true }));
         }
         if (diagnosticsOptions.cacheFailure) throw new Error("Cache storage offline");
-        return { packages: 1, resident: 1, workspaces: 1, residentBytes: 0 };
+        return {
+          packages: 1,
+          resident: 1,
+          maxResident: 12,
+          workspaces: 1,
+          maxWorkspaces: 4,
+          residentBytes: 0,
+          maxResidentBytes: 134217728,
+          maxWorkspaceRetainedImageBytes: 67108864,
+        };
       }
       export function listPackageQueryFacets() { return { facets: [] }; }
       export async function queryMemberDocumentation() {
@@ -1405,7 +1414,15 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
     .toContainText("engine ready");
   await expect(page.locator("#diagnostics-build-heading")).toHaveText("Build");
   await expect(page.locator("#diagnostics-cache-heading"))
-    .toHaveText("Package cache");
+    .toHaveText("Isolated storage");
+  const storageCard = page.locator(".diagnostics-card").filter({
+    has: page.locator("#diagnostics-cache-heading"),
+  });
+  await expect(storageCard).toContainText("Resident payloads");
+  await expect(storageCard).toContainText("1 of 12");
+  await expect(storageCard).toContainText("0 B of 128 MB");
+  await expect(storageCard).toContainText("1 of 4");
+  await expect(storageCard).toContainText("64 MB each");
   await expect(page.locator(".data-bar")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Back to previous page" }))
     .toBeVisible();

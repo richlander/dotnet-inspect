@@ -14,8 +14,12 @@ namespace DotnetInspect.Web;
 internal sealed record BrowserPackageCacheSnapshot(
     int Packages,
     int Resident,
+    int MaxResident,
     int Workspaces,
-    long ResidentBytes);
+    int MaxWorkspaces,
+    long ResidentBytes,
+    long MaxResidentBytes,
+    long MaxWorkspaceRetainedImageBytes);
 
 internal sealed record BrowserPackageDocumentEntry(
     string Kind,
@@ -200,9 +204,13 @@ internal static class BrowserPackageWorkspace
         new(
             Downloaded.Count,
             Cache.Count,
+            MaxCachedPackages,
             Scopes.Count,
+            MaxOpenScopes,
             Cache.Values.Sum(entry => entry.Bytes.LongLength)
-                + Reservations.Values.Sum(reservation => reservation.ReservedBytes));
+                + Reservations.Values.Sum(reservation => reservation.ReservedBytes),
+            MaxCachedPackageBytes,
+            BrowserInspectionScope.MaxRetainedImageBytes);
 
     /// <summary>
     /// Resolves and acquires one package through the shared product owners

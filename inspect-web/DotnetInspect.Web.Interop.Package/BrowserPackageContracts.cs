@@ -205,8 +205,12 @@ public sealed record BrowserTypeSearchHit(
 public sealed record BrowserPackageCacheStats(
     int Packages,
     int Resident,
+    int MaxResident,
     int Workspaces,
-    long ResidentBytes);
+    int MaxWorkspaces,
+    long ResidentBytes,
+    long MaxResidentBytes,
+    long MaxWorkspaceRetainedImageBytes);
 
 public sealed record BrowserPlatformCatalog(
     string Tfm,
