@@ -4,6 +4,7 @@ import type {
   BrowserVocabularyDocument,
 } from "./facades/inspect-web-catalog.d.ts";
 import type {
+  BrowserPackageChangesPackageSetCatalog,
   BrowserPackageQueryCatalog,
   BrowserPackageQueryFacetTier,
 } from "./facades/inspect-web-package.d.ts";
@@ -171,6 +172,26 @@ export const engineStartupOperations = {
             operators: array(term.operators, text),
             valueKind: text(term.valueKind),
             example: text(term.example),
+          };
+        }),
+      };
+    }),
+  },
+  listPackageChangesPackageSets: {
+    kind: "package-list-changes-package-sets",
+    value: json<BrowserPackageChangesPackageSetCatalog>(value => {
+      const data = record(value);
+      return {
+        ...data,
+        version: number(data.version),
+        packageSets: array(data.packageSets, rawPackageSet => {
+          const packageSet = record(rawPackageSet);
+          return {
+            ...packageSet,
+            id: text(packageSet.id),
+            title: text(packageSet.title),
+            summary: text(packageSet.summary),
+            order: number(packageSet.order),
           };
         }),
       };

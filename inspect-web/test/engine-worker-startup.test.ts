@@ -23,6 +23,7 @@ import type {
   BrowserVocabularyDocument,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
+  BrowserPackageChangesPackageSetCatalog,
   BrowserPackageQueryCatalog,
 } from "../src/facades/inspect-web-package.d.ts";
 import {
@@ -65,6 +66,15 @@ const catalog: BrowserPackageQueryCatalog = {
     example: "Microsoft.Extensions.Hosting",
   }],
 };
+const packageSets: BrowserPackageChangesPackageSetCatalog = {
+  version: 1,
+  packageSets: [{
+    id: "package-set.example",
+    title: "Example packages",
+    summary: "Example product-issued package set.",
+    order: 10,
+  }],
+};
 const cases = [
   { operation: engineStartupOperations.buildIdentity, expected: identity, field: "version",
     read: (client: EngineStartupClient) => client.host.buildIdentity() },
@@ -74,6 +84,13 @@ const cases = [
     read: (client: EngineStartupClient) => client.catalog.listHomeDemos() },
   { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "facets",
     read: (client: EngineStartupClient) => client.package.listPackageQueryCatalog() },
+  {
+    operation: engineStartupOperations.listPackageChangesPackageSets,
+    expected: packageSets,
+    field: "packageSets",
+    read: (client: EngineStartupClient) =>
+      client.package.listPackageChangesPackageSets(),
+  },
 ];
 
 function deferred<T>() {
@@ -97,6 +114,10 @@ function fixture(options: {
     async listVocabulary() { calls.push("vocabulary"); return vocabulary; },
     async listHomeDemos() { calls.push("demos"); return demos; },
     async listPackageQueryCatalog() { calls.push("catalog"); return catalog; },
+    async listPackageChangesPackageSets() {
+      calls.push("package-sets");
+      return packageSets;
+    },
     ...options.reads,
   });
   const workers = Array.from({ length: 2 }, () => new FakeWorkerRuntime({
@@ -130,18 +151,20 @@ function fixture(options: {
   return { host, client, environment, calls, failures, diagnostics, workers, starts: () => starts };
 }
 
-test("all four cold reads share readiness and preserve full generated-shaped results", async () => {
+test("all five cold reads share readiness and preserve full generated-shaped results", async () => {
   const ready = deferred<void>();
   const state = fixture({ bootstrap: () => ready.promise });
   const results = Promise.all(cases.map(item => item.read(state.client)));
-  assert.equal(state.host.snapshot().heldOperations, 4);
+  assert.equal(state.host.snapshot().heldOperations, 5);
   await state.environment.flushAsync();
   assert.equal(state.starts(), 1);
   assert.deepEqual(state.calls, []);
   ready.resolve();
   await state.environment.flushAsync();
   assert.deepEqual(await results, cases.map(item => item.expected));
-  assert.deepEqual(state.calls, ["identity", "vocabulary", "demos", "catalog"]);
+  assert.deepEqual(
+    state.calls,
+    ["identity", "vocabulary", "demos", "catalog", "package-sets"]);
   assert.deepEqual(await Promise.all(cases.map(item => item.read(state.client))), cases.map(item => item.expected));
   assert.equal(state.starts(), 1);
   assert.equal(state.host.snapshot().activeOperations, 0);

@@ -273,6 +273,18 @@ export interface BrowserPackageChangesPackageScope {
   readonly packageIds: ReadonlyArray<string>;
 }
 
+export interface BrowserPackageChangesPackageSetCatalog {
+  readonly version: number;
+  readonly packageSets: ReadonlyArray<BrowserPackageChangesPackageSetDescriptor>;
+}
+
+export interface BrowserPackageChangesPackageSetDescriptor {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly order: number;
+}
+
 export interface BrowserPackageChangesPackageSourceFailure {
   readonly capability: number;
   readonly packageId: string | null;
@@ -760,6 +772,7 @@ type $ManagedExports = {
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
             readonly "ListPackageAssemblyQueryPatterns.1310674786": () => string;
+            readonly "ListPackageChangesPackageSets.1310674786": () => string;
             readonly "ListPackageQueryCatalog.1310674786": () => string;
             readonly "LoadRuntimePack.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "LoadRuntimePackAssembly.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string) => Promise<string>;
@@ -934,6 +947,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ListPackageAssemblyQueryPatterns.1310674786");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageAssemblyQueryPatterns.1310674786\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "ListPackageChangesPackageSets.1310674786");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageChangesPackageSets.1310674786\u0027 is not callable.");
     }
   }
   {
@@ -1251,6 +1276,12 @@ export function listPackageAssemblyQueryPatterns(): ReadonlyArray<BrowserPackage
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageAssemblyQueryPatterns.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserPackageAssemblyQueryPattern>;
+}
+
+export function listPackageChangesPackageSets(): BrowserPackageChangesPackageSetCatalog {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageChangesPackageSets.1310674786"]();
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageChangesPackageSetCatalog;
 }
 
 export function listPackageQueryCatalog(): BrowserPackageQueryCatalog {
