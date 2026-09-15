@@ -22,6 +22,42 @@ namespace DotnetInspect.Web.Tests;
 public sealed partial class BrowserEngineBoundaryTests
 {
     [Fact]
+    public async Task QueryTypeProjection_RetainsDependencySubjectWireFacts()
+    {
+        const string packageId = "Browser.TypeDependencies.Json";
+        const string typeName = "Browser.TypeDependencies.Json.Consumer";
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildTypeDependencyImage(packageId, typeName, typeof(IDisposable)),
+                $"lib/net11.0/{packageId}.dll"));
+
+        string json = await DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection(
+            packageId,
+            "1.0.0",
+            "net11.0",
+            $"{packageId}.dll",
+            typeName,
+            typeName,
+            $$"""[{"package":"{{packageId}}","version":"1.0.0","framework":"net11.0"}]""");
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement content = document.RootElement.GetProperty("typeDependencyInspection")
+            .GetProperty("content");
+        JsonElement participant = Assert.Single(
+            content.GetProperty("queryResult").GetProperty("participants").EnumerateArray());
+        Assert.Equal("completed", participant.GetProperty("kind").GetString());
+        JsonElement subject = participant.GetProperty("subject");
+        Assert.False(subject.TryGetProperty("registration", out _));
+        Assert.Equal(packageId, subject.GetProperty("identity").GetProperty("name").GetString());
+        JsonElement provenance = subject.GetProperty("provenance");
+        Assert.Equal("package", provenance.GetProperty("kind").GetString());
+        Assert.Equal(packageId, provenance.GetProperty("packageId").GetString(), ignoreCase: true);
+        Assert.Equal("1.0.0", provenance.GetProperty("packageVersion").GetString());
+        Assert.True(provenance.TryGetProperty("tfm", out _));
+        Assert.True(provenance.TryGetProperty("rid", out _));
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_ExpandsDependenciesAcrossWorkspacePackages()
     {
         const string rootPackageId =

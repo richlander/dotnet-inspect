@@ -589,7 +589,7 @@ public static class SearchCommandDefinitions
             Description =
                 "Maximum dependency depth; 1 includes direct relationships only"
         };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json or --envelope)" };
         var shareOption = WorkspaceShareOption.Create(
             "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
 
@@ -628,6 +628,10 @@ public static class SearchCommandDefinitions
         opts.AddCountOptionTo(dependsCommand);
         opts.AddOutputOptionsTo(dependsCommand);
         opts.AddNuGetOptionsTo(dependsCommand);
+        opts.AddEnvelopeOptionTo(
+            dependsCommand,
+            opts.Discover, opts.Schema, opts.Effective, opts.Select,
+            opts.Verbosity, opts.Count);
 
         dependsCommand.Validators.Add(result =>
         {
@@ -652,6 +656,11 @@ public static class SearchCommandDefinitions
             }
             bool typeMode =
                 !string.IsNullOrEmpty(result.GetValue(targetTypeArg));
+            if (result.GetValue(opts.Envelope) && !typeMode)
+            {
+                result.AddError(
+                    "--envelope currently requires a positional type in depends.");
+            }
             bool effective = result.GetValue(opts.Effective);
             bool discovery =
                 result.GetResult(opts.Discover)
@@ -897,6 +906,7 @@ public static class SearchCommandDefinitions
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Format = outputFormat,
                 JsonOutput = outputFormat == OutputFormat.Json,
+                EnvelopeOutput = parseResult.GetValue(opts.Envelope),
                 CompactJson = parseResult.GetValue(compactOption),
                 MermaidOutput = outputFormat == OutputFormat.Mermaid,
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
@@ -926,8 +936,6 @@ public static class SearchCommandDefinitions
 
             if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode)
             {
-                CommandError.Write($"Type '{targetType}' not found in the specified scope.");
-                NamespacePrefixHints.WriteIfLikelyNamespacePrefix(targetType);
                 return outcome.Uncertified
                     ? DependsCommand.UncertifiedScanExitCode
                     : 1;

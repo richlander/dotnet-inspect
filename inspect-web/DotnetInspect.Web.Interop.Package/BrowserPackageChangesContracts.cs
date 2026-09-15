@@ -10,6 +10,16 @@ public sealed record BrowserPackageChangesRequest(
     bool SecurityOnly,
     int MaximumRows);
 
+public sealed record BrowserPackageChangesPackageSetDescriptor(
+    string Id,
+    string Title,
+    string Summary,
+    int Order);
+
+public sealed record BrowserPackageChangesPackageSetCatalog(
+    int Version,
+    BrowserPackageChangesPackageSetDescriptor[] PackageSets);
+
 public sealed record BrowserPackageChangesPackageScope(
     string Kind,
     string? SelectionId,
@@ -277,6 +287,7 @@ public sealed record BrowserPackageChangesCancellation(
 }
 
 [JsonSerializable(typeof(BrowserPackageChangesRequest))]
+[JsonSerializable(typeof(BrowserPackageChangesPackageSetCatalog))]
 [JsonSerializable(typeof(BrowserPackageChangesEvent))]
 [JsonSerializable(typeof(BrowserPackageChangesResult))]
 [JsonSerializable(typeof(BrowserPackageChangesCancellation))]
