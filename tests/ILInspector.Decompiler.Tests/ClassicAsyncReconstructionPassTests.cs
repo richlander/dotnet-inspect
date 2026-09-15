@@ -6,10 +6,9 @@ namespace ILInspector.Decompiler.Tests;
 //
 // The pass raises runtime-async=off async kickoffs back to async bodies. Only
 // an adapter-issued authenticated declared-kickoff request grants
-// stage-application authority. Generated
-// names and builder-field shapes remain recognition hints inside the
-// authenticated declared-kickoff path; they never authorize mutation by
-// themselves.
+// stage-application authority. Generated names and builder-field shapes are
+// recognition hints only inside the authenticated declared-kickoff path; they
+// never authorize mutation by themselves.
 //
 // Product imports are governed by ClassicAsyncRequestAdapterResult. The
 // synthetic pins below prove generated shape alone neither edits a support
