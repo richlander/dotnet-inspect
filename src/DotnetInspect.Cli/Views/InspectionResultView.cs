@@ -21,6 +21,113 @@ public class InspectionResultView
     private readonly bool _includeTitleVersion;
     private PackageInspectionText Text => _text ??= new PackageInspectionText(_data);
 
+    private delegate string? PackageInfoValueResolver(InspectionResultView view);
+
+    private readonly record struct PackageInfoFieldDefinition(
+        string Name,
+        PackageInfoValueResolver Resolve);
+
+    private static readonly PackageInfoFieldDefinition[] PackageInfoFields =
+    [
+        new("Version", static view => view.Version),
+        new("Type", static view => view.PackageType),
+        new("Size", static view =>
+            view._data.PackageSize.HasValue
+                ? new ByteSizeFormatter().Format(view._data.PackageSize.Value)
+                : null),
+        new("Highest TFM", static view =>
+            !string.IsNullOrEmpty(view.HighestTfm) ? view.HighestTfm : null),
+        new("TFM Count", static view =>
+            view.TargetFrameworkCount > 0
+                ? view.TargetFrameworkCount.ToString()
+                : null),
+        new("Built", static view =>
+            view._data.BuiltDate?.ToString("yyyy-MM-dd")),
+        new("Published", static view =>
+            view._data.Published?.ToString("yyyy-MM-dd")),
+        new("Source", static view =>
+            view.Text.Source?.ToString()),
+        new("Deprecated Note", static view =>
+            view.Text.Deprecation?.Summary.ToString()),
+        new("Authors", static view =>
+            view.Text.Authors is { } authors
+                && !string.IsNullOrWhiteSpace(authors.ToString())
+                    ? authors.ToString()
+                    : null),
+        new("Owners", static view =>
+            view.Text.Owners is { Count: > 0 } owners
+                ? InertString.Join(", ", TextPolicy.Field, owners).ToString()
+                : null),
+        new("License", static view =>
+            view.Text.License is { } license
+                && !string.IsNullOrWhiteSpace(license.ToString())
+                    ? license.ToString()
+                    : null),
+        new("License URL", static view =>
+            view.Text.LicenseUrl is { } licenseUrl
+                && !string.IsNullOrWhiteSpace(licenseUrl.ToString())
+                    ? licenseUrl.ToString()
+                    : null),
+        new("Repository", static view =>
+            view.Text.Repository is { } repository
+                && !string.IsNullOrWhiteSpace(repository.ToString())
+                    ? repository.ToString()
+                    : null),
+        new("Repository Type", static view =>
+            view.Text.RepositoryType is { } repositoryType
+                && !string.IsNullOrWhiteSpace(repositoryType.ToString())
+                    ? repositoryType.ToString()
+                    : null),
+        new("Repository Commit", static view =>
+            view.Text.RepositoryCommit is { } repositoryCommit
+                && !string.IsNullOrWhiteSpace(repositoryCommit.ToString())
+                    ? repositoryCommit.ToString()
+                    : null),
+        new("Verified", static view =>
+            view._data.IsVerified == true ? "Yes" : null),
+        new("Signed", static view =>
+            view._data.Signed.HasValue
+                ? view._data.Signed.Value ? "Yes" : "No"
+                : null),
+        new("Content", static view =>
+            view.Text.ContentDirectories is { Count: > 0 } directories
+                ? InertString.Join(", ", TextPolicy.Field, directories).ToString()
+                : null),
+        new("Runtime Identifiers", static view =>
+            view.SupportedRidCount > 0
+                ? view.SupportedRidCount.ToString()
+                : null),
+        new("Libraries", static view =>
+            view._data.AssemblyCount > 1
+                ? view._data.AssemblyCount.ToString()
+                : null),
+        new("Readme", static view =>
+            view._data.HasReadme ? view.ReadmeFile ?? "README.md" : null),
+        new("Vulnerabilities", static view =>
+            view._data.Vulnerabilities is { Count: > 0 } vulnerabilities
+                ? vulnerabilities.Count.ToString()
+                : null),
+        new("Tool Commands", static view =>
+            view.Text.ToolCommands is { Count: > 0 } commands
+                ? InertString.Join(", ", TextPolicy.Field, commands).ToString()
+                : null),
+        new("Framework Dependent", static view =>
+            view._data.IsFrameworkDependent ? "Yes" : null),
+        new("RID-Specific Pointer", static view =>
+            view._data.IsRidSpecificPointerPackage ? "Yes" : null),
+        new("Runtime Target RID", static view =>
+            view.Text.RuntimeTargetRid is { } runtimeTargetRid
+                && !string.IsNullOrWhiteSpace(runtimeTargetRid.ToString())
+                    ? runtimeTargetRid.ToString()
+                    : null),
+    ];
+
+    internal static IReadOnlyList<string> PackageInfoFieldNames { get; } =
+        PackageInfoFields
+            .Select(static field => field.Name)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
     public InspectionResultView(InspectionResult data, bool includeTitleVersion = true)
     {
         _data = data;
@@ -541,68 +648,11 @@ public class InspectionResultView
     private List<MarkoutField> GetMetadataFields()
     {
         List<MarkoutField> fields = [];
-
-        fields.Add(new("Version", Version));
-        fields.Add(new("Type", PackageType));
-        if (_data.PackageSize.HasValue)
-            fields.Add(new("Size", new ByteSizeFormatter().Format(_data.PackageSize.Value)));
-        if (!string.IsNullOrEmpty(HighestTfm))
-            fields.Add(new("Highest TFM", HighestTfm));
-        if (TargetFrameworkCount > 0)
-            fields.Add(new("TFM Count", TargetFrameworkCount.ToString()));
-        if (_data.BuiltDate.HasValue)
-            fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));
-        if (_data.Published.HasValue)
-            fields.Add(new("Published", _data.Published.Value.ToString("yyyy-MM-dd")));
-        if (Text.Source is { } source)
-            fields.Add(new("Source", source.ToString()));
-
-        if (Text.Deprecation is { } deprecation)
-            fields.Add(new("Deprecated Note", deprecation.Summary.ToString()));
-
-        if (Text.Authors is { } authors && !string.IsNullOrWhiteSpace(authors.ToString()))
-            fields.Add(new("Authors", authors.ToString()));
-        if (Text.Owners is { Count: > 0 } owners)
-            fields.Add(new("Owners", InertString.Join(", ", TextPolicy.Field, owners).ToString()));
-        if (Text.License is { } license && !string.IsNullOrWhiteSpace(license.ToString()))
-            fields.Add(new("License", license.ToString()));
-        if (Text.LicenseUrl is { } licenseUrl && !string.IsNullOrWhiteSpace(licenseUrl.ToString()))
-            fields.Add(new("License URL", licenseUrl.ToString()));
-        if (Text.Repository is { } repository && !string.IsNullOrWhiteSpace(repository.ToString()))
-            fields.Add(new("Repository", repository.ToString()));
-        if (Text.RepositoryType is { } repositoryType && !string.IsNullOrWhiteSpace(repositoryType.ToString()))
-            fields.Add(new("Repository Type", repositoryType.ToString()));
-        if (Text.RepositoryCommit is { } repositoryCommit && !string.IsNullOrWhiteSpace(repositoryCommit.ToString()))
-            fields.Add(new("Repository Commit", repositoryCommit.ToString()));
-
-        if (_data.IsVerified == true)
-            fields.Add(new("Verified", "Yes"));
-
-        if (_data.Signed.HasValue)
-            fields.Add(new("Signed", _data.Signed.Value ? "Yes" : "No"));
-
-        if (Text.ContentDirectories is { Count: > 0 } contentDirectories)
-            fields.Add(new("Content", InertString.Join(", ", TextPolicy.Field, contentDirectories).ToString()));
-        if (SupportedRidCount > 0)
-            fields.Add(new("Runtime Identifiers", SupportedRidCount.ToString()));
-        if (_data.AssemblyCount > 1)
-            fields.Add(new("Libraries", _data.AssemblyCount.ToString()));
-        if (_data.HasReadme)
-            fields.Add(new("Readme", ReadmeFile ?? "README.md"));
-        if (_data.Vulnerabilities is { Count: > 0 })
-            fields.Add(new("Vulnerabilities", _data.Vulnerabilities.Count.ToString()));
-
-        if (Text.ToolCommands is { Count: > 0 } toolCommands)
-            fields.Add(new("Tool Commands", InertString.Join(", ", TextPolicy.Field, toolCommands).ToString()));
-
-        if (_data.IsFrameworkDependent)
-            fields.Add(new("Framework Dependent", "Yes"));
-        if (_data.IsRidSpecificPointerPackage)
-            fields.Add(new("RID-Specific Pointer", "Yes"));
-        if (Text.RuntimeTargetRid is { } runtimeTargetRid
-            && !string.IsNullOrWhiteSpace(runtimeTargetRid.ToString()))
-            fields.Add(new("Runtime Target RID", runtimeTargetRid.ToString()));
-
+        foreach (PackageInfoFieldDefinition definition in PackageInfoFields)
+        {
+            if (definition.Resolve(this) is { } value)
+                fields.Add(new(definition.Name, value));
+        }
         return fields;
     }
 

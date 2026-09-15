@@ -2133,37 +2133,6 @@ public class PackageCommand
         return false;
     }
 
-    private static readonly string[] PackageInfoFieldNames =
-    [
-        "Authors",
-        "Built",
-        "Content",
-        "Deprecated Note",
-        "Framework Dependent",
-        "Highest TFM",
-        "Libraries",
-        "License",
-        "License URL",
-        "Owners",
-        "Published",
-        "Readme",
-        "Repository",
-        "Repository Commit",
-        "Repository Type",
-        "RID-Specific Pointer",
-        "Runtime Identifiers",
-        "Runtime Target RID",
-        "Signed",
-        "Size",
-        "Source",
-        "TFM Count",
-        "Tool Commands",
-        "Type",
-        "Verified",
-        "Version",
-        "Vulnerabilities"
-    ];
-
     private static readonly string[] MultiPackageInfoColumnNames =
     [
         "Package",
@@ -2482,7 +2451,9 @@ public class PackageCommand
         string[]? patterns)
         => patterns is not { Length: > 0 }
             ? null
-            : ResolveProjectionNames(PackageInfoFieldNames, patterns);
+            : ResolveProjectionNames(
+                InspectionResultView.PackageInfoFieldNames,
+                patterns);
 
     private static string[]? ResolvePackageFieldSectionFields(
         string section,
@@ -2510,7 +2481,7 @@ public class PackageCommand
         => section.Equals(
             PackageSections.PackageInfo,
             StringComparison.OrdinalIgnoreCase)
-            ? PackageInfoFieldNames
+            ? InspectionResultView.PackageInfoFieldNames
             : SigningSection.FieldNames;
 
     private static string[] ResolveProjectionNames(
@@ -2553,7 +2524,10 @@ public class PackageCommand
             var section = schema.GetSection(name);
             if (string.Equals(name, PackageSections.PackageInfo, StringComparison.OrdinalIgnoreCase))
             {
-                result.Add(name, "field", PackageInfoFieldNames);
+                result.Add(
+                    name,
+                    "field",
+                    [.. InspectionResultView.PackageInfoFieldNames]);
             }
             else if (string.Equals(name, PackageSections.Signals, StringComparison.OrdinalIgnoreCase))
             {
