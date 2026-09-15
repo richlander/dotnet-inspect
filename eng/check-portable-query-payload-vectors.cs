@@ -46,9 +46,11 @@ using System.Text.Json;
 //   WindowBound a Count, or null meaning "no bound on this side". When both
 //               bounds of a window are present, start <= end (the stage owner's
 //               construction precondition, enforced here at decode).
-//   Role        the string "base", or an integer index into s naming a top stage
-//   Direction   asc | desc
-// Token slots are fixed by their layout and listed with it.
+//   Role        the model's baseline-role text, or an integer index into s
+//               naming a stage of the model's ranking kind
+//   Direction   one of the model's two direction texts
+//   Kind slots  (operator, stage kind, order kind) carry the model's identity
+//               text for that kind verbatim; none is spelled in this region.
 
 // Identity texts — operators, directions, stage kinds, order kinds, and the
 // base role — are NOT defined here. They are the intent model's
@@ -58,12 +60,12 @@ using System.Text.Json;
 
 // Tuple layouts. A term, a bound, and each stage kind are fixed-arity.
 // An order operation is [Role, kind, ...]: the kind selects the tail.
-//   term   [Identity(key), operator text, Text(value)]
-//   bound  [Identity(dimension), Count(maximum)]        one bound per dimension
-//   stage  head | tail | top   [stage text, Count]      a top's ranking binds through o
-//          window              [stage text, WindowBound, WindowBound]   always three slots
-//   order  named   [Role, "named",  Identity(reference), Direction]
-//          fields  [Role, "fields", Identity(key), Direction, ...]   at least one pair
+//   term   [Identity(key), operator, Text(value)]
+//   bound  [Identity(dimension), Count(maximum)]           one bound per dimension
+//   stage  the model's window kind   [kind, WindowBound, WindowBound]   always three slots
+//          every other stage kind    [kind, Count]   the ranking kind's order binds through o
+//   order  the model's named kind    [Role, kind, Identity(reference), Direction]
+//          the model's field-list kind [Role, kind, Identity(key), Direction, ...]   ≥ 1 pair
 
 // Limits. Text limits count UTF-8 bytes. Depth counts the object as 1.
 // Count limits are charged as parsed, before exact duplicates collapse.
