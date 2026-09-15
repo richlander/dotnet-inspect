@@ -395,6 +395,49 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task Find_IncompleteLocatorCountPreservesCoverageAndGaps()
+    {
+        string id =
+            $"Workspace.Search.CountIncomplete.{Guid.NewGuid():N}";
+        byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+            ($"{id}.nuspec", "<package />"u8.ToArray()),
+            ("README.md", []));
+        ConfigureCommandFeed(id, package);
+
+        var result = await RunCommandAsync(
+            [
+                "find", "No.Such.Type",
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--count",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            "| Completion | Incomplete |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Coverage",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Gaps",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "No coverage or selection gaps were reported.",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Cannot count type-location rows because the Workspace search was incomplete.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Find_LocatorPreservesMetadataAssemblyIdentity()
     {
         string id =

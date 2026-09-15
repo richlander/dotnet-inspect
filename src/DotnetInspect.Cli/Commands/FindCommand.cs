@@ -378,7 +378,7 @@ public class FindCommand
         return view.FailureCount == 0 ? 0 : 1;
     }
 
-    private static int WriteTypeDeclarationLocator(
+    internal static int WriteTypeDeclarationLocator(
         TypeDeclarationLocatorResult result,
         FindOptions options)
     {
@@ -399,6 +399,9 @@ public class FindCommand
                 } evaluated
                 || evaluated.Answers.Any(static answer => !answer.IsComplete))
             {
+                _ = WriteTypeDeclarationLocator(
+                    result,
+                    options with { Count = false });
                 CommandError.Write(
                     "Cannot count type-location rows because the Workspace search was incomplete.");
                 return 1;

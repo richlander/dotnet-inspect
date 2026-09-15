@@ -1921,6 +1921,33 @@ public class FindCommandIntegrationTests
         Assert.Contains("Directory not found", error);
     }
 
+    [Fact]
+    public async Task FindCount_RejectedLocatorPreservesTypedFailure()
+    {
+        var result = new TypeDeclarationLocatorResult.Rejected(
+            TypeDeclarationLocatorRejectionKind.InvalidRequest,
+            requestIndex: 0);
+        var options = new FindOptions { Count = true };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(
+                FindCommand.WriteTypeDeclarationLocator(result, options)));
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "Rejected",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(TypeDeclarationLocatorRejectionKind.InvalidRequest),
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Cannot count type-location rows because the Workspace search was incomplete.",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [MemberData(nameof(ExactCountCases))]
     public void FindCountSufficiency_FollowsOrderedSemanticSelection(
