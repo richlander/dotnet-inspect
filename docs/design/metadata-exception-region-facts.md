@@ -83,6 +83,11 @@ The catalog does not silently discard a malformed clause. Construction either
 publishes the complete catalog or reports why the body or catalog is
 unavailable.
 
+Construction validates the complete raw method-data section chain and each EH
+section's framing against the ordered clauses materialized by SRM. An omitted
+chained clause, truncated header, partial trailing clause, unsupported section
+kind, or raw/SRM disagreement makes the whole body unavailable.
+
 Two clauses can declare the same try extent. Metadata preserves both clause
 identities and their order; it does not collapse them into one semantic
 protected region. Grouping, nesting validation, and execution semantics belong
@@ -155,6 +160,8 @@ a `finally` clause is not by itself an execution-path result.
 - clauses sharing one protected extent without identity collapse;
 - exact protected, filter, and handler ranges plus physical offset contexts;
 - half-open extent ends and malformed-clause whole-result refusal;
+- malformed and chained method-data section framing, including an SRM-omitted
+  chained clause;
 - resolved, absent, and rejected detached catch-type name evidence; and
 - one copied IL body and raw/catalog clause correspondence.
 

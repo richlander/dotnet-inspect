@@ -202,6 +202,51 @@ public class MethodExceptionRegionFactsTests
         Assert.Equal(token, unavailable.Method!.Value.Token);
     }
 
+    [Theory]
+    [InlineData(3)]
+    [InlineData(29)]
+    public void Read_RejectsMalformedExceptionSectionSize(int dataSize)
+    {
+        byte[] image = File.ReadAllBytes(SelfPath);
+        int token = TokenOf(nameof(MethodExceptionRegionFactsSamples.SharedCatchExtent));
+        int sectionOffset = ExceptionSectionOffset(image, token, out bool fat);
+        Assert.False(fat);
+        image[sectionOffset + 1] = checked((byte)dataSize);
+
+        using var session = AssemblyInspectionSession.OpenPrefetched(
+            new MemoryStream(image, writable: false));
+        var unavailable = Assert.IsType<MethodBodyReadResult.Unavailable>(
+            session.MethodBodies.Read(token));
+        Assert.IsType<MethodBodyUnavailableReason.MalformedBody>(
+            unavailable.Reason);
+    }
+
+    [Fact]
+    public void Read_RejectsChainedExceptionSectionsWhenSrmOmitsAClause()
+    {
+        byte[] image = File.ReadAllBytes(SelfPath);
+        int token = TokenOf(nameof(MethodExceptionRegionFactsSamples.ThreeCatchExtent));
+        int sectionOffset = ExceptionSectionOffset(image, token, out bool fat);
+        Assert.False(fat);
+
+        byte[] secondClause = image.AsSpan(sectionOffset + 16, 12).ToArray();
+        image[sectionOffset] |= 0x80;
+        image[sectionOffset + 1] = 16;
+        int secondSectionOffset = sectionOffset + 16;
+        image[secondSectionOffset] = 0x01;
+        image[secondSectionOffset + 1] = 16;
+        image[secondSectionOffset + 2] = 0;
+        image[secondSectionOffset + 3] = 0;
+        secondClause.CopyTo(image, secondSectionOffset + 4);
+
+        using var session = AssemblyInspectionSession.OpenPrefetched(
+            new MemoryStream(image, writable: false));
+        var unavailable = Assert.IsType<MethodBodyReadResult.Unavailable>(
+            session.MethodBodies.Read(token));
+        Assert.IsType<MethodBodyUnavailableReason.MalformedBody>(
+            unavailable.Reason);
+    }
+
     [Fact]
     public void Read_RejectsMalformedClauseWithoutPublishingValidNeighbor()
     {
@@ -245,6 +290,34 @@ public class MethodExceptionRegionFactsTests
             body.ExceptionRegionCatalog.Clauses);
         Assert.IsType(expectedEvidenceType, clause.CatchType!.Name);
         Assert.Equal(catchTypeToken, clause.CatchType.MetadataToken);
+
+        using var context = PdbContext.OpenMetadataOnly(
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(image),
+                path: null,
+                openRead: () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local("test")));
+        IReadOnlyList<MethodExceptionRegionInfo> projectedRegions =
+            context.ResolveExceptionRegions(token, out string? regionError);
+        IReadOnlyList<ILOffsetExceptionContextInfo> projectedContexts =
+            context.ResolveExceptionContext(
+                token,
+                clause.HandlerExtent.Start,
+                out string? contextError);
+        if (expectedEvidenceType == typeof(MetadataTypeNameResult.Rejected))
+        {
+            Assert.Empty(projectedRegions);
+            Assert.NotNull(regionError);
+            Assert.Empty(projectedContexts);
+            Assert.NotNull(contextError);
+        }
+        else
+        {
+            Assert.Single(projectedRegions);
+            Assert.Null(regionError);
+            Assert.Single(projectedContexts);
+            Assert.Null(contextError);
+        }
     }
 
     [Fact]
@@ -304,6 +377,14 @@ public class MethodExceptionRegionFactsTests
             .GetMethod(methodName)!
             .MetadataToken;
 
+    static AssemblyReferenceIdentity ReadIdentity(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            pe.GetMetadataReader());
+    }
+
     static int RvaToFileOffset(PEHeaders headers, int rva)
     {
         int sectionIndex = headers.GetContainingSectionIndex(rva);
@@ -313,6 +394,12 @@ public class MethodExceptionRegionFactsTests
     }
 
     static int FirstExceptionClauseOffset(
+        byte[] image,
+        int methodToken,
+        out bool fat)
+        => ExceptionSectionOffset(image, methodToken, out fat) + 4;
+
+    static int ExceptionSectionOffset(
         byte[] image,
         int methodToken,
         out bool fat)
@@ -332,6 +419,6 @@ public class MethodExceptionRegionFactsTests
         byte sectionKind = image[sectionOffset];
         Assert.Equal(0x01, sectionKind & 0x3F);
         fat = (sectionKind & 0x40) != 0;
-        return sectionOffset + 4;
+        return sectionOffset;
     }
 }

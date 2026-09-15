@@ -32,6 +32,26 @@ public static class MethodExceptionRegionFactsSamples
         }
     }
 
+    public static int ThreeCatchExtent(int value)
+    {
+        try
+        {
+            return checked(100 / value);
+        }
+        catch (DivideByZeroException)
+        {
+            return -1;
+        }
+        catch (OverflowException)
+        {
+            return -2;
+        }
+        catch (ArithmeticException)
+        {
+            return -3;
+        }
+    }
+
     public static int FilterAndFinally(int value)
     {
         try

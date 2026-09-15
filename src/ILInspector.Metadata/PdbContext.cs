@@ -1103,6 +1103,13 @@ public class PdbContext : IDisposable
             return [];
         }
 
+        if (HasRejectedCatchType(available.Body.ExceptionRegionCatalog))
+        {
+            error = $"Could not resolve exception context for token "
+                + $"0x{methodToken:X}+0x{ilOffset:X}.";
+            return [];
+        }
+
         List<ILOffsetExceptionContextInfo> rows = [];
         foreach (MethodExceptionRegionContext context
             in available.Body.ExceptionRegionCatalog.ContextsAt(ilOffset))
@@ -1147,6 +1154,12 @@ public class PdbContext : IDisposable
             return [];
         }
 
+        if (HasRejectedCatchType(available.Body.ExceptionRegionCatalog))
+        {
+            error = $"Could not resolve exception regions for token 0x{methodToken:X}.";
+            return [];
+        }
+
         return available.Body.ExceptionRegionCatalog.Clauses
             .Select(static clause => new MethodExceptionRegionInfo(
                 Region: clause.Id.Ordinal + 1,
@@ -1160,6 +1173,12 @@ public class PdbContext : IDisposable
                 CaughtType: clause.CatchType?.DisplayName))
             .ToArray();
     }
+
+    private static bool HasRejectedCatchType(
+        MethodExceptionRegionCatalog catalog) =>
+        catalog.Clauses.Any(
+            static clause => clause.CatchType?.Name
+                is MetadataTypeNameResult.Rejected);
 
     /// <summary>Resolves a method to its portable-PDB document and visible line range.</summary>
     public PdbMethodDocumentInfo? ResolveMethodDocument(

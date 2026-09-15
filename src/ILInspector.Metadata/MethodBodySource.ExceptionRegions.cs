@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -85,6 +86,16 @@ public sealed partial class MethodBodySource
 
             ImmutableArray<ExceptionRegion> regions =
                 block.ExceptionRegions.ToImmutableArray();
+            if (!TryValidateExceptionSections(
+                    rva,
+                    il.Length,
+                    regions))
+            {
+                return new MethodBodyReadResult.Unavailable(
+                    address,
+                    new MethodBodyUnavailableReason.MalformedBody());
+            }
+
             var evidence = new MethodBodyEvidenceId(address, Guid.NewGuid());
             if (!TryBuildExceptionCatalog(
                     evidence,
@@ -176,6 +187,169 @@ public sealed partial class MethodBodySource
 
         catalog = new MethodExceptionRegionCatalog(evidence, clauses.MoveToImmutable());
         return true;
+    }
+
+    bool TryValidateExceptionSections(
+        int rva,
+        int ilLength,
+        ImmutableArray<ExceptionRegion> regions)
+    {
+        try
+        {
+            PEMemoryBlock body = _peReader.GetSectionData(rva);
+            if (body.Length == 0)
+                return false;
+
+            BlobReader reader = body.GetReader();
+            byte first = reader.ReadByte();
+            if ((first & 0x03) == 0x02)
+                return regions.IsEmpty;
+            if ((first & 0x03) != 0x03)
+                return false;
+
+            reader.Offset = 0;
+            int flagsAndSize = reader.ReadUInt16();
+            int headerSize = (flagsAndSize >> 12) * 4;
+            bool hasSections = (flagsAndSize & 0x08) != 0;
+            if (!hasSections)
+                return regions.IsEmpty;
+
+            int sectionOffset = Align4(headerSize + ilLength);
+            int regionIndex = 0;
+            bool hasNext;
+            do
+            {
+                if (sectionOffset < 0 || sectionOffset > body.Length - 4)
+                    return false;
+
+                reader.Offset = sectionOffset;
+                byte kindAndFlags = reader.ReadByte();
+                hasNext = (kindAndFlags & 0x80) != 0;
+                bool fat = (kindAndFlags & 0x40) != 0;
+                int kind = kindAndFlags & 0x3F;
+                int dataSize;
+                if (fat)
+                {
+                    dataSize = reader.ReadByte()
+                        | reader.ReadByte() << 8
+                        | reader.ReadByte() << 16;
+                }
+                else
+                {
+                    dataSize = reader.ReadByte();
+                    reader.ReadUInt16();
+                }
+
+                if (dataSize < 4 || dataSize > body.Length - sectionOffset)
+                    return false;
+
+                if (kind == 0x01)
+                {
+                    int clauseSize = fat ? 24 : 12;
+                    int clauseBytes = dataSize - 4;
+                    if (clauseBytes % clauseSize != 0)
+                        return false;
+
+                    int clauseCount = clauseBytes / clauseSize;
+                    for (int clause = 0; clause < clauseCount; clause++)
+                    {
+                        if ((uint)regionIndex >= (uint)regions.Length
+                            || !MatchesEncodedClause(
+                                ref reader,
+                                fat,
+                                regions[regionIndex++]))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                else if (kind != 0x02)
+                {
+                    return false;
+                }
+
+                sectionOffset = Align4(sectionOffset + dataSize);
+            }
+            while (hasNext);
+
+            return regionIndex == regions.Length;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    static bool MatchesEncodedClause(
+        ref BlobReader reader,
+        bool fat,
+        ExceptionRegion region)
+    {
+        uint flags;
+        int tryOffset;
+        int tryLength;
+        int handlerOffset;
+        int handlerLength;
+        int classTokenOrFilterOffset;
+        if (fat)
+        {
+            flags = reader.ReadUInt32();
+            tryOffset = reader.ReadInt32();
+            tryLength = reader.ReadInt32();
+            handlerOffset = reader.ReadInt32();
+            handlerLength = reader.ReadInt32();
+            classTokenOrFilterOffset = reader.ReadInt32();
+        }
+        else
+        {
+            flags = reader.ReadUInt16();
+            tryOffset = reader.ReadUInt16();
+            tryLength = reader.ReadByte();
+            handlerOffset = reader.ReadUInt16();
+            handlerLength = reader.ReadByte();
+            classTokenOrFilterOffset = reader.ReadInt32();
+        }
+
+        ExceptionRegionKind? kind = flags switch
+        {
+            0x00 => ExceptionRegionKind.Catch,
+            0x01 => ExceptionRegionKind.Filter,
+            0x02 => ExceptionRegionKind.Finally,
+            0x04 => ExceptionRegionKind.Fault,
+            _ => null,
+        };
+        if (kind != region.Kind
+            || tryOffset != region.TryOffset
+            || tryLength != region.TryLength
+            || handlerOffset != region.HandlerOffset
+            || handlerLength != region.HandlerLength)
+        {
+            return false;
+        }
+
+        return region.Kind switch
+        {
+            ExceptionRegionKind.Catch =>
+                classTokenOrFilterOffset
+                    == (region.CatchType.IsNil
+                        ? 0
+                        : MetadataTokens.GetToken(region.CatchType)),
+            ExceptionRegionKind.Filter =>
+                classTokenOrFilterOffset == region.FilterOffset,
+            ExceptionRegionKind.Finally or ExceptionRegionKind.Fault =>
+                classTokenOrFilterOffset == 0,
+            _ => false,
+        };
+    }
+
+    static int Align4(int value)
+    {
+        if (value < 0 || value > int.MaxValue - 3)
+            return -1;
+
+        return (value + 3) & ~3;
     }
 
     bool TryCreateMethodAddress(
