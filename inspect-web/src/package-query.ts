@@ -34,7 +34,7 @@ export interface QueryTermDescriptor {
 }
 
 /** One unresolved term retained exactly as the user applied it. */
-export interface QueryTerm {
+interface QueryTerm {
   descriptor: QueryTermDescriptor;
   operator: string;
   value: string;
