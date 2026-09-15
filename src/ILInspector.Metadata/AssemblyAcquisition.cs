@@ -194,8 +194,7 @@ public sealed class AssemblyAcquisitionRegistration
     /// descriptor, when the descriptor was projected from an artifact.
     /// </summary>
     public ArtifactAcquisitionRegistration? ArtifactRegistration { get; }
-    /// <summary>Opaque stable value for receipts over this registration.</summary>
-    public Guid Value => _value;
+    internal Guid Value => _value;
 
     /// <summary>
     /// Module generation bound to the artifact-backed descriptor.
@@ -1448,8 +1447,7 @@ public sealed class AssemblyCatalogGenerationId
     {
     }
 
-    /// <summary>Opaque stable value for receipts over this generation.</summary>
-    public Guid Value => _value;
+    internal Guid Value => _value;
 }
 
 internal readonly record struct AssemblyCandidateId(Guid Value);
