@@ -17,8 +17,8 @@ The governing rule is:
 > within an established domain, and options or sections for context,
 > observations, lenses, and projection.
 
-The proposed [Diff Timeline inspection](diff-timeline.md) owns one explicitly
-approved exception: pairwise comparison and N-address Timeline are modes of
+The proposed [Diff History inspection](diff-history.md) owns one explicitly
+approved exception: endpoint comparison and N-address History are modes of
 `diff`, with separate acquisition and typed outcome semantics. This transfers
 only the Timeline command-placement decision to that focused owner; it does
 not change the general arity rule for other operation families. The standalone
@@ -165,7 +165,7 @@ These commands are ergonomic spellings of the conceptual unary operation
 command until it enables a concrete composition benefit.
 
 Multi-address operations are operation-first. Current syntax, before the
-proposed Timeline cutover:
+proposed History cutover:
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@8.0.0..9.0.0 \
@@ -176,10 +176,15 @@ dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 \
 
 The current `timeline` command changes arity, acquisition, failure topology,
 and the top-level result from a subject document to an ordered history.
-The target `diff --timeline` preserves those distinctions as an explicit
-operation mode, not `type --timeline` or a `Timeline` output section.
+The target `diff --history` preserves those distinctions as an explicit
+operation mode, not `type --history` or a `History` output section.
 Its exact request, result, and removal of the old command are owned by
-[Diff Timeline inspection](diff-timeline.md).
+[Diff History inspection](diff-history.md). That first adopter also applies
+[population range selection](population-range-selection.md): a source range
+requires an explicit consumer (`--endpoints`, `--history`, or metadata-only
+`--count` for package versions), while a row range only filters the selected
+population. The examples below describe current pre-cutover behavior, not an
+exception to the target's explicit-consumer requirement.
 
 Operation-first commands carry source and focus as explicit selectors. Existing
 positional source shorthands, such as `diff Package@A..B`, may remain compatible,
@@ -389,7 +394,7 @@ inspect -> diff -> timeline
 The approved target groups the latter two as explicit Diff modes:
 
 ```text
-inspect -> diff (pairwise | timeline)
+inspect -> diff (--endpoints | --history | population Count)
 ```
 
 The user keeps the source and structural focus but changes the question:
@@ -410,7 +415,7 @@ diff type presence
 ```
 
 Because the CLI is stateless, source and focus selectors must be repeated when
-changing operations. In the target Diff family, `--timeline` makes the
+changing operations. In the target Diff family, `--history` makes the
 operation change explicit without conflating the pairwise and temporal
 result contracts.
 
