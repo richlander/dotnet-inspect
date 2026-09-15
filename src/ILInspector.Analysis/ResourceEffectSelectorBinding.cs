@@ -843,7 +843,7 @@ public static class ResourceEffectSelectorBinder
         return MatchResult.Match();
     }
 
-    static MatchResult TryResolveType(
+    internal static MatchResult TryResolveType(
         TypeRef type,
         DirectCallDefinitionResolution.Resolved resolution,
         out ResolvedResourceEffectType result)
@@ -1116,7 +1116,7 @@ public static class ResourceEffectSelectorBinder
         };
     }
 
-    enum MatchKind
+    internal enum MatchKind
     {
         Match,
         NoMatch,
@@ -1125,7 +1125,7 @@ public static class ResourceEffectSelectorBinder
         Incomplete,
     }
 
-    readonly record struct MatchResult(
+    internal readonly record struct MatchResult(
         MatchKind Kind,
         ResourceEffectSelectorBindingGapKind GapKind =
             ResourceEffectSelectorBindingGapKind
