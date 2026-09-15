@@ -160,6 +160,64 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task ExactType_EscapedNestedIdentityPrecedesDottedTopLevel()
+    {
+        const string package = "Browser.ExactType.StructuredIdentity";
+        const string assemblyName = "StructuredIdentity";
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder outer = module.DefineType(
+            "N.Outer",
+            TypeAttributes.Public | TypeAttributes.Class);
+        TypeBuilder nested = outer.DefineNestedType(
+            "Inner",
+            TypeAttributes.NestedPublic | TypeAttributes.Class);
+        nested.DefineDefaultConstructor(MethodAttributes.Public);
+        outer.DefineDefaultConstructor(MethodAttributes.Public);
+        nested.CreateType();
+        outer.CreateType();
+        module.DefineType(
+            "N.Outer.Inner",
+            TypeAttributes.Public | TypeAttributes.Class).CreateType();
+        using var image = new MemoryStream();
+        assembly.Save(image);
+        _ = await Coordinate(
+            package,
+            Package(
+                image.ToArray(),
+                $"lib/net11.0/{assemblyName}.dll"));
+        string workspaceJson =
+            $$"""
+            [
+              {
+                "package": "{{package}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """;
+
+        BrowserTypeMetadata presentation =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .TypeProjectionAsync(
+                    package,
+                    "1.0.0",
+                    "net11.0",
+                    $"{assemblyName}.dll",
+                    "N.Outer+Inner",
+                    workspaceJson,
+                    Resolve(RowQueryIntent.Empty));
+
+        Assert.Equal(
+            ["Outer", "Inner"],
+            presentation.ExactTypeInspection.Content.Available!
+                .Candidate.Definition.Segments);
+    }
+
+    [Fact]
     public async Task TypeProjection_UsesSharedExactTypeEnvelope()
     {
         const string packageId = "Browser.ExactType.SystemTextJson";

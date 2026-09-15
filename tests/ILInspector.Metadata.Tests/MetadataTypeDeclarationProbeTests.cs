@@ -94,6 +94,28 @@ public class MetadataTypeDeclarationProbeTests
             escapedComma.Name);
     }
 
+    [Fact]
+    public void EscapedFullName_RoundTripsStructuredIdentity()
+    {
+        MetadataTypeDefinitionName expected =
+            Name(
+                "N.Part+Scope",
+                "Outer.Part",
+                "Inner+Part",
+                "Slash\\Part");
+        string identity = expected.ToEscapedFullName();
+
+        var parsed =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseEscapedFullName(
+                    identity));
+
+        Assert.Equal(expected, parsed.Name);
+        Assert.Equal(
+            @"N.Part\+Scope.Outer\.Part+Inner\+Part+Slash\\Part",
+            identity);
+    }
+
     [Theory]
     [InlineData(@"System.Environment+\SpecialFolder")]
     [InlineData("Program+StateMachine, OtherAssembly")]

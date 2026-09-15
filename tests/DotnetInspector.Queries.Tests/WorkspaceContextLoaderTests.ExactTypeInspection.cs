@@ -147,6 +147,56 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task ExactTypeInspection_CanonicalIdentityPreservesStructuredBoundaries()
+    {
+        IPackageStore store =
+            await CachedStoreAsync(
+                Version,
+                Archive(
+                    ($"ref/{Framework}/Nested.dll",
+                        NestedApiAssembly(
+                            includeTopLevelCollision: true))));
+
+        var nested =
+            Assert.IsType<ExactTypeInspectionResult.Available>(
+                (await ExecuteExactAsync(
+                    store,
+                    PackageContext(Version),
+                    "N.Outer+Inner")).Content);
+        Assert.Equal(
+            "N.Outer+Inner",
+            nested.Candidate.Definition.ToEscapedFullName());
+    }
+
+    [Fact]
+    public async Task ExactTypeInspection_ConsumesEscapedLiteralDefinitionIdentity()
+    {
+        byte[] image = LocatorImage(
+            "Literal.Delimiter",
+            metadata => LocatorDefinition(
+                metadata,
+                "N",
+                "Widget.Part"));
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExecuteExactAsync(
+                await CachedStoreAsync(
+                    Version,
+                    Archive(
+                        ($"ref/{Framework}/Literal.Delimiter.dll",
+                            image))),
+                PackageContext(Version),
+                "N.Widget\\.Part");
+
+        var available =
+            Assert.IsType<ExactTypeInspectionResult.Available>(
+                envelope.Content);
+        Assert.Equal(
+            "N.Widget\\.Part",
+            available.Candidate.Definition.ToEscapedFullName());
+    }
+
+    [Fact]
     public async Task ExactTypeInspection_PublicShareRequiresAllVisibilityUniqueness()
     {
         byte[] publicImage = ApiAssembly(
@@ -185,6 +235,51 @@ public sealed partial class WorkspaceContextLoaderTests
                 scope: ApiSurfaceScope.IncludeAll);
         Assert.IsType<ExactTypeInspectionResult.Ambiguous>(
             allEnvelope.Content);
+    }
+
+    [Fact]
+    public async Task ExactTypeInspection_ShareRestoresAcrossCaseCollision()
+    {
+        byte[] publicImage = ApiAssembly(
+            "Public.Case",
+            TypeAttributes.Public,
+            ("N.Widget", []));
+        byte[] internalImage = ApiAssembly(
+            "Internal.Case",
+            TypeAttributes.NotPublic,
+            ("N.widget", []));
+        IPackageStore store =
+            await CachedStoreAsync(
+                Version,
+                Archive(
+                    ($"ref/{Framework}/Public.Case.dll", publicImage),
+                    ($"ref/{Framework}/Internal.Case.dll",
+                        internalImage)));
+
+        InspectionEnvelope<ExactTypeInspectionResult> publicEnvelope =
+            await ExecuteExactAsync(
+                store,
+                PackageContext(Version),
+                "N.Widget");
+        var publicAvailable =
+            Assert.IsType<ExactTypeInspectionResult.Available>(
+                publicEnvelope.Content);
+        Assert.True(publicAvailable.IsContextUnique);
+        Assert.IsType<InspectionShare.Available>(
+            publicEnvelope.Share);
+
+        InspectionEnvelope<ExactTypeInspectionResult> restoredEnvelope =
+            await ExecuteExactAsync(
+                store,
+                PackageContext(Version),
+                publicAvailable.Candidate.Definition.ToEscapedFullName(),
+                scope: ApiSurfaceScope.IncludeAll);
+        var restored =
+            Assert.IsType<ExactTypeInspectionResult.Available>(
+                restoredEnvelope.Content);
+        Assert.Equal(
+            "N.Widget",
+            restored.Candidate.Definition.ToEscapedFullName());
     }
 
     [Fact]
@@ -1041,7 +1136,8 @@ public sealed partial class WorkspaceContextLoaderTests
         return stream.ToArray();
     }
 
-    static byte[] NestedApiAssembly()
+    static byte[] NestedApiAssembly(
+        bool includeTopLevelCollision = false)
     {
         var assemblyBuilder = new PersistedAssemblyBuilder(
             new AssemblyName("Nested"),
@@ -1058,6 +1154,14 @@ public sealed partial class WorkspaceContextLoaderTests
         outer.DefineDefaultConstructor(MethodAttributes.Public);
         nested.CreateType();
         outer.CreateType();
+        if (includeTopLevelCollision)
+        {
+            TypeBuilder topLevel = module.DefineType(
+                "N.Outer.Inner",
+                TypeAttributes.Public | TypeAttributes.Class);
+            topLevel.DefineDefaultConstructor(MethodAttributes.Public);
+            topLevel.CreateType();
+        }
 
         using var stream = new MemoryStream();
         assemblyBuilder.Save(stream);

@@ -245,12 +245,30 @@ public static class ExactTypeInspectionQuery
 
         WorkspaceDeclarationPopulation selectedPopulation =
             ((WorkspaceDeclarationPopulationCapture.Captured)capture).Population;
+        MetadataTypeDefinitionName? exactDefinition =
+            MetadataTypeDefinitionName.ParseEscapedFullName(
+                request.TypeSelector)
+                is MetadataTypeDefinitionNameResult.Valid validDefinition
+                    ? validDefinition.Name
+                    : null;
         ImmutableArray<TypeDeclarationLocatorRequest> locatorRequests =
-        [
-            new TypeDeclarationLocatorRequest.Pattern(
-                request.TypeSelector),
-            new TypeDeclarationLocatorRequest.Pattern("*"),
-        ];
+            exactDefinition is null
+                ?
+                [
+                    new TypeDeclarationLocatorRequest.Pattern(
+                        request.TypeSelector),
+                    new TypeDeclarationLocatorRequest.Pattern("*"),
+                ]
+                :
+                [
+                    new TypeDeclarationLocatorRequest.Exact(
+                        exactDefinition),
+                    new TypeDeclarationLocatorRequest.Pattern(
+                        request.TypeSelector),
+                    new TypeDeclarationLocatorRequest.Pattern("*"),
+                ];
+        int patternAnswerIndex = exactDefinition is null ? 0 : 1;
+        int inventoryAnswerIndex = exactDefinition is null ? 1 : 2;
         TypeDeclarationLocatorResult allLocated =
             TypeDeclarationLocatorQuery.Execute(
                 selectedPopulation,
@@ -330,27 +348,37 @@ public static class ExactTypeInspectionQuery
                 ]);
         }
         ImmutableArray<TypeDeclarationLocatorCandidate> candidates =
-            [.. evaluated.Answers[0].Candidates.Where(candidate =>
+            exactDefinition is not null
+                ?
+                [.. evaluated.Answers[0].Candidates.Where(candidate =>
+                    occurrences.Contains(candidate.Observation.Occurrence))]
+                : [];
+        ImmutableArray<TypeDeclarationLocatorCandidate> patternCandidates =
+            [.. evaluated.Answers[patternAnswerIndex].Candidates.Where(candidate =>
                 occurrences.Contains(candidate.Observation.Occurrence))];
-        ImmutableArray<TypeDeclarationLocatorCandidate> fullNames =
-            [.. candidates.Where(candidate =>
-                TypeMatcher.MatchesFullTypeName(
-                    candidate.Name.ToMetadataFullName(),
-                    request.TypeSelector))];
-        ImmutableArray<TypeDeclarationLocatorCandidate> exactNames =
-            [.. candidates.Where(candidate =>
-                TypeMatcher.MatchesExactTypeName(
-                    candidate.Name.ToMetadataFullName(),
-                    request.TypeSelector))];
-        if (!fullNames.IsEmpty)
-            candidates = fullNames;
-        else if (!exactNames.IsEmpty)
-            candidates = exactNames;
+        if (candidates.IsEmpty)
+        {
+            ImmutableArray<TypeDeclarationLocatorCandidate> fullNames =
+                [.. patternCandidates.Where(candidate =>
+                    TypeMatcher.MatchesFullTypeName(
+                        candidate.Name.ToMetadataFullName(),
+                        request.TypeSelector))];
+            ImmutableArray<TypeDeclarationLocatorCandidate> exactNames =
+                [.. patternCandidates.Where(candidate =>
+                    TypeMatcher.MatchesExactTypeName(
+                        candidate.Name.ToMetadataFullName(),
+                        request.TypeSelector))];
+            candidates = !fullNames.IsEmpty
+                ? fullNames
+                : !exactNames.IsEmpty
+                    ? exactNames
+                    : patternCandidates;
+        }
         if (candidates.IsEmpty)
         {
             ImmutableArray<MetadataTypeDefinitionName> suggestions =
                 Suggestions(
-                    [.. evaluated.Answers[1].Candidates.Where(candidate =>
+                    [.. evaluated.Answers[inventoryAnswerIndex].Candidates.Where(candidate =>
                         occurrences.Contains(candidate.Observation.Occurrence))],
                     request.TypeSelector);
             return new ExactTypeInspectionResult.NotFound(
@@ -585,7 +613,7 @@ public static class ExactTypeInspectionQuery
             request,
             definition,
             Detach(selected),
-            allEvaluated.Answers[1].Candidates.Count(candidate =>
+            allEvaluated.Answers[inventoryAnswerIndex].Candidates.Count(candidate =>
                 candidate.Kind == AssemblyTypeDeclarationKind.Definition
                 && candidate.Name.Equals(selected.Resolution.Definition.Type)
                 && contextOccurrences.Contains(candidate.Observation.Occurrence)) == 1
