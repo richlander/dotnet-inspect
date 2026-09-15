@@ -482,8 +482,13 @@ public sealed record BrowserInspectionDiagnostic(
     string Summary,
     string? Correspondence);
 
+public sealed record BrowserPackageQueryDocument(
+    BrowserPackageQueryRow[] Results,
+    BrowserPackageQueryFailure[] Failures,
+    BrowserPackageQueryCompletion Completion);
+
 public sealed record BrowserPackageQueryInspection(
-    BrowserPackageQueryEvent[] Content,
+    BrowserPackageQueryDocument Content,
     BrowserInspectionShare Share,
     BrowserInspectionDiagnostic[] Diagnostics);
 
@@ -523,13 +528,13 @@ public sealed record BrowserPackageQueryResult(
                 BrowserPackageQueryEvent,
                 string,
                 string>.Succeeded succeeded =>
-                new(2, BrowserPackageQueryResultKind.Succeeded,
+                new(3, BrowserPackageQueryResultKind.Succeeded,
                     succeeded.Value, null, null, null, null, null),
             BrowserManagedOperationResult<
                 BrowserPackageQueryEvent,
                 string,
                 string>.Failed failed =>
-                new(2, BrowserPackageQueryResultKind.Failed, null, null,
+                new(3, BrowserPackageQueryResultKind.Failed, null, null,
                     failed.FailureKind switch
                     {
                         BrowserManagedOperationFailureKind.Expected =>
@@ -543,7 +548,7 @@ public sealed record BrowserPackageQueryResult(
                 BrowserPackageQueryEvent,
                 string,
                 string>.Canceled canceled =>
-                new(2, BrowserPackageQueryResultKind.Canceled,
+                new(3, BrowserPackageQueryResultKind.Canceled,
                     null, null, null, null, null,
                     BrowserManagedOperationCancelReasons.Format(canceled.Reason)),
             _ => throw new ArgumentOutOfRangeException(nameof(result)),
@@ -560,13 +565,13 @@ public sealed record BrowserPackageQueryResult(
                 BrowserPackageQueryInspection,
                 string,
                 string>.Succeeded succeeded =>
-                new(2, BrowserPackageQueryResultKind.Succeeded,
+                new(3, BrowserPackageQueryResultKind.Succeeded,
                     null, succeeded.Value, null, null, null, null),
             BrowserManagedOperationResult<
                 BrowserPackageQueryInspection,
                 string,
                 string>.Failed failed =>
-                new(2, BrowserPackageQueryResultKind.Failed, null, null,
+                new(3, BrowserPackageQueryResultKind.Failed, null, null,
                     failed.FailureKind switch
                     {
                         BrowserManagedOperationFailureKind.Expected =>
@@ -580,7 +585,7 @@ public sealed record BrowserPackageQueryResult(
                 BrowserPackageQueryInspection,
                 string,
                 string>.Canceled canceled =>
-                new(2, BrowserPackageQueryResultKind.Canceled,
+                new(3, BrowserPackageQueryResultKind.Canceled,
                     null, null, null, null, null,
                     BrowserManagedOperationCancelReasons.Format(canceled.Reason)),
             _ => throw new ArgumentOutOfRangeException(nameof(result)),
@@ -726,6 +731,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
 [JsonSerializable(typeof(BrowserPackageAssemblyQueryPattern[]))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
+[JsonSerializable(typeof(BrowserPackageQueryDocument))]
 [JsonSerializable(typeof(BrowserPackageQueryInspection))]
 [JsonSerializable(typeof(BrowserPackageQueryResult))]
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]

@@ -648,7 +648,7 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void EcosystemCatalogIsFacadeOnly()
+    public void EcosystemCatalogIsLimitedToOwningFacades()
     {
         // The compiled-reference gate is sound only when catalog IDs cannot be inlined.
         Assert.DoesNotContain(
@@ -705,9 +705,14 @@ public sealed class BrowserEngineLayeringTests
                     .Select(item => item.GetProperty("FullPath").GetString())
                     .OfType<string>()
                     .ToArray();
-            if (project.Equals(
-                CatalogProjectPath,
-                StringComparison.OrdinalIgnoreCase))
+            bool ownsEcosystemCapability =
+                project.Equals(
+                    CatalogProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                || project.Equals(
+                    PackageProjectPath,
+                    StringComparison.OrdinalIgnoreCase);
+            if (ownsEcosystemCapability)
             {
                 Assert.Contains(
                     projectReferences,
@@ -926,6 +931,12 @@ public sealed class BrowserEngineLayeringTests
         "inspect-web",
         "DotnetInspect.Web.Interop.Catalog",
         "DotnetInspect.Web.Interop.Catalog.csproj");
+
+    static string PackageProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "inspect-web",
+        "DotnetInspect.Web.Interop.Package",
+        "DotnetInspect.Web.Interop.Package.csproj");
 
     static string BanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,
