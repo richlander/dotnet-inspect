@@ -120,6 +120,10 @@ public sealed class PackageSetRegistryConsumerTests
         Assert.Equal(
             [
                 "Microsoft.Extensions.Azure",
+                "Azure.AI.OpenAI",
+                "Microsoft.Azure.SignalR",
+                "Aspire.Azure.AI.OpenAI",
+                "Aspire.Hosting.Azure.SignalR",
                 "Azure.Identity",
                 "Azure.Security.KeyVault.Secrets",
                 "Azure.Storage.Blobs",
