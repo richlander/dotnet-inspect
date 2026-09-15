@@ -167,7 +167,7 @@ async function startStartupClient(page: Page) {
   }, clientUrl);
 }
 
-test("four concurrent startup reads preserve actual generated results in one Worker", async ({ page, context }) => {
+test("five concurrent startup reads preserve actual generated results in one Worker", async ({ page, context }) => {
   await context.addCookies([{
     name: "worker-runtime-gate", value: "observe-startup", url: "http://127.0.0.1:4186",
   }]);
@@ -201,7 +201,7 @@ test("four concurrent startup reads preserve actual generated results in one Wor
   expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["released:1"]);
 });
 
-test("startup client shares a visible bootstrap rejection across all four reads", async ({ page, context }) => {
+test("startup client shares a visible bootstrap rejection across all five reads", async ({ page, context }) => {
   await context.addCookies([{
     name: "worker-runtime-gate", value: "reject-bootstrap", url: "http://127.0.0.1:4186",
   }]);
@@ -212,7 +212,7 @@ test("startup client shares a visible bootstrap rejection across all four reads"
     (await window.engineWorkerStartupPending).map(outcome =>
       outcome.status === "fulfilled" ? "unexpected success"
         : outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)));
-  expect(outcomes).toEqual(Array.from({ length: 4 }, () => "Worker startup failed."));
+  expect(outcomes).toEqual(Array.from({ length: 5 }, () => "Worker startup failed."));
   expect(workers).toHaveLength(1);
   expect(await page.evaluate(() => window.engineWorkerEvents)).toEqual(["failure:startup", "released:1"]);
   await page.evaluate(() => window.engineWorkerStartup.dispose());
