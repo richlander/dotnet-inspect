@@ -273,37 +273,102 @@ public sealed class ExactTypeInspectionOperationTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_MalformedSelectedTypeRemainsVisible()
+    public async Task ExecuteAsync_MalformedSelectedTypeIsUnavailable()
     {
         var store = await CachedStoreAsync(
             ("lib/net11.0/Malformed.dll",
                 BuildMalformedTypeAssembly()));
         using var client = new HttpClient(new FailingHandler());
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            "Exact.Type.Malformed");
 
-        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+        InspectionEnvelope<ExactTypeInspectionResult> unbounded =
             await ExactTypeInspectionOperation.ExecuteAsync(
-                new ExactTypeInspectionRequest(
-                    PackageId,
-                    Version,
-                    Framework,
-                    "Exact.Type.Malformed"),
+                request,
                 LoadOptions(client, store),
                 TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> bounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                new ApiSurfaceProjectionLimits(
+                    maxParticipants: 10,
+                    maxTypes: 100,
+                    maxMembers: 100,
+                    maxInspectionFailures: 100,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 10_000),
+                TestContext.Current.CancellationToken);
 
-        Assert.Equal(
-            ExactTypeInspectionOutcome.NotFound,
-            envelope.Content.Outcome);
-        Assert.NotEmpty(envelope.Content.InspectionFailures);
-        Assert.Contains(
-            envelope.Content.Failures,
-            failure => failure.Kind
-                == ExactTypeInspectionFailureKind.InspectionIncomplete);
-        Assert.Contains(
-            envelope.Diagnostics,
-            diagnostic => diagnostic.Code
-                    == "exact-type.inspection-incomplete"
-                && diagnostic.Severity
-                    == InspectionDiagnosticSeverity.Warning);
+        Assert.All(
+            new[] { unbounded, bounded },
+            envelope =>
+            {
+                Assert.Equal(
+                    ExactTypeInspectionOutcome.Unavailable,
+                    envelope.Content.Outcome);
+                Assert.NotEmpty(envelope.Content.InspectionFailures);
+                Assert.Contains(
+                    envelope.Content.Failures,
+                    failure => failure.Kind
+                        == ExactTypeInspectionFailureKind
+                            .InspectionIncomplete);
+                Assert.Contains(
+                    envelope.Diagnostics,
+                    diagnostic => diagnostic.Code
+                            == "exact-type.inspection-incomplete"
+                        && diagnostic.Severity
+                            == InspectionDiagnosticSeverity.Warning);
+            });
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UnrelatedMalformedTypeDoesNotPreventNotFound()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Malformed.dll",
+                BuildMalformedTypeAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            "Exact.Type.Absent");
+
+        InspectionEnvelope<ExactTypeInspectionResult> unbounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> bounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                new ApiSurfaceProjectionLimits(
+                    maxParticipants: 10,
+                    maxTypes: 100,
+                    maxMembers: 100,
+                    maxInspectionFailures: 100,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 10_000),
+                TestContext.Current.CancellationToken);
+
+        Assert.All(
+            new[] { unbounded, bounded },
+            envelope =>
+            {
+                Assert.Equal(
+                    ExactTypeInspectionOutcome.NotFound,
+                    envelope.Content.Outcome);
+                Assert.NotEmpty(envelope.Content.InspectionFailures);
+                Assert.Contains(
+                    envelope.Diagnostics,
+                    diagnostic => diagnostic.Code
+                        == "exact-type.not-found");
+            });
     }
 
     [Fact]
@@ -906,6 +971,13 @@ public sealed class ExactTypeInspectionOperationTests
             default,
             default,
             metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Exact.Type"),
+            metadata.GetOrAddString("Good"),
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));

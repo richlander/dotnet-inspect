@@ -151,7 +151,7 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
-    public async Task EligibleRoutePreservesDiagnosticsForNotFoundOutcome()
+    public async Task EligibleRouteUsesUnavailableForInconclusiveLookup()
     {
         var store = await CachedStoreAsync(
             ($"lib/{Framework}/PartiallyMalformed.dll",
@@ -187,7 +187,11 @@ public sealed class ExactTypeWorkspaceRouteTests
             error,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Type 'Exact.Type.Malformed' was not found.",
+            "Could not inspect Type 'Exact.Type.Malformed'.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "was not found",
             error,
             StringComparison.Ordinal);
     }

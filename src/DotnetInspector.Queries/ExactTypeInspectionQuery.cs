@@ -405,10 +405,16 @@ internal static class ExactTypeInspectionQuery
             ];
         if (matchingNames.Length == 0)
         {
-            if (boundedProjection?.Truncation is not null)
-            {
-                return new ExactTypeInspectionResult(
-                    ExactTypeInspectionOutcome.Unavailable,
+                bool lookupIsInconclusive =
+                    participantFailures.Length > 0
+                    || lookupFailures.Any(failure =>
+                        MayAffectTypeLookup(
+                            failure,
+                            request.Type));
+                if (lookupIsInconclusive)
+                {
+                    return new ExactTypeInspectionResult(
+                        ExactTypeInspectionOutcome.Unavailable,
                     request.Type,
                     MatchedType: null,
                     Type: null,
@@ -760,6 +766,27 @@ internal static class ExactTypeInspectionQuery
                     : [])
             .Distinct(),
     ];
+
+    static bool MayAffectTypeLookup(
+        ApiSurfaceInspectionFailure failure,
+        string requestedType)
+    {
+        if (failure.OwningTypeDefinition is { } owner)
+        {
+            return TypeMatcher.MatchesTypeFilter(
+                owner.ToEscapedFullName(),
+                requestedType);
+        }
+        if (!failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
+        {
+            return failure.AffectedTypeDefinitions.Any(
+                affected => TypeMatcher.MatchesTypeFilter(
+                    affected.ToEscapedFullName(),
+                    requestedType));
+        }
+
+        return true;
+    }
 
     static ImmutableArray<ApiSurfaceInspectionFailure>
         SelectedInspectionFailures(

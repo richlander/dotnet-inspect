@@ -1032,6 +1032,11 @@ generic-constraint failures have the same typed meaning. A selected Type
 projected before a later stop remains available but incomplete with typed
 `ProjectionTruncated` evidence; when a stop prevents a conclusive match, the
 outcome is `Unavailable`, never a false `NotFound`.
+`NotFound` likewise requires a declaration scan conclusive for the requested
+Type across every participant. A failed participant, a failure without a
+Type-scoped identity, or a failure scoped to a definition matching the request
+makes the outcome `Unavailable`; failures explicitly scoped to unrelated Types
+do not invalidate a conclusive absence.
 The requested and supplying assemblies retain Metadata-issued assembly
 identity and MVID; ordered forwarding hops preserve the route between them.
 Browser discovery transports its escaped `DefinitionId` separately from the
