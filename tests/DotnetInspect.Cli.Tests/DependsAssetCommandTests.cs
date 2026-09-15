@@ -2137,6 +2137,141 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task Pruning_UnavailableDeclarationsCannotProduceAnExactCount()
+    {
+        string path = WriteTemporaryFile(
+            "project.assets.json",
+            Encoding.UTF8.GetBytes("""{"version":3}"""));
+
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            path,
+            "--tfm",
+            "net11.0",
+            "-S",
+            "Pruning,Failures",
+            "--json",
+            "--compact",
+        ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "Dependency declaration evidence completed",
+            error,
+            StringComparison.Ordinal);
+        using (JsonDocument document = JsonDocument.Parse(output))
+        {
+            JsonElement pruning = document.RootElement
+                .GetProperty("summary")
+                .GetProperty("pruning");
+            Assert.Equal(
+                "Failed",
+                pruning.GetProperty("completion").GetString());
+            Assert.Equal(1, pruning.GetProperty("roots").GetInt32());
+            Assert.Equal(1, pruning.GetProperty("not_evaluated").GetInt32());
+            Assert.Equal(1, pruning.GetProperty("failed").GetInt32());
+        }
+
+        (int countExitCode, string countOutput, string countError) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--project",
+                path,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Pruning",
+                "--count",
+            ]);
+
+        Assert.Equal(1, countExitCode);
+        Assert.Empty(countOutput);
+        Assert.Contains(
+            "--count cannot report an exact 'Pruning' count",
+            countError,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pruning_UnavailableDeclarationsKeepSuccessfulSiblingPartial()
+    {
+        string assets = WriteTemporaryFile(
+            "project.assets.json",
+            Encoding.UTF8.GetBytes("""{"version":3}"""));
+        string valid = WriteTemporaryFile(
+            "valid-pruning.nuspec",
+            Manifest(
+                "Contoso.Valid",
+                "1.0.0",
+                """
+                <group targetFramework="net11.0">
+                  <dependency id="System.Runtime" version="[4.3.2]" />
+                </group>
+                """));
+
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            assets,
+            "--nuspec",
+            valid,
+            "--tfm",
+            "net11.0",
+            "-S",
+            "Pruning,Failures",
+            "--json",
+            "--compact",
+        ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "Dependency declaration evidence completed",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement pruning = document.RootElement
+            .GetProperty("summary")
+            .GetProperty("pruning");
+        Assert.Equal(
+            "Partial",
+            pruning.GetProperty("completion").GetString());
+        Assert.Equal(2, pruning.GetProperty("roots").GetInt32());
+        Assert.Equal(1, pruning.GetProperty("declarations").GetInt32());
+        Assert.Equal(1, pruning.GetProperty("not_evaluated").GetInt32());
+        Assert.Equal(1, pruning.GetProperty("source_bounded").GetInt32());
+        Assert.Equal(1, pruning.GetProperty("failed").GetInt32());
+        Assert.Single(
+            document.RootElement.GetProperty("pruning")
+                .EnumerateArray());
+
+        (int countExitCode, string countOutput, string countError) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--project",
+                assets,
+                "--nuspec",
+                valid,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Pruning",
+                "--count",
+            ]);
+
+        Assert.Equal(1, countExitCode);
+        Assert.Empty(countOutput);
+        Assert.Contains(
+            "--count cannot report an exact 'Pruning' count",
+            countError,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DependenciesSelectionDoesNotReadPruningInventory()
     {
         string source = CreateTemporaryDirectory();

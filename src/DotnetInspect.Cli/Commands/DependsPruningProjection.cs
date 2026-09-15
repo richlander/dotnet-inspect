@@ -50,7 +50,9 @@ public partial class DependsCommand
             {
                 notEvaluated++;
                 if (root.Declaration
-                        is PackageDependencyEvidenceDeclarationResult.Failed)
+                        is PackageDependencyEvidenceDeclarationResult.Failed
+                            or PackageDependencyEvidenceDeclarationResult
+                                .Unavailable)
                 {
                     failed++;
                 }
