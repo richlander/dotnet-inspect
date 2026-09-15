@@ -467,10 +467,10 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
                         nameof(query));
                 }
 
-                if ((view is null) != (navigation is null))
+                if (view is null || navigation is null)
                 {
                     throw new ArgumentException(
-                        "A coordinate-backed schema-version-2 scenario references view and navigation together or omits both.",
+                        "A workspace-backed schema-version-2 scenario requires both view and navigation.",
                         nameof(view));
                 }
             }
@@ -677,11 +677,17 @@ public sealed record CommittedViewStateDefinition
                 "Committed Library scope requires a query reference.",
                 nameof(libraries));
         }
-        if (subject is null && context?.Kind
-            is not null and not PortableRetainedSubjectContextKind.Package)
+        if (subject is null && context is not null)
         {
             throw new ArgumentException(
-                "A subject-less committed state may retain only Package context.",
+                "A subject-less committed state must omit retained context.",
+                nameof(context));
+        }
+        if (subject is PortableSubjectRequest.Workspace
+            && context is PortableRetainedSubjectContext.Package)
+        {
+            throw new ArgumentException(
+                "A Workspace committed state must omit Package-only context.",
                 nameof(context));
         }
         if (subject is PortableSubjectRequest.Package && context is null)

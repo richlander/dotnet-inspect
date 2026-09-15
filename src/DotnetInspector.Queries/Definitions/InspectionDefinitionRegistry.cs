@@ -119,28 +119,6 @@ public sealed class InspectionDefinitionRegistry
                 CreateCommittedScenario(records));
         }
 
-        if (scenario.Workspace is not null)
-        {
-            NavigationDefinition? navigation =
-                records.Navigation as NavigationDefinition;
-            NavigationTabDefinition? focused = navigation?.Tabs.First(
-                tab => tab.Id == navigation.Focus);
-            if (focused?.Coordinate
-                is not DefinitionMemberCoordinate.PackageCoordinate)
-            {
-                return new InspectionDefinitionScenarioPreparationResult
-                    .LegacyCompatibilityRequired(
-                        new LegacyCompatibilityDefinitionPlan(
-                            scenario,
-                            records.Workspace as WorkspaceDefinition,
-                            records.Query as QueryDefinition,
-                            records.View as ViewDefinition,
-                            navigation,
-                            focused,
-                            records.Catalogs));
-            }
-        }
-
         return new InspectionDefinitionScenarioPreparationResult.Version1(
             ResolveVersion1Scenario(scenario));
     }
@@ -446,6 +424,11 @@ public sealed class InspectionDefinitionRegistry
                 $"Scenario '{scenario.Id}' cannot reference a schema-version-2 query in the query-free record slice.");
         }
 
+        if (workspace is not null && (navigation is null || view is null))
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' must reference committed navigation and view.");
+        }
         if ((navigation is null) != (view is null))
         {
             throw new InspectionDefinitionException(
@@ -478,10 +461,10 @@ public sealed class InspectionDefinitionRegistry
             throw new InspectionDefinitionException(
                 $"Committed view '{view.Id}' must begin with its null-navigation Workspace state.");
         }
-        if (workspaceState.Subject is PortableSubjectRequest.Package)
+        if (workspaceState.Subject is not PortableSubjectRequest.Workspace)
         {
             throw new InspectionDefinitionException(
-                $"Committed view '{view.Id}' Workspace state cannot request a Package subject.");
+                $"Committed view '{view.Id}' Workspace state must request the Workspace subject.");
         }
         if (workspaceState.Context is not null)
         {
@@ -639,24 +622,7 @@ public abstract record InspectionDefinitionScenarioPreparationResult
     public sealed record Version2(
         CommittedScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
-
-    public sealed record LegacyCompatibilityRequired(
-        LegacyCompatibilityDefinitionPlan Plan)
-        : InspectionDefinitionScenarioPreparationResult;
 }
-
-/// <summary>
-/// Exact schema-version-1 composition retained for a compatibility executor
-/// when the focused navigation source is not a direct Package coordinate.
-/// </summary>
-public sealed record LegacyCompatibilityDefinitionPlan(
-    ScenarioDefinition Scenario,
-    WorkspaceDefinition? Workspace,
-    QueryDefinition? Query,
-    ViewDefinition? View,
-    NavigationDefinition? Navigation,
-    NavigationTabDefinition? FocusedTab,
-    IReadOnlyList<CatalogDefinition> Catalogs);
 
 /// <summary>
 /// Strictly composed schema-version-2 records before runtime selector
