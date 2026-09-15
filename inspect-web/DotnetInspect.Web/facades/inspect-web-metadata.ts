@@ -26,9 +26,15 @@ export type BrowserLibraryApiDiffTypeState = "Diff" | "Addition" | "Deletion" | 
 
 export type BrowserLibraryApiDiffUnavailableKind = "TargetIncomplete" | "CurrentIncomplete" | "BothIncomplete" | number;
 
+export type ExactTypeInspectionFailureKind = number;
+
+export type ExactTypeInspectionOutcome = number;
+
 export type InspectionDiagnosticSeverity = number;
 
 export type MetadataRootMalformedReason = number;
+
+export type MetadataTypeNameFailureMechanism = number;
 
 export type TypeDependencyRejectionKind = number;
 
@@ -434,26 +440,6 @@ export interface BrowserReadyToRunSection {
   readonly aliasesCliMetadata: boolean;
 }
 
-export interface BrowserTypeComposition {
-  readonly methods: number;
-  readonly properties: number;
-  readonly fields: number;
-  readonly events: number;
-  readonly constructors: number;
-  readonly operators: number;
-  readonly explicitInterfaceImplementations: number;
-  readonly extensionMethods: number;
-  readonly static: number;
-  readonly unsafe: number;
-  readonly async: number;
-  readonly virtual: number;
-  readonly abstract: number;
-  readonly override: number;
-  readonly extension: number;
-  readonly obsolete: number;
-  readonly total: number;
-}
-
 export interface BrowserTypeGraphEdge {
   readonly fromId: string;
   readonly toId: string;
@@ -467,30 +453,12 @@ export interface BrowserTypeGraphNode {
 }
 
 export interface BrowserTypeMetadata {
-  readonly fullName: string;
-  readonly namespace: string | null;
-  readonly name: string;
-  readonly kind: string;
-  readonly modifiers: ReadonlyArray<string>;
-  readonly accessibility: string | null;
-  readonly assembly: string | null;
-  readonly baseType: string | null;
-  readonly interfaces: ReadonlyArray<string>;
+  readonly exactTypeInspection: InspectionEnvelope<ExactTypeInspectionResult>;
   readonly derivedTypes: ReadonlyArray<string>;
-  readonly typeParameters: ReadonlyArray<BrowserTypeParameter>;
-  readonly attributes: ReadonlyArray<string>;
-  readonly enumUnderlyingType: string | null;
-  readonly composition: BrowserTypeComposition | null;
   readonly graphNodes: ReadonlyArray<BrowserTypeGraphNode>;
   readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
   readonly typeDependencyInspection: InspectionEnvelope<TypeDependencySectionResult>;
   readonly inspectionFailures: ReadonlyArray<string>;
-}
-
-export interface BrowserTypeParameter {
-  readonly name: string;
-  readonly variance: string | null;
-  readonly constraints: ReadonlyArray<string>;
 }
 
 export interface BrowserTypeSurface {
@@ -511,6 +479,87 @@ export interface BrowserTypeSurface {
   readonly signature: string;
   readonly api: ReadonlyArray<BrowserMemberSurface>;
   readonly platformPack: string | null;
+}
+
+export interface ExactTypeApi {
+  readonly fullName: string;
+  readonly namespace: string | null;
+  readonly name: string;
+  readonly definitionIdentity: ExactTypeDefinitionIdentity;
+  readonly introducedTypeParameterCounts: ReadonlyArray<number>;
+  readonly kind: string;
+  readonly accessibility: string | null;
+  readonly attributes: ReadonlyArray<string>;
+  readonly isSealed: boolean;
+  readonly isAbstract: boolean;
+  readonly isStatic: boolean;
+  readonly isByRefLike: boolean;
+  readonly isReadOnly: boolean;
+  readonly baseType: string | null;
+  readonly interfaces: ReadonlyArray<string>;
+  readonly derivedTypes: ReadonlyArray<string>;
+  readonly typeParameters: ReadonlyArray<ExactTypeParameter>;
+  readonly members: ReadonlyArray<ExactTypeMember>;
+  readonly enumUnderlyingType: string | null;
+  readonly isForwarded: boolean;
+}
+
+export interface ExactTypeApiInspectionFailure {
+  readonly operation: string;
+  readonly subjectToken: number;
+  readonly mechanism: MetadataTypeNameFailureMechanism;
+  readonly kind: string;
+  readonly detail: string;
+  readonly subjectAssembly: AssemblyReferenceIdentity | null;
+  readonly dependencyAssembly: AssemblyReferenceIdentity | null;
+}
+
+export interface ExactTypeAssemblyIdentity {
+  readonly identity: AssemblyReferenceIdentity;
+  readonly moduleVersionId: string;
+}
+
+export interface ExactTypeDefinitionIdentity {
+  readonly namespace: string;
+  readonly segments: ReadonlyArray<string>;
+}
+
+export interface ExactTypeForwardingHop {
+  readonly source: AssemblyReferenceIdentity;
+  readonly target: AssemblyReferenceIdentity;
+}
+
+export interface ExactTypeInspectionFailure {
+  readonly kind: ExactTypeInspectionFailureKind;
+  readonly detail: string;
+  readonly assembly: AssemblyReferenceIdentity | null;
+}
+
+export interface ExactTypeInspectionResult {
+  readonly outcome: ExactTypeInspectionOutcome;
+  readonly requestedType: string;
+  readonly matchedType: string | null;
+  readonly type: ExactTypeApi | null;
+  readonly requestedAssembly: ExactTypeAssemblyIdentity | null;
+  readonly supplierAssembly: ExactTypeAssemblyIdentity | null;
+  readonly forwardingHops: ReadonlyArray<ExactTypeForwardingHop>;
+  readonly suggestions: ReadonlyArray<string>;
+  readonly inspectionFailures: ReadonlyArray<ExactTypeApiInspectionFailure>;
+  readonly failures: ReadonlyArray<ExactTypeInspectionFailure>;
+  readonly isAvailable: boolean;
+  readonly isComplete: boolean;
+}
+
+export interface ExactTypeMember {
+  readonly name: string;
+  readonly kind: string;
+  readonly signature: string | null;
+}
+
+export interface ExactTypeParameter {
+  readonly name: string;
+  readonly variance: string | null;
+  readonly constraints: ReadonlyArray<string>;
 }
 
 export interface IArtifactProvenance {
@@ -605,7 +654,7 @@ type $ManagedExports = {
             readonly "QueryPlatformMemberDeclaration.1542089313": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
             readonly "QueryPlatformMetadata.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformMetadataTable.1945598111": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
-            readonly "QueryTypeProjection.649160465": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string, workspaceJson: string) => Promise<string>;
+            readonly "QueryTypeProjection.1160082336": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, workspaceJson: string) => Promise<string>;
           };
         };
       };
@@ -794,9 +843,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryTypeProjection.649160465");
+    value = $ownDataProperty(value, "QueryTypeProjection.1160082336");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.649160465\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.1160082336\u0027 is not callable.");
     }
   }
 }
@@ -902,8 +951,8 @@ export async function queryPlatformMetadataTable(targetFramework: string, platfo
   return $parsed as BrowserMetadataWindow;
 }
 
-export async function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string, workspaceJson: string): Promise<BrowserTypeMetadata> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.649160465"](packageId, version, targetFramework, assemblyName, typeId, workspaceJson);
+export async function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, workspaceJson: string): Promise<BrowserTypeMetadata> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.1160082336"](packageId, version, targetFramework, assemblyName, typeQueryId, typeDefinitionId, workspaceJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMetadata;
 }

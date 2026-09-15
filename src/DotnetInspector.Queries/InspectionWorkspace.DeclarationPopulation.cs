@@ -51,17 +51,26 @@ public sealed partial class InspectionWorkspace
                 };
                 members.Add(new(
                     new(_identity, order, members.Count),
-                    coordinate, assembly.Identity, member.Declared,
-                    member.Realized, assembly.Provenance));
+                    coordinate, assembly.Identity,
+                    new WorkspaceDeclarationOrigin.ContextLoad(member.Declared, member.Realized),
+                    assembly.Provenance));
             }
         }
 
         var context = new WorkspaceDeclarationContext(
-            new(_identity, order, request,
+            new(_identity, order, new WorkspaceDeclarationRequest.ContextLoad(request),
                 outcome is WorkspaceContextLoadOutcome.Loaded,
                 members.ToImmutable(),
-                outcome is WorkspaceContextLoadOutcome.Failed failed ? failed.Failures : []),
+                outcome is WorkspaceContextLoadOutcome.Failed failed
+                    ? [.. failed.Failures.Select(static failure =>
+                        new WorkspaceDeclarationFailure.ContextLoad(failure))]
+                    : []),
             outcome);
+        return PublishDeclarationContext(context);
+    }
+
+    internal WorkspaceDeclarationContext PublishDeclarationContext(WorkspaceDeclarationContext context)
+    {
         WorkspaceDeclarationLocator? observer;
         lock (_gate)
         {
@@ -75,7 +84,7 @@ public sealed partial class InspectionWorkspace
     }
 
     /// <summary>
-    /// Captures exactly the supplied loader-issued contexts, including upstream
+    /// Captures exactly the supplied admitted contexts, including upstream
     /// failures. It does not realize registrations or scan declarations.
     /// </summary>
     public WorkspaceDeclarationPopulationCapture CaptureDeclarationPopulation(
@@ -103,8 +112,7 @@ public sealed partial class InspectionWorkspace
                     return new WorkspaceDeclarationPopulationCapture.Rejected(
                         WorkspaceDeclarationPopulationFailure.DuplicateContext);
                 }
-                if (context.Outcome is WorkspaceContextLoadOutcome.Loaded loaded
-                    && !_groups.Contains(loaded.Group))
+                if (context.Group is { } group && !_groups.Contains(group))
                 {
                     return new WorkspaceDeclarationPopulationCapture.Rejected(
                         WorkspaceDeclarationPopulationFailure.ContextUnavailable);
@@ -117,7 +125,7 @@ public sealed partial class InspectionWorkspace
     }
 
     /// <summary>
-    /// Gets this Workspace's lazy locator over its loader-issued declaration contexts.
+    /// Gets this Workspace's lazy locator over its admitted declaration contexts.
     /// The first call fixes its limits; getting it does not activate inspection.
     /// </summary>
     public WorkspaceDeclarationLocator GetDeclarationLocator(
@@ -176,12 +184,12 @@ public sealed partial class InspectionWorkspace
             (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)>();
         foreach (WorkspaceDeclarationContext context in ordered)
         {
-            if (context.Outcome is not WorkspaceContextLoadOutcome.Loaded loaded)
+            if (context.Group is not { } group)
                 continue;
-            for (int index = 0; index < loaded.Members.Length; index++)
+            for (int index = 0; index < group.Participants.Length; index++)
             {
                 access.Add(context.Receipt.Members[index].Occurrence,
-                    (loaded.Group, loaded.Members[index].Participant.Assembly));
+                    (group, group.Participants[index].Assembly));
             }
         }
         return new(this, new(_identity, [.. ordered.Select(static context => context.Receipt)]), access);

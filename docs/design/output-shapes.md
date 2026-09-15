@@ -37,6 +37,110 @@ Related docs:
   corpus row applying this ladder's "declared row unit" discipline, and the
   source of the item-limit design
 
+## Content shapes and service envelopes
+
+The output-shape ladder is oriented on the **content layer**.
+`--envelope` operates at the **service layer**: it exposes the completed
+operation's [inspection envelope](inspection-envelope.md), not another rung
+above Document. Share and envelope diagnostics are not content sections,
+columns, or rows.
+
+This section locks the target CLI boundary for
+[#6719](https://github.com/richlander/dotnet-inspect/issues/6719), including
+the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-adoption).
+It does not claim that current commands already implement the option or the
+content-JSON alignment below.
+
+### Two serialization boundaries
+
+For the same completed operation, with no additional content-output selection
+or projection:
+
+| Option | Layer | Logical operation |
+| --- | --- | --- |
+| `--envelope` | Service | `envelope.ToJson()` |
+| `--json` | Content | `envelope.Content.ToJson()` |
+
+`ToJson()` is contract notation, not a required CLR instance method.
+`--envelope` selects the complete service value and fixes JSON as its encoding.
+It is JSON-only, not a format-independent wrapper that can be rendered as a
+Markdown document, table, TSV, or JSONL stream. `--json` selects JSON encoding
+for content; with an admitted output projection it serializes that projected
+content under the [projected-JSON contract](projected-json.md).
+
+The unprojected content value decoded from `--json` must equal the Content
+subtree decoded from `--envelope`. They use the same owner-issued content
+serialization contract, including native value kinds, nullability, sequence
+order, and owner-specific Outcome discrimination. JSON whitespace and object
+property order are not part of this equality. Serialized property spelling
+and transport framing remain with the transport contract.
+
+Content can be a Result, Document, or owner-specific Outcome as defined by
+[host-observable content kinds](host-observable-content-kinds.md). Content-only
+JSON does not silently unwrap an Available case to its Document or replace a
+typed non-success with an empty object. It omits the surrounding envelope,
+not evidence within Content. Existing stderr and exit-status policies remain
+with their owners; omitting envelope diagnostics from content stdout does not
+authorize suppressing their required disclosure.
+
+### Shaping content does not shape the envelope
+
+Output shapes, fields, rows, and format lowering act on content, not on the
+envelope's members. Service passthrough serializes the already constructed
+envelope without content-output shaping, host enrichment, or a second
+inspection. A CLI view model is not a substitute for the Content subtree.
+An incompatible output-shaping request must be rejected rather than ignored
+or used to manufacture a filtered envelope.
+
+This does not bypass semantic selection. Subject, endpoints, operation mode,
+and selections bound by the content owner into the resolved operation plan
+still determine which envelope the service constructs.
+For example, the planned `package P@A..B --count --envelope` serializes the
+version-count operation's envelope; it does not count envelope members or
+force a different inspection. A row window already bound into a semantic
+plan is likewise not an instruction to slice serialized JSON.
+The transport's option rules must distinguish those semantic inputs from
+post-service output shaping; this section does not invent another selector
+grammar or a complete flag-conflict matrix.
+
+Markout remains the default for content rendering and its admitted lowered
+projections. Full service-envelope JSON and unprojected Content JSON use the
+typed serialization boundary, not a JSON re-encoding of rendered tables.
+This is CLI transport of shared values, not a new shared content model.
+Browser consumes the same baseline under the
+[envelope owner's host contract](inspection-envelope.md#same-baseline-broader-clients);
+the CLI flag adds no Browser interaction or private baseline extension.
+
+### Adoption and evidence
+
+Public envelope adoption includes aligning that route's unprojected
+`--json` with its owner-issued Content. Some current commands serialize
+host-specific presentation models. Merely consuming an envelope internally
+does not establish the equality above. Each adopter must deliberately migrate
+any differing machine schema, classify and disclose that change under
+[CLI change classification](cli-change-classification.md), and exercise the
+same Content contract in both JSON modes. Unadopted routes retain their current
+contracts; this specification changes no executable output.
+
+The production path remains #6719's three steps: lock the CLI contract,
+implement the shared transport with an already-enveloped operation, then
+exercise a second content kind through Library API Diff. The wider CLI and
+Browser adoption remains in
+[the five-step Diff plan](command-transition-model.md#cutover-and-production-path).
+Framing, serializer registration, and remaining option interactions still need
+their transport specification before implementation.
+
+Use the real `System.Text.Json@9.0.0..10.0.0` Library comparison as the paired
+JSON scenario. Planned Release gates must compare decoded unprojected content
+between both modes, preserve the complete service envelope, and cover a
+successful empty comparison plus typed unavailable/rejected content.
+They must also exercise both Share cases, retained ordered diagnostics,
+admitted content projection, semantic Count, and rejection of incompatible
+post-service shaping. A content-only success must not imply that Share is
+available or envelope diagnostics are empty.
+These implementation properties remain **unverified** until the adopting
+production-host gates exist; Markdown validation does not establish them.
+
 ## The shape ladder
 
 Each shape is a narrowing of the one above it. You start at a Document and
@@ -132,6 +236,10 @@ of the ladder families contributes in one of four ways:
   `--mermaid`).
 - **URL-shape modifiers** change only the form of GitHub URLs emitted as data
   (`--raw`, `--blob`). They are orthogonal to the output-shape ladder.
+
+The proposed `--envelope` is a separate
+[service-output selector](#content-shapes-and-service-envelopes), not another
+content-shape or presentation modifier.
 
 `library --package ... --tfm all` selects multiple independent inspections. Its
 full output therefore requires a document format: Markdown or JSON.
@@ -267,13 +375,33 @@ candidate arrays, pre-selection candidate counts, and any row-selection
 failure. Zero, one, and many candidates use the same array shape. It does not
 serialize live Workspace handles or configured package-source authorities.
 
+Reference observations use the `platform-reference` realization alternative,
+not the legacy implementation-pack `platform` realization. It retains the
+exact family target, reference path, population demand, safe authority label,
+producer, source generation, candidate/discovery evidence, and package failures.
+Package-source association and content-generation tokens lower to separate
+result-local integer ordinals: equal owner tokens receive equal ordinals
+within that one result, and distinct tokens remain distinct. Those ordinals
+are neither portable versions nor keys for reopening a source. A null
+or omitted `requested_assembly` denotes a complete source-population demand.
+
+Context gaps use a closed `context-load` / `reference-source` /
+`reference-image` union. Source outcomes and diagnostic codes stay separate,
+and package failures remain attached. This evolves the prerequisite JSON
+context-failure shape: context-loader codes now appear in `code`, while `kind`
+identifies the failure alternative. Existing successful context-loader row
+shapes are unchanged.
+
 `TypeDeclarationLocatorView` is the common Markout lowering. Its result rows
 contain request, Type, declaration kind, source arm, Library, origin and
 context display columns; separate Coverage and Gaps sections keep incomplete
 or failed evidence visible when Results has zero rows. Dynamic display text
 crosses `InertString` field containment. Package and Platform origins use the
-credential-free producer identity already carried by realization, never raw
-configured source URLs. Projected JSON, JSONL, TSV and Markdown are therefore
+credential-free producer identity already carried by realization. Reference
+origins use `PackageSourceDisplay`'s safe authority label and explicitly show
+the reference view in the context column; structured producer identity remains
+separate. They never display raw configured source URLs. Projected JSON, JSONL,
+TSV and Markdown are therefore
 one-way display projections, not identity codecs or reopening authority.
 
 The Release gates
@@ -285,7 +413,12 @@ identity/context, coverage, source-generated JSON, Markout correspondence,
 atomic failure, admission-failure, and ranking-refusal boundaries.
 `ProjectionRetainsEveryCoordinateArmAndOwnerEquality` additionally gates all
 four coordinate arms and preserves Source Selection's assembly-equivalence
-semantics. The CLI and Browser/Wasm production consumers remain
+semantics. Reference admission additionally uses
+`ReferenceSection_PreservesOriginTokensVectorsAndSafeDisplay` and
+`ReferenceSection_RetainsSourceAndImageFailuresWithoutRows` to gate reference
+view evidence, result-local token correspondence, source-generated JSON,
+authority display, and failure disclosure when no candidate row matches.
+The CLI and Browser/Wasm production consumers remain
 [#6844](https://github.com/richlander/dotnet-inspect/issues/6844) and
 [#6851](https://github.com/richlander/dotnet-inspect/issues/6851);
 `InspectionEnvelope<TypeDeclarationLocatorSectionResult>` is formed at those
@@ -796,6 +929,11 @@ selection internally, and a synthesized one must not be mistaken for a request
 the caller made.
 
 ### Presentation modifiers (render the chosen shape)
+
+These modifiers describe content output. For an adopted envelope-producing
+route, unprojected `--json` means the owner-issued Content value under
+[the content/service boundary](#two-serialization-boundaries), not a rendering
+of the service envelope.
 
 | Flag | Effect |
 | --- | --- |

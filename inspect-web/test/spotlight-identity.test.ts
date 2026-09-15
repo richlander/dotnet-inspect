@@ -3764,7 +3764,7 @@ test("type projection completions render only while current and preserve navigat
     ?? "";
   assert.match(
     typeMetadata,
-    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*selectedTypeMetadataLibraryIdentity\(\)\) === signature/);
+    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*selectedTypeMetadataLibraryIdentity\(\)\) === signature/);
   assert.doesNotMatch(typeMetadata, /typeMetadataGeneration|inspectTypeProjection/);
   const typeMetadataCoordinator =
     metadataInspectionSource.match(/async loadTypeMetadata\(request\)[\s\S]*?\n    },/)?.[0]
@@ -4059,7 +4059,7 @@ test("stale dependency graph cleanup preserves a replacement with the same signa
 test("dependency graph binds navigation to generated node identities", () => {
   assert.match(
     graphSource,
-    /const nodeInfoById = new Map<string, DependencyGraphNodeInfo>\(\);[\s\S]*for \(const key of keys\)[\s\S]*if \(id && info\) nodeInfoById\.set\(id, info\)/);
+    /const nodeInfoById = new Map<string, DependencyGraphNodeInfo>\(\);[\s\S]*for \(const key of keys\)[\s\S]*const navigationInfo: DependencyGraphNodeInfo = \{ kind: info\.kind \};[\s\S]*nodeInfoById\.set\(id, navigationInfo\)/);
   assert.match(
     graphInteractionsSource,
     /const dataId = node\.getAttribute\("data-id"\);[\s\S]*return dataId \|\| idMatch\?\.\[1\] \|\| ""/);
@@ -7406,7 +7406,9 @@ test("dependency graph rendering contains artifact labels", async () => {
       dependenciesGroupIndex: 0,
       workspaceDependencies: {}
     },
-    () => null);
+    () => null,
+    (inspectedPackageId, packageIds) => packageIds.map(packageId =>
+      packageId === inspectedPackageId ? "inspected" : "external"));
   assert.ok(definition, "the fixture graph must render a mermaid definition");
 
   assert.match(
@@ -7416,5 +7418,5 @@ test("dependency graph rendering contains artifact labels", async () => {
   assert.equal(definition.definition.includes("\uDC00"), false);
   assert.match(
     definition.definition,
-    /classDef self fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
+    /classDef inspected fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
 });

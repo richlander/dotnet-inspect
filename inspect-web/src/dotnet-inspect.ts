@@ -1950,6 +1950,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
     request.framework,
     request.assembly,
     request.type,
+    request.typeIdentity,
     request.workspaceJson),
   queryPackageTable: (explorer, index, startRowId, maxRows) =>
     inspectPackageMetadataTable(
@@ -10328,8 +10329,9 @@ function friendlyLoadError(
   packageId: string,
   version: string | null | undefined,
 ) {
-  const raw = errorMessage(error);
-  if (/\b404\b|not\s*found/i.test(raw)) {
+  const detail = errorMessage(error);
+  const summary = detail.split(/\r?\n/u, 1)[0]?.trim() || detail.trim();
+  if (/\b404\b|not\s*found/i.test(summary)) {
     const suffix = version && version !== "latest" ? `@${version}` : "";
     return {
       notFound: true,
@@ -10340,7 +10342,7 @@ function friendlyLoadError(
   return {
     notFound: false,
     title: "Inspection query failed",
-    message: `Couldn’t load “${packageId}”: ${raw || "unknown error"}`
+    message: `Couldn’t load “${packageId}”: ${summary || "unknown error"}`
   };
 }
 
@@ -12042,6 +12044,7 @@ async function loadSelectedTypeMetadata() {
     framework: pkg.activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
+    typeIdentity: type.definitionId ?? type.id,
     workspaceJson,
     isVisible: () => {
       const currentType = selectedType();
@@ -12232,7 +12235,24 @@ async function renderDependencyGraph() {
     const built = await buildDependencyGraphMermaid(
       model,
       (_packages, packageId, versionRange) =>
-        uniqueCompatiblePackage(packages, packageId, versionRange));
+        uniqueCompatiblePackage(packages, packageId, versionRange),
+      async (inspectedPackageId, packageIds) => {
+        phase = "Dependency classification";
+        const roles =
+          await engineClient.package.classifyPackageGraphIdentities(
+            inspectedPackageId,
+            JSON.stringify(packageIds),
+          );
+        return roles.map(role => {
+          switch (role) {
+            case "Inspected": return "inspected";
+            case "SamePrefix": return "samePrefix";
+            case "External": return "external";
+            default:
+              throw new Error(`Package graph classification returned invalid role '${role}'.`);
+          }
+        });
+      });
     if (!depGraphRenderSequence.isCurrent(seq)
       || document.querySelector("#dependency-graph-diagram") !== container) return;
     if (!built) {
