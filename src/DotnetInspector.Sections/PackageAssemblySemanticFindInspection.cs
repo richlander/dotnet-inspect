@@ -10,7 +10,7 @@ namespace DotnetInspector.Sections;
 public static class PackageAssemblySemanticFindInspection
 {
     public static async ValueTask<
-        InspectionEnvelope<PackageAssemblySemanticFindResult>>
+        InspectionEnvelope<PackageAssemblySemanticFindDocument>>
         ExecuteAsync(
             PackageAssemblySemanticFindRequest request,
             PackageSourceOperationLease sourceOperation,
@@ -20,24 +20,24 @@ public static class PackageAssemblySemanticFindInspection
             request,
             sourceOperation,
             payloadAcquisition,
-            observer: null,
+            nonterminalSink: null,
             cancellationToken).ConfigureAwait(false);
 
     public static async ValueTask<
-        InspectionEnvelope<PackageAssemblySemanticFindResult>>
+        InspectionEnvelope<PackageAssemblySemanticFindDocument>>
         ExecuteAsync(
             PackageAssemblySemanticFindRequest request,
             PackageSourceOperationLease sourceOperation,
             PackagePayloadAcquisitionPlan payloadAcquisition,
-            IPackageAssemblySemanticFindObserver? observer,
+            IPackageAssemblySemanticFindNonterminalSink? nonterminalSink,
             CancellationToken cancellationToken = default)
     {
-        PackageAssemblySemanticFindResult content =
-            await PackageAssemblySemanticFindQuery.ExecuteToResultAsync(
+        PackageAssemblySemanticFindDocument content =
+            await PackageAssemblySemanticFindQuery.ExecuteToDocumentAsync(
                 request,
                 sourceOperation,
                 payloadAcquisition,
-                observer,
+                nonterminalSink,
                 cancellationToken).ConfigureAwait(false);
 
         return new(

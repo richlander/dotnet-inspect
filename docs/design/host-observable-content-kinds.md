@@ -288,9 +288,14 @@ end-to-end tracker. Adoption has five planned steps:
    while preserving progressive events separately. The CLI and Browser consume
    the same envelope content; their transport and presentation remain
    host-owned.
-4. Let assembly-semantic Find adopt the pattern in a separate focused owner
-   change, distinguishing individual Find Results from any composed Document
-   and carrying the same envelope content to its CLI and Browser consumers.
+4. Let assembly-semantic Find adopt the pattern in
+   [#7113](https://github.com/richlander/dotnet-inspect/issues/7113), naming
+   each occurrence `PackageAssemblySemanticFindResult` and the completed
+   composition `PackageAssemblySemanticFindDocument`. Candidate dispositions
+   remain candidate-scoped outcomes published through an optional nonterminal
+   sink; they do not become a top-level Outcome because every completed
+   admitted invocation can construct a valid Document. The CLI and Browser
+   then consume the same envelope content through #6795 and #6796.
 5. Inventory the remaining public envelope content types and file separate
    owner-scoped migrations where a name or schema conflicts with this contract.
    Close the tracker when each retained boundary is classified and both
