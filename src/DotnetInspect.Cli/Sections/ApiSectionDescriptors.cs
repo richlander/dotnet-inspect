@@ -13,13 +13,26 @@ public static class ApiTypeSectionDescriptors
     public static SectionPipeline<ApiSurface> CreatePipeline()
     {
         return new SectionPipeline<ApiSurface>()
+            .UseCuratedCatalog()
+            .WithoutComputedPoles()
             .Add<ApiInfo>()
+            .Add<TypeForwarders>()
             .Add<Classes>()
             .Add<Structs>()
             .Add<Interfaces>()
             .Add<Enums>()
             .Add<Delegates>()
-            .Add<InspectionFailures>();
+            .Add<InspectionFailures>()
+            .AddBaseCategory(
+                SectionCategoryNames.Surface,
+                SectionNames.ApiInfo,
+                SectionNames.TypeForwarders,
+                Classes.Name,
+                Structs.Name,
+                Interfaces.Name,
+                Enums.Name,
+                Delegates.Name,
+                SectionNames.InspectionFailures);
     }
 
     /// <summary>
@@ -46,10 +59,21 @@ public static class ApiTypeSectionDescriptors
         public static bool CanRender(ApiSurface model) => true;
     }
 
+    public sealed class TypeForwarders : ISectionDescriptor<ApiSurface>
+    {
+        public static string Name => SectionNames.TypeForwarders;
+        public static bool IsExpensive => false;
+        public static bool Info => true;
+        public static bool CanRender(ApiSurface model)
+            => model.Types.Count == 0
+               && model.TypeForwarders.Count > 0;
+    }
+
     public sealed class Classes : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Classes";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "class");
     }
@@ -58,6 +82,7 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Structs";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "struct");
     }
@@ -66,6 +91,7 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Interfaces";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "interface");
     }
@@ -74,6 +100,7 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Enums";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "enum");
     }
@@ -82,6 +109,7 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Delegates";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "delegate");
     }
@@ -90,6 +118,7 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => SectionNames.InspectionFailures;
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.InspectionFailures.Count > 0;
     }

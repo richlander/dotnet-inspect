@@ -275,7 +275,7 @@ public class ApiCommand
         {
             CommandError.Write(
                 "this view publishes no bare -S overview sections.",
-                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+                "Use -S <Section> to select one, -D to discover what is available, or -S @Surface for the type-list surface.");
             return null;
         }
 

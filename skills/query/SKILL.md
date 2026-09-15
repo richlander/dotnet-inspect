@@ -95,13 +95,16 @@ evidence unless a category is named.
 | ------- | --------------- | ----------------- |
 | `package` | `@Package`, `@Files` | `@Dependencies`, `@Audit`, `@SourceLink` |
 | `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
+| `type` listing | `@Surface` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
 Dependencies`, and the unbounded `Package files` listing. `@Files` groups the
-curated nuspec, README, and skill-file sections. Other commands expose
-categories such as member `@Source`; `Switches` is a section. There are no
-user-facing `@All`, `@Default`, or `@Hidden` categories.
+curated nuspec, README, and skill-file sections. The `type` listing's
+`@Surface` category groups `API Info`, public type-kind and type-forwarder
+inventories, and `Inspection Failures`. Other commands expose categories such
+as member `@Source`; `Switches` is a section. There are no user-facing
+`@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
 owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`
