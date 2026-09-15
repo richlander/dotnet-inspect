@@ -69,8 +69,12 @@ internal static partial class MethodCallAnalysis
         ImmutableArray<FieldStoreFact>.Builder? fieldStores = null,
         ImmutableArray<FieldLoadFact>.Builder? fieldLoads = null,
         ImmutableArray<int>.Builder? currentInstanceMutations = null,
-        ImmutableArray<MethodReturnFlow>.Builder? returnFlows = null)
+        ImmutableArray<MethodReturnFlow>.Builder? returnFlows = null,
+        ImmutableArray<LocalThrowSite>.Builder? localThrows = null,
+        Func<TypeRef, ExceptionTypeQualification>? qualifyExceptionType = null)
     {
+        if (localThrows is not null)
+            ArgumentNullException.ThrowIfNull(qualifyExceptionType);
         var caller = context.Method;
         ReachingDefinitionsResult? reaching = null;
         ImmutableArray<bool> reachability = includeCallValueFlow
@@ -171,7 +175,10 @@ internal static partial class MethodCallAnalysis
             }
         }
 
-        if (includeCallValueFlow)
+        bool includeLocalThrows = localThrows is not null
+            && context.Instructions.Instructions.Any(static instruction =>
+                instruction.OpCode is ILOpCode.Throw or ILOpCode.Rethrow);
+        if (includeCallValueFlow || includeLocalThrows)
         {
             var callsByOffset = calls.ToDictionary(call => call.ILOffset);
             var sources = new StackValueSourceResolver(
@@ -179,48 +186,62 @@ internal static partial class MethodCallAnalysis
                 callsByOffset,
                 reaching,
                 resolver);
-            CollectNormalReturnDominance(
-                context,
-                reachability,
-                calls);
-            CollectArgumentSources(calls, sources);
-            CollectResolvedValues(calls, sources);
-            if (resultSinks is not null)
+            if (includeCallValueFlow)
             {
-                CollectResultSinks(
+                CollectNormalReturnDominance(
+                    context,
+                    reachability,
+                    calls);
+                CollectArgumentSources(calls, sources);
+                CollectResolvedValues(calls, sources);
+                if (resultSinks is not null)
+                {
+                    CollectResultSinks(
+                        context,
+                        callsByOffset,
+                        resultSinks,
+                        sources);
+                }
+                if (fieldStores is not null && fieldLoads is not null)
+                {
+                    CollectFieldAccesses(
+                        context,
+                        resolver,
+                        sources,
+                        reachability,
+                        fieldStores,
+                        fieldLoads);
+                }
+                if (currentInstanceMutations is not null)
+                {
+                    CollectCurrentInstanceMutations(
+                        context,
+                        sources,
+                        reachability,
+                        calls,
+                        currentInstanceMutations);
+                }
+                if (returnFlows is not null)
+                {
+                    CollectReturnFlow(
+                        context,
+                        reachability,
+                        sources,
+                        returnFlows);
+                }
+                reaching = sources.ReachingDefinitions;
+            }
+            if (includeLocalThrows
+                && localThrows is not null
+                && qualifyExceptionType is not null)
+            {
+                MethodThrowAnalysis.Collect(
                     context,
                     callsByOffset,
-                    resultSinks,
-                    sources);
+                    sources.ResolveTopValue,
+                    qualifyExceptionType,
+                    localThrows);
             }
-            if (fieldStores is not null && fieldLoads is not null)
-            {
-                CollectFieldAccesses(
-                    context,
-                    resolver,
-                    sources,
-                    reachability,
-                    fieldStores,
-                    fieldLoads);
-            }
-            if (currentInstanceMutations is not null)
-            {
-                CollectCurrentInstanceMutations(
-                    context,
-                    sources,
-                    reachability,
-                    calls,
-                    currentInstanceMutations);
-            }
-            if (returnFlows is not null)
-            {
-                CollectReturnFlow(
-                    context,
-                    reachability,
-                    sources,
-                    returnFlows);
-            }
-            reaching = sources.ReachingDefinitions;
         }
     }
 
