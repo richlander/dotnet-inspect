@@ -11,7 +11,7 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class PackageQueryTests
 {
     [Fact]
-    public async Task ExecuteToEnvelopePreservesPackageQueryContent()
+    public async Task ExecuteToEnvelopeReturnsPackageQueryDocument()
     {
         SearchResult[] candidates =
         [
@@ -29,16 +29,19 @@ public sealed class PackageQueryTests
                     MaximumCandidates: 1,
                     MaximumMatches: 1)));
 
-        InspectionEnvelope<ImmutableArray<PackageQueryEvent>> envelope =
+        InspectionEnvelope<PackageQueryDocument> envelope =
             await PackageQueryInspection.ExecuteAsync(
                 source,
                 plan,
                 TestContext.Current.CancellationToken);
 
-        Assert.Single(
-            envelope.Content.OfType<PackageQueryEvent.Match>());
-        Assert.Single(
-            envelope.Content.OfType<PackageQueryEvent.Completed>());
+        PackageQueryMatch result = Assert.Single(envelope.Content.Results);
+        Assert.Equal("Contoso.One", result.Package.PackageId);
+        Assert.Empty(envelope.Content.Failures);
+        Assert.Equal(1, envelope.Content.Summary.Matches);
+        Assert.Equal(
+            PackageQueryCompletionKind.MatchLimitReached,
+            envelope.Content.Summary.Completion);
         InspectionShare.NonProjectable share =
             Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Equal("package-query/share", share.Path);
@@ -46,7 +49,7 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
-    public async Task ExecuteToEnvelopeObserverSeesTheSameCompletedContent()
+    public async Task ExecuteToEnvelopeSinkSeesOnlyNonterminalEvents()
     {
         SearchResult[] candidates =
         [
@@ -63,20 +66,63 @@ public sealed class PackageQueryTests
                     "Contoso.",
                     MaximumCandidates: 1,
                     MaximumMatches: 1)));
-        var observer = new RecordingPackageQueryEventObserver();
+        var sink = new RecordingPackageQueryNonterminalSink();
 
-        InspectionEnvelope<ImmutableArray<PackageQueryEvent>> envelope =
+        InspectionEnvelope<PackageQueryDocument> envelope =
             await PackageQueryInspection.ExecuteAsync(
                 source,
                 plan,
                 contentProvider: null,
-                observer,
+                sink,
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(envelope.Content, observer.Events);
-        Assert.IsType<PackageQueryEvent.Completed>(observer.Events[^1]);
+        Assert.Contains(
+            sink.Events,
+            queryEvent => queryEvent is PackageQueryEvent.Progress);
+        Assert.Equal(
+            envelope.Content.Results,
+            sink.Events
+                .OfType<PackageQueryEvent.Match>()
+                .Select(queryEvent => queryEvent.Value));
+        Assert.Equal(
+            envelope.Content.Failures,
+            sink.Events
+                .OfType<PackageQueryEvent.Failure>()
+                .Select(queryEvent => queryEvent.Value));
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task ExecuteToEnvelopeCancellationProducesNoDocument()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.One", verified: true),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            candidates.ToDictionary(
+                candidate => $"{candidate.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(candidate.Id)));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+        using var cancellation = new CancellationTokenSource();
+        var sink = new CancelOnMatchSink(cancellation);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                sink,
+                cancellation.Token).AsTask());
+
+        Assert.True(sink.SawMatch);
     }
 
     [Fact]
@@ -1757,17 +1803,37 @@ public sealed class PackageQueryTests
         return events;
     }
 
-    private sealed class RecordingPackageQueryEventObserver
-        : IPackageQueryEventObserver
+    private sealed class RecordingPackageQueryNonterminalSink
+        : IPackageQueryNonterminalSink
     {
-        internal List<PackageQueryEvent> Events { get; } = [];
+        internal List<PackageQueryEvent.Nonterminal> Events { get; } = [];
 
-        public ValueTask ObserveAsync(
-            PackageQueryEvent queryEvent,
+        public ValueTask ReportAsync(
+            PackageQueryEvent.Nonterminal queryEvent,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Events.Add(queryEvent);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class CancelOnMatchSink(CancellationTokenSource cancellation)
+        : IPackageQueryNonterminalSink
+    {
+        internal bool SawMatch { get; private set; }
+
+        public ValueTask ReportAsync(
+            PackageQueryEvent.Nonterminal queryEvent,
+            CancellationToken cancellationToken)
+        {
+            if (queryEvent is PackageQueryEvent.Match)
+            {
+                SawMatch = true;
+                cancellation.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
             return ValueTask.CompletedTask;
         }
     }

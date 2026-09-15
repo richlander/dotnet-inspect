@@ -261,8 +261,12 @@ with this feature-owned vocabulary:
   one durable match, assessment, or failure outcome per explicit candidate.
 - `Assessment` is a durable `NoMatch` or `NotApplicable` candidate outcome. It
   does not consume match credit, increment match counts, or become a failure.
-- `Completed` is the only terminal event. The Browser adapter returns it through
-  the managed task result and never sends it through the callback channel.
+- `Completed` is the producer stream's only terminal event. In package mode,
+  the sole adapter retains its Summary, never sends it through the callback,
+  and returns one `InspectionEnvelope<PackageQueryDocument>` through the
+  managed task. The Browser derives its terminal UI event from the Document
+  Summary. Assembly mode remains a separate event-only operation and returns
+  its terminal event directly.
 
 Progress is monotonic per phase and keyed by phase for Browser-state
 coalescing. A request produces at most two search checkpoints, one manifest
@@ -309,6 +313,20 @@ credit bound therefore also stops later-page work once its held match pauses
 the producer, while still permitting one retained source page.
 A future worker adapter may preserve the same sizes and meanings while
 batching durable events under the shared owner.
+
+The completed package-mode Document contains ordered Results, typed Failures,
+and terminal Summary. Progress checkpoints and the interleaving of streamed
+Matches and Failures are operation history, not settled semantic content, so
+they are not serialized into the envelope. The Browser facade and Worker
+validate that Summary match and failure counts agree with the Document arrays.
+Package-mode Worker settlement carries the inspection without a second
+completion-event field; consumers derive the terminal UI event from the
+Document Summary. This incompatible Browser result-schema change advances the
+managed boundary to version 3. Assembly mode retains its event-only terminal
+under that shared result version.
+Cancellation and unexpected execution failure settle outside the envelope;
+expected source or item failure can still produce a valid Document whose
+Summary reports failed completion.
 
 This direct callback is the shared stream contract's transitional first-adopter
 path. The Package Query controller's feature-owned generation guard suppresses
