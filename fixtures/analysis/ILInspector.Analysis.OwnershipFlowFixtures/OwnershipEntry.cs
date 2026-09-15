@@ -214,6 +214,10 @@ public static class Entry
         new BindingOwnerWithExtra<byte, int>()
             .BindMalformedCallback(42);
 
+    public static BindingOutcome InvokeMalformedField() =>
+        new BindingOwnerWithExtra<byte, int>()
+            .Use(new BindingBox<byte>());
+
     public static byte BindCollapsedResourceKinds() =>
         new BindingGenericOwner<byte>().Apply<byte>(1, 2);
 
@@ -322,6 +326,12 @@ public sealed class BindingOwnerWithExtra<T, TExtra>
         new BindingRejectedOutcome
         {
             ReturnedChild = callback(child),
+        };
+
+    public BindingOutcome Use(BindingBox<T> box) =>
+        new BindingRejectedOutcome
+        {
+            ReturnedChild = box.Value,
         };
 }
 

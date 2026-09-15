@@ -1027,6 +1027,98 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void StructuralFieldRejectsOutOfRangeDeclaringTypeGenericParameter()
+    {
+        ImmutableArray<byte> image =
+            MalformedBindingFieldImage();
+        DirectCallDefinitionResolutionOutcome.Completed calls =
+            ResolveOwnershipFixture(image);
+        DirectCallDefinitionResolution.Resolved apply =
+            Assert.Single(
+                calls.Results
+                    .OfType<DirectCallDefinitionResolution.Resolved>(),
+                result =>
+                    result.Call.Caller.Name == "InvokeMalformedField"
+                    && result.Definition.Member.Name == "Use");
+        AssemblyReferenceIdentity identity = apply.Definition.Assembly;
+        var assembly = new ResourceAssemblySelector(
+            identity.Name,
+            identity.PublicKeyToken,
+            ResourceAssemblyVersionPolicy.Exact(identity.Version!));
+        ResourceEffectGenericVariable valueVariable =
+            new(ResourceEffectGenericVariableKind.Type, 0);
+        ResourceEffectGenericVariable extraVariable =
+            new(ResourceEffectGenericVariableKind.Type, 1);
+        ResourceTypeExpression.Variable value = new(valueVariable);
+        ResourceTypeExpression.Variable extra = new(extraVariable);
+        var box = new ResourceTypeExpression.Named(
+            assembly,
+            "Ownership",
+            [new ResourceTypeNameSegment("BindingBox", 1)],
+            [value]);
+        var owner = new ResourceTypeExpression.Named(
+            assembly,
+            "Ownership",
+            [new ResourceTypeNameSegment("BindingOwnerWithExtra", 2)],
+            [value, extra]);
+        var outcome = new ResourceTypeExpression.Named(
+            assembly,
+            "Ownership",
+            [new ResourceTypeNameSegment("BindingOutcome", 0)]);
+        var target = new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                owner,
+                "Use",
+                ResourceEffectMemberKind.Method,
+                isStatic: false,
+                genericArity: 0,
+                ResourceEffectCallingConvention.Default,
+                hasThis: true,
+                explicitThis: false,
+                [
+                    new ResourceEffectParameterSelector(
+                        box,
+                        ResourceEffectRefKind.Value),
+                ],
+                outcome));
+        var field = new ResourceEffectMemberSelector(
+            box,
+            "Value",
+            ResourceEffectMemberKind.Field,
+            isStatic: false,
+            genericArity: 0,
+            ResourceEffectCallingConvention.Default,
+            hasThis: false,
+            explicitThis: false,
+            [],
+            extra);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.malformed-field-generic",
+                target,
+                new ResourceEffect.Pass(
+                    new ResourceEffectLocation.StructuralField(
+                        new ResourceEffectLocation.Parameter(0),
+                        field),
+                    new ResourceEffectLocation.Return(),
+                    Identity: null)));
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveEffects(admission, calls));
+
+        Assert.Contains(
+            incomplete.Gaps,
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind
+                        .OccurrenceUnsupported
+                && gap.OccurrenceGap?.Kind
+                    == ResourceEffectOccurrenceBindingGapKind
+                        .StructuralField);
+    }
+
+    [Fact]
     public void MissingExactOutcomeTypeIsIncomplete()
     {
         DirectCallDefinitionResolutionOutcome.Completed calls =
@@ -2030,6 +2122,45 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     }));
         image[blob + 4] = 0x01;
         image[blob + 6] = 0x01;
+        return ImmutableArray.Create(image);
+    }
+
+    static ImmutableArray<byte> MalformedBindingFieldImage()
+    {
+        byte[] image = File.ReadAllBytes(OwnershipFixturePath);
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle owner = reader.TypeDefinitions.Single(
+            handle =>
+            {
+                TypeDefinition type = reader.GetTypeDefinition(handle);
+                return reader.StringComparer.Equals(
+                        type.Namespace,
+                        "Ownership")
+                    && reader.StringComparer.Equals(
+                        type.Name,
+                        "BindingBox`1");
+            });
+        FieldDefinitionHandle child = reader
+            .GetTypeDefinition(owner)
+            .GetFields()
+            .Single(handle => reader.StringComparer.Equals(
+                reader.GetFieldDefinition(handle).Name,
+                "Value"));
+        BlobHandle signature =
+            reader.GetFieldDefinition(child).Signature;
+        int blob = MetadataStreamOffset(
+                image,
+                pe.PEHeaders.MetadataStartOffset,
+                "#Blob")
+            + MetadataTokens.GetHeapOffset(signature);
+        Assert.Equal(3, image[blob]);
+        Assert.True(
+            image.AsSpan(blob + 1, 3)
+                .SequenceEqual(
+                    new byte[] { 0x06, 0x13, 0x00 }));
+        image[blob + 3] = 0x01;
         return ImmutableArray.Create(image);
     }
 

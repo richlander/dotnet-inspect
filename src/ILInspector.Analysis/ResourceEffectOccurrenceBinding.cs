@@ -265,6 +265,8 @@ internal static class ResourceEffectOccurrenceBinder
                 }
 
                 TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+                int declaringTypeArity =
+                    type.GetGenericParameters().Count;
                 if (type.GetFields().Count
                     > MetadataSafetyPolicy.MaxCorrespondenceMethodRows)
                 {
@@ -305,6 +307,14 @@ internal static class ResourceEffectOccurrenceBinder
                     TypeRef candidateType = candidate.DecodeSignature(
                         TypeRefDecoder.Instance,
                         TypeScope(reader, type));
+                    if (!GenericParametersAreInRange(
+                            candidateType,
+                            declaringTypeArity,
+                            methodArity: 0))
+                    {
+                        unreadableCandidate = true;
+                        continue;
+                    }
                     candidateType = candidateType.Instantiate(
                         rootType.Kind == TypeRefKind.GenericInstance
                             ? rootType.TypeArguments
