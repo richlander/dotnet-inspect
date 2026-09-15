@@ -10,7 +10,7 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class ArtifactAssemblyInspection
 {
-    public static unsafe ArtifactAssemblyProjectionOutcome Project(
+    public static ArtifactAssemblyProjectionOutcome Project(
         scoped ArtifactAdmissionContentView view,
         CancellationToken cancellationToken = default)
     {
@@ -22,7 +22,7 @@ public static class ArtifactAssemblyInspection
         // callback returns; the retained image is not copied.
         fixed (byte* content = view.Content)
         {
-            using var peReader = new PEReader(content, view.Content.Length);
+            using var peReader = unsafe(new PEReader(content, view.Content.Length));
             try
             {
                 if (!MetadataFormatAdmission.AdmitImage(peReader))
@@ -61,7 +61,7 @@ public static class ArtifactAssemblyInspection
         }
     }
 
-    public static unsafe ArtifactAssemblyQueryOutcome<TResult> Execute<TResult>(
+    public static ArtifactAssemblyQueryOutcome<TResult> Execute<TResult>(
         scoped ArtifactQueryContentView view,
         ArtifactAssemblyProjection projection,
         Func<AssemblyInspectionSession, CancellationToken, TResult> producer,
@@ -79,7 +79,7 @@ public static class ArtifactAssemblyInspection
 
         fixed (byte* content = view.Content)
         {
-            using var peReader = new PEReader(content, view.Content.Length);
+            using var peReader = unsafe(new PEReader(content, view.Content.Length));
             try
             {
                 if (!MetadataFormatAdmission.AdmitImage(peReader))

@@ -121,7 +121,7 @@ internal static partial class PhysicalFileIdentityProvider
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetFileInformationByHandleEx(
+    private static safe partial bool GetFileInformationByHandleEx(
         SafeFileHandle file,
         FileInfoByHandleClass informationClass,
         out WindowsFileIdInformation information,
@@ -131,7 +131,7 @@ internal static partial class PhysicalFileIdentityProvider
         "libSystem.Native",
         EntryPoint = "SystemNative_FStat",
         SetLastError = true)]
-    private static partial int UnixFStat(
+    private static safe partial int UnixFStat(
         SafeFileHandle file,
         out UnixFileStatus information);
 

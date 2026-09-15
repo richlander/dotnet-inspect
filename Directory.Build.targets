@@ -15,17 +15,19 @@
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
   </PropertyGroup>
 
-  <!-- Runtime async is enabled by default only for NativeAOT. Ordinary non-AOT
-       builds use the compiler default, which emits classic async state machines.
-       The CoreCLR Browser comparison workflow opts in explicitly for that one
-       published application graph. -->
+  <!-- .NET 11 NativeAOT publishing opts into runtime async and the updated
+       memory-safety rules. Ordinary non-AOT builds use the compiler defaults,
+       including classic async state machines and legacy memory-safety rules.
+       The CoreCLR Browser comparison workflow opts into runtime async explicitly
+       for that one published application graph. -->
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0' and '$(PublishAot)' == 'true'">
-    <Features>$(Features);runtime-async=on</Features>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Features>$(Features);runtime-async=on;updated-memory-safety-rules</Features>
   </PropertyGroup>
 
   <!-- Updated memory-safety rules are a compiler feature and a decompiler
-       fixture axis. Keep the repo default as whatever the project requested
-       (property unset/legacy), and let fixture overlays opt in with
+       fixture axis. Non-AOT builds keep whatever the project requested
+       (property unset/legacy), while fixture overlays opt in with
        <MemorySafetyRules>updated</MemorySafetyRules> (or "on"/"new"). -->
   <PropertyGroup Condition="'$(MemorySafetyRules)' == 'updated' or '$(MemorySafetyRules)' == 'on' or '$(MemorySafetyRules)' == 'new'">
     <Features>$(Features);updated-memory-safety-rules</Features>

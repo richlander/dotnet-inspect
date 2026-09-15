@@ -324,9 +324,15 @@ That property is not yet the supported .NET 11 activation mechanism. A project
 reader must not interpret the presence of an otherwise unevaluated
 `MemorySafetyRules` property as proof that the compiler received or honored it.
 
-This repository has a fixture-only `Directory.Build.targets` alias that maps
-text values such as `updated` to the raw compiler feature. That alias is test
-infrastructure, not SDK behavior or user-facing configuration guidance.
+This repository's .NET 11 NativeAOT publish graph enables the raw compiler
+feature in `Directory.Build.targets`. It also enables `AllowUnsafeBlocks` so
+the graph can compile explicitly declared unsafe operations; updated-rule
+enforcement still requires each operation or propagating contract to be
+declared. Non-AOT builds retain the compiler defaults.
+
+The same targets file has a fixture-only alias that maps text values such as
+`updated` to the raw compiler feature. That alias is test infrastructure, not
+SDK behavior or user-facing configuration guidance.
 
 ### Unsafe-context permission is independent
 
