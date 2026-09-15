@@ -582,9 +582,13 @@ Each state has these fields:
   reinterpret its fields.
 - `libraries` is an optional unique, canonically ordered list of
   `PortableLibraryIdentity` values used as query scope. It is not the active
-  Library subject and does not select one. It requires at least one referenced
-  query whose public owner-issued descriptor declares that it consumes
-  state-level multi-Library scope; it is invalid without such a query.
+  Library subject and does not select one. It is valid only on a direct
+  Package-coordinate state and resolves inside that exact occurrence. It
+  requires at least one referenced query whose public owner-issued descriptor
+  declares that it consumes state-level multi-Library scope; it is invalid
+  without such a query. The leading null-coordinate Workspace state forbids
+  `libraries`; a Workspace query requiring state-level Library scope must use a
+  direct Package-coordinate Workspace state or is invalid.
 
 Every result-affecting committed value is therefore either structural state
 spelled here or typed query state. Presentation-only disclosure, focus, hover,
@@ -728,6 +732,12 @@ This table applies only to the leading Workspace state and direct
 Package-coordinate states. A non-Package coordinate entry is valid only as the
 undecorated dormant row defined above and cannot be selected by version-2
 `navigation.focus`.
+
+The leading null-coordinate Workspace state has no Package resolution domain.
+It therefore forbids `libraries` and any query descriptor that requires
+state-level multi-Library scope. A Workspace subject on a direct
+Package-coordinate state may use that scope, resolved only inside its exact
+retained occurrence.
 
 When `facet` is present, exact Registry resolution occurs against the resolved
 subject. `Unknown` and `Inapplicable` are invalid portable combinations.
@@ -1527,7 +1537,9 @@ remains the independently selected binding context.
 - `l` is a nonempty array of unique compact `PortableLibraryIdentity` tuples
   in ascending lexicographic order by their four canonical components, with
   `null` sorting before a string. At least one referenced query descriptor must
-  explicitly declare that it consumes state-level multi-Library scope.
+  explicitly declare that it consumes state-level multi-Library scope. It is
+  forbidden on the leading `t: null` Workspace entry and on group-tuple rows;
+  a direct Package tuple supplies its exact resolution occurrence.
 
 `q`, when present, is a table of packet-local query states. Each tuple is
 `[queryId,payload]`: `queryId` is the exact product query identity and
@@ -2128,6 +2140,7 @@ Implementation must add, at minimum:
   `ToEscapedFullName()` matching, nesting-versus-literal-delimiter collision
   vectors, required null-coordinate Workspace state, nullable `a`, retained
   selector/subject compatibility, direct-Package-only non-null focus,
+  null-Workspace rejection of `l` and Library-scope-requiring queries,
   undecorated dormant group rows, every outer and per-query bound, and
   cancellation before each query bind;
 - a legacy-lowering gate derived from the closed mapping table, with one
@@ -2186,7 +2199,9 @@ Implementation must add, at minimum:
   second host table; prove Library scope without a consuming query is invalid;
   never inspect a Registry-private execution binding; and classify a
   non-portable result-affecting filter, body, or source target as
-  `NonProjectable`;
+  `NonProjectable`; and prove the null Workspace state rejects state-level
+  Library scope while a direct Package-coordinate Workspace state resolves it
+  only within that occurrence;
 - a navigation gate proving ordered tabs and nullable record-local focus
   round-trip, `null` selects the Workspace state with no occurrence context,
   non-null version-2 focus accepts only a direct Package coordinate, every
@@ -2204,8 +2219,9 @@ Implementation must add, at minimum:
   unknown, inapplicable, unavailable, and failed outcomes. Version-1
   `lens`/`section` values must reach only the legacy lowerer. A
   `PortableLibraryIdentity` is not a facet: it resolves against the owning
-  coordinate's acquired assemblies, with missing or ambiguous identity a typed
-  outcome there;
+  direct Package coordinate's acquired assemblies, with missing or ambiguous
+  identity a typed outcome there. The null Workspace state has no such domain
+  and forbids Library scope;
 - a complete-restoration conformance gate with controllable Workspace
   construction, Navigation, query, projection, and host installation. It must
   cover inert packet/definition input with absent, stale, revoked, and
