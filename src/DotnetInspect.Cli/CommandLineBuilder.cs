@@ -43,9 +43,8 @@ public static class CommandLineBuilder
         }
 
         return result.CommandResult.Command.Name == "depends"
-            || (result.CommandResult.Command.Name
-                    == EcosystemCommand.Name
-                && HasParsedOption(result, "--changes"))
+            || result.CommandResult.Command.Name
+                == PackageChangesCommand.Name
             || (result.CommandResult.Command.Name
                     == PackageCommand.Name
                 && (HasParsedOption(result, "--versions")
