@@ -62,6 +62,7 @@ import {
   workspaceCoordinatesMatch
 } from "./data.ts";
 import type { EngineClient } from "./engine-client.ts";
+import { retainDiagnosticDetail } from "./failure-detail.ts";
 import {
   createPublishedRuntimeBenchmarkBridge,
   installPublishedRuntimeBenchmarkBridge,
@@ -14179,6 +14180,7 @@ interface LoadPackageOptions {
   invalidateWorkspaceShareBasis?: boolean;
   deferWorkspacePublication?: boolean;
   failureHandler?: (message: string) => void;
+  retainFailureDetail?: boolean;
 }
 
 async function loadPackage(
@@ -14210,6 +14212,7 @@ async function loadPackage(
         : null;
     state.loading = true;
     state.error = "";
+    if (!options.retainFailureDetail) state.errorDetail = "";
     state.retryAction = null;
     state.home = false;
     state.queryNotice = options.queryNotice || "";
@@ -14298,6 +14301,7 @@ async function loadPackage(
   } catch (error) {
     if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
       return null;
+    state.errorDetail = retainDiagnosticDetail(state.errorDetail, error);
     const friendly = friendlyLoadError(error, packageId, version);
     if (background) {
       const failure =
@@ -14311,6 +14315,7 @@ async function loadPackage(
     packageContentLoadingSequence = null;
     const retryOptions: LoadPackageOptions = { ...options };
     delete retryOptions.navigationSeq;
+    delete retryOptions.retainFailureDetail;
     if (options.failureHandler) {
       options.failureHandler(friendly.message);
       return null;
@@ -14339,11 +14344,6 @@ async function loadPackage(
         ? `${state.queryNotice} ${friendly.message}`
         : friendly.message;
       state.errorTitle = friendly.title;
-      state.errorDetail = error instanceof Error
-        ? error.stack?.includes(error.message)
-          ? error.stack
-          : `${error.message}\n${error.stack ?? ""}`.trim()
-        : String(error);
       state.retryAction = () => loadPackage(
         packageId,
         version,
@@ -14978,6 +14978,7 @@ async function restoreWorkspaceFromLocation(
   applyLocationView(loc);
   state.loading = true;
   state.error = "";
+  state.errorDetail = "";
   state.retryAction = null;
   resetLocationFilters();
   clearWorkspacePackages();
@@ -15205,6 +15206,7 @@ async function restoreWorkspaceFromLocation(
         navigationSeq,
         queryNotice: state.queryNotice,
         deferWorkspacePublication: failureHandler !== null,
+        retainFailureDetail: true,
       });
     if (loaded && focusResult && navigationSequence.isCurrent(navigationSeq)) {
         if (failureHandler) {

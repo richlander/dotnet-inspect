@@ -17,6 +17,13 @@ public static class NavigationTransitions
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(registry);
+        if (initialization?.Lens is not null)
+        {
+            throw new ArgumentException(
+                "Exact-lens initialization must use canonical restoration "
+                    + "preparation.",
+                nameof(initialization));
+        }
         NavigationEvaluation.ValidateFacts(workspace, null, facts, facts.Package?.Occurrence.Occurrence);
         NavigationWorkspaceSnapshot snapshot = NavigationWorkspaceSnapshotEvaluation.Evaluate(
             new NavigationWorkspaceSnapshotRequest
@@ -26,7 +33,317 @@ public static class NavigationTransitions
                 ActiveSubject = initialization?.Subject,
                 RetainedContext = initialization?.Context,
             }, registry, facts.Availability);
-        snapshot = NavigationWorkspaceSnapshotEvaluation.WithDescendantLenses(snapshot, registry, facts.Availability);
+        return Initialize(snapshot, registry, facts.Availability);
+    }
+
+    /// <summary>
+    /// Prepares one complete Navigation state inside a fresh unpublished
+    /// Workspace. Non-prepared results carry no state or effect authority.
+    /// </summary>
+    public static NavigationRestorationPreparationResult PrepareRestoration(
+        InspectionWorkspaceIdentity workspace,
+        NavigationEvaluationFacts facts,
+        ViewFacetRegistry registry,
+        NavigationInitialization initialization)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(facts);
+        ArgumentNullException.ThrowIfNull(registry);
+        ArgumentNullException.ThrowIfNull(initialization);
+        ArgumentNullException.ThrowIfNull(facts.Scope);
+        ArgumentNullException.ThrowIfNull(facts.Availability);
+        if (facts.Package is not null
+            && facts.NonReadyPackage is not null)
+        {
+            throw new ArgumentException(
+                "Navigation restoration facts cannot be both prepared and "
+                    + "non-ready.",
+                nameof(facts));
+        }
+        if (facts.Scope.Revision.Workspace != workspace)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.InvalidContext,
+                "Navigation restoration facts must belong to the exact "
+                    + "Workspace.");
+        }
+        if ((initialization.Subject is { } requestedSubject
+                && requestedSubject.Workspace.Identity != workspace)
+            || (initialization.Context is { } requestedContext
+                && requestedContext.Package.Workspace.Identity != workspace))
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.InvalidContext,
+                "Navigation restoration identities must belong to the exact "
+                    + "Workspace.");
+        }
+        if (initialization.Lens is not null
+            && initialization.Subject is null)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.LensRequiresSubject,
+                "An exact restoration lens requires an explicit subject.");
+        }
+        if (initialization.Lens is { } lens
+            && lens.Subject != initialization.Subject)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.LensSubjectMismatch,
+                "The exact restoration lens must bind the requested subject.");
+        }
+        StructuralSubjectIdentity.WorkspaceSubject workspaceSubject =
+            StructuralSubjectIdentity.ForWorkspace(workspace);
+        if (initialization.Subject is null
+            && initialization.Context?.Library is not null)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.SubjectOutsideContext,
+                "A subject-less restoration can retain only Package "
+                    + "context.");
+        }
+        if (initialization.Subject is { } subjectWithoutContext
+            && subjectWithoutContext != workspaceSubject
+            && initialization.Context is null)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.InvalidContext,
+                "A non-Workspace restoration subject requires its exact "
+                    + "retained occurrence context.");
+        }
+        if (initialization.Subject is { } retainedSubject
+            && retainedSubject != workspaceSubject
+            && initialization.Context is { } retainedPath
+            && retainedSubject != retainedPath.Package
+            && retainedSubject != retainedPath.Library
+            && retainedSubject != retainedPath.Type
+            && retainedSubject != retainedPath.Member)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.SubjectOutsideContext,
+                "A non-Workspace active subject must equal one retained "
+                    + "path node.");
+        }
+        if (facts.Package is { } prepared
+            && !facts.Scope.Packages.Any(
+                candidate =>
+                    candidate.Occurrence
+                        == prepared.Occurrence.Occurrence
+                    && ReferenceEquals(
+                        candidate.Realization,
+                        prepared.Occurrence.Realization)))
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.InvalidContext,
+                "Prepared Package facts must join the exact Workspace Scope "
+                    + "occurrence and realization.");
+        }
+        if (facts.NonReadyPackage is { } unsettled
+            && !facts.Scope.Packages.Any(
+                candidate =>
+                    candidate.Occurrence
+                        == unsettled.Occurrence.Occurrence
+                    && ReferenceEquals(
+                        candidate.Realization,
+                        unsettled.Occurrence.Realization)))
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.InvalidContext,
+                "Non-ready Package facts must join the exact Workspace Scope "
+                    + "occurrence and realization.");
+        }
+        if (initialization.Context is { } context
+            && facts.Package is null
+            && facts.NonReadyPackage is null)
+        {
+            WorkspacePackageOccurrenceDescriptor? occurrence =
+                facts.Scope.Packages.FirstOrDefault(
+                    candidate =>
+                        candidate.Occurrence
+                            == context.Package.Occurrence);
+            if (occurrence is null)
+            {
+                return new NavigationRestorationPreparationResult.Rejected(
+                    workspace,
+                    initialization,
+                    NavigationRestorationRejectionKind.InvalidContext,
+                    "The retained Package occurrence is not present in the "
+                        + "exact Workspace Scope.");
+            }
+            return new NavigationRestorationPreparationResult.Failed(
+                workspace,
+                initialization,
+                context.Package,
+                NavigationRestorationFailureKind.PackageNotPrepared,
+                "The retained Package occurrence has no complete prepared "
+                    + "Navigation facts.");
+        }
+        if (facts.NonReadyPackage is { } nonReady)
+        {
+            StructuralSubjectIdentity.PackageSubject package =
+                StructuralSubjectIdentity.ForPackage(
+                    StructuralSubjectIdentity.ForWorkspace(workspace),
+                    nonReady.Occurrence.Occurrence);
+            if (initialization.Context is not { } retained)
+            {
+                return new NavigationRestorationPreparationResult.Rejected(
+                    workspace,
+                    initialization,
+                    NavigationRestorationRejectionKind.InvalidContext,
+                    "A non-ready Package restoration requires its exact "
+                        + "retained occurrence context.");
+            }
+            if (retained.Package != package)
+            {
+                return new NavigationRestorationPreparationResult.Rejected(
+                    workspace,
+                    initialization,
+                    NavigationRestorationRejectionKind.InvalidContext,
+                    "The retained context must identify the exact non-ready "
+                        + "Package occurrence.");
+            }
+            return new NavigationRestorationPreparationResult.Failed(
+                workspace,
+                initialization,
+                package,
+                NavigationRestorationFailureKind.PackageNotPrepared,
+                "The retained Package occurrence is not ready for Navigation "
+                    + "restoration.");
+        }
+
+        NavigationEvaluation.ValidateFacts(
+            workspace,
+            basis: null,
+            facts,
+            facts.Package?.Occurrence.Occurrence);
+        NavigationRestorationSubjectPreparation subject =
+            NavigationWorkspaceSnapshotEvaluation.PrepareRestoration(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = facts.Scope,
+                    Package = facts.Package,
+                    ActiveSubject = initialization.Subject,
+                    RetainedContext = initialization.Context,
+                });
+        if (subject
+            is NavigationRestorationSubjectPreparation.Rejected rejected)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                rejected.Kind,
+                rejected.Message);
+        }
+        if (subject
+            is NavigationRestorationSubjectPreparation.Unavailable unavailable)
+        {
+            return new NavigationRestorationPreparationResult.Unavailable(
+                workspace,
+                initialization,
+                unavailable.Subject,
+                unavailable.Message);
+        }
+        if (subject
+            is NavigationRestorationSubjectPreparation.Failed failed)
+        {
+            return new NavigationRestorationPreparationResult.Failed(
+                workspace,
+                initialization,
+                failed.Subject,
+                NavigationRestorationFailureKind.IncompleteInventory,
+                failed.Message,
+                NavigationSnapshotDetachment.Detach(failed.Inventory!));
+        }
+
+        NavigationWorkspaceSnapshotComposition composition =
+            ((NavigationRestorationSubjectPreparation.Ready)subject)
+                .Composition;
+        NavigationLensActivationResult? activation = null;
+        NavigationLensOutcome? lensOutcome = null;
+        NavigationFacetAvailabilityProvider availability =
+            facts.Availability;
+        if (initialization.Lens is { } exactLens)
+        {
+            IViewFacetAvailabilityFacts activeFacts =
+                facts.Availability(
+                    composition.ActiveSubject,
+                    composition.Inventory)
+                ?? throw new InvalidOperationException(
+                    "The Navigation facet availability provider returned null.");
+            activation = NavigationLensActivation.ResolveExact(
+                exactLens,
+                registry,
+                activeFacts);
+            if (activation
+                is NavigationLensActivationResult.Rejected registryRejection)
+            {
+                return new NavigationRestorationPreparationResult.Rejected(
+                    workspace,
+                    initialization,
+                    NavigationRestorationRejectionKind.Registry,
+                    "The exact restoration lens is unknown or inapplicable.",
+                    registryRejection);
+            }
+            lensOutcome = activation switch
+            {
+                NavigationLensActivationResult.Applied applied =>
+                    applied.Outcome,
+                NavigationLensActivationResult.Unavailable lensUnavailable =>
+                    lensUnavailable.Outcome,
+                NavigationLensActivationResult.Failed lensFailed =>
+                    lensFailed.Outcome,
+                _ => throw new InvalidOperationException(
+                    "Unknown exact restoration lens result."),
+            };
+            availability = (candidate, inventory) =>
+                candidate == composition.ActiveSubject
+                    ? activeFacts
+                    : facts.Availability(candidate, inventory);
+        }
+
+        NavigationWorkspaceSnapshot snapshot =
+            NavigationWorkspaceSnapshotEvaluation.Compose(
+                composition,
+                registry,
+                availability,
+                lensOutcome);
+        return new NavigationRestorationPreparationResult.Prepared(
+            workspace,
+            initialization,
+            Initialize(
+                snapshot,
+                registry,
+                availability,
+                activation));
+    }
+
+    static NavigationOperationInitialization Initialize(
+        NavigationWorkspaceSnapshot snapshot,
+        ViewFacetRegistry registry,
+        NavigationFacetAvailabilityProvider availability,
+        NavigationLensActivationResult? resolution = null)
+    {
+        snapshot = NavigationWorkspaceSnapshotEvaluation.WithDescendantLenses(
+            snapshot,
+            registry,
+            availability);
         snapshot = NavigationSnapshotDetachment.Detach(snapshot);
         var projection = new NavigationConsumerProjection(
             new(Guid.NewGuid().ToString("N"), 0,
@@ -38,7 +355,8 @@ public static class NavigationTransitions
         var state = new NavigationState(new(snapshot, consumer, projection.Freeze(), actions.ToImmutableDictionary()));
         NavigationTransition transition = CurrentResult(
             state, state.Data, new(session, state.Data.Intent, NavigationOperationKind.Initialize),
-            NavigationEvaluation.SnapshotOutcome(snapshot));
+            NavigationEvaluation.SnapshotOutcome(snapshot),
+            resolution);
         return new(transition.State, transition.Result!);
     }
 
