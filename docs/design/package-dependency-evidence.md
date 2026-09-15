@@ -17,8 +17,10 @@ adapter are implemented by `AuthoredProjectDependencyFactsQuery` and this
 query. The runtime provider and normalized adapter are implemented by
 `RuntimeDependencyFactsQuery` and this query. The PackageHouse input adapter retains this owner-issued evidence, and the
 PackageHouse pruning consumer uses its exact authorship, processing, and
-selection states without redefining them. CLI and Browser/Wasm adoption remain
-staged work. Restored-project inputs consume typed
+selection states without redefining them. The CLI `depends -S Pruning`
+consumer is implemented under
+[#6994](https://github.com/richlander/dotnet-inspect/issues/6994);
+Browser/Wasm adoption remains staged work. Restored-project inputs consume typed
 pruning-processing evidence from their artifact owner. Optional owner
 observations remain dependent on issue #5315.
 
@@ -93,7 +95,8 @@ steps are:
 5. Add a typed runtime-dependency provider for `.deps.json` and adapt its
    facts into this owner.
 6. Adopt the shape in package-pruning policy (implemented by #6899).
-7. Adopt the composed policy result in the CLI dependency experience.
+7. Adopt the composed policy result in the CLI dependency experience
+   (implemented by #6994).
 8. Adopt the same result in inspect-web Browser/Wasm.
 
 Each provider and consumer adoption remains a focused effort owned by that

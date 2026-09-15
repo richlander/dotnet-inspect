@@ -361,7 +361,7 @@ public abstract record RealizedMemberCoordinate
                     nameof(version));
             }
 
-            if (!IsCanonicalProducer(producer))
+            if (!IsCanonicalPackageProducer(producer))
             {
                 throw new ArgumentException(
                     "A realized package producer is a canonical content-cache producer key.",
@@ -456,7 +456,7 @@ public abstract record RealizedMemberCoordinate
                 ? "a realized package id must be a canonical NuGet package id in its normalized lowercase spelling"
                 : !IsCanonicalPackageVersion(version)
                     ? "a realized package version must be one exact NuGet version in its normalized lowercase spelling"
-                    : !IsCanonicalProducer(producer)
+                    : !IsCanonicalPackageProducer(producer)
                         ? "a realized package producer must be a canonical content-cache producer key"
                         : framework is not null
                             && !IsCanonicalFramework(framework)
@@ -703,6 +703,14 @@ public abstract record RealizedMemberCoordinate
                 char.IsAsciiDigit(character)
                 || character is >= 'a' and <= 'z'
                 || character is '-');
+
+    /// <summary>
+    /// True when <paramref name="value"/> is a current portable Package Source
+    /// producer token or an already-supported producer spelling.
+    /// </summary>
+    public static bool IsCanonicalPackageProducer(string? value) =>
+        PackageProducerIdentity.IsCanonicalPortableKey(value)
+        || IsCanonicalProducer(value);
 
     /// <summary>
     /// True when <paramref name="value"/> names a product-owned platform

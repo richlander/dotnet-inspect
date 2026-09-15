@@ -230,15 +230,10 @@ public sealed partial class DesktopPackageSourceComposition
             if (requiredProducerKey is not null)
             {
                 ConfiguredPackageAuthority[] matchingAuthorities =
-                [
-                    .. authorization.Authorities.Where(
-                        authority => GetSourceClient(authority)
-                            .Source.Producer.Key.Equals(
-                                requiredProducerKey,
-                                StringComparison.Ordinal)),
-                ];
-                if (matchingAuthorities.Length == 0)
-                    failures.Add(RequiredProducerUnavailable());
+                    MatchRequiredProducer(
+                        authorization.Authorities,
+                        requiredProducerKey,
+                        failures);
                 authorization =
                     PackageSourceAuthorization.ObserveAuthorities(
                         matchingAuthorities,

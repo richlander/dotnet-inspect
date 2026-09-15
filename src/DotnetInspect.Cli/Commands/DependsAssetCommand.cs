@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -26,9 +27,20 @@ public partial class DependsCommand
 
     public static async Task<int> ExecuteAssetDependsAsync(
         DependsOptions options,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteAssetDependsAsync(
+            options,
+            static frameworkSpec =>
+                InstalledPlatformPruneSource.Read(frameworkSpec),
+            cancellationToken).ConfigureAwait(false);
+
+    internal static async Task<int> ExecuteAssetDependsAsync(
+        DependsOptions options,
+        Func<string, InstalledPlatformPruneSource.Result> pruneSource,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(pruneSource);
 
         if (DependsShareProjection.ValidateOptions(options) is { } shareError)
         {
@@ -127,6 +139,7 @@ public partial class DependsCommand
                     options.Effective && options.Depth is null
                         ? 1
                         : options.Depth,
+                    pruneSource,
                     cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             if (options.Effective)
@@ -191,6 +204,48 @@ public partial class DependsCommand
         bool graphRequested,
         bool discoveryMode)
     {
+        if (options.PruningPlatformFamily is not null
+            && !candidateSections.Contains(
+                DependsAssetSections.Pruning,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            CommandError.Write(
+                "--platform-family requires the Pruning section.");
+            return false;
+        }
+
+        if (candidateSections.Contains(
+                DependsAssetSections.Pruning,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            if (options.Tfm is null)
+            {
+                CommandError.Write(
+                    $"The {DependsAssetSections.Pruning} section requires --tfm.");
+                return false;
+            }
+            string family = options.PruningPlatformFamily ?? "runtime";
+            if (!family.Equals(
+                    "runtime",
+                    StringComparison.OrdinalIgnoreCase)
+                && !family.Equals(
+                    "aspnetcore",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                CommandError.Write(
+                    "--platform-family must be 'runtime' or 'aspnetcore'.");
+                return false;
+            }
+            if (!PlatformTargetFramework.TryParse(
+                    options.Tfm.ToLowerInvariant(),
+                    out _))
+            {
+                CommandError.Write(
+                    $"The {DependsAssetSections.Pruning} section requires a base .NET target framework such as net11.0.");
+                return false;
+            }
+        }
+
         if (options.Depth is not null && !graphRequested)
         {
             CommandError.Write(
@@ -327,7 +382,11 @@ public partial class DependsCommand
 
         if (hasSourceOverrides
             && !hasRemotePackage
-            && !(hasLocalPackage && graphRequested)
+            && !(hasLocalPackage
+                && (graphRequested
+                    || candidateSections.Contains(
+                        DependsAssetSections.Pruning,
+                        StringComparer.OrdinalIgnoreCase)))
             && !hasPackageBackedLibrary)
         {
             CommandError.Write(
@@ -380,7 +439,10 @@ public partial class DependsCommand
         if (discover.Length == 0)
         {
             return new HashSet<string>(
-                DependsAssetSections.SectionOrder,
+                DependsAssetSections.SectionOrder.Where(section =>
+                    !section.Equals(
+                        DependsAssetSections.Pruning,
+                        StringComparison.OrdinalIgnoreCase)),
                 StringComparer.OrdinalIgnoreCase);
         }
 
@@ -455,6 +517,7 @@ public partial class DependsCommand
             CommandContext context,
             DependsAssetRequestPlan plan,
             int? traversalDepth,
+            Func<string, InstalledPlatformPruneSource.Result> pruneSource,
             CancellationToken cancellationToken)
     {
         DependencyEvidenceAcquisitionOptions evidenceOptions =
@@ -528,6 +591,29 @@ public partial class DependsCommand
                 evidenceOutcome,
                 admittedIndexes,
                 failedIndexes);
+        List<LibraryAssetResult> libraries =
+            await AcquireLibraryRootsAsync(
+                options,
+                context,
+                plan.Traversal,
+                traversalDepth,
+                cancellationToken).ConfigureAwait(false);
+        DependsPruningProjectionResult pruning =
+            plan.Pruning
+                ? await AcquirePruningProjectionAsync(
+                    options,
+                    evidenceOutcome,
+                    admittedIndexes,
+                    libraries,
+                    composition,
+                    operationContext,
+                    context,
+                    pruneSource,
+                    cancellationToken).ConfigureAwait(false)
+                : new DependsPruningProjectionResult(
+                    [],
+                    [],
+                    DependsPruningSummary.NotRequested);
         var graphDocuments = new List<DependencyGraphDocument>();
         PackageDependencyTraversalOutcome? packageTraversal = null;
         var packageOccurrences = new List<int>();
@@ -662,13 +748,6 @@ public partial class DependsCommand
             }
         }
 
-        List<LibraryAssetResult> libraries =
-            await AcquireLibraryRootsAsync(
-                options,
-                context,
-                plan.Traversal,
-                traversalDepth,
-                cancellationToken).ConfigureAwait(false);
         if (plan.Traversal)
         {
             graphDocuments.AddRange(
@@ -682,13 +761,16 @@ public partial class DependsCommand
         ImmutableArray<DependencyGraphEdgeRow> graphRows =
             [.. DependencyGraphOutputAdapter.EdgeRows(graph)];
         ImmutableArray<DependsFailureRow> failures =
-            BuildFailures(
+        [
+            .. BuildFailures(
                 evidence,
                 packageTraversal,
                 packageOccurrences,
                 libraries,
                 acquisition,
-                plan);
+                plan),
+            .. pruning.Failures,
+        ];
         ImmutableArray<DependsRootRow> roots = BuildRoots(
             options,
             evidenceOutcome,
@@ -710,7 +792,8 @@ public partial class DependsCommand
             roots,
             graph,
             plan,
-            traversalDepth);
+            traversalDepth,
+            pruning.Summary);
 
         return new DependsAssetProjection(
             summary,
@@ -718,6 +801,7 @@ public partial class DependsCommand
             graphRows,
             roots,
             dependencies,
+            pruning.Rows,
             plan.RestoredRelationships
                 ? evidence.RestoredEdges
                 : [],
@@ -1619,7 +1703,8 @@ public partial class DependsCommand
         ImmutableArray<DependsRootRow> roots,
         DependencyGraphDocument graph,
         DependsAssetRequestPlan plan,
-        int? traversalDepth)
+        int? traversalDepth,
+        DependsPruningSummary pruning)
     {
         int admitted = roots.Count(
             static root => root.State == DependsRootState.Admitted);
@@ -1664,6 +1749,7 @@ public partial class DependsCommand
                 roots,
                 static root => root.RestoredRelationshipCompletion,
                 plan.RestoredRelationships),
+            pruning,
             options.PackagePrefix is not null,
             evidence.Summary.PackagePrefix);
     }
@@ -2248,6 +2334,9 @@ public partial class DependsCommand
             counts.SetRows(
                 section,
                 options.Rows is { IsUnlimited: false } window
+                && DependsAssetSections.AppliesRowWindow(
+                    includeSections,
+                    section)
                     ? WindowCount(window, count)
                     : count);
         }
@@ -2303,6 +2392,14 @@ public partial class DependsCommand
                     or DependsEvidencePhaseCompletion.NotApplicable;
         }
         if (section.Equals(
+                DependsAssetSections.Pruning,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return projection.Summary.Pruning.Completion
+                is DependsPruningCompletion.Complete
+                    or DependsPruningCompletion.SourceBounded;
+        }
+        if (section.Equals(
                 DependsAssetSections.RestoredEdges,
                 StringComparison.OrdinalIgnoreCase)
             || section.Equals(
@@ -2342,6 +2439,27 @@ public partial class DependsCommand
             Declarations = summary.DeclarationCompletion.ToString(),
             RestoredRelationships =
                 summary.RestoredRelationshipCompletion.ToString(),
+            Pruning = summary.Pruning.Completion.ToString(),
+            PruningRoots = summary.Pruning.Completion
+                    == DependsPruningCompletion.NotRequested
+                ? null
+                : summary.Pruning.Roots,
+            PruningDeclarations = summary.Pruning.Completion
+                    == DependsPruningCompletion.NotRequested
+                ? null
+                : summary.Pruning.Declarations,
+            PruningEvaluated = summary.Pruning.Completion
+                    == DependsPruningCompletion.NotRequested
+                ? null
+                : summary.Pruning.Evaluated,
+            PruningDelegated = summary.Pruning.Completion
+                    == DependsPruningCompletion.NotRequested
+                ? null
+                : summary.Pruning.Delegated,
+            PruningRetained = summary.Pruning.Completion
+                    == DependsPruningCompletion.NotRequested
+                ? null
+                : summary.Pruning.Retained,
             RequestedDepth = summary.RequestedDepth,
             GraphNodes = summary.GraphNodes,
             GraphEdges = summary.GraphEdges,
@@ -2373,6 +2491,12 @@ public partial class DependsCommand
                 projection.Dependencies,
                 rows,
                 DependsDependencyView.From),
+            PruningRows = Rows(
+                sections,
+                DependsAssetSections.Pruning,
+                projection.Pruning,
+                rows,
+                DependsPruningView.From),
             RestoredEdges = Rows(
                 sections,
                 DependsAssetSections.RestoredEdges,
@@ -2427,6 +2551,12 @@ public partial class DependsCommand
                 projection.Dependencies,
                 rows,
                 DependsDependencyView.From),
+            Pruning = Rows(
+                sections,
+                DependsAssetSections.Pruning,
+                projection.Pruning,
+                rows,
+                DependsPruningView.From),
             RestoredEdges = Rows(
                 sections,
                 DependsAssetSections.RestoredEdges,
@@ -2472,7 +2602,10 @@ public partial class DependsCommand
     {
         if (!sections.Contains(section))
             return null;
-        IReadOnlyList<TRow> selected = Window(rows, window);
+        IReadOnlyList<TRow> selected =
+            DependsAssetSections.AppliesRowWindow(sections, section)
+                ? Window(rows, window)
+                : rows;
         return [.. selected.Select(select)];
     }
 
@@ -2525,6 +2658,13 @@ public partial class DependsCommand
             CommandError.WriteWarning(
                 $"Restored relationship evidence completed as {projection.Summary.RestoredRelationshipCompletion}.");
         }
+        if (projection.Summary.Pruning.Completion
+            is DependsPruningCompletion.Partial
+                or DependsPruningCompletion.Failed)
+        {
+            CommandError.WriteWarning(
+                $"Package pruning evidence completed as {projection.Summary.Pruning.Completion}.");
+        }
     }
 
     private static int AssetExitCode(DependsAssetProjection projection) =>
@@ -2539,6 +2679,9 @@ public partial class DependsCommand
                 is DependsEvidencePhaseCompletion.Partial
                     or DependsEvidencePhaseCompletion.Unavailable
                     or DependsEvidencePhaseCompletion.Failed
+            || projection.Summary.Pruning.Completion
+                is DependsPruningCompletion.Partial
+                    or DependsPruningCompletion.Failed
             || projection.Summary.PackagePrefix is { } prefix
             && IsFailedPrefixTruncation(prefix.TruncationReason)
             || projection.Summary.FailedRoots > 0
