@@ -181,6 +181,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Package Query Assembly-Pattern Evaluation](design/package-query-assembly-evaluation.md) | Implemented bounded one-candidate primary-assembly selection, semantic confirmation, resource-free evidence, and candidate-scoped release. |
 | [Find Assembly-Semantic Query](design/find-assembly-semantic-query.md) | Target host-neutral composition of a finite source-authorized exact-package population into ordered body-occurrence matches, per-candidate outcomes, and completion for CLI and Browser/Wasm consumers. |
 | [Ecosystem Change Report](design/ecosystem-change-report.md) | Proposed shared query contract for a bounded six-week package-activity report, evidence-qualified security overlay, selection, and honest source/evaluation coverage across CLI and browser. |
+| [Inspect Web Public-Evidence Bridge](design/inspect-web-public-evidence-bridge.md) | Fixed-provider Browser rewrites and bounded same-origin managed-API acquisition for public JSON providers that do not permit browser CORS. |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
 | [Inspection Layers](design/inspection-layers.md) | Layering and consumer-boundary rules between Metadata, Analysis, CSharpText, CSharp, Research, and the CLI. |

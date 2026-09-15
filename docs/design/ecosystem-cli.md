@@ -63,6 +63,12 @@ Shared across every focus: `Namespace Hints`, `Core Packages`,
 `Tool Packages`, `Known Integrations`, `Demos`. Catalog-wide adds
 `Ecosystems`; a focused view adds `Ecosystem Info`.
 
+`Core Packages` lists the ecosystem's inert concrete package roots in authored
+preference order. This command does not resolve or acquire them. A later
+bounded operation that selects registered ecosystems may resolve those exact
+roots and follow ordinary package dependencies; package prefixes remain
+separate discovery scope.
+
 `Demos` reports what each pack declares and points at the `demo` command,
 which owns demo discovery and execution. Two paths to the same content is the
 failure this shape avoids.
