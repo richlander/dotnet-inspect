@@ -830,6 +830,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   timeout identity, and source-safe post-return stream failures. It consumes
   source-result identity; source eligibility, failover policy, cache behavior,
   and presentation remain with their focused owners.
+- [Inspect Web public-evidence bridge](design/inspect-web-public-evidence-bridge.md):
+  fixed-provider Browser rewrites and same-origin managed-API acquisition for
+  bounded public JSON when providers do not permit browser CORS. Provider
+  operations, source identity, report semantics, Worker delivery, and
+  presentation remain with their focused owners.
 - [NuGet API selection](design/nuget.md#scenario-selection): scenario-to-resource
   decision guidance and evidence, including API combinations and first/last
   requested-result costs. This is not a new runtime selector; source, query,
