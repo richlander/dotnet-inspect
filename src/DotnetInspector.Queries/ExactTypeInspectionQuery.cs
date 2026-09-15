@@ -15,7 +15,9 @@ public sealed record ExactTypeInspectionRequest
         string packageId,
         string version,
         string targetFramework,
-        string type)
+        string type,
+        ExactTypeSelectionKind selectionKind =
+            ExactTypeSelectionKind.Query)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
@@ -33,7 +35,13 @@ public sealed record ExactTypeInspectionRequest
                 "Exact Type inspection requires one explicit target framework.",
                 nameof(targetFramework));
         }
-        if (TypeMatcher.IsTypeGlobPattern(type))
+        if (!Enum.IsDefined(selectionKind))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(selectionKind));
+        }
+        if (selectionKind == ExactTypeSelectionKind.Query
+            && TypeMatcher.IsTypeGlobPattern(type))
         {
             throw new ArgumentException(
                 "Exact Type inspection does not accept a Type glob.",
@@ -44,6 +52,7 @@ public sealed record ExactTypeInspectionRequest
         Version = parsedVersion.ToNormalizedString();
         TargetFramework = targetFramework;
         Type = type;
+        SelectionKind = selectionKind;
     }
 
     public string PackageId { get; }
@@ -53,6 +62,14 @@ public sealed record ExactTypeInspectionRequest
     public string TargetFramework { get; }
 
     public string Type { get; }
+
+    public ExactTypeSelectionKind SelectionKind { get; }
+}
+
+public enum ExactTypeSelectionKind
+{
+    Query,
+    DefinitionIdentity,
 }
 
 public enum ExactTypeInspectionOutcome
@@ -134,12 +151,26 @@ public sealed record ExactTypeMember(
     string? Signature);
 
 /// <summary>
+/// Detached structured Metadata Type identity for host transport.
+/// </summary>
+public sealed record ExactTypeDefinitionIdentity(
+    string Namespace,
+    ImmutableArray<string> Segments)
+{
+    internal static ExactTypeDefinitionIdentity From(
+        MetadataTypeDefinitionName definition) =>
+        new(definition.Namespace, definition.Segments);
+}
+
+/// <summary>
 /// Detached declaration facts and member inventory for one exact Type.
 /// </summary>
 public sealed record ExactTypeApi(
     string FullName,
     string? Namespace,
     string Name,
+    ExactTypeDefinitionIdentity DefinitionIdentity,
+    ImmutableArray<int> IntroducedTypeParameterCounts,
     string Kind,
     string? Accessibility,
     ImmutableArray<string> Attributes,
@@ -161,6 +192,13 @@ public sealed record ExactTypeApi(
             type.FullName,
             type.Namespace,
             type.Name,
+            ExactTypeDefinitionIdentity.From(
+                type.DefinitionName
+                    ?? throw new InvalidOperationException(
+                        "An exact Type result requires structured definition identity.")),
+            type.IntroducedTypeParameterCounts is { } introduced
+                ? [.. introduced]
+                : [],
             type.Kind,
             type.Accessibility,
             [.. type.Attributes],
@@ -303,9 +341,11 @@ internal static class ExactTypeInspectionQuery
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
-        if (!ReferenceEquals(authority.Realization, context.Realization)
+        using WorkspaceRealizationOperationUse operation =
+            authority.EnterUse();
+        if (!ReferenceEquals(operation.Realization, context.Realization)
             || !ReferenceEquals(
-                authority.Definition.Workspace,
+                operation.Definition.Workspace,
                 context.Realization))
         {
             throw new ArgumentException(
@@ -383,33 +423,70 @@ internal static class ExactTypeInspectionQuery
             Incompleteness(lookupFailures);
         ImmutableArray<Candidate> declarations =
             Declarations(projections);
+        StringComparer declarationComparer =
+            request.SelectionKind
+                == ExactTypeSelectionKind.DefinitionIdentity
+            ? StringComparer.Ordinal
+            : StringComparer.OrdinalIgnoreCase;
         string[] declarationNames =
         [
             .. declarations
                 .Select(candidate =>
                     candidate.Definition.ToEscapedFullName())
-                .Distinct(StringComparer.OrdinalIgnoreCase),
+                .Distinct(declarationComparer),
         ];
-        string? exactName = declarationNames.FirstOrDefault(name =>
-            name.Equals(
-                request.Type,
-                StringComparison.OrdinalIgnoreCase));
-        string[] matchingNames = exactName is not null
-            ? [exactName]
-            :
-            [
-                .. declarationNames.Where(name =>
-                    TypeMatcher.MatchesTypeFilter(
-                        name,
-                        request.Type)),
-            ];
-        if (matchingNames.Length == 0)
+        ImmutableArray<Candidate> matching;
+        string? matchedType;
+        if (request.SelectionKind
+            == ExactTypeSelectionKind.DefinitionIdentity)
         {
-            if (participantFailures.Length > 0
-                || lookupFailures.Any(failure =>
-                    MayAffectTypeLookup(
-                        failure,
-                        request.Type)))
+            matching =
+            [
+                .. declarations.Where(candidate =>
+                    candidate.Definition.ToEscapedFullName().Equals(
+                        request.Type,
+                        StringComparison.Ordinal)),
+            ];
+            matchedType = matching.IsEmpty
+                ? null
+                : request.Type;
+        }
+        else
+        {
+            string? exactName = declarationNames.FirstOrDefault(name =>
+                name.Equals(
+                    request.Type,
+                    StringComparison.OrdinalIgnoreCase));
+            string[] matchingNames = exactName is not null
+                ? [exactName]
+                :
+                [
+                    .. declarationNames.Where(name =>
+                        TypeMatcher.MatchesTypeFilter(
+                            name,
+                            request.Type)),
+                ];
+            matching =
+            [
+                .. declarations.Where(candidate =>
+                    matchingNames.Contains(
+                        candidate.Definition.ToEscapedFullName(),
+                        StringComparer.OrdinalIgnoreCase)),
+            ];
+            matchedType = matchingNames.Length == 1
+                ? matchingNames[0]
+                : null;
+        }
+
+        bool lookupIncomplete =
+            participantFailures.Length > 0
+            || lookupFailures.Any(failure =>
+                MayAffectTypeLookup(
+                    failure,
+                    request));
+        if (matching.IsEmpty)
+        {
+            if (lookupIncomplete)
             {
                 return new ExactTypeInspectionResult(
                     ExactTypeInspectionOutcome.Unavailable,
@@ -428,8 +505,12 @@ internal static class ExactTypeInspectionQuery
                     ]);
             }
 
-            LookupResult lookup =
-                TypeMatcher.Lookup(declarationNames, request.Type);
+            ImmutableArray<string> suggestions =
+                request.SelectionKind == ExactTypeSelectionKind.Query
+                ? [.. TypeMatcher.Lookup(
+                    declarationNames,
+                    request.Type).Suggestions]
+                : [];
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.NotFound,
                 request.Type,
@@ -438,7 +519,7 @@ internal static class ExactTypeInspectionQuery
                 RequestedAssembly: null,
                 SupplierAssembly: null,
                 ForwardingHops: [],
-                Suggestions: [.. lookup.Suggestions],
+                Suggestions: suggestions,
                 InspectionFailures: detachedInspectionFailures,
                 Failures:
                 [
@@ -447,17 +528,7 @@ internal static class ExactTypeInspectionQuery
                 ]);
         }
 
-        ImmutableArray<Candidate> matching =
-        [
-            .. declarations.Where(candidate =>
-                matchingNames.Contains(
-                    candidate.Definition.ToEscapedFullName(),
-                    StringComparer.OrdinalIgnoreCase)),
-        ];
-        string? matchedType = matchingNames.Length == 1
-            ? matchingNames[0]
-            : null;
-        if (boundedProjection?.Truncation is not null)
+        if (lookupIncomplete)
         {
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,
@@ -479,7 +550,7 @@ internal static class ExactTypeInspectionQuery
         var resolved = ImmutableArray.CreateBuilder<ResolvedCandidate>();
         var resolutionFailures =
             ImmutableArray.CreateBuilder<ExactTypeInspectionFailure>();
-        bool ambiguous = false;
+        bool declarationAmbiguous = false;
         foreach (Candidate candidate in matching)
         {
             AssemblyContextTypeResolutionResult resolution =
@@ -498,9 +569,27 @@ internal static class ExactTypeInspectionQuery
                     break;
                 case AssemblyContextTypeResolutionResult.Available
                 {
-                    Outcome: TypeResolutionOutcome.Ambiguous,
+                    Outcome: TypeResolutionOutcome.Ambiguous
+                    {
+                        Ambiguity:
+                            TypeResolutionAmbiguity.TypeDeclaration,
+                    },
                 }:
-                    ambiguous = true;
+                    declarationAmbiguous = true;
+                    break;
+                case AssemblyContextTypeResolutionResult.Available
+                {
+                    Outcome: TypeResolutionOutcome.Ambiguous
+                        ambiguousResolution,
+                }:
+                    resolutionFailures.Add(
+                        new ExactTypeInspectionFailure(
+                            ExactTypeInspectionFailureKind
+                                .TypeResolutionUnavailable,
+                            ambiguousResolution.Ambiguity
+                                .GetType().Name,
+                            ambiguousResolution
+                                .TerminalAssemblyIdentity));
                     break;
                 case AssemblyContextTypeResolutionResult.Available available:
                     resolutionFailures.Add(
@@ -548,7 +637,7 @@ internal static class ExactTypeInspectionQuery
                     .. incompleteness,
                 ]);
         }
-        if (ambiguous || DistinctTerminalCount(resolved) > 1)
+        if (declarationAmbiguous || DistinctTerminalCount(resolved) > 1)
         {
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Ambiguous,
@@ -805,23 +894,33 @@ internal static class ExactTypeInspectionQuery
 
     static bool MayAffectTypeLookup(
         ApiSurfaceInspectionFailure failure,
-        string requestedType)
+        ExactTypeInspectionRequest request)
     {
         if (failure.OwningTypeDefinition is { } owner)
         {
-            return TypeMatcher.MatchesTypeFilter(
-                owner.ToEscapedFullName(),
-                requestedType);
+            return MatchesRequest(owner);
         }
         if (!failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
         {
             return failure.AffectedTypeDefinitions.Any(
-                affected => TypeMatcher.MatchesTypeFilter(
-                    affected.ToEscapedFullName(),
-                    requestedType));
+                MatchesRequest);
         }
 
         return true;
+
+        bool MatchesRequest(
+            MetadataTypeDefinitionName definition)
+        {
+            string name = definition.ToEscapedFullName();
+            return request.SelectionKind
+                    == ExactTypeSelectionKind.DefinitionIdentity
+                ? name.Equals(
+                    request.Type,
+                    StringComparison.Ordinal)
+                : TypeMatcher.MatchesTypeFilter(
+                    name,
+                    request.Type);
+        }
     }
 
     static ImmutableArray<ApiSurfaceInspectionFailure>

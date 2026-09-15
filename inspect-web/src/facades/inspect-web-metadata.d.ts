@@ -412,6 +412,8 @@ export interface ExactTypeApi {
     readonly fullName: string;
     readonly namespace: string | null;
     readonly name: string;
+    readonly definitionIdentity: ExactTypeDefinitionIdentity;
+    readonly introducedTypeParameterCounts: ReadonlyArray<number>;
     readonly kind: string;
     readonly accessibility: string | null;
     readonly attributes: ReadonlyArray<string>;
@@ -440,6 +442,10 @@ export interface ExactTypeApiInspectionFailure {
 export interface ExactTypeAssemblyIdentity {
     readonly identity: AssemblyReferenceIdentity;
     readonly moduleVersionId: string;
+}
+export interface ExactTypeDefinitionIdentity {
+    readonly namespace: string;
+    readonly segments: ReadonlyArray<string>;
 }
 export interface ExactTypeForwardingHop {
     readonly source: AssemblyReferenceIdentity;

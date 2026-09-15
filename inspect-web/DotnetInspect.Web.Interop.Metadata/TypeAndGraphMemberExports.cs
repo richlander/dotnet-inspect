@@ -87,7 +87,8 @@ public static partial class MetadataExports
                     packageId,
                     version,
                     targetFramework,
-                    typeDefinitionId),
+                    typeDefinitionId,
+                    ExactTypeSelectionKind.DefinitionIdentity),
                 new WorkspaceContextLoadOptions
                 {
                     HttpClient = BrowserPackageWorkspace.NetworkClient,

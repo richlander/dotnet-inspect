@@ -58,6 +58,11 @@ function metadata() {
           fullName: item.id,
           namespace,
           name,
+          definitionIdentity: {
+            namespace,
+            segments: [name],
+          },
+          introducedTypeParameterCounts: [0],
           kind: item.kind,
           accessibility: "public",
           attributes: ["Example.Attribute"],

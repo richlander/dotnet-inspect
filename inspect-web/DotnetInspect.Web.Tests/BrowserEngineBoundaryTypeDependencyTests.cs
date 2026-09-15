@@ -602,6 +602,67 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryTypeProjection_UsesOrdinalDefinitionIdentity()
+    {
+        const string packageId =
+            "Browser.TypeDependencies.CaseIdentity";
+        const string selectedAssemblyName =
+            "Browser.TypeDependencies.CaseIdentity.Selected";
+        const string otherAssemblyName =
+            "Browser.TypeDependencies.CaseIdentity.Other";
+        const string selectedType =
+            "Browser.TypeDependencies.CaseIdentity.Widget";
+        const string otherType =
+            "Browser.TypeDependencies.CaseIdentity.widget";
+
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+                (
+                    $"lib/net11.0/{selectedAssemblyName}.dll",
+                    BuildTypeDependencyImage(
+                        selectedAssemblyName,
+                        selectedType,
+                        typeof(IDisposable))),
+                (
+                    $"lib/net11.0/{otherAssemblyName}.dll",
+                    BuildTypeDependencyImage(
+                        otherAssemblyName,
+                        otherType,
+                        typeof(IAsyncDisposable)))));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{selectedAssemblyName}.dll",
+            selectedType,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """,
+            selectedType);
+
+        ExactTypeApi exactType =
+            Assert.IsType<ExactTypeApi>(
+                metadata.ExactTypeInspection.Content.Type);
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            metadata.ExactTypeInspection.Content.Outcome);
+        Assert.Equal(
+            "Browser.TypeDependencies.CaseIdentity",
+            exactType.DefinitionIdentity.Namespace);
+        Assert.Equal(["Widget"], exactType.DefinitionIdentity.Segments);
+        Assert.Contains(typeof(IDisposable).FullName!, exactType.Interfaces);
+        Assert.DoesNotContain(
+            typeof(IAsyncDisposable).FullName!,
+            exactType.Interfaces);
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_DoesNotUseFuzzyDependencyRoot()
     {
         const string packageId =

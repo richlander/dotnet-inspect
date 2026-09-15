@@ -469,6 +469,331 @@ public sealed class ExactTypeInspectionOperationTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_MatchingMalformedDeclarationPreventsSelection()
+    {
+        const string typeName = "Exact.Type.Malformed";
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Healthy.dll",
+                BuildAssembly(
+                    "Healthy",
+                    typeName,
+                    typeof(IDisposable))),
+            ("lib/net11.0/Malformed.dll",
+                BuildMalformedTypeAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            typeName);
+
+        InspectionEnvelope<ExactTypeInspectionResult> unbounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> bounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                new ApiSurfaceProjectionLimits(
+                    maxParticipants: 10,
+                    maxTypes: 100,
+                    maxMembers: 100,
+                    maxInspectionFailures: 100,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 10_000),
+                TestContext.Current.CancellationToken);
+
+        Assert.All(
+            new[] { unbounded, bounded },
+            envelope =>
+            {
+                Assert.Equal(
+                    ExactTypeInspectionOutcome.Unavailable,
+                    envelope.Content.Outcome);
+                Assert.Null(envelope.Content.Type);
+                Assert.Contains(
+                    envelope.Content.Failures,
+                    failure => failure.Kind
+                        == ExactTypeInspectionFailureKind
+                            .InspectionIncomplete);
+            });
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UnboundedMalformedForwarderIsUnavailable()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/MalformedForwarder.dll",
+                BuildMalformedForwarderAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            "Exact.Type.");
+
+        InspectionEnvelope<ExactTypeInspectionResult> unbounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> bounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                LoadOptions(client, store),
+                new ApiSurfaceProjectionLimits(
+                    maxParticipants: 10,
+                    maxTypes: 100,
+                    maxMembers: 100,
+                    maxInspectionFailures: 100,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 10_000),
+                TestContext.Current.CancellationToken);
+
+        Assert.All(
+            new[] { unbounded, bounded },
+            envelope =>
+            {
+                Assert.Equal(
+                    ExactTypeInspectionOutcome.Unavailable,
+                    envelope.Content.Outcome);
+                Assert.Contains(
+                    envelope.Content.InspectionFailures,
+                    failure => failure.Operation
+                        == ApiSurfaceInspectionFailure
+                            .TypeForwarderIdentityOperation);
+            });
+    }
+
+    [Fact]
+    public async Task Execute_AssemblyBindingAmbiguityIsUnavailable()
+    {
+        const string typeNamespace = "N";
+        const string typeName = "Type";
+        var target = new AssemblyReferenceIdentity(
+            "Target",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        byte[] facadeBytes = BuildMetadataAssembly(
+            "Facade",
+            Guid.NewGuid(),
+            definesType: false,
+            typeNamespace,
+            typeName,
+            target);
+        byte[] definingTargetBytes = BuildMetadataAssembly(
+            "Target",
+            Guid.NewGuid(),
+            definesType: true,
+            typeNamespace,
+            typeName);
+        byte[] emptyTargetBytes = BuildMetadataAssembly(
+            "Target",
+            Guid.NewGuid(),
+            definesType: false,
+            typeNamespace,
+            typeName);
+        ResolvedAssemblyReference facade =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "Facade",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(facadeBytes, writable: false),
+                AssemblyResolutionProvenance.Local("facade"));
+        ResolvedAssemblyReference definingTarget =
+            ResolvedAssemblyReference.Create(
+                target,
+                path: null,
+                () => new MemoryStream(
+                    definingTargetBytes,
+                    writable: false),
+                AssemblyResolutionProvenance.Local("defining"));
+        ResolvedAssemblyReference emptyTarget =
+            ResolvedAssemblyReference.Create(
+                target,
+                path: null,
+                () => new MemoryStream(
+                    emptyTargetBytes,
+                    writable: false),
+                AssemblyResolutionProvenance.Local("empty"));
+        IAcquisitionFreeAssemblyBindingPolicy policy =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
+                new[] { facade, definingTarget, emptyTarget }.Select(
+                    assembly => (
+                        assembly,
+                        (IAcquisitionFreeAssemblyBindingPolicy)
+                            NoResolverAssemblyBindingPolicy.Instance)));
+        WorkspaceContextInput input = Input();
+        WorkspaceMemberCoordinate declared = Assert.Single(input.Members);
+        var realized = new RealizedMemberCoordinate.Package(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(SourceUrl),
+            Framework,
+            runtimeIdentifier: null);
+        await using var coordinator =
+            new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
+                await coordinator.BeginCandidateAsync(
+                    new WorkspacePlan([], [input]),
+                    TestContext.Current.CancellationToken))
+            .Candidate;
+        WorkspaceContextLoadOutcome.Loaded loaded;
+        using (WorkspaceRealizationConstructionLease construction =
+            candidate.EnterConstruction())
+        {
+            AssemblyContextParticipant facadeParticipant =
+                new(facade, policy);
+            AssemblyContextParticipant definingParticipant =
+                new(definingTarget, policy);
+            AssemblyContextParticipant emptyParticipant =
+                new(emptyTarget, policy);
+            AssemblyContextGroup group =
+                construction.Workspace.CreateAssemblyContextGroup(
+                    [
+                        facadeParticipant,
+                        definingParticipant,
+                        emptyParticipant,
+                    ]);
+            loaded = new WorkspaceContextLoadOutcome.Loaded(
+                construction.Workspace.Identity,
+                group,
+                [
+                    new WorkspaceContextMember(
+                        declared,
+                        realized,
+                        facadeParticipant),
+                    new WorkspaceContextMember(
+                        declared,
+                        realized,
+                        definingParticipant),
+                    new WorkspaceContextMember(
+                        declared,
+                        realized,
+                        emptyParticipant),
+                ],
+                [],
+                Framework,
+                runtimeIdentifier: null);
+        }
+        _ = await coordinator.CompleteCandidateAsync(
+            candidate,
+            TestContext.Current.CancellationToken);
+        _ = coordinator.CutOver(candidate);
+        using WorkspaceRealizationOperationLease authority =
+            Assert.IsType<WorkspaceRealizationOperationAdmission.Admitted>(
+                await coordinator.EnterOperationAsync(
+                    TestContext.Current.CancellationToken))
+            .Lease;
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            ExactTypeInspectionOperation.Execute(
+                authority,
+                loaded,
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    $"{typeNamespace}.{typeName}"));
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Unavailable,
+            envelope.Content.Outcome);
+        Assert.Null(envelope.Content.Type);
+        Assert.Contains(
+            envelope.Content.Failures,
+            failure => failure.Kind
+                == ExactTypeInspectionFailureKind
+                    .TypeResolutionUnavailable);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DefinitionIdentityUsesOrdinalMatching()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/CaseDistinct.dll",
+                BuildAssembly(
+                    "CaseDistinct",
+                    ("Exact.Type.Widget", typeof(IDisposable)),
+                    ("Exact.Type.widget", typeof(IAsyncDisposable)))));
+        using var client = new HttpClient(new FailingHandler());
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "Exact.Type.Widget",
+                    ExactTypeSelectionKind.DefinitionIdentity),
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            envelope.Content.Outcome);
+        ExactTypeApi type = Assert.IsType<ExactTypeApi>(
+            envelope.Content.Type);
+        Assert.Equal("Exact.Type", type.DefinitionIdentity.Namespace);
+        Assert.Equal(["Widget"], type.DefinitionIdentity.Segments);
+        Assert.Equal([0], type.IntroducedTypeParameterCounts);
+        Assert.Contains(typeof(IDisposable).FullName!, type.Interfaces);
+        Assert.DoesNotContain(
+            typeof(IAsyncDisposable).FullName!,
+            type.Interfaces);
+    }
+
+    [Fact]
+    public async Task Execute_DisposedLeaseIsRejected()
+    {
+        const string typeName = "Exact.Type.DisposedLease";
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/DisposedLease.dll",
+                BuildAssembly(
+                    "DisposedLease",
+                    typeName,
+                    typeof(IDisposable))));
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextInput input = Input();
+        await using var coordinator =
+            new WorkspaceRealizationCoordinator();
+        (WorkspaceRealizationCandidate candidate,
+            WorkspaceContextLoadOutcome.Loaded loaded) =
+            await PrepareCandidateAsync(
+                coordinator,
+                new WorkspacePlan([], [input]),
+                input,
+                LoadOptions(client, store));
+        _ = await coordinator.CompleteCandidateAsync(
+            candidate,
+            TestContext.Current.CancellationToken);
+        _ = coordinator.CutOver(candidate);
+        WorkspaceRealizationOperationLease authority =
+            Assert.IsType<WorkspaceRealizationOperationAdmission.Admitted>(
+                await coordinator.EnterOperationAsync(
+                    TestContext.Current.CancellationToken))
+            .Lease;
+        authority.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(
+            () => ExactTypeInspectionOperation.Execute(
+                authority,
+                loaded,
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    typeName)));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_UnrelatedMalformedTypeDoesNotPreventNotFound()
     {
         var store = await CachedStoreAsync(
@@ -1173,6 +1498,56 @@ public sealed class ExactTypeInspectionOperationTests
             baseType: malformedBase,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildMalformedForwarderAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("MalformedForwarder.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedForwarder"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle target =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Missing"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        metadata.AddExportedType(
+            TypeAttributes.Public | Forwarder,
+            metadata.GetOrAddString("Exact.Type"),
+            metadata.GetOrAddString(""),
+            target,
+            typeDefinitionId: 0);
 
         var builder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

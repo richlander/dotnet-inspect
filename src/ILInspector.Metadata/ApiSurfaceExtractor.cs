@@ -2200,10 +2200,18 @@ public static class ApiSurfaceExtractor
                     definitionName =
                         MetadataTypeDefinitionNameReader.Read(
                             reader,
-                            exportedTypeHandle)
-                        is MetadataTypeDefinitionNameReadResult.Read read
-                            ? read.Name
-                            : null;
+                            exportedTypeHandle) switch
+                        {
+                            MetadataTypeDefinitionNameReadResult.Read read =>
+                                read.Name,
+                            MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                                throw new MetadataRowRejectedException(
+                                    ApiSurfaceInspectionFailure
+                                        .TypeForwarderIdentityOperation,
+                                    rejected.Failure),
+                            _ => throw new InvalidOperationException(
+                                "Unknown exported-type name result."),
+                        };
                 }
                 else
                 {

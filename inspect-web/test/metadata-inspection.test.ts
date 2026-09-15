@@ -28,6 +28,11 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
           fullName,
           namespace: "Example",
           name: "Widget",
+          definitionIdentity: {
+            namespace: "Example",
+            segments: ["Widget"],
+          },
+          introducedTypeParameterCounts: [0],
           kind: "Class",
           accessibility: "Public",
           attributes: [],

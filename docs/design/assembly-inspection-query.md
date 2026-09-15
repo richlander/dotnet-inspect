@@ -1011,10 +1011,18 @@ separate image lifetimes and budgets.
 The first complete shared operation at this seam is exact single-Type API
 inspection. `ExactTypeInspectionRequest` names one explicitly versioned NuGet
 package, one explicit target framework other than `all`, and one non-glob Type.
+Its selection kind distinguishes a user query from an exact Metadata definition
+identity. CLI uses query selection, including its existing case-insensitive
+full-name preference and generic-name fallback. Browser discovery uses exact
+definition selection: its escaped `DefinitionId` is compared ordinally and
+never enters fuzzy matching.
 `ExactTypeInspectionOperation.Execute` consumes an admitted
 `WorkspaceRealizationOperationLease` and the matching loaded assembly context;
 `ExecuteAsync` is the initial cold host composition that constructs, activates,
-uses, and fully settles one owner-bounded realization per request.
+uses, and fully settles one owner-bounded realization per request. Execution
+borrows the admitted lease for the full query, so disposing the outer lease
+rejects later execution and concurrent disposal cannot release realization
+drainage before the in-flight query detaches its result.
 
 The Metadata query considers only participants realized from the requested
 package coordinate. It projects public members for public Types and complete
@@ -1024,8 +1032,18 @@ non-full-name lookup through terminal resolution. It follows Type forwarders
 through the group binding policy and collapses roots only when Metadata resolves
 every matching root to the same terminal definition. Distinct resolved terminal
 definitions are ambiguous; any non-resolved matching root makes the selection
-unavailable because it could terminate at a different definition. Execution
-bounds are caller-owned: desktop callers may select the explicit unbounded
+unavailable because it could terminate at a different definition.
+`TypeResolutionAmbiguity.AssemblyBinding` is unavailable rather than
+Type-ambiguous because several plausible assemblies do not prove several
+terminal Type definitions. Only competing declarations or distinct resolved
+terminals produce `Ambiguous`.
+Any failed participant, unscoped non-constraint extraction failure, or
+non-constraint failure scoped to the effective exact or fuzzy match makes
+selection unavailable even when another healthy declaration matched. Both
+bounded and unbounded extraction retain rejected structured forwarder names as
+inspection failures; neither mode may turn malformed forwarding evidence into
+conclusive absence.
+Execution bounds are caller-owned: desktop callers may select the explicit unbounded
 overload, while Browser/Wasm must supply
 `BrowserApiSurfacePolicy.Limits`. Bounded execution uses the resolution-aware
 `AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved` path over the requested
@@ -1040,11 +1058,18 @@ Type across every participant. A failed participant, a failure without a
 Type-scoped identity, or a failure scoped to a definition matching the request
 makes the outcome `Unavailable`; failures explicitly scoped to unrelated Types
 do not invalidate a conclusive absence.
+The selected result retains a detached structured form of its
+`MetadataTypeDefinitionName` and per-segment introduced generic-parameter
+counts through the envelope. The CLI adapter reconstructs the Metadata-owned
+identity, restores those facts on the singleton `ApiType`, and performs
+presentation lookup with the selected display name rather than reusing the
+escaped request as a second selection.
 The requested and supplying assemblies retain Metadata-issued assembly
 identity and MVID; ordered forwarding hops preserve the route between them.
 Browser discovery transports its escaped `DefinitionId` separately from the
 Research-oriented dotted `QueryId`: the exact-Type operation consumes the
-injective definition identity, while the adjacent relationship projection
+injective definition identity with ordinal equality, while the adjacent
+relationship projection
 continues to consume the Research query identity.
 
 The terminal `InspectionEnvelope<ExactTypeInspectionResult>` is detached. Its
@@ -1074,15 +1099,18 @@ The Release gates are:
 
 - `ExactTypeInspectionOperationTests` for detached cold equivalence, exact
   assembly/MVID identity, forwarded supplier identity and hops, not-found,
-  ambiguity, visible participant rejection, bounded truncation, nonfatal
-  constraint diagnostics, stable diagnostics, and predecessor/successor
-  realization association;
+  conclusive ambiguity, matching malformed-declaration and forwarder failures,
+  ordinal definition identity, disposed-lease rejection, visible participant
+  rejection, bounded truncation, nonfatal constraint diagnostics, stable
+  diagnostics, and predecessor/successor realization association;
 - `ExactTypeWorkspaceRouteTests` for non-vacuous CLI retirement and default
-  member-signature rendering without the eligible legacy source resolver, plus
-  nonfatal constraint-warning visibility;
+  member-signature rendering without the eligible legacy source resolver,
+  escaped definition-identity preservation, and nonfatal constraint-warning
+  visibility;
 - `BrowserEngineBoundaryTests.QueryTypeProjection_*` for Browser consumption,
-  exact non-public selection, bounded exact-Type truncation, and isolation from
-  fuzzy dependency roots; `BannedSymbols.txt` prevents Browser production code
+  ordinal and nested exact-definition selection, exact non-public selection,
+  bounded exact-Type truncation, and isolation from fuzzy dependency roots;
+  `BannedSymbols.txt` prevents Browser production code
   from selecting the unbounded exact-Type overload; and
 - `metadata-inspection.test.ts` plus `type-panel.test.ts` for the generated
   Browser contract and presentation composition.

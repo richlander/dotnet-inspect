@@ -775,10 +775,25 @@ public static class TypeCommand
         WriteExactTypeDiagnostics(envelope.Diagnostics);
 
         ExactTypeApi exactType = result.Type!;
+        MetadataTypeDefinitionName definitionName =
+            MetadataTypeDefinitionName.Create(
+                exactType.DefinitionIdentity.Namespace,
+                exactType.DefinitionIdentity.Segments) switch
+            {
+                MetadataTypeDefinitionNameResult.Valid valid =>
+                    valid.Name,
+                _ => throw new InvalidOperationException(
+                    "The exact Type result contained an invalid definition identity."),
+            };
         var type = new ApiType
         {
             Namespace = exactType.Namespace,
             Name = exactType.Name,
+            MetadataName =
+                definitionName.ToNestedMetadataName(),
+            DefinitionName = definitionName,
+            IntroducedTypeParameterCounts =
+                [.. exactType.IntroducedTypeParameterCounts],
             Kind = exactType.Kind,
             Accessibility = exactType.Accessibility,
             Attributes = [.. exactType.Attributes],
@@ -859,7 +874,7 @@ public static class TypeCommand
             SelectedTfm: request.TargetFramework,
             ProjectAssetsPath: null,
             TempDir: null,
-            TypeName: request.Type,
+            TypeName: exactType.FullName,
             PackageReplaySourceUrls: null,
             PackageReplayUsesOriginalSources: false,
             Context: new CommandContext(options.Verbose));

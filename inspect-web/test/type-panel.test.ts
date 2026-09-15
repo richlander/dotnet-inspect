@@ -143,6 +143,11 @@ function availableExactTypeInspection(
         fullName,
         namespace: "System.Text.Json",
         name: "JsonSerializer",
+        definitionIdentity: {
+          namespace: "System.Text.Json",
+          segments: ["JsonSerializer"],
+        },
+        introducedTypeParameterCounts: [0],
         kind: "class",
         accessibility: "public",
         attributes: [],
