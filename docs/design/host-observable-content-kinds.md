@@ -33,9 +33,10 @@ and rendering may project them but do not determine their kind.
 
 The shared vocabulary is necessary because the same envelope boundary now
 exposes scalar answers, composed documents, owner-specific availability
-states, and a completed event array without saying which semantics a host may
-rely on. That ambiguity lets transport mechanics and CLR collection choices
-become accidental schema.
+states, and, before the Package Query adoption in
+[#7081](https://github.com/richlander/dotnet-inspect/issues/7081), a completed
+event array without saying which semantics a host may rely on. That ambiguity
+lets transport mechanics and CLR collection choices become accidental schema.
 
 Three content kinds are the smallest distinction that separates:
 

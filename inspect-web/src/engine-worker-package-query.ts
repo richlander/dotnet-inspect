@@ -8,6 +8,7 @@ import type {
   BrowserPackageQueryFailure,
   BrowserPackageQueryManifest,
   BrowserPackageQueryProgress,
+  BrowserPackageQueryDocument,
   BrowserPackageQueryResult,
   BrowserPackageQueryRow,
 } from "./facades/inspect-web-package.d.ts";
@@ -63,9 +64,9 @@ const maximumEventWireCharacters =
   + maximumEventCollectionItems * maximumEventWireCharactersPerCollectionItem
   + maximumEventWireFixedCharacters;
 const maximumDiagnosticCharacters = 64 * 1024;
-// A 10,000-candidate query can emit one progress and one match/failure event
-// per candidate, plus search progress and terminal completion.
-const maximumInspectionEvents = 20_004;
+// A bounded query can retain at most one result or failure per candidate,
+// plus one source-wide failure that is not itself a candidate.
+const maximumInspectionItems = 10_001;
 
 type PackageQueryFacetTier =
   Extract<BrowserPackageQueryRow["tier"], string>;
@@ -158,16 +159,23 @@ export type EngineWorkerPackageQueryCompletionEvent =
   };
 
 interface EngineWorkerPackageQueryInspection {
-  readonly content: readonly (
-    EngineWorkerPackageQueryDurableEvent
-    | EngineWorkerPackageQueryCompletionEvent
-  )[];
+  readonly content: EngineWorkerPackageQueryDocument;
   readonly share: BrowserInspectionShare;
   readonly diagnostics: readonly BrowserInspectionDiagnostic[];
 }
 
+interface EngineWorkerPackageQueryDocument
+  extends Omit<
+    BrowserPackageQueryDocument,
+    "results" | "failures" | "completion"
+  > {
+  readonly results: readonly EngineWorkerPackageQueryRow[];
+  readonly failures: readonly EngineWorkerPackageQueryFailure[];
+  readonly completion: EngineWorkerPackageQueryCompletion;
+}
+
 export interface EngineWorkerPackageQueryTerminal {
-  readonly event: EngineWorkerPackageQueryCompletionEvent;
+  readonly event: EngineWorkerPackageQueryCompletionEvent | null;
   readonly inspection: EngineWorkerPackageQueryInspection | null;
 }
 
@@ -1078,22 +1086,41 @@ function parseInspection(
     "share",
     "diagnostics",
   ], "Package Query inspection");
-  const contentBudget = {
-    remainingCharacters: maximumEventCharacters,
-    remainingItems: maximumInspectionEvents,
-  };
-  const content = arrayItems(
+  const document = dataRecord(
     inspection.content,
-    "Package Query inspection content",
-    contentBudget,
-    maximumInspectionEvents).map(parseEvent);
-  const completed = content.filter(
-    (event): event is EngineWorkerPackageQueryCompletionEvent =>
-      event.kind === "Completed");
-  if (completed.length !== 1
-      || content.at(-1)?.kind !== "Completed") {
+    ["results", "failures", "completion"],
+    "Package Query Document");
+  const documentBudget = {
+    remainingCharacters: maximumEventCharacters,
+    remainingItems: maximumInspectionItems,
+  };
+  const content: EngineWorkerPackageQueryDocument = {
+    results: arrayItems(
+      document.results,
+      "Package Query Document results",
+      documentBudget,
+      maximumInspectionItems).map(row =>
+        parseRow(row, {
+          remainingCharacters: maximumEventCharacters,
+          remainingItems: maximumEventCollectionItems,
+        })),
+    failures: arrayItems(
+      document.failures,
+      "Package Query Document failures",
+      documentBudget,
+      maximumInspectionItems).map(failure =>
+        parseFailure(failure, {
+          remainingCharacters: maximumEventCharacters,
+          remainingItems: maximumEventCollectionItems,
+        })),
+    completion: parseCompletion(
+      document.completion,
+      documentBudget),
+  };
+  if (content.completion.matches !== content.results.length
+      || content.completion.failures !== content.failures.length) {
     throw new PackageQueryPayloadError(
-      "Package Query inspection content must end with one completion event.");
+      "Package Query Document does not match its terminal accounting.");
   }
 
   const metadataBudget = {
@@ -1180,37 +1207,6 @@ function parseInspection(
   };
 }
 
-function completedInspectionEvent(
-  inspection: EngineWorkerPackageQueryInspection,
-): EngineWorkerPackageQueryCompletionEvent {
-  const event = inspection.content.at(-1);
-  if (event?.kind !== "Completed") {
-    throw new PackageQueryPayloadError(
-      "Package Query inspection content has no terminal completion.");
-  }
-  return event;
-}
-
-function completionEventsEqual(
-  left: EngineWorkerPackageQueryCompletionEvent,
-  right: EngineWorkerPackageQueryCompletionEvent,
-): boolean {
-  const a = left.completion;
-  const b = right.completion;
-  return a.prefix === b.prefix
-    && a.producer === b.producer
-    && a.candidateLimit === b.candidateLimit
-    && a.matchLimit === b.matchLimit
-    && a.candidates === b.candidates
-    && a.matches === b.matches
-    && a.failures === b.failures
-    && a.kind === b.kind
-    && a.sourceCandidates === b.sourceCandidates
-    && a.semanticMisses === b.semanticMisses
-    && a.notApplicable === b.notApplicable
-    && a.scope === b.scope;
-}
-
 export const engineWorkerPackageQueryTerminal:
 BoundedPayloadDecoder<EngineWorkerPackageQueryTerminal> = {
   decode(value) {
@@ -1219,29 +1215,27 @@ BoundedPayloadDecoder<EngineWorkerPackageQueryTerminal> = {
         value,
         ["event", "inspection"],
         "Package Query terminal result");
-      const decoded =
-        engineWorkerPackageQueryCompletionEvent.decode(terminal.event);
-      if (decoded.kind === "rejected") {
-        throw new PackageQueryPayloadError(
-          decoded.message,
-          decoded.reason);
-      }
       if (terminal.inspection === null) {
+        const decoded =
+          engineWorkerPackageQueryCompletionEvent.decode(terminal.event);
+        if (decoded.kind === "rejected") {
+          throw new PackageQueryPayloadError(
+            decoded.message,
+            decoded.reason);
+        }
         return {
           kind: "decoded",
           value: { event: decoded.value, inspection: null },
         };
       }
+      nullValue(
+        terminal.event,
+        "Package Query inspection terminal event");
       const inspection = parseInspection(terminal.inspection);
-      const completed = completedInspectionEvent(inspection);
-      if (!completionEventsEqual(decoded.value, completed)) {
-        throw new PackageQueryPayloadError(
-          "Package Query terminal completion differs from inspection content.");
-      }
       return {
         kind: "decoded",
         value: {
-          event: completed,
+          event: null,
           inspection,
         },
       };
@@ -1390,9 +1384,9 @@ export function mapEngineWorkerPackageQueryResult(
       "diagnostic",
       "reason",
     ], "Package Query result");
-    if (result.version !== 2) {
+    if (result.version !== 3) {
       throw new PackageQueryPayloadError(
-        "Expected a version 2 Package Query result.");
+        "Expected a version 3 Package Query result.");
     }
     if (result.kind === "Succeeded") {
       nullValue(result.failureKind, "Package Query success failure kind");
@@ -1405,7 +1399,7 @@ export function mapEngineWorkerPackageQueryResult(
         return {
           kind: "succeeded",
           value: {
-            event: completedInspectionEvent(inspection),
+            event: null,
             inspection,
           },
         };

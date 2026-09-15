@@ -15,6 +15,13 @@ up with its complete Library inventory. Explicit links and restored workspace
 history keep their selected subjects and inspectors; packages with no compile
 Libraries remain at Package with the reason visible.
 
+Demos has its own `/demos` page, linked from Home and the shared data bar.
+Workspace lists the active inspection's coordinates and saved workspaces,
+not demo definitions. Opening the catalog leaves the current Workspace
+available through browser Back; only **Open demo** constructs a new Workspace.
+Package navigation retains the canonical `w` packet, so the exact coordinates
+and Package view survive refresh just as Library and Workspace views do.
+
 The previous browser host was a single 4,103-line `Program.cs` that re-derived
 package acquisition, target-framework ranking, symbol acquisition, and member
 identity for itself, and opened assemblies wherever it needed one. It was not

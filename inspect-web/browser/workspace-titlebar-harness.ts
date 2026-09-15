@@ -239,8 +239,6 @@ function workspaceDetailHtml(): string {
         framework: item.activeFramework,
       })),
     packages: coordinates,
-      demos: [],
-      demoError: "",
       loading: false,
       error: "",
     escapeHtml,
