@@ -9,14 +9,15 @@ The Markout `DocumentSchema` model, generated-schema projection,
 product-authored composition, CLI discovery, effective filtering, projection
 validation, and rendered-manifest filtering are implemented. Some older
 post-render projection paths still use Markout's rendered-string diagnostic;
-that compatibility path does not own section-scoped rendered truth and its
-migration is tracked by
+that nonconforming path does not own section-scoped rendered truth and its
+removal is tracked by
 [#7138](https://github.com/richlander/dotnet-inspect/issues/7138). Package-info
 rendering and structural discovery also retain independent field vocabularies;
-their convergence is tracked by
+their replacement with one owner-issued vocabulary is tracked by
 [#7140](https://github.com/richlander/dotnet-inspect/issues/7140).
 Clone-candidate discovery, field validation, and summary rendering have a
-separate known divergence tracked by
+separate known divergence; the unsupported field-projection affordance is
+removed under
 [#7141](https://github.com/richlander/dotnet-inspect/issues/7141). The earlier
 [auto-generated schema note](auto-schema.md) records the first generated-schema
 migration but is not a current owner.
@@ -116,12 +117,12 @@ discovery augmenting generated sections with metadata and clone-candidate
 vocabulary. These are examples of the composition forms, not a normative
 call-site inventory.
 
-Known compatibility exceptions to the preferred shared definition are:
+Known nonconforming paths pending removal are:
 
-| Surface | Current split | Evidence boundary |
+| Surface | Current defect | Required removal |
 | --- | --- | --- |
-| `Package Info` | `InspectionResultView.GetMetadataFields()` emits rendered field keys; `PackageCommand.PackageInfoFieldNames` supplies structural discovery and projection resolution. | The names appear aligned, but complete equivalence is unverified and tracked by [#7140](https://github.com/richlander/dotnet-inspect/issues/7140). |
-| `Clone Candidates` | `CandidateColumnNames` supplies library structural discovery, `SummaryFieldNames` validates fields, and `SummaryFields()` emits the rendered summary. The field definitions already differ. | Complete discovery, validation, and render equivalence is unverified and tracked by [#7141](https://github.com/richlander/dotnet-inspect/issues/7141). |
+| `Package Info` | `InspectionResultView.GetMetadataFields()` emits rendered field keys; `PackageCommand.PackageInfoFieldNames` independently supplies structural discovery and projection resolution. | #7140 replaces both with one typed owner-issued catalog; no duplicate vocabulary or forwarding alias remains. |
+| `Clone Candidates` | `CandidateColumnNames` supplies structural discovery, while `SummaryFieldNames` accepts stale field selectors and `SummaryFields()` emits different names. | #7141 removes `--fields` from this row-oriented section, deletes the stale selectors and manual projected-summary path, and retains columns as its sole addressable item kind. |
 
 An augmentation must have a reason the generated view cannot express. It must
 reuse the renderer's owner-issued names and order rather than creating a
@@ -183,7 +184,8 @@ Some retained projection paths call Markout's
 `DocumentSchema.DiagnoseRendered` over a rendered string. They preserve the
 structural-miss versus valid-but-empty distinction, but they are not authority
 for section-scoped field or column identity. New section-scoped work must use a
-render manifest or typed projected identities.
+render manifest or typed projected identities. #7138 deletes the string path;
+it is not an alternate or fallback contract.
 
 ## Discovery behavior
 
@@ -236,8 +238,8 @@ After rendering or typed projection, the product compares the resolved request
 with rendered evidence or the projected item set. A structurally valid item
 that produced no data is reported as a no-data note, not reclassified as an
 unknown field or column. Section-scoped conclusions require the render manifest
-or typed identities; the retained rendered-string compatibility path supports
-only its existing non-section-scoped diagnostic.
+or typed identities. The rendered-string path is a current violation scheduled
+for removal under #7138, not a supported diagnostic alternative.
 
 Pattern diagnosis uses the concrete names selected by the pattern. One rendered
 concrete name satisfies that pattern; a cell value that merely contains the
@@ -273,9 +275,10 @@ document schema.
 
 Runtime field tables, alternate row shapes, or product-defined columns use the
 product owner's stable vocabulary. One shared typed definition is preferred.
-When legacy rendering and schema definitions remain independent, their complete
-equivalence needs an enforcing gate or must be marked unverified and tracked.
-Known current unverified cases include `Package Info` and `Clone Candidates`.
+An independently maintained duplicate is a defect, not a compatibility
+contract: remove it or replace it with one owner-issued definition. Do not add
+aliases, fallback inference, or forwarding members to preserve the duplicate
+shape.
 
 ### A field exists in only one selected section
 
@@ -314,17 +317,17 @@ The current Release CLI suite owns the executable contract:
 | `CommandExecutionTests.Project_Discover_ExplicitTableDoesNotPromoteToTree`, `Project_Discover_TsvNoHeaderOmitsHeader`, and `Project_Discover_JsonOutWritesOnlyToFile` | Discovery preserves explicit format, header, and destination intent. |
 | `CommandExecutionTests.Member_DiscoverEffective_ListsCategoriesBeforeSections` | Bare effective discovery presents category doors before regular sections. |
 | `PackageQueryCliTests.DataDiscovery_UsesPackageQuerySchemaWithoutAcquisition` and `LibraryIntegrationQueryTests.StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget` | Structural discovery uses owner-issued schema without triggering domain acquisition or scanner execution. |
-| `CommandExecutionTests.Package_DiscoverSchema_ListsPublishedPackageInfoField` | Package structural discovery samples one runtime field; complete renderer/schema vocabulary equivalence remains unverified under #7140. |
-| `CloneCandidatesSectionTests.Type_JsonProjectionSupportsFieldsColumnsAndRows` and `Library_JsonProjectionSupportsSummaryFields` | Clone-candidate projection samples overlapping field and column names; complete discovery/validation/render equivalence remains unverified under #7141. |
+| `CommandExecutionTests.Package_DiscoverSchema_ListsPublishedPackageInfoField` | Package structural discovery samples one runtime field before #7140 replaces the duplicate vocabulary with a complete shared-owner gate. |
+| `CloneCandidatesSectionTests.Type_JsonProjectionSupportsFieldsColumnsAndRows` and `Library_JsonProjectionSupportsSummaryFields` | These gates record the field-projection affordance that #7141 removes rather than preserves. |
 
 New schema composition forms require a focused gate that proves their generated,
 merged, augmented, or dynamic vocabulary matches the product document. The
-known package and clone-candidate equalities are explicitly unverified; no
-safety or completeness claim rests on their sampled gates. A documentation-only
-change to this owner requires Markdown validation and verification that every
-named gate still exists.
+known package duplicate and clone-candidate field affordance are required
+removals; no safety, completeness, or compatibility claim rests on their
+sampled gates. A documentation-only change to this owner requires Markdown
+validation and verification that every named gate still exists.
 
-## Non-claims and staged work
+## Non-claims and required removals
 
 This design does not:
 
@@ -340,12 +343,13 @@ This design does not:
 Generated schema, product composition, structural discovery, effective
 filtering, and rendered-manifest effective discovery are current behavior.
 Replacing the remaining rendered-string projection diagnostics with manifest
-or typed identity evidence is staged in
+or typed identity evidence is required by
 [#7138](https://github.com/richlander/dotnet-inspect/issues/7138); no stronger
-section-scoped claim rests on that compatibility path. Unifying or completely
-gating the package field vocabulary is staged in
+section-scoped claim rests on the string path. Replacing the package field
+duplicate with one owner-issued vocabulary is required by
 [#7140](https://github.com/richlander/dotnet-inspect/issues/7140).
-Clone-candidate vocabulary convergence is staged in
+Removing clone-candidate field projection and its stale vocabulary is required
+by
 [#7141](https://github.com/richlander/dotnet-inspect/issues/7141). Any new
 cross-host query language, generated accessor model, schema serialization
 contract, or additional pattern semantics requires a focused issue and owner;
