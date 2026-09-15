@@ -146,11 +146,14 @@ contract.
 The real-world Corpus boss uses independently selected native ReturnToSender
 results as its baseline-gated fidelity evidence. Legacy compile-back remains
 per-row reference evidence for that sensor and cannot replace an unavailable or
-failed native result. Native `rts-cutover` is also the general corpus fidelity
-default. Baselines that have not yet migrated must explicitly select
-`compile-back`; the PR quick, classic state-machine, and net11 opt-in consumers
-do so until their own #6199 adoption slices land. Standalone fidelity and
-changed-method consumers retain their existing contracts.
+failed native result. Routine corpus runs default to `rts-native`, which uses
+the same independent selection and native RTS evaluation without executing the
+legacy reference pass. The daily real-world Deep Inspect census explicitly
+selects `rts-cutover` to retain the paired comparison ledger. Baselines that
+have not yet migrated must explicitly select `compile-back`; the PR quick,
+classic state-machine, and net11 opt-in consumers do so until their own #6199
+adoption slices land. Standalone fidelity and changed-method consumers retain
+their existing contracts.
 
 The goal is not to make every PR fight every boss. The goal is to make the
 highest relevant boss explicit. A docs-only PR may stop at markdown lint. A

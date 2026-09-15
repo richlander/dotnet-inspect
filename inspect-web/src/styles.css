@@ -21,6 +21,10 @@
   --shell-accent: #b9aaee;
   --shell-accent-fill: #512bd4;
   --shell-accent-soft: #2b2054;
+  --overlay-scrim: rgb(8 6 18 / 72%);
+  --shadow-menu: 0 12px 32px rgb(0 0 0 / 35%);
+  --shadow-dialog: 0 24px 70px rgb(0 0 0 / 55%);
+  --shadow-drawer-color: rgb(0 0 0 / 38%);
   --finding-allocation: #e5663f;
   --green: #8ebb76;
   --yellow: #d5ad5c;
@@ -110,6 +114,10 @@
   --shell-accent: #512bd4;
   --shell-accent-fill: #512bd4;
   --shell-accent-soft: #eeeafb;
+  --overlay-scrim: rgb(33 26 50 / 32%);
+  --shadow-menu: 0 12px 32px rgb(33 26 50 / 18%);
+  --shadow-dialog: 0 24px 70px rgb(33 26 50 / 28%);
+  --shadow-drawer-color: rgb(33 26 50 / 22%);
   --finding-allocation: #b74728;
   --green: #397044;
   --yellow: #8a650d;
@@ -419,7 +427,7 @@ body {
   border-radius: 6px;
   color: var(--text);
   background: var(--panel);
-  box-shadow: 0 12px 32px rgba(0,0,0,.35);
+  box-shadow: var(--shadow-menu);
 }
 .adaptive-navigation-menu:not(:popover-open) { display: none; }
 .adaptive-navigation-menu:popover-open { display: flex; }
@@ -768,7 +776,7 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: var(--panel-raised);
-  box-shadow: 0 14px 38px rgba(0, 0, 0, .35);
+  box-shadow: var(--shadow-menu);
 }
 .application-menu[hidden] { display: none; }
 .application-menu [role="menuitem"] {
@@ -2187,7 +2195,7 @@ kbd {
    .mde-focus is just the positioning box (no clip) so the corner ✕ can hang off the outer edge
    over the wall margin; .mde-focus-inner carries the panel chrome and clips the content. */
 .mde-focus { position: absolute; top: 14px; bottom: 14px; left: 50%; transform: translateX(-50%); width: min(1120px, 82%); display: flex; min-height: 0; }
-.mde-focus-inner { flex: 1; min-height: 0; display: flex; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 24px 90px rgba(0,0,0,0.55); overflow: hidden; }
+.mde-focus-inner { flex: 1; min-height: 0; display: flex; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow-dialog); overflow: hidden; }
 .mde-focus-card { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .mde-focus .mde-card, .mde-focus .mde-heap-card { flex: 1; min-height: 0; max-height: none; border: none; border-radius: 0; background: transparent; }
 .mde-focus .mde-grid-scroll { max-height: none; flex: 1; }
@@ -2321,6 +2329,7 @@ kbd {
   background: var(--panel-active);
   color: var(--text);
   font: 10px var(--mono);
+  box-shadow: var(--shadow-menu);
   animation: toast .16s ease-out;
 }
 @keyframes toast { from { transform: translateY(7px); opacity: 0; } }
@@ -2599,7 +2608,7 @@ kbd {
   justify-content: center;
   align-items: flex-start;
   padding-top: 14vh;
-  background: rgba(8, 9, 7, 0.55);
+  background: var(--overlay-scrim);
   backdrop-filter: blur(3px);
   animation: spotlight-fade 120ms ease-out;
 }
@@ -2612,7 +2621,7 @@ kbd {
   background: var(--panel-raised);
   border: 1px solid var(--line-strong);
   border-radius: 10px;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-dialog);
   overflow: hidden;
   animation: spotlight-rise 120ms ease-out;
 }
@@ -2732,7 +2741,7 @@ kbd {
   justify-content: center;
   align-items: flex-start;
   padding-top: 9vh;
-  background: rgba(8, 9, 7, 0.55);
+  background: var(--overlay-scrim);
   backdrop-filter: blur(3px);
   animation: spotlight-fade 120ms ease-out;
 }
@@ -2745,7 +2754,7 @@ kbd {
   background: var(--panel-raised);
   border: 1px solid var(--line-strong);
   border-radius: 10px;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-dialog);
   overflow: hidden;
   animation: spotlight-rise 120ms ease-out;
 }
@@ -2810,7 +2819,7 @@ kbd {
   justify-content: center;
   align-items: flex-start;
   padding-top: 7vh;
-  background: rgba(8, 9, 7, 0.55);
+  background: var(--overlay-scrim);
   backdrop-filter: blur(3px);
   animation: spotlight-fade 120ms ease-out;
 }
@@ -2823,7 +2832,7 @@ kbd {
   background: var(--panel-raised);
   border: 1px solid var(--line-strong);
   border-radius: 10px;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-dialog);
   overflow: hidden;
   animation: spotlight-rise 120ms ease-out;
 }
@@ -2945,7 +2954,7 @@ kbd {
   display: grid;
   place-items: center;
   padding: 12px;
-  background: rgba(0, 0, 0, .72);
+  background: var(--overlay-scrim);
 }
 .modal-backdrop[hidden] { display: none; }
 .application-dialog {
@@ -2959,7 +2968,7 @@ kbd {
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--bg);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, .5);
+  box-shadow: var(--shadow-dialog);
 }
 .application-dialog-head {
   display: flex;
@@ -3917,8 +3926,8 @@ kbd {
 .annotated-structure-mark { display: inline-flex; align-items: center; padding: 4px 7px; border-left: 3px solid var(--blue); border-radius: 3px; background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--muted); font: 11px var(--mono); }
 .annotated-finding-toggle[aria-pressed="true"] { background: var(--panel-active); color: var(--text); }
 
-.annotated-modal-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; background: rgba(0, 0, 0, 0.72); }
-.annotated-modal { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); margin: 10px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--bg); }
+.annotated-modal-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; background: var(--overlay-scrim); }
+.annotated-modal { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); margin: 10px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--bg); box-shadow: var(--shadow-dialog); }
 .annotated-modal-head { background: var(--panel); }
 .annotated-modal-controls { display: flex; align-items: stretch; gap: 10px; padding: 8px 12px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--panel); }
 .annotated-control-group { min-width: max-content; margin: 0; padding: 5px 8px 8px; border: 1px solid var(--line); border-radius: 3px; }
@@ -3968,8 +3977,8 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
 button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-semantics { border-left-color: var(--blue); }
 button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-lifetime { border-left-color: var(--purple); }
 
-.annotated-detail { z-index: 2; padding: 14px; overflow: auto; border-top: 1px solid var(--line); background: var(--panel-raised); box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.28); }
-.annotated-modal > .annotated-detail { position: absolute; top: 58px; right: 0; bottom: 0; width: min(480px, 100%); border-top: 0; border-left: 1px solid var(--line-strong); box-shadow: -16px 0 40px rgba(0, 0, 0, 0.38); }
+.annotated-detail { z-index: 2; padding: 14px; overflow: auto; border-top: 1px solid var(--line); background: var(--panel-raised); box-shadow: 0 -12px 36px var(--shadow-drawer-color); }
+.annotated-modal > .annotated-detail { position: absolute; top: 58px; right: 0; bottom: 0; width: min(480px, 100%); border-top: 0; border-left: 1px solid var(--line-strong); box-shadow: -16px 0 40px var(--shadow-drawer-color); }
 .annotated-detail > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .annotated-detail dl { display: grid; gap: 7px; margin: 12px 0; }
 .annotated-detail dl div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }

@@ -2276,10 +2276,14 @@ static class Program
         => value.ToLowerInvariant() switch
         {
             "compile-back" => CorpusFidelityOracle.CompileBack,
-            "rts-parity" or "return-to-sender" or "rts" => CorpusFidelityOracle.ReturnToSender,
-            "rts-cutover" or "return-to-sender-cutover" or "native-rts" => CorpusFidelityOracle.ReturnToSenderCutover,
+            "rts-native" or "return-to-sender" or "rts" or "native-rts"
+                => CorpusFidelityOracle.ReturnToSenderNative,
+            "rts-parity" => CorpusFidelityOracle.ReturnToSender,
+            "rts-cutover" or "return-to-sender-cutover"
+                => CorpusFidelityOracle.ReturnToSenderCutover,
             _ => throw new ArgumentException(
-                $"Unknown corpus fidelity oracle '{value}'. Expected compile-back, rts-parity, or rts-cutover."),
+                $"Unknown corpus fidelity oracle '{value}'. Expected compile-back, rts-native, "
+                + "rts-parity, or rts-cutover."),
         };
 
     static CorpusProfile ParseCorpusProfile(string value)
@@ -2711,22 +2715,24 @@ static class Program
           --corpus-fidelity-cap <n>      with corpus baseline modes: cap methods
                                 checked per assembly by the selected expensive
                                 fidelity oracle (default 0, not run). Default
-                                rts-cutover accepts one distinct positive cap;
-                                other oracles accept repeated/comma-separated
-                                values for coverage series.
+                                rts-native and paired rts-cutover accept one
+                                distinct positive cap; other oracles accept
+                                repeated/comma-separated values for coverage
+                                series.
           --corpus-fidelity-oracle <name>
-                                with corpus baseline modes: select rts-cutover
-                                (default; aliases:
-                                return-to-sender-cutover, native-rts).
-                                Use compile-back for the legacy oracle, or
-                                rts-parity (aliases: return-to-sender, rts) for
-                                the legacy-selected transition population.
-                                Parity evaluates the compile-back-selected
-                                population; cutover independently hash-selects
-                                targets, runs native RTS without its compile-back
-                                floor, then records legacy results for comparison.
-                                Cutover accepts one distinct positive fidelity
-                                cap per run so the snapshot ledger is complete.
+                                with corpus baseline modes: select rts-native
+                                (default; aliases: return-to-sender, rts,
+                                native-rts). It independently hash-selects
+                                targets and runs native RTS without its
+                                compile-back floor or a legacy reference pass.
+                                Use rts-cutover (alias:
+                                return-to-sender-cutover) for the same native
+                                population plus legacy comparison evidence,
+                                compile-back for the legacy oracle, or rts-parity
+                                for the legacy-selected transition population.
+                                Native and cutover runs accept one distinct
+                                positive fidelity cap so the snapshot ledger is
+                                complete.
           --corpus-profile <name>        label corpus snapshots and cards as
                                 real-world (default), opt-in-net11, or
                                 classic-state-machines. Profiles keep curated
