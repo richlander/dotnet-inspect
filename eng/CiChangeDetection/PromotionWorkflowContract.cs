@@ -896,7 +896,7 @@ internal static class PromotionWorkflowContract
             RequireStep(
                 buildSteps,
                 7,
-                "Publish MSDL managed API",
+                "Publish Inspect Web managed API",
                 "jobs.build"),
             "artifacts/inspect-web-publish/api",
             "staging managed API publish step");
@@ -1520,7 +1520,7 @@ internal static class PromotionWorkflowContract
             RequireStep(
                 publishSteps,
                 9,
-                "Publish MSDL managed API",
+                "Publish Inspect Web managed API",
                 "CoreCLR jobs.build"),
             "artifacts/inspect-web-coreclr-publish/api",
             "CoreCLR managed API publish step");
