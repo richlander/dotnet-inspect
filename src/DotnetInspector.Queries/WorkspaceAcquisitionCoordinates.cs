@@ -892,6 +892,7 @@ public abstract record WorkspaceContextLoadOutcome
     public sealed record Loaded : WorkspaceContextLoadOutcome
     {
         internal Loaded(
+            InspectionWorkspaceIdentity workspace,
             AssemblyContextGroup group,
             ImmutableArray<WorkspaceContextMember> members,
             ImmutableArray<RealizedMemberCoordinate.Platform>
@@ -899,6 +900,7 @@ public abstract record WorkspaceContextLoadOutcome
             string? framework,
             string? runtimeIdentifier)
             : this(
+                workspace,
                 group,
                 members,
                 [],
@@ -909,6 +911,7 @@ public abstract record WorkspaceContextLoadOutcome
         }
 
         internal Loaded(
+            InspectionWorkspaceIdentity workspace,
             AssemblyContextGroup group,
             ImmutableArray<WorkspaceContextMember> members,
             ImmutableArray<PackageRootBinding> packageRoots,
@@ -917,6 +920,7 @@ public abstract record WorkspaceContextLoadOutcome
             string? framework,
             string? runtimeIdentifier)
         {
+            Workspace = workspace;
             Group = group;
             Members = members;
             PackageRoots = packageRoots;
@@ -924,6 +928,8 @@ public abstract record WorkspaceContextLoadOutcome
             Framework = framework;
             RuntimeIdentifier = runtimeIdentifier;
         }
+
+        public InspectionWorkspaceIdentity Workspace { get; }
 
         public AssemblyContextGroup Group { get; }
 

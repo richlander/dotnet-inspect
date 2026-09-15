@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using TsJsExport;
 
@@ -257,6 +258,9 @@ public sealed class ProductionFacadeContextTests
         var contexts = 0;
         var assemblyLocalWireTypes = 0;
         var sharedContractTypes = new HashSet<Type>();
+        Collect(
+            typeof(InspectionEnvelope<ExactTypeInspectionResult>),
+            sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
         foreach (Type derived in typeof(InspectionShare).Assembly.GetTypes()
                      .Where(type => type.BaseType == typeof(InspectionShare)))
