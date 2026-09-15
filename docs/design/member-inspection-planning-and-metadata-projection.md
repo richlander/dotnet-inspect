@@ -1737,7 +1737,7 @@ matrix.
 | Cache reuse cannot bypass context or operation budgets | Metadata operation context and generation-scoped image entry | `MDP009` |
 | No duplicate validity owner or CSharp raw-metadata/raw-flag reconstruction survives migration | Metadata/CSharp architecture | `MDP011`, `MDP012`, `MDP013` |
 | Effective-discovery outcomes cannot cross top-level operations or authorization dispositions | Section/query plan integration | `MIP004` |
-| Unsupported Windows Metadata cannot enter product metadata projection | MetadataPrimitives/acquisition/Metadata | `MDP017` |
+| Adopted Metadata entry points reject unsupported Windows Metadata | MetadataPrimitives/acquisition/Metadata | `MDP017` |
 
 ## Review exit criteria
 
