@@ -50,8 +50,8 @@ registerEngineWorkerStartupOperations(operations, {
   async listHomeDemos() {
     return (await import("/inspect-web-catalog.js")).listHomeDemos();
   },
-  async listPackageQueryFacets() {
-    return (await import("/inspect-web-package.js")).listPackageQueryFacets();
+  async listPackageQueryCatalog() {
+    return (await import("/inspect-web-package.js")).listPackageQueryCatalog();
   },
 });
 let sourceFacade: EngineWorkerTypeSourceFacade | undefined;

@@ -345,6 +345,10 @@ export interface BrowserPackageQueryCancellation {
     readonly kind: BrowserPackageQueryCancellationKind;
     readonly reason: string | null;
 }
+export interface BrowserPackageQueryCatalog {
+    readonly facets: ReadonlyArray<BrowserPackageQueryFacetDescriptor>;
+    readonly terms: ReadonlyArray<BrowserPackageQueryTermDescriptor>;
+}
 export interface BrowserPackageQueryCompletion {
     readonly prefix: string;
     readonly producer: string;
@@ -386,13 +390,11 @@ export interface BrowserPackageQueryEvidence {
     readonly text: string;
     readonly scope: BrowserPackageQueryEvidenceScope;
     readonly summary: BrowserPackageQueryEvidenceSummary | null;
+    readonly term: BrowserPackageQueryTerm | null;
 }
 export interface BrowserPackageQueryEvidenceSummary {
     readonly count: number;
     readonly preview: ReadonlyArray<string>;
-}
-export interface BrowserPackageQueryFacetCatalog {
-    readonly facets: ReadonlyArray<BrowserPackageQueryFacetDescriptor>;
 }
 export interface BrowserPackageQueryFacetDescriptor {
     readonly id: string;
@@ -468,6 +470,21 @@ export interface BrowserPackageQueryRow {
     readonly rootRequest: string | null;
     readonly owners: ReadonlyArray<string>;
     readonly manifest: BrowserPackageQueryManifest | null;
+}
+export interface BrowserPackageQueryTerm {
+    readonly key: string;
+    readonly operator: string;
+    readonly value: string;
+}
+export interface BrowserPackageQueryTermDescriptor {
+    readonly key: string;
+    readonly label: string;
+    readonly summary: string;
+    readonly weight: number;
+    readonly tier: BrowserPackageQueryFacetTier;
+    readonly operators: ReadonlyArray<string>;
+    readonly valueKind: string;
+    readonly example: string;
 }
 export interface BrowserPackageSurface {
     readonly package: string;
@@ -582,7 +599,7 @@ export declare function getPackageDocument(packageId: string, version: string, p
 export declare function getPlatformCatalog(targetFramework: string, platformVersion: string): Promise<BrowserPlatformCatalog>;
 export declare function getPlatformVersions(targetFramework: string): Promise<ReadonlyArray<string>>;
 export declare function listPackageAssemblyQueryPatterns(): ReadonlyArray<BrowserPackageAssemblyQueryPattern>;
-export declare function listPackageQueryFacets(): BrowserPackageQueryFacetCatalog;
+export declare function listPackageQueryCatalog(): BrowserPackageQueryCatalog;
 export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
 export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string): Promise<string>;
 export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch;
@@ -598,5 +615,5 @@ export declare function requestPackageQueryMatches(operationId: string, addition
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
 export declare function runPackageAssemblyQuery(operationId: string, patternId: string, operand: string, packageCoordinatesJson: string, targetFramework: string, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function runPackageChanges(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult>;
-export declare function runPackageQuery(operationId: string, prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
+export declare function runPackageQuery(operationId: string, prefix: string, facetIdsJson: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;

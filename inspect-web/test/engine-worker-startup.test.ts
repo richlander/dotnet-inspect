@@ -23,7 +23,7 @@ import type {
   BrowserVocabularyDocument,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserPackageQueryFacetCatalog,
+  BrowserPackageQueryCatalog,
 } from "../src/facades/inspect-web-package.d.ts";
 import {
   FakeWorkerRuntime,
@@ -48,11 +48,21 @@ const vocabulary: BrowserVocabularyDocument = {
 const demos: BrowserHomeDemoCatalog = {
   demos: [{ id: "source", title: "Source", summary: "Show generated source." }],
 };
-const facets: BrowserPackageQueryFacetCatalog = {
+const catalog: BrowserPackageQueryCatalog = {
   facets: [{
     id: "license", label: "License", summary: "Package license", weight: 2, tier: "Nuspec",
     selectionGroupId: null, combinesWithinSelectionGroup: false,
     displayGroupId: "package", displayGroupLabel: "Package",
+  }],
+  terms: [{
+    key: "depends",
+    label: "Direct dependency",
+    summary: "Matches a direct dependency.",
+    weight: 10,
+    tier: "Nuspec",
+    operators: ["eq"],
+    valueKind: "package-id",
+    example: "Microsoft.Extensions.Hosting",
   }],
 };
 const cases = [
@@ -62,8 +72,8 @@ const cases = [
     read: (client: EngineStartupClient) => client.catalog.listVocabulary() },
   { operation: engineStartupOperations.listHomeDemos, expected: demos, field: "demos",
     read: (client: EngineStartupClient) => client.catalog.listHomeDemos() },
-  { operation: engineStartupOperations.listPackageQueryFacets, expected: facets, field: "facets",
-    read: (client: EngineStartupClient) => client.package.listPackageQueryFacets() },
+  { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "facets",
+    read: (client: EngineStartupClient) => client.package.listPackageQueryCatalog() },
 ];
 
 function deferred<T>() {
@@ -86,7 +96,7 @@ function fixture(options: {
     async buildIdentity() { calls.push("identity"); return identity; },
     async listVocabulary() { calls.push("vocabulary"); return vocabulary; },
     async listHomeDemos() { calls.push("demos"); return demos; },
-    async listPackageQueryFacets() { calls.push("facets"); return facets; },
+    async listPackageQueryCatalog() { calls.push("catalog"); return catalog; },
     ...options.reads,
   });
   const workers = Array.from({ length: 2 }, () => new FakeWorkerRuntime({
@@ -131,7 +141,7 @@ test("all four cold reads share readiness and preserve full generated-shaped res
   ready.resolve();
   await state.environment.flushAsync();
   assert.deepEqual(await results, cases.map(item => item.expected));
-  assert.deepEqual(state.calls, ["identity", "vocabulary", "demos", "facets"]);
+  assert.deepEqual(state.calls, ["identity", "vocabulary", "demos", "catalog"]);
   assert.deepEqual(await Promise.all(cases.map(item => item.read(state.client))), cases.map(item => item.expected));
   assert.equal(state.starts(), 1);
   assert.equal(state.host.snapshot().activeOperations, 0);
@@ -164,7 +174,7 @@ test("a managed exception rejects its read without failing neighboring reads", a
   assert.deepEqual(await neighbor, demos);
   assert.equal(state.host.snapshot().phase, "ready");
   assert.deepEqual(state.failures, []);
-  assert.deepEqual(await state.client.package.listPackageQueryFacets(), facets);
+  assert.deepEqual(await state.client.package.listPackageQueryCatalog(), catalog);
   state.host.dispose();
 });
 
@@ -239,11 +249,17 @@ test("startup decoders preserve extra JSON data and reject invalid DTO shapes", 
     assert.equal(item.operation.value.decode(item.expected).kind, "rejected");
     assert.equal(item.operation.value.decode("{").kind, "rejected");
   }
-  assert.equal(engineStartupOperations.listPackageQueryFacets.value.decode(JSON.stringify({
-    facets: [{ ...facets.facets[0], tier: 42 }],
+  assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
+    facets: [{ ...catalog.facets[0], tier: 42 }],
+    terms: catalog.terms,
   })).kind, "decoded");
-  assert.equal(engineStartupOperations.listPackageQueryFacets.value.decode(JSON.stringify({
-    facets: [{ ...facets.facets[0], tier: "not-a-tier" }],
+  assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
+    facets: [{ ...catalog.facets[0], tier: "not-a-tier" }],
+    terms: catalog.terms,
+  })).kind, "rejected");
+  assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
+    facets: catalog.facets,
+    terms: [{ ...catalog.terms[0], operators: [42] }],
   })).kind, "rejected");
   assert.equal(engineStartupInput.decode(null).kind, "decoded");
   assert.equal(engineStartupInput.decode([]).kind, "rejected");

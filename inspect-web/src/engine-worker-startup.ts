@@ -21,14 +21,14 @@ import type { WorkerOperationCatalog } from "./worker-runtime-realm.ts";
 export interface EngineStartupClient {
   readonly host: Pick<EngineClient["host"], "buildIdentity">;
   readonly catalog: Pick<EngineClient["catalog"], "listVocabulary" | "listHomeDemos">;
-  readonly package: Pick<EngineClient["package"], "listPackageQueryFacets">;
+  readonly package: Pick<EngineClient["package"], "listPackageQueryCatalog">;
 }
 
 interface StartupReads {
   readonly buildIdentity: EngineStartupClient["host"]["buildIdentity"];
   readonly listVocabulary: EngineStartupClient["catalog"]["listVocabulary"];
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
-  readonly listPackageQueryFacets: EngineStartupClient["package"]["listPackageQueryFacets"];
+  readonly listPackageQueryCatalog: EngineStartupClient["package"]["listPackageQueryCatalog"];
 }
 
 interface StartupOperation<TValue> {
@@ -59,7 +59,7 @@ export function registerEngineWorkerStartupOperations(
   register(engineStartupOperations.buildIdentity, reads.buildIdentity);
   register(engineStartupOperations.listVocabulary, reads.listVocabulary);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
-  register(engineStartupOperations.listPackageQueryFacets, reads.listPackageQueryFacets);
+  register(engineStartupOperations.listPackageQueryCatalog, reads.listPackageQueryCatalog);
 }
 
 export function bindEngineWorkerStartupClient(
@@ -113,7 +113,7 @@ export function bindEngineWorkerStartupClient(
       listHomeDemos: bind(engineStartupOperations.listHomeDemos),
     },
     package: {
-      listPackageQueryFacets: bind(engineStartupOperations.listPackageQueryFacets),
+      listPackageQueryCatalog: bind(engineStartupOperations.listPackageQueryCatalog),
     },
   };
 }

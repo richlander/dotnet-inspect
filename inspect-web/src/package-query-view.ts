@@ -5,6 +5,7 @@ import type {
   QueryRequest,
   QueryResultRow,
   QuerySourceSelection,
+  QueryTermDescriptor,
 } from "./package-query.ts";
 import {
   createAssemblyQueryRequest,
@@ -26,6 +27,15 @@ export interface PackageQueryBindingActions {
   onCancel: () => void;
   onAssemblyRun?: (request: QueryRequest) => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
+  onTermAdd?: (termKey: string) => void;
+  onTermApply?: (
+    index: number | null,
+    operator: string,
+    value: string,
+    prefix: string,
+  ) => void;
+  onTermDraftCancel?: () => void;
+  onTermRemove?: (index: number, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
   onResultPressure: () => void;
   onResultViewportChange: () => void;
@@ -57,6 +67,16 @@ export type PackageQueryFocusSnapshot =
       control: "pattern" | "packages" | "operand" | "tfm" | "run";
     }
   | { kind: "facet"; facetKey: string }
+  | { kind: "term-add"; termKey: string }
+  | {
+      kind: "term";
+      index: number;
+      control: "operator" | "value" | "apply" | "remove";
+    }
+  | {
+      kind: "term-draft";
+      control: "operator" | "value" | "apply" | "cancel";
+    }
   | { kind: "row"; packageId: string; version: string }
   | { kind: "cancel"; index: number }
   | { kind: "fallback" };
@@ -85,6 +105,34 @@ function supportsSelectionRange(
 ): element is SelectableQueryElement {
   return "setSelectionRange" in element
     && typeof element.setSelectionRange === "function";
+}
+
+function termControl(
+  value: string | undefined,
+): "operator" | "value" | "apply" | "remove" | null {
+  switch (value) {
+    case "operator":
+    case "value":
+    case "apply":
+    case "remove":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function termDraftControl(
+  value: string | undefined,
+): "operator" | "value" | "apply" | "cancel" | null {
+  switch (value) {
+    case "operator":
+    case "value":
+    case "apply":
+    case "cancel":
+      return value;
+    default:
+      return null;
+  }
 }
 
 export function capturePackageQueryFocus(
@@ -117,6 +165,28 @@ export function capturePackageQueryFocus(
   }
   if (active.dataset.queryFacet) {
     return { kind: "facet", facetKey: active.dataset.queryFacet };
+  }
+  if (active.dataset.queryTermAdd) {
+    return { kind: "term-add", termKey: active.dataset.queryTermAdd };
+  }
+  const activeTermControl = termControl(active.dataset.queryTermControl);
+  if (activeTermControl) {
+    const index = Number(active.dataset.queryTermIndex);
+    if (Number.isInteger(index) && index >= 0) {
+      return {
+        kind: "term",
+        index,
+        control: activeTermControl,
+      };
+    }
+  }
+  const activeDraftControl =
+    termDraftControl(active.dataset.queryTermDraftControl);
+  if (activeDraftControl) {
+    return {
+      kind: "term-draft",
+      control: activeDraftControl,
+    };
   }
   if (active.dataset.queryRowOpen && active.dataset.queryRowVersion) {
     return {
@@ -167,6 +237,25 @@ export function restorePackageQueryFocus(
       target = [...root.querySelectorAll<HTMLElement>("[data-query-facet]")]
         .find(element => element.dataset.queryFacet === snapshot.facetKey)
         ?? null;
+      break;
+    case "term-add":
+      target = [...root.querySelectorAll<HTMLElement>("[data-query-term-add]")]
+        .find(element => element.dataset.queryTermAdd === snapshot.termKey)
+        ?? null;
+      break;
+    case "term":
+      target = [
+        ...root.querySelectorAll<HTMLElement>("[data-query-term-control]"),
+      ].find(element =>
+        element.dataset.queryTermIndex === String(snapshot.index)
+        && element.dataset.queryTermControl === snapshot.control) ?? null;
+      break;
+    case "term-draft":
+      target = [
+        ...root.querySelectorAll<HTMLElement>(
+          "[data-query-term-draft-control]"),
+      ].find(element =>
+        element.dataset.queryTermDraftControl === snapshot.control) ?? null;
       break;
     case "row":
       target = [...root.querySelectorAll<HTMLElement>("[data-query-row-open]")]
@@ -239,6 +328,7 @@ export function bindPackageQueryView(
     button.addEventListener("click", () => actions.onFacetToggle(
       button.dataset.queryFacet ?? "",
       prefixInput()?.value ?? "")));
+  bindPackageQueryTerms(root, actions, prefixInput);
   const prerelease = root.querySelector<HTMLInputElement>(
     "#package-query-prerelease");
   prerelease?.addEventListener("change", () => actions.onSourceChange({
@@ -263,6 +353,53 @@ export function bindPackageQueryView(
       queryMain?.removeEventListener("scroll", handleResultScroll);
     },
   };
+}
+
+function bindPackageQueryTerms(
+  root: ParentNode,
+  actions: PackageQueryBindingActions,
+  prefixInput: () => HTMLInputElement | null,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-query-term-add]").forEach(button =>
+    button.addEventListener("click", () =>
+      actions.onTermAdd?.(button.dataset.queryTermAdd ?? "")));
+  root.querySelectorAll<HTMLFormElement>("[data-query-term-form]")
+    .forEach(form => form.addEventListener("submit", event => {
+      event.preventDefault();
+      const value = form.querySelector<HTMLInputElement>(
+        "[data-query-term-value]");
+      const operator = form.querySelector<HTMLInputElement | HTMLSelectElement>(
+        "[data-query-term-operator]");
+      if (!value || !operator) {
+        throw new Error("Package-query term controls are incomplete.");
+      }
+      value.setCustomValidity("");
+      if (value.value.trim().length === 0) {
+        value.setCustomValidity("Enter a term value.");
+        value.reportValidity();
+        return;
+      }
+      const indexText = form.dataset.queryTermForm;
+      const index = indexText === "draft" ? null : Number(indexText);
+      if (index !== null && (!Number.isInteger(index) || index < 0)) {
+        throw new Error("Package-query term index is invalid.");
+      }
+      actions.onTermApply?.(
+        index,
+        operator.value,
+        value.value,
+        prefixInput()?.value ?? "");
+    }));
+  root.querySelectorAll<HTMLElement>("[data-query-term-remove]")
+    .forEach(button => button.addEventListener("click", () => {
+      const index = Number(button.dataset.queryTermRemove);
+      if (!Number.isInteger(index) || index < 0) {
+        throw new Error("Package-query term index is invalid.");
+      }
+      actions.onTermRemove?.(index, prefixInput()?.value ?? "");
+    }));
+  root.querySelector("[data-query-term-draft-cancel]")
+    ?.addEventListener("click", () => actions.onTermDraftCancel?.());
 }
 
 function assemblyControlName(
@@ -586,6 +723,124 @@ function renderFacets(
   }).join("");
 }
 
+function renderTermOperator(
+  descriptor: QueryTermDescriptor,
+  selectedOperator: string,
+  index: number | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const controlAttributes = index === null
+    ? 'data-query-term-draft-control="operator"'
+    : `data-query-term-index="${index}" data-query-term-control="operator"`;
+  if (descriptor.operators.length <= 1) {
+    return `<input type="hidden" data-query-term-operator value="${escapeHtml(selectedOperator)}" />`;
+  }
+  return `
+    <label class="query-term-operator">
+      <span>Operator</span>
+      <select data-query-term-operator ${controlAttributes}>
+        ${descriptor.operators.map(operator => `
+          <option value="${escapeHtml(operator)}"${operator === selectedOperator ? " selected" : ""}>${escapeHtml(operator)}</option>`)
+          .join("")}
+      </select>
+    </label>`;
+}
+
+function renderTermEditor(
+  descriptor: QueryTermDescriptor,
+  operator: string,
+  value: string,
+  index: number | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const draft = index === null;
+  const identity = draft ? "draft" : String(index);
+  const valueAttributes = draft
+    ? 'data-query-term-draft-value data-query-term-draft-control="value"'
+    : `data-query-term-index="${index}" data-query-term-control="value"`;
+  const applyAttributes = draft
+    ? 'data-query-term-draft-control="apply"'
+    : `data-query-term-index="${index}" data-query-term-control="apply"`;
+  return `
+    <form
+      class="query-term"
+      data-query-term-form="${identity}"
+      aria-label="${escapeHtml(descriptor.label)}">
+      <label class="query-term-value" for="package-query-term-${identity}">
+        <span>${escapeHtml(descriptor.label)}</span>
+        <input
+          id="package-query-term-${identity}"
+          data-query-term-value
+          ${valueAttributes}
+          type="text"
+          required
+          value="${escapeHtml(value)}"
+          placeholder="${escapeHtml(descriptor.example)}"
+          title="${escapeHtml(descriptor.summary)}"
+          autocomplete="off"
+          spellcheck="false" />
+      </label>
+      ${renderTermOperator(descriptor, operator, index, escapeHtml)}
+      <div class="query-term-actions">
+        <button type="submit" ${applyAttributes}>Apply</button>
+        ${draft
+          ? `<button type="button" data-query-term-draft-cancel data-query-term-draft-control="cancel">Cancel</button>`
+          : `<button type="button" data-query-term-remove="${index}" data-query-term-index="${index}" data-query-term-control="remove">Remove</button>`}
+      </div>
+    </form>`;
+}
+
+function renderTermControls(
+  state: PackageQueryState,
+  availableTerms: readonly QueryTermDescriptor[],
+  escapeHtml: (value: unknown) => string,
+): string {
+  const applied = state.request?.terms ?? [];
+  const draft = state.termDraft;
+  const active = [
+    ...applied.map((term, index) =>
+      renderTermEditor(
+        term.descriptor,
+        term.operator,
+        term.value,
+        index,
+        escapeHtml)),
+    ...(draft
+      ? [renderTermEditor(
+          draft,
+          draft.operators[0] ?? "",
+          "",
+          null,
+          escapeHtml)]
+      : []),
+  ].join("");
+  const activeZone = active
+    ? `
+      <section class="query-active-terms" aria-labelledby="query-active-terms-heading">
+        <h2 id="query-active-terms-heading">Active terms</h2>
+        <div class="query-term-list">${active}</div>
+      </section>`
+    : "";
+  const palette = availableTerms
+    .filter(term => term.operators.length > 0)
+    .map(term => `
+      <button
+        type="button"
+        class="query-term-add"
+        data-query-term-add="${escapeHtml(term.key)}"
+        title="${escapeHtml(term.summary)}">
+        Add ${escapeHtml(term.label)}
+      </button>`)
+    .join("");
+  return `
+    ${activeZone}
+    <section class="query-available-terms" aria-labelledby="query-available-terms-heading">
+      <h2 id="query-available-terms-heading">Available terms</h2>
+      <p>Applied terms are combined; changes rerun nonblank package input.</p>
+      <div class="query-term-palette">${palette}</div>
+    </section>`;
+}
+
 function renderCompletionFooter(
   request: QueryRequest | null,
   outcome: PackageQueryState["outcome"],
@@ -777,6 +1032,7 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   viewport?: PackageQueryViewportSnapshot | null;
   availableFacets: readonly QueryFacetTerm[];
+  availableTerms?: readonly QueryTermDescriptor[];
   availableAssemblyPatterns?: readonly QueryAssemblyPatternDescriptor[];
   navigationError?: string;
   escapeHtml: (value: unknown) => string;
@@ -897,6 +1153,7 @@ export function renderPackageQueryView(
     state,
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
+    availableTerms = [],
     availableAssemblyPatterns = [],
     navigationError = "",
     escapeHtml,
@@ -907,6 +1164,7 @@ export function renderPackageQueryView(
   const failures = renderFailures(state, escapeHtml);
   const results = renderResults(state, escapeHtml, viewport);
   const request = state.request ?? createQueryRequest("");
+  const terms = renderTermControls(state, availableTerms, escapeHtml);
 
   return `
     <div class="query-page">
@@ -920,7 +1178,7 @@ export function renderPackageQueryView(
         <div class="query-heading">
           <p class="query-kicker">Exact package + literal prefix · nuget.org</p>
           <h1 id="package-query-heading" tabindex="-1">Package query</h1>
-          <p>Run a bounded query over an exact package ID or literal prefix. Manifests and package content are acquired only with inspection facets.</p>
+          <p>Run a bounded query over an exact package ID or literal prefix. Manifests and package content are acquired only for selected inspection work.</p>
         </div>
         <form id="package-query-form" class="query-bar" role="search">
           <label for="package-query-prefix">Package ID or prefix</label>
@@ -941,6 +1199,7 @@ export function renderPackageQueryView(
               availableAssemblyPatterns,
               state,
               escapeHtml)}
+            ${terms}
             <h2>Inspection facets</h2>
             <p>Changes rerun the selected input; blank package input stays idle.</p>
             <div class="query-facets">${facets}</div>

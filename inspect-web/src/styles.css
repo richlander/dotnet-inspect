@@ -3468,6 +3468,8 @@ kbd {
 .query-bar button,
 .query-row-meta button,
 .query-assembly-controls button,
+.query-term button,
+.query-term-add,
 .query-footer button {
   border: 1px solid var(--line-strong);
   border-radius: 5px;
@@ -3481,6 +3483,8 @@ kbd {
 .query-bar button:hover,
 .query-row-meta button:hover,
 .query-assembly-controls button:hover,
+.query-term button:hover,
+.query-term-add:hover,
 .query-footer button:hover {
   border-color: var(--accent);
   color: var(--text);
@@ -3535,7 +3539,9 @@ kbd {
 .query-bar input,
 .query-source-controls input:not([type="checkbox"]),
 .query-source-controls textarea,
-.query-source-controls select {
+.query-source-controls select,
+.query-term input:not([type="hidden"]),
+.query-term select {
   min-width: 0;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
@@ -3549,6 +3555,10 @@ kbd {
 .query-source-controls input:focus-visible,
 .query-source-controls textarea:focus-visible,
 .query-facet:focus-visible,
+.query-term input:focus-visible,
+.query-term select:focus-visible,
+.query-term button:focus-visible,
+.query-term-add:focus-visible,
 .query-page button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -3622,6 +3632,48 @@ kbd {
 .query-assembly-controls input,
 .query-assembly-controls textarea { width: 100%; }
 .query-assembly-controls textarea { resize: vertical; }
+.query-active-terms,
+.query-available-terms {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.query-active-terms h2,
+.query-available-terms h2 { margin: 0; }
+.query-active-terms p,
+.query-available-terms p { margin: 0; }
+.query-term-list,
+.query-term-palette {
+  display: grid;
+  gap: 8px;
+}
+.query-term {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--panel-raised);
+}
+.query-term label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+.query-term input:not([type="hidden"]),
+.query-term select { width: 100%; }
+.query-term-actions {
+  display: flex;
+  gap: 7px;
+}
+.query-term-actions button { flex: 1 1 0; }
+.query-term-add {
+  width: 100%;
+  text-align: left;
+}
 .query-row-description {
   display: -webkit-box;
   -webkit-box-orient: vertical;

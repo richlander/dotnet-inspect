@@ -4,7 +4,7 @@ import type {
   BrowserVocabularyDocument,
 } from "./facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserPackageQueryFacetCatalog,
+  BrowserPackageQueryCatalog,
   BrowserPackageQueryFacetTier,
 } from "./facades/inspect-web-package.d.ts";
 import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
@@ -141,9 +141,9 @@ export const engineStartupOperations = {
       };
     }),
   },
-  listPackageQueryFacets: {
-    kind: "package-list-query-facets",
-    value: json<BrowserPackageQueryFacetCatalog>(value => {
+  listPackageQueryCatalog: {
+    kind: "package-list-query-catalog",
+    value: json<BrowserPackageQueryCatalog>(value => {
       const data = record(value);
       return {
         ...data,
@@ -157,6 +157,20 @@ export const engineStartupOperations = {
             combinesWithinSelectionGroup: boolean(facet.combinesWithinSelectionGroup),
             displayGroupId: nullableText(facet.displayGroupId),
             displayGroupLabel: nullableText(facet.displayGroupLabel),
+          };
+        }),
+        terms: array(data.terms, rawTerm => {
+          const term = record(rawTerm);
+          return {
+            ...term,
+            key: text(term.key),
+            label: text(term.label),
+            summary: text(term.summary),
+            weight: number(term.weight),
+            tier: tier(term.tier),
+            operators: array(term.operators, text),
+            valueKind: text(term.valueKind),
+            example: text(term.example),
           };
         }),
       };
