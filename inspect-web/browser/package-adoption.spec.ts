@@ -1122,21 +1122,28 @@ test.describe("Package Changes website over real Wasm", () => {
         body = JSON.stringify({
           commitId: "index",
           commitTimeStamp: horizon.toISOString(),
-          count: 1,
-          items: [{
-            "@id": "https://api.nuget.org/v3/catalog0/page0.json",
-            commitId: "page",
-            commitTimeStamp: horizon.toISOString(),
-            count: catalogItems.length,
-          }],
-        });
-      } else if (providerPath === "/v3/catalog0/page0.json") {
-        body = JSON.stringify({
-          commitId: "page",
-          commitTimeStamp: horizon.toISOString(),
           count: catalogItems.length,
+          items: catalogItems.map((item, index) => ({
+            "@id": `https://api.nuget.org/v3/catalog0/page-${index}.json`,
+            commitId: `page-${index}`,
+            commitTimeStamp: index === catalogItems.length - 1
+              ? horizon.toISOString()
+              : item.commitTimeStamp,
+            count: 1,
+          })),
+        });
+      } else if (/^\/v3\/catalog0\/page-\d+\.json$/.test(
+        providerPath ?? "")) {
+        const pageIndex = Number(
+          /^\/v3\/catalog0\/page-(\d+)\.json$/.exec(providerPath ?? "")?.[1]);
+        body = JSON.stringify({
+          commitId: `page-${pageIndex}`,
+          commitTimeStamp: pageIndex === catalogItems.length - 1
+            ? horizon.toISOString()
+            : catalogItems[pageIndex]!.commitTimeStamp,
+          count: 1,
           parent: "https://api.nuget.org/v3/catalog0/index.json",
-          items: catalogItems,
+          items: [catalogItems[pageIndex]],
         });
       } else {
         await route.fulfill({ status: 404 });
@@ -1198,6 +1205,7 @@ test.describe("Package Changes website over real Wasm", () => {
       .toContainText("Completion and coverage");
     await expect(page.locator(".package-changes-coverage"))
       .toContainText("40 of 40 eligible");
+    await expect(page.locator(".package-changes-progress li")).toHaveCount(2);
     await expect(page.locator(".package-changes-row")).toHaveCount(30);
     await expect(page.locator(".package-changes-row h2").first())
       .toHaveText("Microsoft.Extensions.AI 1.39.0");

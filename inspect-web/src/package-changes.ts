@@ -99,6 +99,24 @@ export function createPackageChangesRequest(
   };
 }
 
+function withLatestProgress(
+  current: readonly BrowserPackageChangesProgress[],
+  progress: BrowserPackageChangesProgress,
+): BrowserPackageChangesProgress[] {
+  const index = current.findIndex(
+    candidate => candidate.phase === progress.phase);
+  if (index < 0) return [...current, progress];
+  return current.map(
+    (candidate, candidateIndex) =>
+      candidateIndex === index ? progress : candidate);
+}
+
+function latestProgress(
+  history: readonly BrowserPackageChangesProgress[],
+): BrowserPackageChangesProgress[] {
+  return history.reduce(withLatestProgress, []);
+}
+
 export function createPackageChangesController(
   state: PackageChangesState,
   source: PackageChangesDataSource,
@@ -145,14 +163,7 @@ export function createPackageChangesController(
       const result = await source.run(
         request,
         progress => publish(currentGeneration, () => {
-          const index = state.progress.findIndex(
-            candidate => candidate.phase === progress.phase);
-          if (index < 0) state.progress = [...state.progress, progress];
-          else {
-            state.progress = state.progress.map(
-              (candidate, candidateIndex) =>
-                candidateIndex === index ? progress : candidate);
-          }
+          state.progress = withLatestProgress(state.progress, progress);
         }),
         row => publish(currentGeneration, () => {
           state.rows = [...state.rows, row];
@@ -165,7 +176,7 @@ export function createPackageChangesController(
       active = null;
       if (result.kind === "succeeded") {
         const content = result.inspection.content;
-        state.progress = [...content.progress];
+        state.progress = latestProgress(content.progress);
         state.rows = [...content.rows];
         state.failures = [...content.failures];
         state.settlement = {

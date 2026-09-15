@@ -47,6 +47,42 @@ test("controller preserves progressive order and reconciles the terminal documen
     "Partial");
 });
 
+test("terminal reconciliation retains only the latest UI progress per phase", async () => {
+  const firstCatalog = { ...progress, completed: 1 };
+  const advisory = { ...progress, phase: "Advisories", completed: 4 };
+  const lastCatalog = { ...progress, completed: 120 };
+  const terminal = inspection([]);
+  const inspectionWithHistory = {
+    ...terminal,
+    content: {
+      ...terminal.content,
+      progress: [firstCatalog, advisory, lastCatalog],
+    },
+  };
+  const state = initialPackageChangesState();
+  const controller = createPackageChangesController(
+    state,
+    {
+      async run() {
+        return {
+          kind: "succeeded",
+          inspection: inspectionWithHistory,
+        };
+      },
+    },
+    () => {});
+
+  await controller.run(createPackageChangesRequest("package-set.example"));
+
+  assert.deepEqual(state.progress, [lastCatalog, advisory]);
+  assert.equal(state.settlement.kind, "succeeded");
+  assert.deepEqual(
+    state.settlement.kind === "succeeded"
+      ? state.settlement.inspection.content.progress
+      : [],
+    [firstCatalog, advisory, lastCatalog]);
+});
+
 test("explicit cancellation retains rows while awaiting physical cancellation", async () => {
   const pending = deferred<PackageChangesTerminalResult>();
   const admitted = changeRow("Example.Admitted");
