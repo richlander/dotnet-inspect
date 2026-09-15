@@ -5681,6 +5681,13 @@ public static class ApiSurfaceExtractor
             AddText(ref count, root.TypeInfoPropertyName);
         }
         AddText(ref count, type.Interfaces);
+        foreach (ApiTypeReferenceIdentity reference
+            in type.InterfaceReferences)
+        {
+            AddText(ref count, reference.Assembly);
+            AddText(ref count, reference.FullName);
+            AddText(ref count, reference.DefinitionName);
+        }
         foreach (FilteredJsonPropertyNameFact fact
             in type.FilteredJsonPropertyNameFacts)
         {
