@@ -392,8 +392,11 @@ Field semantics:
   referenced workspace has several contexts. In schema version 1, `query` is
   the scenario's one query preset. A coordinate-backed version-2 scenario
   carries queries through each committed view state and forbids the
-  scenario-level `query` field; it references both `view` and `navigation`, or
-  neither. A workspace-free version-2 scenario may instead reference one
+  scenario-level `query` field; it must reference both one version-2 `view` and
+  one version-2 `navigation` record. Missing either or both is an invalid
+  definition set; Workspace selection is explicit in the required null state,
+  never inferred from omission. A workspace-free version-2 scenario may
+  instead reference one
   scenario-level query and no view or navigation. Omitting `workspace` is a
   genuine workspace-free scenario: `input` names a bundle-registered embedded
   input, typed acquisition location, or domain input slot required by its
@@ -1615,7 +1618,7 @@ The version dispatch matrix is closed:
 | Workspace-free definition scenario graph containing only version-1 records | Strict version-1 bind and existing workspace-free execution; no Workspace restoration |
 | Workspace-backed definition graph containing only version-1 records | Strict version-1 bind, then direct-Package whole-graph lowering or `LegacyCompatibilityRequired` for absent/non-Package focus |
 | Workspace-free definition scenario graph containing only version-2 records | Strict version-2 bind and direct workspace-free query validation; no Workspace restoration |
-| Workspace-backed definition graph containing only version-2 records | Strict version-2 bind and direct validation |
+| Workspace-backed definition graph containing only version-2 records | Strict version-2 bind requiring both view and navigation, then direct validation |
 | Definition scenario graph mixing record versions | `InvalidDefinitionSet`; no partial lowering |
 
 Dispatch reads only the required top-level discriminator through the bounded
@@ -2031,8 +2034,10 @@ Implementation must add, at minimum:
   cases for the null-coordinate Workspace arm, every direct Package subject
   arm, absent-subject Package recommendation, and dormant non-Package arm,
   plus exact facet state, query references, multi-Library scope, one state per
-  navigation entry, same-version peer composition, and rejection of every
-  mixed-version graph;
+  navigation entry, same-version peer composition, rejection of
+  workspace-backed v2 scenarios missing either or both view/navigation
+  references, preservation of workspace-free v2 scenarios with neither, and
+  rejection of every mixed-version graph;
 - a record-separation gate proving scenarios compose peer workspace, query,
   view, and navigation records by id, workspace-free scenarios create no
   assembly group, record count never activates a scenario implicitly, and
