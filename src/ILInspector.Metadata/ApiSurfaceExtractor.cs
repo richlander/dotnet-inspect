@@ -1522,6 +1522,21 @@ public static class ApiSurfaceExtractor
                     reader,
                     field.Name,
                     observeDecodeWork);
+
+                // The enum storage slot supplies a type fact rather than a
+                // declarable member, so presentation filters do not apply to it.
+                if (isEnum && fieldName == "value__")
+                {
+                    apiType.EnumUnderlyingType = DecodeFieldType(
+                        reader,
+                        typeContext,
+                        field,
+                        typeNullableContext,
+                        observeText,
+                        observeDecodeWork).Text;
+                    continue;
+                }
+
                 List<string?> jsonPropertyNames =
                     AttributeReader.ReadJsonPropertyNames(
                         reader,
@@ -1600,27 +1615,12 @@ public static class ApiSurfaceExtractor
                         field.GetCustomAttributes(),
                         observeDecodeWork);
 
-                // Decode field type. For enums the special value__ field carries
-                // the underlying type; literal fields are constants, not fields in
-                // source, so they do not need a field declaration type.
+                // Enum literal fields are constants, not fields in source, so they
+                // do not need a field declaration type.
                 string? fieldType = null;
                 bool fieldSignatureDegraded = false;
                 List<ApiTypeReferenceIdentity> fieldTypeReferences = [];
-                if (isEnum)
-                {
-                    if (fieldName == "value__")
-                    {
-                        apiType.EnumUnderlyingType = DecodeFieldType(
-                            reader,
-                            typeContext,
-                            field,
-                            typeNullableContext,
-                            observeText,
-                            observeDecodeWork).Text;
-                        continue;
-                    }
-                }
-                else
+                if (!isEnum)
                 {
                     (fieldType, fieldSignatureDegraded, fieldTypeReferences) =
                         DecodeFieldType(
