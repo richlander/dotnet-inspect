@@ -40,7 +40,7 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.Same(first.Population.Identity, captured.Receipt.Identity);
         AssertEquivalent(Locate(captured, new TypeDeclarationLocatorRequest.Pattern("Widget")), first);
 
-        _ = workspace.CreateAssemblyContextGroup(Loaded(context.Outcome).Group.Participants);
+        _ = workspace.CreateAssemblyContextGroup(ContextLoaded(context).Group.Participants);
         locator.PopulationChanged();
         Assert.Same(first.Population.Identity, (await ResidentFind(locator)).Population.Identity);
         Assert.Equal(1, locator.InventoryReadCount);
@@ -240,7 +240,7 @@ public sealed partial class WorkspaceContextLoaderTests
             workspace,
             new() { Framework = Framework, Members = [WorkspaceMemberCoordinate.Package("missing", Version)] },
             Options(client, new InMemoryPackageStore()), TestContext.Current.CancellationToken);
-        Assert.IsType<WorkspaceContextLoadOutcome.Failed>(failed.Outcome);
+        Assert.IsType<WorkspaceContextLoadOutcome.Failed>(failed.ContextLoadOutcome);
         var incomplete = await ResidentFind(locator);
         Assert.Equal(2, incomplete.Population.Contexts.Length);
         Assert.False(incomplete.Answers[0].IsRealizationComplete);
@@ -291,8 +291,8 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.Equal(1, locator.InventoryReadCount);
         Assert.Equal(0, locator.RetainedInventoryCount);
         Assert.False(locator.IsActive);
-        Assert.Equal(0, Loaded(context.Outcome).Group.RetainedImageBytes);
-        Assert.Equal(0, Loaded(added.Outcome).Group.RetainedImageBytes);
+        Assert.Equal(0, ContextLoaded(context).Group.RetainedImageBytes);
+        Assert.Equal(0, ContextLoaded(added).Group.RetainedImageBytes);
         Assert.Single(first.Answers[0].Candidates);
         var unavailable = Assert.IsType<TypeDeclarationLocatorResult.Rejected>(
             await locator.ExecuteAsync([new TypeDeclarationLocatorRequest.Pattern("Widget")],
@@ -333,7 +333,7 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.NotNull(close);
         Assert.True((await close).Succeeded);
         Assert.Equal(1, locator.InventoryReadCount);
-        Assert.Equal(0, Loaded(context.Outcome).Group.RetainedImageBytes);
+        Assert.Equal(0, ContextLoaded(context).Group.RetainedImageBytes);
         Assert.Equal(0, locator.RetainedInventoryCount);
     }
 
@@ -378,7 +378,7 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.Same(failure, await Assert.ThrowsAsync<InvalidOperationException>(() => ResidentFind(locator)));
         Assert.Same(failure, await Assert.ThrowsAsync<InvalidOperationException>(() => workspace.CloseAsync()));
         Assert.NotNull(workspace.CloseReport);
-        Assert.Equal(0, Loaded(firstContext.Outcome).Group.RetainedImageBytes);
+        Assert.Equal(0, ContextLoaded(firstContext).Group.RetainedImageBytes);
         Assert.Equal(0, locator.RetainedInventoryCount);
         Assert.Single(first.Answers[0].Candidates);
     }
@@ -467,14 +467,14 @@ public sealed partial class WorkspaceContextLoaderTests
         int order = workspace.BeginDeclarationContext();
         await using var producer = new InspectionWorkspace();
         WorkspaceDeclarationContext acquired = await LocatorContext(producer, image);
-        WorkspaceContextMember source = Assert.Single(Loaded(acquired.Outcome).Members);
+        WorkspaceContextMember source = Assert.Single(ContextLoaded(acquired).Members);
         // Preserve loader-issued correspondence; defer the same fixture image to
         // the group opener so lifetime/failure gates exercise actual scoped access.
         var assembly = ResolvedAssemblyReference.Create(source.Participant.Assembly.Identity,
             path: null, open, source.Participant.Assembly.Provenance);
         var participant = new AssemblyContextParticipant(assembly, NoResolverAssemblyBindingPolicy.Instance);
         AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
-        return workspace.CompleteDeclarationContext(order, acquired.Receipt.Request,
+        return workspace.CompleteDeclarationContext(order, ContextRequest(acquired),
             new WorkspaceContextLoadOutcome.Loaded(
                 workspace.Identity,
                 group,
