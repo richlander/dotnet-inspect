@@ -33,7 +33,7 @@ approved in #6763, supplies the platform and all-known construction intents
 adopted here. #7001 adds selected-set construction from an explicit ordered
 ecosystem identity sequence. The platform composition keeps its narrower
 meaning; all-known construction adds every shipped ecosystem, including Aspire,
-AI, Azure, and Blazor; selected-set construction adds exactly the requested
+AI, Azure, Blazor, and .NET MAUI; selected-set construction adds exactly the requested
 registrations in caller order. These application-owned choices add no product
 policy to Workspace.
 
@@ -468,9 +468,18 @@ Its four concrete registered packages supply traversal roots for browser-hosted
 Blazor, Blazor Hybrid, QuickGrid's Entity Framework Core adapter, and MSAL
 authentication. Its two prefixes retain focused discovery scope. The
 Components prefix deliberately overlaps the broader ASP.NET Core population,
-and `Microsoft.AspNetCore.Components.WebView.Maui` may also be registered by a
-future MAUI contribution. The handoff preserves both entry points without
+and `Microsoft.AspNetCore.Components.WebView.Maui` is also registered by the
+.NET MAUI contribution. The handoff preserves both entry points without
 deduplicating either registration or inferring traversal from overlap.
+
+.NET MAUI is absent from platform curation and present in all-known
+construction. Its five concrete registered packages supply traversal roots for
+first-party Controls, Blazor Hybrid, Community Toolkit, SkiaSharp, and Markdig
+joins. Its three prefixes retain focused discovery scope. The exact
+WebView.Maui package and prefix deliberately overlap the Blazor registration,
+while the dependency-aggregate `Microsoft.Maui.Controls` root demonstrates
+that projection preserves package identity without inspecting for a
+package-local compile library.
 
 Adding or removing an entry is an application-manifest change, not a Workspace
 Scope default embedded in CLI, Browser, Queries, or persisted data. All-known
@@ -708,6 +717,7 @@ CreateWorkspacePlan()
        5. ecosystem.ai
        6. ecosystem.azure
        7. ecosystem.blazor
+       8. ecosystem.maui
 
 CreateWorkspacePlan([ecosystem.aspire, ecosystem.platform])
   -> WorkspacePlan
@@ -721,7 +731,7 @@ Direct `new WorkspacePlan()` instead returns an empty registration set.
 Restoring an explicitly empty registration sequence constructs raw and remains
 empty; neither host calls curated construction during restoration.
 
-The neighboring Aspire, AI, Azure, and Blazor packs have selectable lower
+The neighboring Aspire, AI, Azure, Blazor, and .NET MAUI packs have selectable lower
 declarations and appear only in the all-known sequence. Plans create no live Package
 membership; explicit live construction from any plan starts with empty acquired
 membership.
@@ -735,7 +745,7 @@ membership.
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
 | Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required registered-package or population contributions are enforced without filtering ordinary pack discovery. |
-| All-known product Workspace | The separate current seven-row order includes Aspire, AI, Azure, and Blazor and every known pack; missing or unavailable projections cannot be silently omitted. |
+| All-known product Workspace | The separate current eight-row order includes Aspire, AI, Azure, Blazor, and .NET MAUI and every known pack; missing or unavailable projections cannot be silently omitted. |
 | Selected product Workspace | A nonempty unique selected identity sequence produces exactly those retained registrations in caller order; null, duplicate, unknown, unavailable, and hints-only entries fail without a partial plan. |
 | Independent construction | One curated plan can seed distinct live Workspace identities; edits and close preserve the original plan and other owners. |
 | Lifetime preservation | Plans require no disposal; explicit live construction consumes the single Workspace awaited lifetime without an Ecosystems-owned variant. |
@@ -743,7 +753,7 @@ membership.
 | Complete failure | Invalid or unavailable curated entries return no partial Workspace and retain the product defect visibly. |
 | Product-policy evolution | Changing the curated manifest affects new curated construction only; existing and restored expanded registration sets remain unchanged. |
 | Prefix policy separation | Projected prefixes retain exact `PackagePrefixDeclaration` values and no request bound or prerelease policy. |
-| Registered-package policy | Projected core packages retain exact unversioned `PackageCoordinate` roots and construction performs no resolution or acquisition. |
+| Registered-package policy | Projected core packages retain exact unversioned `PackageCoordinate` roots, including cross-pack duplicates and dependency-aggregate roots with no package-local compile library; construction performs no resolution or acquisition. |
 | Catalog dependency policy | Existing full project-and-assembly gates keep `DotnetInspector.Ecosystems` out of Queries and every inspect-web production project except `CatalogExports`. |
 | Ordinary consumer canary | A non-friend consumer selects lower declarations through the public catalog surface and uses them without internal access. |
 | CLI and Browser adoption | Both hosts invoke the Ecosystems-owned construction path and observe its exact initial registration sequence. |
