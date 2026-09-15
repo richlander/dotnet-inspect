@@ -163,6 +163,17 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task ExecuteSkill_QueryDocumentsFindOperationEnvelope()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("query")));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("`complete`, `results`, and `locator_sections`", output);
+        Assert.Contains("read result rows from\n`.results`", output);
+    }
+
+    [Fact]
     public async Task EveryRegisteredSkillResourceResolves()
     {
         foreach (var skill in SkillCommand.Skills)
