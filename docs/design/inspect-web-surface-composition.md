@@ -153,6 +153,12 @@ package and Platform Methods and Call Graph cases.
 the data-bar entry during startup. The `Demos preserves Settings` browser
 cases cover both an open dialog and a dismissed dialog through a later Build
 identity render, including a user's new focus selection after dismissal.
+`Demos restores Spotlight dismissal focus` covers the heading, a demo action,
+and a data-bar link. The failed-demo-publication case also activates Retry
+after recovery. Delayed Package encoding cases cover Back and superseding
+navigation; an encoding failure retains the inspection with a visible notice.
+These cases consume the existing modal-focus, retry, and canonical-history
+contracts rather than introducing new navigation semantics.
 
 Loading, catalog-unavailable, query-notice, and long-label states retain the
 same primary hierarchy. They do not replace Search with artwork, turn failure
