@@ -46,7 +46,8 @@ public static partial class PackageSourceClientFactory
         PackageSourceResultFactory results = CreateResultFactory(
             producer,
             association,
-            PackageSourceKind.LocalFolder);
+            PackageSourceKind.LocalFolder,
+            compatibilitySourceIdentity: null);
         return new LocalFolderPackageSourceClient(
             source,
             results,

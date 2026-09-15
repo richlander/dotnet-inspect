@@ -223,9 +223,14 @@ public sealed class PackageSourceResultIdentityTests
         const string endpoint =
             "https://feed.example/v3/index.json";
         var httpSource = new PackageSource("http", endpoint);
+        using IPackageSourceClient httpClient =
+            V3(endpoint, PackageSourceAssociation.Create());
         Assert.Equal(
-            Producer(endpoint),
+            httpClient.Source.Producer,
             PackageSourceClientFactory.GetProducerIdentity(httpSource));
+        Assert.Equal(
+            "https://feed.example:443/v3/index.json",
+            httpClient.Source.CompatibilitySourceIdentity);
 
         string localPath =
             Path.GetFullPath("projected-local-package-source");
@@ -239,6 +244,7 @@ public sealed class PackageSourceResultIdentityTests
             localClient.Source.Producer,
             PackageSourceClientFactory.GetProducerIdentity(
                 new PackageSource("local", localPath)));
+        Assert.Null(localClient.Source.CompatibilitySourceIdentity);
     }
 
     [Fact]

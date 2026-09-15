@@ -322,15 +322,13 @@ public static class PackagePayloadAcquisition
     {
         ArgumentNullException.ThrowIfNull(configuredSourceIdentity);
         string configuredSource = configuredSourceIdentity.Value;
-        PackageProducerIdentity configuredProducer =
-            PackageSourceClientFactory.GetProducerIdentity(
-                new PackageSource(
-                    "configured-source",
-                    configuredSource));
-        if (configuredProducer != source.Source.Producer)
+        if (!string.Equals(
+                configuredSource,
+                source.Source.CompatibilitySourceIdentity,
+                StringComparison.Ordinal))
         {
             throw new ArgumentException(
-                "The configured source identity does not identify the runtime source producer.",
+                "The configured source identity does not identify the runtime source compatibility identity.",
                 nameof(configuredSourceIdentity));
         }
         return AcquireTypedAsync(

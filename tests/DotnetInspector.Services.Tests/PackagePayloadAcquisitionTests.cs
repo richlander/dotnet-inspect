@@ -114,20 +114,24 @@ public sealed class PackagePayloadAcquisitionTests
     [Fact]
     public async Task TypedCacheHit_DoesNotEscapeExpiredOperationContext()
     {
+        const string SourceUrl =
+            "https://feed.example/%7E/v3/index.json";
         byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
         var store = new InMemoryPackageStore();
+        string contentProducerKey = NuGetCache.GetSourceKey(SourceUrl);
         await store.CommitAsync(
             PackageId,
             Version,
-            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            contentProducerKey,
             new MemoryStream(nupkg),
             TestContext.Current.CancellationToken);
         using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(
+            PackageSourceClientFactory.Create(
+                new PackageSource("matching-normalized-source", SourceUrl),
                 PackageSourceAssociation.Create(),
                 new FailingHandler());
         var configuredSourceIdentity =
-            PackageSourceIdentity.NuGetOrg;
+            PackageSourceIdentity.ForHttpEndpoint(new Uri(SourceUrl));
         AcquiredPackageSourcePayload acquired =
             Assert.IsType<PackageSourcePayloadResult.Acquired>(
                 await PackagePayloadAcquisition.AcquireAsync(
@@ -139,9 +143,7 @@ public sealed class PackagePayloadAcquisitionTests
                         TestContext.Current.CancellationToken))
                 .Payload;
         Assert.Equal(source.Source.Producer, acquired.Producer);
-        Assert.Equal(
-            NuGetCache.GetSourceKey(NuGetOrg.Url),
-            acquired.ProducerKey);
+        Assert.Equal(contentProducerKey, acquired.ProducerKey);
         var options = new NuGetFetchOptions
         {
             RequestTimeout = TimeSpan.FromSeconds(1),

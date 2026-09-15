@@ -181,7 +181,8 @@ public sealed class PackageSourceResultIdentity
         object ownerCapability,
         PackageProducerIdentity producer,
         PackageSourceAssociation association,
-        PackageSourceKind transportKind)
+        PackageSourceKind transportKind,
+        string? compatibilitySourceIdentity)
     {
         PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
         ArgumentNullException.ThrowIfNull(producer);
@@ -189,6 +190,7 @@ public sealed class PackageSourceResultIdentity
         Producer = producer;
         Association = association;
         TransportKind = transportKind;
+        CompatibilitySourceIdentity = compatibilitySourceIdentity;
     }
 
     /// <summary>Gets the package-content producer.</summary>
@@ -199,6 +201,12 @@ public sealed class PackageSourceResultIdentity
 
     /// <summary>Gets the transport family that produced the result.</summary>
     public PackageSourceKind TransportKind { get; }
+
+    /// <summary>
+    /// Gets the credential-free legacy source identity used only to preserve
+    /// existing content-cache correspondence, when this transport has one.
+    /// </summary>
+    public string? CompatibilitySourceIdentity { get; }
 
     /// <inheritdoc/>
     public bool Equals(PackageSourceResultIdentity? other) =>

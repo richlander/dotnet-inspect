@@ -2158,6 +2158,7 @@ The related identity concepts have distinct jobs:
 | `PackageProducerIdentity` | The Package Source-owned complete credential-free producer identity. Typed acquisition retains it as the equality and authorization currency; the Root owner neither reconstructs it from endpoint or display text nor treats it as immutable-byte identity. |
 | Portable producer token | The Package Source-issued `PackageProducerIdentity.PortableKey`, recorded as `RealizedMemberCoordinate.Package.Producer` for a fresh typed-source Root. It is bounded transport correspondence, not source authority; a destination must match it against producer identities from its currently authorized sources. |
 | `ProducerKey` | The existing producer key of retained content and its cache slot. PackageHouse uses the complete source producer key, while the Browser retains its legacy NuGet.org cache key. It need not equal the portable coordinate producer, and neither value distinguishes successive byte generations from one source. |
+| Compatibility source identity | The credential-free legacy HTTP identity retained by `PackageSourceResultIdentity` solely to prove that a legacy content/cache request belongs to its runtime source. It is not complete producer identity or source authority. |
 | `PackageContentGenerationIdentity` | The process-local identity of one retained immutable package-content snapshot. Cache handles over that retained snapshot may share the identity; a replacement snapshot receives a new identity. |
 | `PackageRootSelectionIdentity` | The process-local identity of one frozen package-selection occurrence. |
 | `PackageRootBinding` | The acquisition-issued value that joins one Root, realized coordinate, content-snapshot identity, and frozen selection and proves their exact physical correspondence. |
@@ -2176,6 +2177,11 @@ coordinate and both identities without repeating coordinate resolution,
 content acquisition, or compile asset selection. A resolved compatibility
 payload that carries no source-issued producer identity may bind only a
 coordinate whose producer equals its retained content producer key.
+Public typed acquisition compares its legacy configured-source identity with
+the runtime source's retained compatibility identity before any cache lookup
+or download. That check prevents one source from reading or publishing through
+another source's cache identity without attempting to reconstruct the modern
+producer from a legacy spelling that intentionally folds path distinctions.
 The acquired payload result has an internal constructor and get-only
 properties, so ordinary consumers cannot forge a coordinate/content pairing
 or replace either half after acquisition issues it.

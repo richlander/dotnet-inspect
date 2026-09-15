@@ -177,6 +177,7 @@ public sealed record PackageSourceDescriptor
         DisplayName = displayName;
         Kind = kind;
         Identity = identity;
+        CompatibilitySourceIdentity = identity.Value;
         Endpoint = endpoint;
         Enabled = enabled;
     }
@@ -200,6 +201,8 @@ public sealed record PackageSourceDescriptor
     /// Gets the producer identity shared across transports.
     /// </summary>
     public PackageSourceIdentity Identity { get; }
+
+    internal string CompatibilitySourceIdentity { get; }
 
     /// <summary>
     /// Gets the transport endpoint, when the source kind requires one.
@@ -259,7 +262,7 @@ public sealed record PackageSourceDescriptor
                 nameof(serviceIndex));
         }
 
-        PackageSourceIdentity identity =
+        var identity =
             PackageSourceIdentity.ForHttpEndpoint(portableEndpoint);
         return new PackageSourceDescriptor(
             id,
@@ -366,6 +369,8 @@ public static partial class PackageSourceClientFactory
 {
     private const string CanonicalNuGetOrgEndpoint =
         "https://api.nuget.org/v3/index.json";
+    private const string CanonicalNuGetOrgCompatibilityIdentity =
+        "https://api.nuget.org:443/v3/index.json";
     private static readonly object OwnerCapability = new();
     private static readonly PackageProducerIdentity CanonicalNuGetOrgProducer =
         CreateHttpProducerCore(
@@ -618,7 +623,8 @@ public static partial class PackageSourceClientFactory
             CreateResultFactory(
                 CanonicalNuGetOrgProducer,
                 association,
-                PackageSourceKind.NuGetGallery),
+                PackageSourceKind.NuGetGallery,
+                CanonicalNuGetOrgCompatibilityIdentity),
             CreateGalleryTransport(),
             options ?? new NuGetFetchOptions());
 
@@ -637,7 +643,8 @@ public static partial class PackageSourceClientFactory
             CreateResultFactory(
                 CanonicalNuGetOrgProducer,
                 association,
-                PackageSourceKind.NuGetGallery),
+                PackageSourceKind.NuGetGallery,
+                CanonicalNuGetOrgCompatibilityIdentity),
             CreateGalleryTransport(
                 ownedCredentialFreeTransport,
                 OperatingSystem.IsBrowser()),
@@ -912,7 +919,8 @@ public static partial class PackageSourceClientFactory
                 CreateResultFactory(
                     CanonicalNuGetOrgProducer,
                     association,
-                    PackageSourceKind.NuGetGallery),
+                    PackageSourceKind.NuGetGallery,
+                    descriptor.CompatibilitySourceIdentity),
             PackageSourceKind.NuGetV3
                 when descriptor.Endpoint is not null =>
                 CreateResultFactory(
@@ -932,12 +940,14 @@ public static partial class PackageSourceClientFactory
             CreateHttpProducer(
                 NuGetSourceRequest.ProjectEndpoint(endpoint)),
             association,
-            transportKind);
+            transportKind,
+            PackageSourceIdentity.ForHttpEndpoint(endpoint).Value);
 
     private static PackageSourceResultFactory CreateResultFactory(
         PackageProducerIdentity producer,
         PackageSourceAssociation association,
-        PackageSourceKind transportKind)
+        PackageSourceKind transportKind,
+        string? compatibilitySourceIdentity)
     {
         ArgumentNullException.ThrowIfNull(producer);
         ArgumentNullException.ThrowIfNull(association);
@@ -945,7 +955,8 @@ public static partial class PackageSourceClientFactory
             OwnerCapability,
             producer,
             association,
-            transportKind);
+            transportKind,
+            compatibilitySourceIdentity);
         return new PackageSourceResultFactory(
             OwnerCapability,
             source);
