@@ -232,34 +232,20 @@ internal sealed record CloneCandidateOutputDocument(
 
 internal static class CloneCandidatesCommand
 {
-    internal static readonly string[] SummaryFieldNames =
-    [
-        "Breadth",
-        "Discovery",
-        "Name similarity threshold",
-        "Participants",
-        "Coverage",
-        "Result limit",
-        "Returned pairs",
-        "Ranked pairs",
-        "Retrieval pairs",
-        "Name comparisons",
-    ];
+    private static readonly DocumentSchema CandidateSchema =
+        CloneCandidateViewContext.Default
+            .GetSchemaInfo<CloneCandidateTableView>()!
+            .ToDocumentSchema();
 
-    internal static readonly string[] CandidateColumnNames =
-    [
-        "Rank",
-        "Left",
-        "Right",
-        "Score",
-        "Operations",
-        "Positions",
-        "Blocks",
-        "Edges",
-        "Locals",
-        "Type Name",
-        "Member Name",
-    ];
+    internal static void AddStructuralSchema(DocumentSchema schema)
+    {
+        SectionSchema section = CandidateSchema.GetSection(
+            SectionNames.CloneCandidates)!;
+        schema.Add(
+            SectionNames.CloneCandidates,
+            section.ItemKind,
+            [.. section.Items.Select(item => item.Name)]);
+    }
 
     internal static bool IsSelected(IEnumerable<string>? sections) =>
         sections?.Contains(
@@ -344,10 +330,16 @@ internal static class CloneCandidatesCommand
         if (output.Print || output.Value || output.Urls || output.Paths)
         {
             CommandError.Write(
-                $"Section '{SectionNames.CloneCandidates}' supports rows, columns, fields, counts, and structured output, not payload extraction.");
+                $"Section '{SectionNames.CloneCandidates}' supports rows, columns, counts, and structured output, not payload extraction.");
             return 1;
         }
-        if (!ValidateProjection(output.Fields, output.Columns))
+        if (output.Fields is { Length: > 0 })
+        {
+            CommandError.Write(
+                $"Section '{SectionNames.CloneCandidates}' is row-oriented and does not support --fields.");
+            return 1;
+        }
+        if (!ValidateProjection(output.Columns))
             return 1;
 
         await using InspectionWorkspace workspace = new();
@@ -450,8 +442,7 @@ internal static class CloneCandidatesCommand
             CountOutput.WriteCount(selectedRows.Length);
         }
         else if (options.Format == OutputFormat.Json
-            && options.Columns is not { Length: > 0 }
-            && options.Fields is not { Length: > 0 })
+            && options.Columns is not { Length: > 0 })
         {
             CloneCandidateOutputDocument json =
                 CloneCandidateOutputDocument.Create(document, selectedRows);
@@ -468,33 +459,14 @@ internal static class CloneCandidatesCommand
             OutputFormatter.WriteProjectedJson(
                 Console.Out,
                 options.Columns,
-                options.Fields,
+                null,
                 (writer, formatter, writerOptions) =>
-                {
-                    if (options.Fields is { Length: > 0 })
-                    {
-                        MarkoutWriter summaryWriter = MarkoutWriter.Create(
-                            writer,
-                            formatter,
-                            new MarkoutWriterOptions
-                            {
-                                HeadingLevelOffset =
-                                    writerOptions.HeadingLevelOffset,
-                                Projection = writerOptions.Projection,
-                            });
-                        summaryWriter.WriteSectionStart(2, "Summary");
-                        summaryWriter.WriteFields(
-                            SummaryFields(document).AsSpan());
-                        summaryWriter.WriteSectionEnd();
-                        summaryWriter.Flush();
-                    }
                     MarkoutSerializer.Serialize(
                         table,
                         writer,
                         formatter,
                         CloneCandidateViewContext.Default,
-                        writerOptions);
-                },
+                        writerOptions),
                 !options.CompactJson,
                 options.Rows);
         }
@@ -510,7 +482,7 @@ internal static class CloneCandidatesCommand
                 options.Format == OutputFormat.Tsv,
                 options.Format == OutputFormat.Jsonl,
                 options.Columns,
-                options.Fields,
+                null,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(
                         table,
@@ -526,7 +498,7 @@ internal static class CloneCandidatesCommand
                 OutputFormatter.CreateWindowedOptions(
                     options.Rows,
                     options.Columns,
-                    options.Fields);
+                    fields: null);
             IMarkoutFormatter formatter =
                 options.Format == OutputFormat.PlainText
                     ? new PlainTextFormatter()
@@ -548,60 +520,12 @@ internal static class CloneCandidatesCommand
         return 0;
     }
 
-    static bool ValidateProjection(
-        string[]? fields,
-        string[]? columns)
-    {
-        var fieldSchema = new DocumentSchema();
-        fieldSchema.Add(
+    static bool ValidateProjection(string[]? columns) =>
+        ProjectionDiagnostics.ValidateProjection(
+            CandidateSchema,
             SectionNames.CloneCandidates,
-            "field",
-            SummaryFieldNames);
-        var columnSchema = new DocumentSchema();
-        columnSchema.Add(
-            SectionNames.CloneCandidates,
-            "column",
-            CandidateColumnNames);
-        return ProjectionDiagnostics.ValidateProjection(
-                fieldSchema,
-                SectionNames.CloneCandidates,
-                fields,
-                columns: null)
-            && ProjectionDiagnostics.ValidateProjection(
-                columnSchema,
-                SectionNames.CloneCandidates,
-                fields: null,
-                columns);
-    }
-
-    static MarkoutField[] SummaryFields(CloneCandidateDocument document) =>
-    [
-        new("Breadth", document.Breadth.ToString()),
-        new("Discovery", document.Discovery.ToString()),
-        new(
-            "Name similarity threshold",
-            document.NameSimilarityThreshold.ToString(
-                "0.###",
-                CultureInfo.InvariantCulture)),
-        new(
-            "Participant scope",
-            document.Libraries.Length.ToString(
-                CultureInfo.InvariantCulture)),
-        new(
-            "Coverage",
-            document.CoverageIsComplete ? "Complete" : "Incomplete"),
-        new(
-            "Result limit",
-            document.ResultLimitReached
-                ? $"{document.Receipt.ReturnedPairs.ToString(CultureInfo.InvariantCulture)} returned; "
-                    + $"{document.ResultLimitOmittedPairs.ToString(CultureInfo.InvariantCulture)} omitted by the result limit"
-                : $"{document.Receipt.ReturnedPairs.ToString(CultureInfo.InvariantCulture)} returned"),
-        new(
-            "Work",
-            $"{document.Receipt.SeedMethods.ToString(CultureInfo.InvariantCulture)} seeds; "
-            + $"{document.Receipt.DiscoveredMethods.ToString(CultureInfo.InvariantCulture)} discovered candidates; "
-            + $"{document.Receipt.RetrievalPairs.ToString(CultureInfo.InvariantCulture)} retrieval pairs"),
-    ];
+            fields: null,
+            columns);
 
     static void WriteTabularContext(CloneCandidateDocument document)
     {
