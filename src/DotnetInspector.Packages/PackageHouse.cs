@@ -84,6 +84,7 @@ public abstract class PackageHouseSettlement
                 || !payload.ProducerKey.Equals(
                     acquisition.Producer.Key,
                     StringComparison.Ordinal)
+                || payload.Producer != acquisition.Producer
                 || payload.Origin != acquisition.Origin
                 || !ReferenceEquals(
                     payload.Content.GenerationIdentity,

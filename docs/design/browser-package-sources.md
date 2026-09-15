@@ -288,7 +288,13 @@ The existing `PackageSourceIdentity` is the legacy endpoint-shaped
 compatibility type, not the target producer identity. Its query-sensitive
 value, equality, hash, and formatting behavior remain unchanged during
 migration. A distinct permanent `PackageProducerIdentity` avoids changing that
-meaning while package-authority readers still exist.
+meaning while package-authority readers still exist. Each HTTP result identity
+also retains a private digest of that source's compatibility value and exposes
+only an equality operation, so a legacy content-cache request can prove that it
+belongs to the runtime source without retaining endpoint, query, fragment, or
+recognized credential text and without reconstructing complete producer
+identity from the lossy legacy spelling. Local-folder result identities have
+no HTTP compatibility match.
 
 Only the four owner-controlled sealed reference-result types are permitted
 operation values. Supported custom clients construct those types and outcomes
@@ -444,6 +450,11 @@ tokens issued from producer identities authorized by the current host. If one
 token matches multiple distinct full keys, the consumer fails visibly rather
 than choosing by source order. The token cannot recover an endpoint, local
 path, credential, association, or configured authority.
+`PackageSourceClientFactory.GetProducerIdentity` projects the same owner-issued
+identity from an already authorized desktop `PackageSource` without creating a
+runtime client. This is a compatibility adapter for destination authorization;
+it grants no authority and keeps HTTP and local-path interpretation inside the
+Package Source owner.
 
 `PortableProducerKeyPinsCanonicalCredentialFreeIdentity` pins representative
 exact output and canonical grammar.
@@ -451,6 +462,8 @@ exact output and canonical grammar.
 `ProducerIdentityRedactsPathBeforeKeyAndDisplay`, and
 `LocalFolderSource_ConsumesCanonicalIdentityWithoutReparsing` gate equal and
 distinct HTTP identities, credential rotation, and local identity issuance.
+`DesktopSourceProjectionUsesTheRuntimeProducerIdentity` gates the compatibility
+projection against the runtime HTTP and local clients.
 
 ### Result propagation
 
@@ -461,6 +474,11 @@ custom-client registration receives the same kind of bound factory through
 `PackageSourceClientFactory.CreateCustom`. Result, observation, manifest,
 payload, and operation-outcome construction is closed through that factory
 rather than accepting independent identity or issuer arguments.
+The bound result identity privately digests the compatibility source value
+supplied by the same client factory. Package payload acquisition asks the
+identity to match a caller's legacy cache identity before cache lookup or
+download; neither the value nor its endpoint components are exposed, and
+complete producer correspondence is never derived from the legacy value.
 
 `CreateCustom` accepts a portable descriptor, the caller's association, and a
 callback from the external client assembly. Its admitted kinds are

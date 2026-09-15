@@ -171,9 +171,12 @@ public sealed class PackageAssemblyQueryPlanningTests
     }
 
     [Fact]
-    public void ModernProducerKey_RoundTripsAnExactRootRebinding()
+    public void SourceProducerSpellings_RoundTripExactRootRebinding()
     {
-        string producer = PackageProducerIdentity.NuGetOrg.Key;
+        PackageProducerIdentity producer =
+            PackageProducerIdentity.NuGetOrg;
+        string contentProducer =
+            NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url);
         using var archive = new MemoryStream();
         using (var zip = new ZipArchive(
             archive,
@@ -185,35 +188,71 @@ public sealed class PackageAssemblyQueryPlanningTests
         var content = new InMemoryPackageContent(
             archive.ToArray(),
             fromCache: false,
-            producer);
+            contentProducer);
         var payload = new AcquiredPackageSourcePayload(
             PackageSourceCoordinate.Create(
                 "Modern.Producer.Package",
                 "1.0.0"),
             content,
+            contentProducer,
             producer,
             PackagePayloadOrigin.Download);
         PackageRootBinding initial =
             PackageRootBinding.CreateFromSource(
                 payload,
                 "net10.0");
-        PackageRootReacquisitionRequest request =
-            initial.CreateReacquisitionRequest();
-        Assert.True(
-            PackageRootReacquisitionRequest.TryDecode(
-                request.Encode(),
-                out PackageRootReacquisitionRequest? decoded));
+        Assert.Equal(
+            producer.PortableKey,
+            initial.Coordinate.Producer);
+        Assert.Equal(
+            contentProducer,
+            initial.Root.ProducerKey);
 
-        PackageRootRebindingOutcome rebound =
-            PackageRootAcquisition.BindReacquired(
-                decoded,
-                payload);
+        foreach (string coordinateProducer in
+            new[]
+            {
+                producer.PortableKey,
+                producer.Key,
+                contentProducer,
+            })
+        {
+            Assert.True(
+                RealizedMemberCoordinate.Package.TryCreate(
+                    initial.Coordinate.PackageId,
+                    initial.Coordinate.Version,
+                    coordinateProducer,
+                    initial.Coordinate.Framework,
+                    initial.Coordinate.RuntimeIdentifier,
+                    out RealizedMemberCoordinate.Package? coordinate,
+                    out string? problem),
+                problem);
+            var request = new PackageRootReacquisitionRequest(
+                PackageArtifactRootRequest.Create(
+                    coordinate,
+                    initial.CompileTargetFramework,
+                    initial.Root.RequestedTargetFramework,
+                    initial.Root.RequestedRuntimeIdentifier));
+            Assert.True(
+                PackageRootReacquisitionRequest.TryDecode(
+                    request.Encode(),
+                    out PackageRootReacquisitionRequest? decoded));
 
-        PackageRootBinding binding =
-            Assert.IsType<PackageRootRebindingOutcome.Bound>(
-                rebound).Binding;
-        Assert.Equal(request, binding.CreateReacquisitionRequest());
-        Assert.Equal(producer, binding.Coordinate.Producer);
+            PackageRootRebindingOutcome rebound =
+                PackageRootAcquisition.BindReacquired(
+                    decoded,
+                    payload);
+
+            PackageRootBinding binding =
+                Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                    rebound).Binding;
+            Assert.Equal(request, binding.CreateReacquisitionRequest());
+            Assert.Equal(
+                coordinateProducer,
+                binding.Coordinate.Producer);
+            Assert.Equal(
+                contentProducer,
+                binding.Root.ProducerKey);
+        }
     }
 
     sealed class RecordingPayloadProvider
