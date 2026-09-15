@@ -685,12 +685,22 @@ outside that context, and one coordinate may participate in several contexts.
 Display text, package ID alone, assembly filename, metadata token alone, list
 position, and Browser key are never subject identity.
 
-Resolution produces one exact `NavigationInitialization`: the state coordinate
-must be a direct Package coordinate and resolves to the retained Package
-occurrence, `retained` resolves its optional contiguous descendant path, and
-`subject.kind` selects the Workspace or one exact node of that path. A
-non-Package coordinate entry never enters this resolution path. These
-resource-free selectors are not runtime identities and never serialize
+Resolution has three closed arms:
+
+1. The leading null-coordinate state resolves directly to the exact fresh
+   Workspace subject with no retained occurrence context.
+2. A direct Package-coordinate state resolves to the exact retained Package
+   occurrence and optional contiguous descendant path. Present `subject.kind`
+   selects the Workspace or one exact node of that path. Absent `subject`
+   produces a `NavigationInitialization` with null subject and Package-only
+   context, preserving Navigation's initial-recommendation request.
+3. A non-Package coordinate entry remains dormant and never enters structural
+   resolution or produces a `NavigationInitialization`.
+
+Only the state selected by `navigation.focus` supplies the one
+`NavigationInitialization` used for fresh-Workspace activation. Inactive direct
+Package states resolve to dormant exact inputs for later ordinary Navigation.
+These resource-free selectors are not runtime identities and never serialize
 `InspectionWorkspaceIdentity`,
 `WorkspacePackageOccurrenceIdentity`, `StructuralSubjectIdentity`, Registry
 receipts, or Navigation authority. Missing, ambiguous, noncontiguous, or
@@ -2005,10 +2015,12 @@ Implementation must add, at minimum:
   `Serialize_RejectsGroupDepthAndNodeLimitsBeforeRecursiveWalks` gates the
   portable group-tree bounds; well-known group redefinition, broader JSON
   depth/value budgets, and cancellation remain open. Version-2 implementation
-  must add round-trip and closed-shape cases for every portable subject arm,
-  absent recommendation state, exact facet state, query references,
-  multi-Library scope, one state per navigation entry, same-version peer
-  composition, and rejection of every mixed-version graph;
+  must add round-trip, closed-shape, and resolved-`NavigationInitialization`
+  cases for the null-coordinate Workspace arm, every direct Package subject
+  arm, absent-subject Package recommendation, and dormant non-Package arm,
+  plus exact facet state, query references, multi-Library scope, one state per
+  navigation entry, same-version peer composition, and rejection of every
+  mixed-version graph;
 - a record-separation gate proving scenarios compose peer workspace, query,
   view, and navigation records by id, workspace-free scenarios create no
   assembly group, record count never activates a scenario implicitly, and
