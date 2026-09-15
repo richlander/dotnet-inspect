@@ -653,17 +653,6 @@ internal sealed class ExceptionFlowTopology
                     InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
                     "A shared protected extent cannot combine finally or fault with another clause.");
             }
-
-            int first = groupClauses[0].Ordinal;
-            for (int index = 0; index < groupClauses.Length; index++)
-            {
-                if (groupClauses[index].Ordinal != first + index)
-                {
-                    return Invalid(
-                        InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
-                        "Clauses sharing a protected extent must remain contiguous in metadata order.");
-                }
-            }
         }
 
         for (int left = 0; left < protectedGroups.Length; left++)

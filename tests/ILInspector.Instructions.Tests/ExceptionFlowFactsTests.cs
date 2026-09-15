@@ -67,6 +67,28 @@ public class ExceptionFlowFactsTests
     }
 
     [Fact]
+    public void SharedProtectedClausesMaySurroundAClauseNestedInAHandler()
+    {
+        (_, MethodInstructions method) =
+            Decode(nameof(ExceptionFlowFactsSamples.InterleavedNestedClause));
+        InstructionExceptionFlowFacts facts = AvailableFacts(method);
+
+        Assert.Equal(
+            [
+                ExceptionRegionKind.Catch,
+                ExceptionRegionKind.Finally,
+                ExceptionRegionKind.Catch,
+            ],
+            facts.Clauses.Select(clause => clause.Kind));
+        Assert.Equal(
+            facts.Clauses[0].ProtectedRegion,
+            facts.Clauses[2].ProtectedRegion);
+        Assert.NotEqual(
+            facts.Clauses[0].ProtectedRegion,
+            facts.Clauses[1].ProtectedRegion);
+    }
+
+    [Fact]
     public void LocationQueriesAreOuterToInnerAndRejectNonInstructionOffsets()
     {
         (_, MethodInstructions method) =
@@ -1017,6 +1039,31 @@ public static class ExceptionFlowFactsSamples
         }
         catch (OverflowException)
         {
+            return -2;
+        }
+    }
+
+    public static int InterleavedNestedClause(int value)
+    {
+        try
+        {
+            return checked(100 / value);
+        }
+        catch (DivideByZeroException)
+        {
+            return -1;
+        }
+        catch (OverflowException)
+        {
+            try
+            {
+                s_sink += value;
+            }
+            finally
+            {
+                s_sink++;
+            }
+
             return -2;
         }
     }

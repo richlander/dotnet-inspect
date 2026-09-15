@@ -94,11 +94,13 @@ prefix-interior boundaries, malformed IL, invalid nested protected-group
 order, mismatched clause-enclosing context, or an incomplete owner handoff
 produce typed unavailability. Shared protected extents retain catch/filter
 clause order; a shared extent cannot combine a `finally` or `fault` with
-another clause. A clause's protected, filter, and handler extents share the
-same external enclosing-region context. The inner-before-outer metadata-order
-requirement applies to nested protected groups; a complete clause nested in
-another clause's handler is not reordered. The owner does not discard one
-clause and publish a smaller topology as complete.
+another clause. Their rows need not be globally contiguous when a complete
+clause is nested in one handler. A clause's protected, filter, and handler
+extents share the same external enclosing-region context. The
+inner-before-outer metadata-order requirement applies to nested protected
+groups; a complete clause nested in another clause's handler is not reordered.
+The owner does not discard one clause and publish a smaller topology as
+complete.
 
 The existing `MethodInstructions` and `BlockGraph` are the implementation
 basis and first same-owner consumer. Adoption replaces their independently
