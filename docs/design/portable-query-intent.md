@@ -113,10 +113,18 @@ A **key** is a canonical query key from the named vocabulary's declared key
 namespace: a bounded ordinal token. It is not a display label, heading, column
 name, or CLI option spelling.
 
-An **operator** is one identity from the closed operator set already used by
-row predicates — equality, inequality, and the ordered comparisons. A
+An **operator** is one of four identities — equality, inequality, at-least,
+at-most — whose canonical texts are `eq`, `ne`, `gte`, and `lte`. As with a key,
+the text *is* the identity: it is what a vocabulary admits, what orders a term,
+and what any encoding carries, never an enum name or a CLI spelling. A
 vocabulary declares which operators each key admits; intent does not widen that
 set, and this design introduces no nesting, grouping, or solver.
+
+The same holds for every other fixed identity in an intent. **Identity texts**
+are the model's: directions `asc` and `desc`; stage kinds `head`, `tail`,
+`window`, and `top`; order-operation kinds `named` and `fields`; and the
+baseline role `base`. An encoding carries these texts and defines none of them;
+what it owns is structure — how identities and values are arranged into bytes.
 
 **Composition.** Terms conjoin across families. Terms belonging to one
 vocabulary-declared **combining family** form an OR-union within that family,
@@ -128,10 +136,18 @@ OR-union, and production evaluation already accepts the group when any selected
 member matches. A universal conjunction rule would silently rewrite that
 supported query into one requiring a package to be both formats at once.
 
+A family may instead declare its members **mutually exclusive**: two of them in
+one intent are not a narrower question but a contradiction, and resolution
+refuses the pair. Package Query's dependency group is the existing instance —
+`has dependencies` and `no dependencies` replace each other rather than
+combining — and so is its broad `.NET Tool` term beside a specific tool format.
+Exclusivity, like combination, is declared by the vocabulary and read at
+resolution, not marked on the term.
+
 Because composition is read from the vocabulary rather than the payload, family
-membership is part of that vocabulary's compatibility surface: changing which
-keys combine changes what an already-shared link means, and is governed by the
-same replay rules as removing a key.
+membership — combining or exclusive — is part of that vocabulary's compatibility
+surface: changing which keys combine or exclude changes what an already-shared
+link means, and is governed by the same replay rules as removing a key.
 A **value** is an inert value token: bounded text preserved exactly as
 supplied, constructed through the existing `InertText` containment shapes. This
 layer does not parse, normalize, case-fold, or interpret it. Interpretation
@@ -142,7 +158,13 @@ belongs to the vocabulary's binder at resolution.
 An **execution bound** is the `ExecutionBoundIntent(Dimension, RequestedMaximum)`
 shape owned by [CLI execution bounds](cli-execution-bounds.md), limiting one
 owner-named dimension of upstream work; reaching it produces a completion state
-and proves nothing about exhaustion. A dimension carries **at most one** bound:
+and proves nothing about exhaustion. A dimension's admissible range is the
+vocabulary's to declare, and it **may depend on the terms already bound** —
+Package Query admits at most 20 candidates once a package-content term is
+present, because each candidate then costs an archive — so the range is
+evaluated with the terms resolved, which the precedence below guarantees, and a
+breach is a bound failure located at the bound. A dimension carries **at most
+one** bound:
 two maxima for one dimension are not a narrower request, they are a
 contradiction. Bounds in different dimensions are independent, so their
 declaration sequence carries no meaning.
@@ -189,8 +211,9 @@ not an encoding's. An intent held and resolved in process never touches a codec,
 yet two hosts must still agree on which of several defects is reported first; so
 the orders live here, and any encoding emits them rather than defining them.
 
-- **Terms** order by key, then operator, then value — each compared as text,
-  never as a resolved or normalized form.
+- **Terms** order by key, then operator, then value — each compared as text:
+  the key's identity text, the operator's identity text, and the exact value
+  token, never a resolved or normalized form.
 - **Bounds** order by dimension identity.
 
 Every text comparison in these orders is by **Unicode scalar value**, which is
@@ -210,14 +233,21 @@ the owner's executable plan or one structured failure.
 
 - Resolution is **atomic**. The first failure returns no plan and no partial
   binding, and which failure is first is fixed by this contract rather than by a
-  host's enumeration order: parts resolve in the order they appear in the
-  contract table — vocabulary, terms, bounds, stages, order — elements within a
-  part resolve in that part's [semantic order](#semantic-order), and within one
-  element the checks run existence, then admissibility, then binding, then
-  collision, so a term with both an inadmissible operator and a value its binder
-  would reject reports the operator. For an order reference the same sequence
-  reads: exists, is orderable, has the purpose its role requires. Two hosts
-  resolving one intent report the same failure.
+  host's enumeration order. The sequence is the one
+  [row query and ordering](row-query-order.md) already requires, so that a row
+  vocabulary resolved through this model reports the same first failure it
+  reports today: the vocabulary; then terms in their
+  [semantic order](#semantic-order) — for a row vocabulary, that order is what
+  the row owner calls declaration order, since a term set has no other sequence;
+  then bounds in theirs; then the baseline order operation; then the stages in
+  declaration sequence, each ranking stage resolving its own ranking as it is
+  reached — the operation bound to it, else the vocabulary's declared default,
+  else *ranking missing*. Within one element the checks run existence, then
+  admissibility, then binding, then collision, so a term with both an
+  inadmissible operator and a value its binder would reject reports the
+  operator. For an order reference the sequence reads: exists, is orderable, has
+  the purpose its role requires. Two hosts resolving one intent report the same
+  failure.
 - Resolution **starts no work**. A rejected intent issues no acquisition, no
   source request, and no package payload fetch. This matters more here than for
   row predicates: a package-query term can authorize archive downloads, so a
@@ -233,11 +263,11 @@ the owner's executable plan or one structured failure.
   final package rows with head, tail, and window, and admits no top, because it
   has no order namespace to rank by; a row vocabulary admits all four. A stage
   of a kind the vocabulary does not declare is refused as not admitted.
-- **A ranking stage needs a ranking.** After every part has resolved, each top
-  stage without a bound ranking operation takes the vocabulary's declared
-  default ranking, as [row query and ordering](row-query-order.md) provides;
-  where the vocabulary declares none, the stage fails. This is the one check
-  that spans parts, so it runs last, in stage sequence.
+- **A ranking stage needs a ranking, and resolves it in place.** A top stage
+  takes the operation bound to it, else the vocabulary's declared default
+  ranking as the row owner provides, else fails as ranking missing — at the
+  stage, when the stage is reached, not after the other parts. Nothing in
+  resolution spans parts out of sequence.
 - A failure is **presentation-free**: the vocabulary identity, a typed location
   naming the part and the element within it, an owner-issued offending identity
   when the reason has one, and a typed reason. No diagnostic sentence, rendered
@@ -254,13 +284,14 @@ hosts produce the same failure and not merely the same reason:
 | Operator not admitted for the key | the term | the operator |
 | Value rejected by the key's binder | the term | the key whose binder rejected it |
 | Duplicate after binding | the later of the two terms in semantic order | the key |
+| Terms incompatible — two bound terms the vocabulary declares mutually exclusive | the later of the two terms in semantic order | its key |
 | Unknown dimension | the bound | the dimension |
-| Maximum outside the dimension's declared range | the bound | the dimension |
+| Maximum outside the dimension's declared range, which may depend on the bound terms | the bound | the dimension |
 | Stage not admitted | the stage | the stage kind |
 | Unknown order reference | the operation, and the field-term index within a field list | the reference |
 | Order reference not orderable | the operation, and the field-term index within a field list | the reference |
 | Order not a ranking — a sequence-purpose named order supplied for a ranking role | the operation | the reference |
-| Ranking missing — a top stage with no bound operation and no declared default | the stage | none |
+| Ranking missing — a top stage reached with no bound operation and no declared default | the stage | none |
 
 A reason whose offender column reads *none* carries none rather than an empty or
 invented one.
@@ -375,7 +406,7 @@ successor slice.
 | Gate | Contract |
 | --- | --- |
 | `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, bound, stage, or order reference returns one structured failure with no plan and no partial binding. |
-| `FailurePrecedenceIsContractFixed` | An intent carrying several independent defects reports the same failure — reason, location, and offender — regardless of host enumeration or construction order, following part order, then each part's semantic order, then existence, admissibility, binding, and collision within one element. |
+| `FailurePrecedenceIsContractFixed` | An intent carrying several independent defects reports the same failure — reason, location, and offender — regardless of host enumeration or construction order: vocabulary, terms in semantic order, bounds in semantic order, the baseline order, then stages in sequence each with its ranking; and existence, admissibility, binding, collision within one element. A row vocabulary reports the same first failure through this model as through the row owner's own resolver. |
 | `IntentResolutionStartsNoWork` | A rejected intent issues no acquisition, source request, or payload fetch; gated with a source capability that fails the test if invoked. |
 | `UnresolvableTermFailsVisibly` | An intent naming a key, operator, or dimension absent from the current build fails; it is never dropped, defaulted, narrowed, or widened. |
 | `IntentCarriesNoResolvedOrPresentationState` | Serialized intent contains no resolved identity, accessor, comparer, label, rendered value, or outcome. |
@@ -383,7 +414,9 @@ successor slice.
 | `IntentFailureShapeIsPresentationFree` | Failures carry only the vocabulary identity, a typed part-and-element location, an optional owner-issued offending identity, and a typed reason; a reason without an offending identity carries none rather than an empty or invented one. |
 | `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; an exact duplicate never reaches resolution, because membership is set-valued. |
 | `StagesCannotFailResolutionExceptByAdmission` | A structurally valid stage reaches resolution and is refused only when the vocabulary does not declare its kind; admission is per kind, so a vocabulary admitting head, tail, and window but not top refuses exactly the top; structural violations are refused at construction or decode and never reach resolution. |
-| `RankingStagesResolveOrFail` | A top stage without a bound ranking operation takes the vocabulary's declared default ranking or fails as ranking missing, located at the stage with no offender, after every other part has resolved; a sequence-purpose named order in a ranking role fails as order not a ranking. |
+| `RankingStagesResolveOrFail` | A top stage resolves its ranking when reached in stage sequence — the bound operation, else the declared default, else ranking missing at the stage with no offender — so with two top stages the earlier stage's missing ranking is reported before the later stage's unknown reference; a sequence-purpose named order in a ranking role fails as order not a ranking. |
+| `ExclusiveFamilyMembersAreRefused` | Two bound terms the vocabulary declares mutually exclusive fail as terms incompatible at the later term in semantic order, distinct from duplicate-after-binding, which requires the binder to map two terms to one predicate. |
+| `BoundRangeSeesResolvedTerms` | A dimension whose admissible range depends on bound terms — Package Query's candidate cap with a package-content term — is checked with the terms resolved, at the bound, before any acquisition. |
 | `FailureReasonUnionIsClosed` | Every failure carries one reason from the table, at that reason's location, with that reason's offender or none; no implementation or vocabulary emits a reason outside it. |
 
 ## Decisions
