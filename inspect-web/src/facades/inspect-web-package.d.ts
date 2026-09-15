@@ -213,6 +213,16 @@ export interface BrowserPackageChangesPackageScope {
     readonly prefix: string | null;
     readonly packageIds: ReadonlyArray<string>;
 }
+export interface BrowserPackageChangesPackageSetCatalog {
+    readonly version: number;
+    readonly packageSets: ReadonlyArray<BrowserPackageChangesPackageSetDescriptor>;
+}
+export interface BrowserPackageChangesPackageSetDescriptor {
+    readonly id: string;
+    readonly title: string;
+    readonly summary: string;
+    readonly order: number;
+}
 export interface BrowserPackageChangesPackageSourceFailure {
     readonly capability: number;
     readonly packageId: string | null;
@@ -629,6 +639,7 @@ export declare function clearWorkspacePackageOccurrences(): Promise<void>;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function getPlatformCatalog(targetFramework: string, platformVersion: string): Promise<BrowserPlatformCatalog>;
 export declare function getPlatformVersions(targetFramework: string): Promise<ReadonlyArray<string>>;
+export declare function listPackageChangesPackageSets(): BrowserPackageChangesPackageSetCatalog;
 export declare function listPackageQueryFacets(): BrowserPackageQueryFacetCatalog;
 export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
 export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string): Promise<string>;

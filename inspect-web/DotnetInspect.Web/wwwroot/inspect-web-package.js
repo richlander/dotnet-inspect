@@ -134,6 +134,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "ListPackageChangesPackageSets.1310674786");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageChangesPackageSets.1310674786\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Package");
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "ListPackageQueryFacets.1310674786");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageQueryFacets.1310674786\u0027 is not callable.");
@@ -391,6 +403,11 @@ export async function getPlatformCatalog(targetFramework, platformVersion) {
 }
 export async function getPlatformVersions(targetFramework) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["GetPlatformVersions.976702342"](targetFramework);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export function listPackageChangesPackageSets() {
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageChangesPackageSets.1310674786"]();
     const $parsed = JSON.parse($result);
     return $parsed;
 }

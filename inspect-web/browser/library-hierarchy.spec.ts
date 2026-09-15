@@ -496,6 +496,17 @@ async function installFacades(
           maxWorkspaceRetainedImageBytes: 67108864,
         };
       }
+      export function listPackageChangesPackageSets() {
+        return {
+          version: 1,
+          packageSets: [{
+            id: "package-set.fixture",
+            title: "Fixture packages",
+            summary: "Browser fixture package set.",
+            order: 10,
+          }],
+        };
+      }
       export function listPackageQueryFacets() { return { facets: [] }; }
       export async function queryMemberDocumentation() {
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
