@@ -1454,9 +1454,22 @@ maps its closed lens/section table to a candidate Registry ID when the table
 produces one and resolves its source-specific structural selectors after
 coordinate realization. It then submits only that exact ID and resolved
 subject to ordinary Registry resolution, invokes any query-owner migration,
-and forms the complete version-2 composition for ordinary validation. A legacy
-token is never submitted to the Registry, and Workspace Definitions never
-reads or duplicates a facet's private execution binding.
+and forms one typed runtime restoration recipe with the same combination
+validation as version 2. That recipe need not be serializable as a
+schema-version-2 record set: version 1 can name an exact Type or Member as its
+active subject, while version 2 represents those descendants as retained
+context beneath a Package subject. The source-specific runtime recipe preserves
+the version-1 subject semantics instead of changing them to fit the version-2
+record grammar. A legacy token is never submitted to the Registry, and
+Workspace Definitions never reads or duplicates a facet's private execution
+binding.
+
+The initial complete-restoration adoption keeps definition-v1 views carrying
+`library` or `libraries` on the typed `LegacyCompatibilityRequired` path
+before construction, preserving their existing context-scoped adapter.
+Packet-v1 Library scope enters direct-Package lowering because it is bound to
+the active coordinate; until its query-owner migration exists, that path fails
+visibly with `LegacyLoweringFailed` rather than discarding the scope.
 
 The version dispatch matrix is closed:
 
@@ -1627,23 +1640,24 @@ One restoration attempt proceeds in this order:
 2. Perform bounded format dispatch and strict decode. Format 2 produces one
    closed version-2 composition plan. Format 1 produces one unresolved legacy
    plan and retains its exact canonical packet basis.
-3. Resolve syntax, Registry IDs, query migrations, Platform/package pruning,
-   and complete context, Root, and registration construction intent into one
-   immutable `WorkspacePlan` and restoration recipe. Preserve selectors or
-   identities that require acquired metadata as exact unresolved recipe input.
-   Missing, ambiguous, rejected, or invalid resource-free input fails under the
-   same attempt token. This phase creates no Workspace, Root, Scope, reader,
-   session, or lease.
-4. Ask the consuming host for construction authority over one fresh Workspace
-   created from that exact plan. Inspect Web begins a
-   `WorkspaceRealizationCoordinator` candidate and supplies its
-   `WorkspaceRealizationConstructionLease`; the CLI supplies its sole
-   invocation Workspace lifetime. Populate complete explicit membership and
-   registrations through ordinary Artifact and Scope operations. Resolve and
-   validate metadata-dependent legacy selectors and coordinate-backed
-   identities against that exact acquired realization. Every Workspace, Root
-   occurrence, Scope revision, and Navigation identity is issued for that
-   Workspace.
+3. Resolve resource-free syntax, static legacy mappings, Platform/package
+   pruning, and complete context, Root, and registration construction intent
+   into one immutable `WorkspacePlan` and restoration recipe. Preserve
+   selectors, Registry requests, query migrations, or identities that require
+   acquired metadata as exact unresolved recipe input. Missing, ambiguous,
+   rejected, or invalid resource-free input fails under the same attempt token.
+   This phase creates no Workspace, Root, Scope, reader, session, or lease.
+4. Invoke the consuming host's construction continuation for that exact plan.
+   The continuation owns one fresh Workspace and supplies borrowed access while
+   its existing lifetime authority remains current. Inspect Web begins a
+   `WorkspaceRealizationCoordinator` candidate and invokes the Definitions
+   callback through its `WorkspaceRealizationConstructionLease`; the CLI
+   invokes it through its sole invocation Workspace lifetime. Populate complete
+   explicit membership and registrations through ordinary Artifact and Scope
+   operations. Resolve and validate metadata-dependent legacy selectors,
+   Registry requests, query migrations, and coordinate-backed identities
+   against that exact acquired realization. Every Workspace, Root occurrence,
+   Scope revision, and Navigation identity is issued for that Workspace.
 5. Establish the requested retained context, active subject, and lens through
    ordinary Navigation in the new Workspace. Resolve each inactive
    coordinate's saved view and query state without executing expensive work
@@ -1656,9 +1670,17 @@ One restoration attempt proceeds in this order:
    `ProjectionFailed`.
 7. Return one immutable `CompleteWorkspaceActivation` containing the exact
    prepared Workspace identity, complete snapshot, request basis, projection
-   classification, and owner evidence. The host still owns the live
-   construction authority and may activate only while the exact intent and
-   effect authority remain current.
+   classification, and owner evidence. The construction continuation releases
+   borrowed Workspace access before completing its lifetime owner's
+   construction barrier, then returns one opaque host-specific unpublished
+   activation handle paired with that exact Definitions result. The handle is a
+   ready realization candidate for Inspect Web and the invocation-owned
+   Workspace lifetime for CLI. It is never the Browser construction lease or
+   borrowed Workspace reference. Returning `Activated` is the handoff
+   linearization point: the host has accepted lifetime authority while the
+   intent is current, and a later superseding intent is handled by that host's
+   ordinary candidate or active-realization lifecycle rather than by
+   Definitions discarding an already transferred handle.
 8. The consuming host publishes the prepared Workspace according to its own
    realization lifecycle. Inspect Web uses the candidate and atomic-cutover
    contract owned by
@@ -1668,9 +1690,15 @@ One restoration attempt proceeds in this order:
    when the invocation ends. History, URL, focus, and announcement remain
    host-owned effects of the same authorized result.
 9. On decode, resolution, construction, Navigation, query, projection,
-   cancellation, expiry, or supersession failure, close the unpublished
-   Workspace and return the exact failure. A host must not replace its active
-   realization from a failed or late result.
+   cancellation, expiry, or supersession failure, the construction continuation
+   releases borrowed access and asks its existing lifetime owner to close or
+   settle the unpublished Workspace before returning the exact failure.
+   Definitions owns this non-install cleanup obligation; the host adapter
+   discharges it through the ordinary realization lifecycle rather than
+   directly closing a coordinator-owned Workspace. Cleanup never waits on a
+   construction barrier while still holding its lease, and it is not abandoned
+   merely because the request cancellation token is already signaled. A host
+   must not replace its active realization from a failed or late result.
 
 One restoration transaction prepares exactly one unpublished Workspace. It is
 not selectable, addressable through ordinary host actions, or recorded in
@@ -1680,6 +1708,31 @@ presentation has no active Workspace authority. A newer attempt supersedes the
 older result and the owning realization lifecycle closes or drains its
 resources. Host-level concurrent transaction and aggregate realization bounds
 belong to the consuming host.
+
+The construction boundary is one generic trusted-host continuation, not a new
+Workspace lifetime owner:
+
+```text
+CompleteRestorationHost<TActivation>.ConstructAsync(
+  IntentToken,
+  WorkspacePlan,
+  Prepare(InspectionWorkspace, Revocation) ->
+    Prepared(CompleteWorkspaceActivation) | Failed | Superseded)
+->
+  Activated(TActivation, exact CompleteWorkspaceActivation) |
+  Failed(cleanup evidence) |
+  Superseded(cleanup evidence)
+```
+
+The host implementation must associate the plan, fresh Workspace, callback
+result, and `TActivation` without rebinding any of them. It observes both the
+original host intent and its existing construction authority before beginning,
+before invoking the callback, and before returning success. Browser
+candidate identity does not replace host intent identity: a newer intent can
+supersede an attempt before a replacement candidate starts. The adapter
+releases borrowed construction access before awaiting candidate completion or
+retirement. Definitions tests use a host-neutral fake of this contract; the
+Browser and CLI adapters remain with their respective lifetime owners.
 
 Inspect Web may retain a bounded list of resource-free definitions for
 presentation. Selecting a retained definition performs fresh restoration and
@@ -1706,10 +1759,11 @@ Workspace. A complete Navigation snapshot may retain owner-issued unavailable
 or failed view evidence and still be installable; `NavigationFailed` means no
 complete snapshot was produced.
 
-The owner-issued result is a closed union:
+The owner-issued result is a closed union parameterized by the consuming
+host's unpublished activation handle:
 
 ```text
-CompleteRestorationResult
+CompleteRestorationResult<TActivation>
   Activated
     IntentToken          opaque exact owner-issued token
     RequestBasis         PacketInput | DefinitionInput
@@ -1720,6 +1774,11 @@ CompleteRestorationResult
     NavigationDisposition
                          opaque current result and effect authority
     OwnerEvidence        ordered complete evidence
+    Activation           TActivation; host-owned unpublished lifetime
+  LegacyCompatibilityRequired
+    IntentToken
+    RequestBasis
+    LegacyPlan           exact source-identified semantic plan
   Failed
     IntentToken
     RequestBasis
@@ -1730,9 +1789,20 @@ CompleteRestorationResult
 `RequestBasis` distinguishes retained packet input from an immutable
 definition request; it never invents packet bytes for a definition. Owner
 evidence follows deterministic plan order, not asynchronous completion order.
-`Activated` is the only arm carrying a new Workspace. `Failed` and
-`Superseded` produce no Workspace value and grant no host publication
-authority.
+`Activated` is the only arm carrying `TActivation`. Its
+`WorkspaceIdentity` proves which fresh Workspace the detached activation
+snapshot describes but does not transfer a borrowed Workspace or construction
+lease. `LegacyCompatibilityRequired`, `Failed`, and `Superseded` carry no
+Workspace lifetime value and grant no host publication authority. The trusted
+host adapter must return the exact callback-issued activation rather than
+reconstructing one from host state.
+
+This result is a lifecycle-coordination outcome containing unpublished host
+authority, not the detached content value of a completed inspection, so it is
+not itself wrapped in `InspectionEnvelope<TContent>`. Inspections executed
+after host activation still cross their completed host-neutral boundary through
+the envelope contract. A later detached projection of the installed definition
+state may likewise use an envelope, but it cannot carry `TActivation`.
 
 The existing
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
@@ -2106,9 +2176,11 @@ Definition records and product demos (this slice):
   `ResolvedWorkspaceContext.Input` retains its exact context in that plan.
   `PrepareScenario` additionally dispatches same-version graphs without
   constructing a Workspace: workspace-free and direct-Package-focused
-  version-1 graphs retain the existing resolution, workspace-backed
-  no-navigation or focused non-Package version-1 graphs return
-  `LegacyCompatibilityRequired`, and schema-version-2 graphs return the
+  version-1 graphs retain the existing resolution except that a
+  definition-v1 view carrying `library` or `libraries` uses the typed
+  compatibility handoff until its query-owner migration exists;
+  workspace-backed no-navigation or focused non-Package version-1 graphs also
+  return `LegacyCompatibilityRequired`, and schema-version-2 graphs return the
   exact validated `CommittedScenarioDefinitionSet`;
 - schema-version-2 `CommittedNavigationDefinition` and
   `CommittedViewDefinition` records implement the required nullable focus,
@@ -2128,6 +2200,26 @@ Definition records and product demos (this slice):
   ambiguous, incomplete, foreign, superseded, or noncontiguous input. It does
   not construct, publish, activate, or close a Workspace and does not resolve
   Registry applicability;
+- `CompleteRestorationPreparation` admits packet or definition input under one
+  exact host intent, performs bounded version dispatch, returns version-1
+  compatibility before construction, and otherwise produces one immutable
+  `CompleteRestorationPlan` containing the exact `WorkspacePlan` and unresolved
+  source-specific recipe. Unsupported version-1 query migrations and packet-v1
+  Library-scope migrations fail visibly rather than dropping state;
+- `CompleteRestorationCoordinator` invokes one trusted host construction
+  continuation, loads contexts in plan order, deduplicates Package Roots by
+  owner-issued logical request, replaces Scope once, resolves every direct
+  Package state, validates exact Registry facets including inactive states,
+  prepares canonical Navigation, captures one detached complete snapshot, and
+  classifies projection. Packet-v1 restoration retains its canonical packet;
+  definition restoration is validly non-projectable until packet format 2
+  lands. Only `Activated` carries the host's unpublished activation handle.
+  Every non-install result is settled by the host before it returns;
+- `NavigationPackageEvaluationFactory` is the shared bounded Package evidence
+  producer used by complete restoration and the CLI Workspace command. The CLI
+  retains its public API-surface policy, while complete restoration uses the
+  Browser-compatible public-plus-non-public-Type inventory needed to resolve
+  Browser-issued packet selectors;
 - `ProductDemoSourceBinding` is the Workspace-owned target-free static
   method-group binding. It validates exactly one matching scenario record,
   resolves that exact scenario, and enforces `ProductDemoSections`; the
@@ -2185,6 +2277,22 @@ Definition records and product demos (this slice):
   `Resolve_AllLibrariesRequiresOneLibraryButPackageContextDoesNot` gate
   runtime selector resolution, exact occurrence association, atomic typed
   failure, incomplete-inventory disclosure, and contiguous retained paths.
+  `CompleteRestorationPreparationTests` gates resource-free version dispatch,
+  exact plan association, pre-construction compatibility, absent query-owner
+  migration, and supersession.
+  `CompleteRestorationExecutionTests` gates exact unpublished activation,
+  duplicate logical Package Roots, subject-less Package recommendation,
+  inactive facet rejection, Browser and definition-v1 Type lowering,
+  canonical packet retention, invalid legacy member keys, context and Scope
+  failure, cancellation and authority loss, projection failure, late
+  supersession, host cleanup, and exact activation-object association.
+  The
+  `workspace-definitions-complete-restoration` TLA+ model checks fresh
+  Workspace identity, exact request/plan/Workspace association, ordered
+  evidence, compatibility before construction, stale completion refusal,
+  activation-only authority, and exactly-once cleanup. Its complete safety and
+  liveness configurations, six mutation controls, and four reachability
+  witnesses are pinned in `eng/tla-expected-exit-codes.txt`;
   `ProductDemoSourceBindingTests` gates source shape, exactly-once source
   invocation per resolve, exact scenario resolution, section admission, and
   visible failures.

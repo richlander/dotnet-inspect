@@ -123,10 +123,12 @@ public sealed class InspectionDefinitionRegistry
         {
             NavigationDefinition? navigation =
                 records.Navigation as NavigationDefinition;
+            ViewDefinition? view = records.View as ViewDefinition;
             NavigationTabDefinition? focused = navigation?.Tabs.First(
                 tab => tab.Id == navigation.Focus);
             if (focused?.Coordinate
-                is not DefinitionMemberCoordinate.PackageCoordinate)
+                    is not DefinitionMemberCoordinate.PackageCoordinate
+                || view?.Libraries.Count > 0)
             {
                 return new InspectionDefinitionScenarioPreparationResult
                     .LegacyCompatibilityRequired(
@@ -134,7 +136,7 @@ public sealed class InspectionDefinitionRegistry
                             scenario,
                             records.Workspace as WorkspaceDefinition,
                             records.Query as QueryDefinition,
-                            records.View as ViewDefinition,
+                            view,
                             navigation,
                             focused,
                             records.Catalogs));
@@ -161,11 +163,7 @@ public sealed class InspectionDefinitionRegistry
                     $"Scenario '{scenario.Id}' references unknown workspace '{scenario.Workspace}'.");
             }
 
-            workspacePlan = new WorkspacePlan(
-                [],
-                workspace.Contexts
-                    .Select(context => ResolveContextInput(workspace, context))
-                    .ToArray());
+            workspacePlan = CreateWorkspacePlan(workspace);
             contexts = new ReadOnlyCollection<ResolvedWorkspaceContext>(
                 workspace.Contexts.Select((context, index) =>
                 {
@@ -558,6 +556,14 @@ public sealed class InspectionDefinitionRegistry
                 .ToArray(),
         };
     }
+
+    internal static WorkspacePlan CreateWorkspacePlan(
+        WorkspaceDefinition workspace) =>
+        new(
+            [],
+            workspace.Contexts
+                .Select(context => ResolveContextInput(workspace, context))
+                .ToArray());
 
     private static ResolvedNavigation ResolveNavigation(NavigationDefinition navigation)
     {

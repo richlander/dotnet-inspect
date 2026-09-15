@@ -540,6 +540,48 @@ public sealed class InspectionDefinitionV2Tests
     }
 
     [Fact]
+    public void PrepareScenario_LibraryScopedVersion1ReturnsCompatibilityHandoff()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        WorkspaceDefinition workspace = Workspace(
+            InspectionDefinitionSchema.Version1);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "package",
+                    coordinate: Package()),
+            ],
+            "package");
+        var view = new ViewDefinition(
+            InspectionDefinitionSchema.Version1,
+            "view",
+            lens: "api",
+            type: "System.Text.Json.JsonSerializer",
+            libraries: ["System.Text.Json"]);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: workspace.Id,
+            context: "context",
+            view: view.Id,
+            navigation: navigation.Id);
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(view);
+        registry.Add(scenario);
+
+        var handoff = Assert.IsType<
+            InspectionDefinitionScenarioPreparationResult
+                .LegacyCompatibilityRequired>(
+                    registry.PrepareScenario(scenario.Id));
+
+        Assert.Same(view, handoff.Plan.View);
+        Assert.Same(navigation.Tabs[0], handoff.Plan.FocusedTab);
+    }
+
+    [Fact]
     public void PrepareScenario_LegacyCompatibilityRejectsDuplicateTabIds()
     {
         var registry = new InspectionDefinitionRegistry();
