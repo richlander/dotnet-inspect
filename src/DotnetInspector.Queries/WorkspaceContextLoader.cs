@@ -1066,102 +1066,31 @@ public static class WorkspaceContextLoader
             return new WorkspaceContextLoadOutcome.Failed([collision]);
         }
 
-        long retainedImageBytes = 0;
-        var retainedSnapshots = new Dictionary<
-            AssemblyAcquisitionRegistration,
-            AssemblyImageSnapshot>(
-                ReferenceEqualityComparer.Instance);
-        var retainedReferenceLeases = new Dictionary<
-            AssemblyAcquisitionRegistration,
-            AssemblyImageReferenceLease>(
-                ReferenceEqualityComparer.Instance);
-        var retained = ImmutableArray.CreateBuilder<RealizedMember>(
-            realized.Count);
-        foreach (RealizedMember entry in realized)
+        RetainedAssemblyContextGroup retained = RetainedAssemblyContextGroup.Create(
+            workspace, [.. realized.Select(static entry => entry.Assembly)],
+            new AssemblyContextGroupOptions { MaxRetainedImageBytes = options.MaxRetainedImageBytes });
+        if (retained is RetainedAssemblyContextGroup.Rejected rejected)
         {
-            AssemblyImageSnapshotResult snapshotResult =
-                AssemblyImageSnapshot.Open(
-                    entry.Assembly,
-                    imageBytes =>
-                    {
-                        if (imageBytes
-                            > options.MaxRetainedImageBytes
-                                - retainedImageBytes)
-                        {
-                            return false;
-                        }
-
-                        retainedImageBytes += imageBytes;
-                        return true;
-                    },
-                    imageBytes => retainedImageBytes -= imageBytes);
-            if (snapshotResult
-                is AssemblyImageSnapshotResult.Rejected rejected)
-            {
-                foreach (AssemblyImageReferenceLease lease
-                    in retainedReferenceLeases.Values)
-                {
-                    lease.Dispose();
-                }
-                WorkspaceContextLoadFailure failure =
-                    RetentionFailure(entry, rejected.Failure);
-                return new WorkspaceContextLoadOutcome.Failed([failure]);
-            }
-
-            AssemblyImageSnapshot snapshot =
-                ((AssemblyImageSnapshotResult.Ready)snapshotResult)
-                    .Snapshot;
-            retainedSnapshots.Add(
-                entry.Assembly.Registration,
-                snapshot);
-            AssemblyImageReferenceLease referenceLease =
-                snapshot.LeaseAssemblyReference(entry.Assembly);
-            retainedReferenceLeases.Add(
-                entry.Assembly.Registration,
-                referenceLease);
-            retained.Add(entry with
-            {
-                Assembly = referenceLease.Assembly,
-            });
+            return new WorkspaceContextLoadOutcome.Failed(
+                [RetentionFailure(realized[rejected.AssemblyIndex], rejected.Failure)]);
         }
-
-        IAcquisitionFreeAssemblyBindingPolicy groupPolicy =
-            SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
-                retained.Select(static entry =>
-                    (entry.Assembly,
-                        (IAcquisitionFreeAssemblyBindingPolicy)
-                            NoResolverAssemblyBindingPolicy.Instance)));
-        List<AssemblyContextParticipant> participants =
-        [
-            .. retained.Select(entry =>
-                new AssemblyContextParticipant(entry.Assembly, groupPolicy)),
-        ];
-        AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroupWithRetainedImages(
-                participants,
-                retainedSnapshots,
-                retainedReferenceLeases,
-                new AssemblyContextGroupOptions
-                {
-                    MaxRetainedImageBytes =
-                        options.MaxRetainedImageBytes,
-                });
+        AssemblyContextGroup group = ((RetainedAssemblyContextGroup.Ready)retained).Group;
 
         var members =
             ImmutableArray.CreateBuilder<WorkspaceContextMember>(
-                retained.Count);
-        for (int index = 0; index < retained.Count; index++)
+                realized.Count);
+        for (int index = 0; index < realized.Count; index++)
         {
             members.Add(
                 new WorkspaceContextMember(
-                    retained[index].Declared,
-                    retained[index].Realized,
-                    participants[index]));
+                    realized[index].Declared,
+                    realized[index].Realized,
+                    group.Participants[index]));
         }
 
         ImmutableArray<PackageRootBinding> packageRoots =
         [
-            .. retained
+            .. realized
                 .Select(static entry => entry.PackageRoot)
                 .OfType<PackageRootBinding>()
                 .Distinct(),
