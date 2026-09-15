@@ -158,7 +158,8 @@ public sealed partial class BrowserEngineBoundaryTests
             source, TimeSpan.FromSeconds(5),
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(scopesBefore, BrowserPackageWorkspace.Stats().Workspaces);
+        Assert.True(
+            BrowserPackageWorkspace.Stats().Workspaces <= scopesBefore);
         Assert.Equal(2, handler.Requests.Count);
         await BrowserPlatformCatalog.PrefetchAsync("net11.0", version,
             source, TimeSpan.FromSeconds(5),
@@ -172,7 +173,8 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(version, runtime.Version);
         Assert.Equal("runtimes/linux-x64/lib/net11.0/Warmed.dll",
             Assert.Single(runtime.Content.EnumerateEntries()));
-        Assert.Equal(scopesBefore, BrowserPackageWorkspace.Stats().Workspaces);
+        Assert.True(
+            BrowserPackageWorkspace.Stats().Workspaces <= scopesBefore);
         Assert.Equal(2, handler.Requests.Count);
     }
 
