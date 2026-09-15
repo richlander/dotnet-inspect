@@ -44,10 +44,9 @@ public static class ApiTypeSectionDescriptors
     /// enumerates matched types, so all of them scale with the target. <c>CanRender</c> is
     /// unconditional because the view always populates the section for this pipeline.
     /// <para>
-    /// <c>ExplicitOnly</c> keeps it off the verbosity ladder. This pipeline is not a curated
-    /// catalog, so its ladder still selects by position and <c>IsExpensive</c>; without the flag a
-    /// section in first position would join the default <c>-v:m</c> markdown view, where the same
-    /// facts already render as the inline identity line.
+    /// <c>ExplicitOnly</c> keeps it off the verbosity ladder. The curated pipeline includes only
+    /// sections marked <c>Info</c> in its minimal view; this section remains explicit because the
+    /// same facts already render as the inline identity line.
     /// </para>
     /// </remarks>
     public sealed class ApiInfo : ISectionDescriptor<ApiSurface>
