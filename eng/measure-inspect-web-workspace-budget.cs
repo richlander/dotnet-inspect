@@ -77,8 +77,9 @@ static async Task<int> RunAsync(string[] args)
         }
         else
         {
-            string expected = File.ReadAllText(outputPath);
-            if (!expected.Equals(tsv, StringComparison.Ordinal))
+            byte[] expected = File.ReadAllBytes(outputPath);
+            byte[] actual = Encoding.UTF8.GetBytes(tsv);
+            if (!expected.AsSpan().SequenceEqual(actual))
             {
                 Console.WriteLine(
                     $"{outputPath} does not match the immutable package measurements. "
@@ -312,7 +313,7 @@ static long Sum(
 static string Serialize(IEnumerable<PackageDemand> packages)
 {
     var text = new StringBuilder();
-    text.AppendLine(PackageDemand.Header);
+    text.Append(PackageDemand.Header).Append('\n');
     foreach (PackageDemand package in packages)
     {
         text.Append(package.PackageId).Append('\t')
