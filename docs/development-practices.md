@@ -140,12 +140,13 @@ tracker from the start.
 
 A completed host-neutral operation that hands one detached result to a host
 uses `InspectionEnvelope<TContent>` as the boundary value. `TContent` remains
-the owner-issued result, while every host projection preserves its Content,
-Share outcome, and diagnostics. A `Task` or `Promise` may represent waiting for
-the operation, but it is not the result crossing that completed boundary;
-internal prerequisites and progressive events remain governed by their own
-contracts. The full boundary is owned by
-[Inspection envelope](design/inspection-envelope.md).
+the owner-issued Result, Document, or owner-specific Outcome under
+[Host-observable content kinds](design/host-observable-content-kinds.md), while
+every host projection preserves its Content, Share outcome, and diagnostics.
+A `Task` or `Promise` may represent waiting for the operation, but it is not
+the result crossing that completed boundary; internal prerequisites and
+progressive events remain governed by their own contracts. The full boundary
+is owned by [Inspection envelope](design/inspection-envelope.md).
 
 `InertString` illustrates the shared default: its containment contract must
 work for all consumers. `ts-jsexport` is an approved exception: its website-only

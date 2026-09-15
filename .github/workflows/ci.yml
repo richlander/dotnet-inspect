@@ -1141,6 +1141,10 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Installed.Tests -c Release
 
+      - name: Run package-backed PlatformHouse adapter tests
+        if: matrix.shard == 'contracts'
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Packages.Tests -c Release -- --filter-not-trait "Speed=Slow"
+
       - name: Run row-selection tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
