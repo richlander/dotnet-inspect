@@ -35,9 +35,9 @@ The [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) is
 the separately owned host-neutral coordinate-discovery successor. Its
 [adoption map](reverse-type-locator-adoption.md) tracks the CLI migration.
 Find now uses the resident locator for one exact `ID@VERSION` package with an
-explicit TFM and one type pattern. The compatibility service remains for
-source shapes whose population adapters or fallback behavior are not yet
-available through the locator.
+explicit TFM, one type pattern, and `--all`. The compatibility service remains
+for default-visibility searches and source shapes whose population adapters or
+fallback behavior are not yet available through the locator.
 
 The analogous `MemberSearchService` confirms the local convention of one
 ordered source collector, typed query execution, flat result rows, and
@@ -78,14 +78,16 @@ package-coordinate discovery belongs to `package query` and `package changes`.
 Find operates only over concrete package, Platform, project, directory, or
 assembly content selected by its existing source contract.
 
-The exact-package locator route creates a short-lived `InspectionWorkspace`
-from the same plan, loads one declaration context through
-`WorkspaceContextLoader`, executes the resident locator, detaches its result,
-and renders the shared Sections projection. Complete literal-pattern misses
-return to the compatibility classifier so namespace-prefix and similarity
-fallback remain available. Incomplete or rejected locator outcomes remain
-visible with their Coverage and Gaps rather than being replaced by a
-success-shaped compatibility result.
+With `--all`, the exact-package locator route creates a short-lived
+`InspectionWorkspace` from the same plan, loads one declaration context
+through `WorkspaceContextLoader`, executes the resident locator, detaches its
+result, and renders the shared Sections projection. Default visibility remains
+on the compatibility route because the detached declaration inventory does not
+yet carry Metadata-owned `EditorBrowsable(Never)` and obsolete discoverability
+facts. Complete literal-pattern misses return to the compatibility classifier
+so namespace-prefix and similarity fallback remain available. Incomplete or
+rejected locator outcomes remain visible with their Coverage and Gaps rather
+than being replaced by a success-shaped compatibility result.
 
 ## Candidate collection
 
@@ -100,14 +102,15 @@ success-shaped compatibility result.
 
 For one normalized package reference with an exact NuGet version, one explicit
 target framework other than `all`, no other source, and no numeric result
-limit, the service owns an `InspectionWorkspace` with awaited close. It acquires and
-commits one package Root, then executes `AssemblyContextTypeInventoryQuery`
-against the Root's surface group. Direct and fallback census passes reuse that
-committed Root. Floating, `@latest`, and wildcard version selectors remain on
-the legacy route so this adoption does not redefine their version-selection
-semantics. Package candidates project library, source, and version from typed
-Root and asset provenance; a package-relative asset is not represented as a
-host filesystem path.
+limit, the compatibility service owns an `InspectionWorkspace` with awaited
+close. It acquires and commits one package Root, then executes
+`AssemblyContextTypeInventoryQuery` against the Root's surface group. Direct
+and fallback census passes reuse that committed Root. The resident locator
+precedes this route only when `--all` is selected. Floating, `@latest`, and
+wildcard version selectors remain on the legacy route so this adoption does
+not redefine their version-selection semantics. Package candidates project
+library, source, and version from typed Root and asset provenance; a
+package-relative asset is not represented as a host filesystem path.
 
 All other source shapes retain an ephemeral
 `AssemblySetInspectionWorkspace`. Each admitted assembly executes the same
@@ -209,10 +212,12 @@ around each synchronous typed query execution.
 
 The original classification refactor is complete for compatibility routes:
 `FindCommand` calls `FindTypesAsync` and only performs count, projection, view
-construction, and rendering after receiving `TypeFindResult` rows. The exact
-package route instead renders `TypeDeclarationLocatorSectionResult` directly
-so coordinate, structured name, origin, observation, and coverage remain
-typed.
+construction, and rendering after receiving `TypeFindResult` rows. The
+exact-package `--all` route instead renders
+`TypeDeclarationLocatorSectionResult` directly so coordinate, structured name,
+origin, observation, and coverage remain typed. Default visibility stays on
+the compatibility route until the declaration inventory carries its
+discoverability facts.
 
 The Release tests in
 `tests/DotnetInspect.Cli.Tests/TypeSearchServiceTests.cs` currently verify candidate

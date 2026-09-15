@@ -38,7 +38,8 @@ internal static class FindTypeDeclarationLocator
 
         AssemblySetRequest request =
             FindSourceCollector.BuildFindRequest(options);
-        return patterns.Count == 1
+        return options.IncludeAll
+            && patterns.Count == 1
             && !options.Members
             && options.TypeFilter is null
             && ConfiguredPackageSearchWorkspace.IsEligible(

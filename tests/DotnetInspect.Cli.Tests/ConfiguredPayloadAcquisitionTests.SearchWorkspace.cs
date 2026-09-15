@@ -227,6 +227,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
+                "--all",
                 "--json",
                 "--verbose",
                 "--tips", "q",
@@ -264,6 +265,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
+                "--all",
                 "--json",
                 "--verbose",
                 "--tips", "q",
@@ -315,6 +317,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
+                "--all",
                 "--json",
                 "--verbose",
                 "--tips", "q",
@@ -370,6 +373,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
+                "--all",
                 "--json",
                 "--verbose",
                 "--tips", "q",
@@ -410,6 +414,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
+                "--all",
                 "--count",
                 "--tips", "q",
             ]);
@@ -458,6 +463,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
+                "--all",
                 "--json",
                 "--compact",
                 "--verbose",
@@ -484,6 +490,63 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.DoesNotContain(
             "\"candidates\":[]",
             result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_DefaultVisibilityKeepsHiddenTypesOnCompatibilityRoute()
+    {
+        const string hiddenType =
+            "System.Text.Json.Serialization.Metadata.JsonMetadataServices";
+        string id =
+            $"Workspace.Search.Hidden.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(System.Text.Json.JsonSerializer).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "hidden type visibility package",
+            library: assembly,
+            libraryName: "System.Text.Json.dll");
+        ConfigureCommandFeed(id, package);
+
+        string[] arguments =
+        [
+            "find", hiddenType,
+            "--package", $"{id}@{Version}",
+            "--tfm", "net11.0",
+            "--source", FirstFeed,
+            "--json",
+            "--compact",
+            "--verbose",
+            "--tips", "q",
+        ];
+
+        var defaultResult = await RunCommandAsync(arguments);
+        var allResult = await RunCommandAsync([.. arguments, "--all"]);
+
+        Assert.Equal(0, defaultResult.Exit);
+        Assert.DoesNotContain(
+            hiddenType,
+            defaultResult.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Using the resident Workspace locator",
+            defaultResult.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Using committed package Root for search:",
+            defaultResult.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(0, allResult.Exit);
+        Assert.Contains(
+            hiddenType,
+            allResult.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Using the resident Workspace locator",
+            allResult.Error,
             StringComparison.Ordinal);
     }
 

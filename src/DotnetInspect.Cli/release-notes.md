@@ -30,7 +30,9 @@
   Find now constructs its Workspace with all known ecosystem registrations by
   default, accepts repeated `--ecosystem` for an exact subset, and uses the
   resident declaration locator plus shared coverage-aware output for exact
-  package type searches (#6768, #6844).
+  package type searches with `--all`. Default visibility retains the
+  compatibility path until Metadata declaration inventories carry
+  discoverability facts (#6768, #6844).
 - **Breaking:** Removes the `dependency-evidence` command and the positional
   type-to-library fallback from `depends`. Use `depends` with explicit
   `--package`, `--nuspec`, `--project`, `--library`, or `--package-prefix`

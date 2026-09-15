@@ -13,10 +13,11 @@ Metadata inventories, the Workspace's explicit-context population projection,
 the cold locator, and the resident facade over that input are implemented
 prerequisites. Existing Type, Member, Platform routing, and unsupported Find source shapes
 remain on their compatibility paths. Find has adopted the resident locator for
-one exact package coordinate, explicit TFM, and one type pattern. Other
-population producers, selected-observation Type/Member handoff, and browser
-adoption are still pending; no design-only row or mockup is advertised as
-implemented.
+one exact package coordinate, explicit TFM, one type pattern, and `--all`.
+Default visibility remains on the compatibility path until Metadata supplies
+owner-issued discoverability facts. Other population producers,
+selected-observation Type/Member handoff, and browser adoption are still
+pending; no design-only row or mockup is advertised as implemented.
 
 ## Counted production path
 
@@ -36,7 +37,7 @@ inside the Workspace owner.
 | 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): [explicit context projection](workspace-live-locator.md#implemented-explicit-context-projection) and its [resident facade](workspace-live-locator.md#implemented-resident-context-facade) are implemented; other producers remain pending. | Coherent first-use observation, reuse without rescanning immutable evidence, receipt-pinned vectors and owner-governed close are gated for declaration contexts. Artifact Root/Scope, reference-view and local/project adapters still need their owner-issued associations. |
 | 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: [cold reverse locator](reverse-type-declaration-locator.md#implemented-cold-query) over the implemented Workspace population input. | Implemented always-vector coordinate-plus-origin answers, deterministic outcomes and Release gates; additional population producers remain step 4 adoption, not inferred source authority. |
 | 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: [adopt the locator result's row unit and structured multi-format projection](output-shapes.md#reverse-type-declaration-locator-projection). | Implemented typed answer row sets, source-generated JSON, common Markout lowering, and mandatory coverage/failure disclosure independent of selected candidate rows. |
-| 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: use the live facade in a short-lived Workspace; Type and Member consume the selected observation through ordinary exact-coordinate paths. | Partial: exact-package type Find uses the resident locator and shared Sections projection. Platform/local/project population adapters and typed Type/Member consumption remain open before the step is complete. |
+| 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: use the live facade in a short-lived Workspace; Type and Member consume the selected observation through ordinary exact-coordinate paths. | Partial: exact-package `--all` type Find uses the resident locator and shared Sections projection. Metadata discoverability facts, Platform/local/project population adapters, and typed Type/Member consumption remain open before the step is complete. |
 | 8 | [#6851](https://github.com/richlander/dotnet-inspect/issues/6851), Inspect Web: retain the same live facade across admitted additions and consume selected Type/Member context. | Browser/Wasm Find-after-append and navigation use typed data, not displayed names; portable sharing remains owner-governed. |
 | 9 | [#6850](https://github.com/richlander/dotnet-inspect/issues/6850), Platform discovery in Services: retire or narrow `PlatformTypeCatalog` after its consumers migrate. | No duplicated general reverse scan; retain acquisition/probing/naming and Spotlight's static filename population. |
 
@@ -59,10 +60,10 @@ consumption by Type and Member; returning a new unused DTO is not adoption.
 
 The first concrete consumer seam is
 `DotnetInspect.Cli/Inspectors/FindTypeDeclarationLocator`. For one exact
-`ID@VERSION` package, explicit TFM, and one type pattern, it loads a declaration
-context into a short-lived Workspace and executes the resident locator. It
-returns the detached shared result without flattening coordinate, origin,
-observation, or coverage into `TypeSearchResult`.
+`ID@VERSION` package, explicit TFM, one type pattern, and `--all`, it loads a
+declaration context into a short-lived Workspace and executes the resident
+locator. It returns the detached shared result without flattening coordinate,
+origin, observation, or coverage into `TypeSearchResult`.
 
 The partial step 7 adapter submits the already parsed pattern as
 `TypeDeclarationLocatorRequest.Pattern` values through the shared resident
@@ -75,6 +76,10 @@ fallback. Incomplete and rejected locator results do not fall back.
 Other sources still use `TypeSearchService` or `MemberSearchService`.
 Installed/reference Platform, local assembly, directory, and project
 population adapters remain prerequisites for broader resident-locator use.
+Default-visibility Find also remains there until Metadata's detached
+declaration inventory carries owner-issued `EditorBrowsable(Never)` and
+obsolete discoverability facts; the CLI does not duplicate attribute
+interpretation to filter locator candidates.
 Type and Member also lack an owner-issued selected-observation input, so this
 slice does not claim the final locate-once handoff or complete #6844. Step 8's
 TypeScript consumer follows only after the remaining host-neutral handoff is
