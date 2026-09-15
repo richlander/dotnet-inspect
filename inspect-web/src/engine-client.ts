@@ -18,6 +18,7 @@ type AsyncFacade<
 
 type PackageOperations =
   | "activateWorkspacePackageOccurrence"
+  | "classifyPackageGraphIdentities"
   | "clearWorkspacePackageOccurrences"
   | "getPlatformCatalog"
   | "getPlatformVersions"

@@ -180,6 +180,7 @@ public abstract record AssemblyResolutionProvenance
 public sealed class AssemblyAcquisitionRegistration
 {
     readonly object _gate = new();
+    readonly Guid _value = Guid.NewGuid();
     Guid? _moduleVersionId;
 
     internal AssemblyAcquisitionRegistration(
@@ -193,6 +194,7 @@ public sealed class AssemblyAcquisitionRegistration
     /// descriptor, when the descriptor was projected from an artifact.
     /// </summary>
     public ArtifactAcquisitionRegistration? ArtifactRegistration { get; }
+    internal Guid Value => _value;
 
     /// <summary>
     /// Module generation bound to the artifact-backed descriptor.
@@ -1439,9 +1441,13 @@ public readonly record struct AssemblyCatalogId(Guid Value);
 /// <summary>Opaque identity for one frozen generation in a catalog.</summary>
 public sealed class AssemblyCatalogGenerationId
 {
+    readonly Guid _value = Guid.NewGuid();
+
     internal AssemblyCatalogGenerationId()
     {
     }
+
+    internal Guid Value => _value;
 }
 
 internal readonly record struct AssemblyCandidateId(Guid Value);

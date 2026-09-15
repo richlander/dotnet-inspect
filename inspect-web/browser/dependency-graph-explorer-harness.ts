@@ -11,12 +11,23 @@ const app = document.querySelector<HTMLElement>("#app")!;
 const explorer = createGraphExplorer(document);
 const keybindings = createWorkbenchKeybindings();
 keybindings.attach(document);
-const pkg = { id: "Example.Package", version: "1.0.0", activeFramework: "net10.0" };
-const loaded = { ...pkg, id: "Loaded.Dependency" };
+const pkg = {
+  id: "Microsoft.Extensions.Hosting",
+  version: "10.0.0",
+  activeFramework: "net10.0",
+};
+const samePrefixLoaded = { ...pkg, id: "Microsoft.Extensions.Logging" };
+const externalLoaded = { ...pkg, id: "Serilog" };
 const groups = [
   {
     index: 0, framework: "net10.0", isActive: true,
-    dependencies: ["Loaded.Dependency", "New.Dependency", "Failed.Dependency"]
+    dependencies: [
+      "Microsoft.Extensions.Logging",
+      "Microsoft.Extensions.Options",
+      "Serilog",
+      "Newtonsoft.Json",
+      "Failed.Dependency",
+    ]
       .map(id => ({ id, versionRange: "1.0.0" })),
   },
   { index: 1, framework: "net11.0", dependencies: [] },
@@ -78,11 +89,22 @@ async function mountGraph() {
   }
   const graph = await buildDependencyGraphMermaid({
     package: pkg,
-    packages: [pkg, loaded],
+    packages: [pkg, samePrefixLoaded, externalLoaded],
     packageDependencies: { dependencyGroups: groups },
     dependenciesGroupIndex: groupIndex,
     workspaceDependencies: {},
-  }, (packages, id) => packages.find(candidate => candidate.id === id) ?? null);
+  }, (packages, id) => packages.find(candidate => candidate.id === id) ?? null,
+  (_inspectedPackageId, packageIds) => {
+    const roles = new Map([
+      [pkg.id, "inspected"],
+      [samePrefixLoaded.id, "samePrefix"],
+      ["Microsoft.Extensions.Options", "samePrefix"],
+      [externalLoaded.id, "external"],
+      ["Newtonsoft.Json", "external"],
+      ["Failed.Dependency", "external"],
+    ]);
+    return packageIds.map(packageId => roles.get(packageId) ?? "external");
+  });
   if (!graph) {
     diagram.innerHTML = "<p>No connected packages for this framework.</p>";
     return;

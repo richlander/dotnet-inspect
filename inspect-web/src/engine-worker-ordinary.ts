@@ -33,6 +33,7 @@ type PackageFacade = typeof PackageFacadeModule;
 type SourceFacade = typeof SourceFacadeModule;
 
 type PackageOperationName =
+  | "classifyPackageGraphIdentities"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "listPackageAssemblyQueryPatterns"
@@ -686,6 +687,16 @@ function voidOperation<TArgs extends readonly unknown[]>(
 
 export const engineWorkerOrdinaryOperations = {
   package: {
+    classifyPackageGraphIdentities: valueOperation(
+      "ordinary-package-classify-graph-identities",
+      2,
+      (
+        facades,
+        ...args: Parameters<
+          PackageFacade["classifyPackageGraphIdentities"]
+        >
+      ) => facades.package.classifyPackageGraphIdentities(...args),
+    ),
     getPlatformCatalog: valueOperation(
       "ordinary-package-get-platform-catalog",
       2,
@@ -890,7 +901,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeProjection: valueOperation(
       "ordinary-metadata-query-type-projection",
-      6,
+      7,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryTypeProjection"]>
@@ -1184,6 +1195,10 @@ export function bindEngineWorkerOrdinaryClient(
 
   return {
     package: {
+      classifyPackageGraphIdentities: bind(
+        engineWorkerOrdinaryOperations.package
+          .classifyPackageGraphIdentities,
+      ),
       getPlatformCatalog: bind(
         engineWorkerOrdinaryOperations.package.getPlatformCatalog,
       ),

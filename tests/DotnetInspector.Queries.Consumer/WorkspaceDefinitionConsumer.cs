@@ -37,4 +37,15 @@ public static class WorkspaceDefinitionConsumer
                 "The scenario preparation result is unknown."),
         };
     }
+
+    public static CommittedScenarioSelectorResolutionResult ResolveSelectors(
+        CommittedScenarioDefinitionSet definitions,
+        InspectionWorkspaceIdentity workspace,
+        WorkspaceScopeSnapshot scope,
+        IReadOnlyList<CommittedPackageStateResolutionFacts> packageFacts) =>
+        CommittedScenarioSelectorResolver.Resolve(
+            definitions,
+            workspace,
+            scope,
+            packageFacts);
 }

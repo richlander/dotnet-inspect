@@ -48,6 +48,12 @@
   --graph-different-assembly-fill: #343a46;
   --graph-different-assembly-stroke: #aeb8c8;
   --graph-different-assembly-text: #ffffff;
+  --graph-package-same-prefix-fill: #284c73;
+  --graph-package-same-prefix-stroke: #9cc8f1;
+  --graph-package-same-prefix-text: #ffffff;
+  --graph-package-external-fill: #343a46;
+  --graph-package-external-stroke: #aeb8c8;
+  --graph-package-external-text: #ffffff;
   --graph-edge: #827a92;
 }
 
@@ -140,6 +146,12 @@
   --graph-different-assembly-fill: #e0e3e8;
   --graph-different-assembly-stroke: #596273;
   --graph-different-assembly-text: #252a33;
+  --graph-package-same-prefix-fill: #c9dcf1;
+  --graph-package-same-prefix-stroke: #284c73;
+  --graph-package-same-prefix-text: #172c43;
+  --graph-package-external-fill: #e0e3e8;
+  --graph-package-external-stroke: #596273;
+  --graph-package-external-text: #252a33;
   --graph-edge: #756c84;
 }
 
@@ -1715,8 +1727,8 @@ kbd {
 .legend-swatch.interface-type { background: transparent; border-color: var(--line-strong); }
 .legend-swatch.derived-type { background: var(--panel); border-color: var(--line); }
 .legend-swatch.unavailable-node { background: transparent; border-color: var(--line-strong); border-style: dashed; }
-.legend-swatch.open-package { background: var(--panel-active); border-color: var(--blue); }
-.legend-swatch.external-package { background: transparent; border-color: var(--line-strong); }
+.legend-swatch.same-prefix-package { background: var(--graph-package-same-prefix-fill); border-color: var(--graph-package-same-prefix-stroke); }
+.legend-swatch.external-package { background: var(--graph-package-external-fill); border-color: var(--graph-package-external-stroke); }
 .legend-swatch.loaded-node,
 .legend-swatch.platform-node { background: var(--panel); border-color: var(--line-strong); }
 .legend-swatch.platform-node { border-style: dashed; }

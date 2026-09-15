@@ -167,6 +167,33 @@ internal static class ProductEcosystemPacks
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                 new PackagePrefixDeclaration("Aspire.Hosting.Azure.")),
         ]),
+        ProjectWorkspace(new(
+            EcosystemPackIds.Blazor,
+            "Blazor",
+            "Blazor browser, Hybrid, data, and authentication integrations.",
+            700,
+            PackageSet: null,
+            [])
+        {
+            NamespaceRoots =
+            [
+                "Microsoft.AspNetCore.Components",
+                "Microsoft.Authentication.WebAssembly",
+            ],
+            CorePackages =
+            [
+                new("Microsoft.AspNetCore.Components.WebAssembly"),
+                new("Microsoft.AspNetCore.Components.WebView.Maui"),
+                new("Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter"),
+                new("Microsoft.Authentication.WebAssembly.Msal"),
+            ],
+        }, "ecosystem.blazor",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.AspNetCore.Components")),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.Authentication.WebAssembly")),
+        ]),
     ]);
 
     internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
@@ -186,6 +213,7 @@ internal static class ProductEcosystemPacks
             EcosystemPackIds.Aspire,
             EcosystemPackIds.AI,
             EcosystemPackIds.Azure,
+            EcosystemPackIds.Blazor,
         ],
         requireAllPacks: true);
 

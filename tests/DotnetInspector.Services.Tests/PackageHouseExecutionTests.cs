@@ -158,6 +158,7 @@ public sealed class PackageHouseExecutionTests
             acquisition.Generation);
         Assert.Equal(payload.Origin, acquisition.Origin);
         Assert.Equal(payload.ProducerKey, acquisition.Producer.Key);
+        Assert.Equal(acquisition.Producer, payload.Producer);
         Assert.Same(
             environment.Clients[0].Source,
             acquired.SourcePayloadResult!.Source);
@@ -235,8 +236,14 @@ public sealed class PackageHouseExecutionTests
             acquired.Payload.Content.GenerationIdentity,
             contribution.Binding.ContentGenerationIdentity);
         Assert.Equal(
-            PackageProducerIdentity.NuGetOrg.Key,
+            PackageProducerIdentity.NuGetOrg.PortableKey,
             contribution.Binding.Coordinate.Producer);
+        Assert.Equal(
+            PackageProducerIdentity.NuGetOrg.Key,
+            contribution.Binding.Root.ProducerKey);
+        Assert.Equal(
+            PackageProducerIdentity.NuGetOrg,
+            acquired.Payload.Producer);
         Assert.True(
             contribution.Binding.Root.ReferencesContent(
                 acquired.Payload.Content));
@@ -668,7 +675,7 @@ public sealed class PackageHouseExecutionTests
     }
 
     [Fact]
-    public async Task CustomProducerCompileRealizationReportsUnrepresentableRootCoordinate()
+    public async Task CustomProducerCompileRealizationContributesPortableRootCoordinate()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior(
@@ -699,17 +706,25 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement.Acquired acquired =
             Assert.IsType<PackageHouseSettlement.Acquired>(
                 settlement);
-        Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+        PackageHouseRealizationReceipt.Compile realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Compile>(
             acquired.Result.Evidence.Realization);
-        PackageHouseRootContributionOutcome.NoContribution noContribution =
+        PackageHouseRootContribution contribution =
             Assert.IsType<
-                PackageHouseRootContributionOutcome.NoContribution>(
-                PackageHouseRootContributionAdapter.Create(settlement));
-        Assert.Same(acquired.Result, noContribution.Result);
+                PackageHouseRootContributionOutcome.Contributed>(
+                PackageHouseRootContributionAdapter.Create(settlement))
+                .Contribution;
+        Assert.Same(acquired.Result, contribution.Result);
+        Assert.Same(realization, contribution.Realization);
         Assert.Equal(
-            PackageHouseRootNoContributionReason
-                .CoordinateNotRepresentable,
-            noContribution.Reason);
+            environment.Clients[0].Source.Producer.PortableKey,
+            contribution.Binding.Coordinate.Producer);
+        Assert.Equal(
+            environment.Clients[0].Source.Producer.Key,
+            contribution.Binding.Root.ProducerKey);
+        Assert.Equal(
+            environment.Clients[0].Source.Producer,
+            acquired.Payload.Producer);
         await environment.AssertRootSettledAsync();
     }
 

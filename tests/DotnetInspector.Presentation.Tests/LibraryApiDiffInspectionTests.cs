@@ -19,13 +19,13 @@ public sealed class LibraryApiDiffInspectionTests
         string beforePath = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
         string afterPath = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
 
-        InspectionEnvelope<LibraryApiDiffPresentationResult> pathBacked =
+        InspectionEnvelope<LibraryApiDiffOutcome> pathBacked =
             await ExecutePathBacked(
                 beforePath,
                 afterPath,
                 ApiSurfaceScope.Public,
                 GenerousLimits);
-        InspectionEnvelope<LibraryApiDiffPresentationResult> memoryBacked =
+        InspectionEnvelope<LibraryApiDiffOutcome> memoryBacked =
             await ExecuteMemoryBacked(
                 beforePath,
                 afterPath,
@@ -45,13 +45,21 @@ public sealed class LibraryApiDiffInspectionTests
         Assert.Equal(pathBacked.Diagnostics.ToArray(), memoryBacked.Diagnostics.ToArray());
         Assert.Equal(pathBacked, memoryBacked);
 
-        LibraryApiDiffPresentationResult.Available available =
-            Assert.IsType<LibraryApiDiffPresentationResult.Available>(pathBacked.Content);
-        Assert.NotEmpty(available.Document.Subjects);
-        Assert.True(available.Summary.ChangedTypeCount > 0);
-        Assert.True(available.Summary.ChangedMemberCount > 0);
-        Assert.True(available.Summary.BreakingCount > 0);
-        Assert.True(available.Summary.AdditiveCount > 0);
+        LibraryApiDiffOutcome.Available available =
+            Assert.IsType<LibraryApiDiffOutcome.Available>(pathBacked.Content);
+        LibraryApiDiffDocument document = available.Document;
+        LibraryApiDiffDocument memoryDocument =
+            Assert.IsType<LibraryApiDiffOutcome.Available>(memoryBacked.Content).Document;
+        Assert.Equal(document, memoryDocument);
+        Assert.Equal(document.GetHashCode(), memoryDocument.GetHashCode());
+        Assert.True(document.Before.IsComplete);
+        Assert.True(document.After.IsComplete);
+        Assert.NotEqual(document.Before.Identity.Version, document.After.Identity.Version);
+        Assert.NotEmpty(document.Comparison.Subjects);
+        Assert.Equal(document.Comparison.Subjects.Length, document.Summary.ChangedTypeCount);
+        Assert.True(document.Summary.ChangedMemberCount > 0);
+        Assert.True(document.Summary.BreakingCount > 0);
+        Assert.True(document.Summary.AdditiveCount > 0);
     }
 
     [Fact]
@@ -59,23 +67,23 @@ public sealed class LibraryApiDiffInspectionTests
     {
         string path = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
 
-        InspectionEnvelope<LibraryApiDiffPresentationResult> envelope =
+        InspectionEnvelope<LibraryApiDiffOutcome> envelope =
             await ExecutePathBacked(
                 path,
                 path,
                 ApiSurfaceScope.Public,
                 GenerousLimits);
 
-        LibraryApiDiffPresentationResult.Available available =
-            Assert.IsType<LibraryApiDiffPresentationResult.Available>(envelope.Content);
-        Assert.True(available.Before.IsComplete);
-        Assert.True(available.After.IsComplete);
-        Assert.Empty(available.Document.Subjects);
-        Assert.Equal(0, available.Summary.ChangedTypeCount);
-        Assert.Equal(0, available.Summary.ChangedMemberCount);
-        Assert.Equal(0, available.Summary.BreakingCount);
-        Assert.Equal(0, available.Summary.AdditiveCount);
-        Assert.Equal(0, available.Summary.PotentiallyBreakingCount);
+        LibraryApiDiffOutcome.Available available =
+            Assert.IsType<LibraryApiDiffOutcome.Available>(envelope.Content);
+        Assert.True(available.Document.Before.IsComplete);
+        Assert.True(available.Document.After.IsComplete);
+        Assert.Empty(available.Document.Comparison.Subjects);
+        Assert.Equal(0, available.Document.Summary.ChangedTypeCount);
+        Assert.Equal(0, available.Document.Summary.ChangedMemberCount);
+        Assert.Equal(0, available.Document.Summary.BreakingCount);
+        Assert.Equal(0, available.Document.Summary.AdditiveCount);
+        Assert.Equal(0, available.Document.Summary.PotentiallyBreakingCount);
         Assert.Empty(envelope.Diagnostics);
     }
 
@@ -90,15 +98,15 @@ public sealed class LibraryApiDiffInspectionTests
             maxTypeForwarders: int.MaxValue,
             maxMetadataRows: int.MaxValue);
 
-        InspectionEnvelope<LibraryApiDiffPresentationResult> envelope =
+        InspectionEnvelope<LibraryApiDiffOutcome> envelope =
             await ExecutePathBacked(
                 FixtureCatalog.DiffV1.AssemblyPath(),
                 FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
                 ApiSurfaceScope.Public,
                 limits);
 
-        LibraryApiDiffPresentationResult.Unavailable unavailable =
-            Assert.IsType<LibraryApiDiffPresentationResult.Unavailable>(envelope.Content);
+        LibraryApiDiffOutcome.Unavailable unavailable =
+            Assert.IsType<LibraryApiDiffOutcome.Unavailable>(envelope.Content);
         Assert.Equal(
             LibraryApiDiffUnavailableKind.BeforeIncomplete,
             unavailable.Kind);
@@ -113,15 +121,15 @@ public sealed class LibraryApiDiffInspectionTests
     [Fact]
     public async Task Execute_DifferentLogicalLibraryIdentities_ReturnsTypedRejection()
     {
-        InspectionEnvelope<LibraryApiDiffPresentationResult> envelope =
+        InspectionEnvelope<LibraryApiDiffOutcome> envelope =
             await ExecutePathBacked(
                 FixtureCatalog.DiffV1.AssemblyPath(),
                 FixtureCatalog.LibraryApiDiffV2.AssemblyPath(),
                 ApiSurfaceScope.Public,
                 GenerousLimits);
 
-        LibraryApiDiffPresentationResult.Rejected rejected =
-            Assert.IsType<LibraryApiDiffPresentationResult.Rejected>(envelope.Content);
+        LibraryApiDiffOutcome.Rejected rejected =
+            Assert.IsType<LibraryApiDiffOutcome.Rejected>(envelope.Content);
         Assert.Equal(
             LibraryApiDiffRejectionKind.LogicalLibraryMismatch,
             rejected.Kind);
@@ -142,12 +150,12 @@ public sealed class LibraryApiDiffInspectionTests
         Assert.Equal(pathBacked, memoryBacked);
         if (includeBase)
         {
-            var available = Assert.IsType<LibraryApiDiffPresentationResult.Available>(pathBacked.Content);
-            Assert.Empty(available.Document.Subjects);
+            var available = Assert.IsType<LibraryApiDiffOutcome.Available>(pathBacked.Content);
+            Assert.Empty(available.Document.Comparison.Subjects);
         }
         else
         {
-            var unavailable = Assert.IsType<LibraryApiDiffPresentationResult.Unavailable>(pathBacked.Content);
+            var unavailable = Assert.IsType<LibraryApiDiffOutcome.Unavailable>(pathBacked.Content);
             Assert.False(unavailable.Before.IsComplete);
             Assert.False(unavailable.After.IsComplete);
             var issue = Assert.Single(
@@ -166,13 +174,13 @@ public sealed class LibraryApiDiffInspectionTests
         var envelope = await ExecuteForwardedConstraint(
             memoryBacked: true, includeBase: false, limits);
 
-        var unavailable = Assert.IsType<LibraryApiDiffPresentationResult.Unavailable>(envelope.Content);
+        var unavailable = Assert.IsType<LibraryApiDiffOutcome.Unavailable>(envelope.Content);
         var truncated = Assert.Single(
             unavailable.Before.Issues.OfType<LibraryApiDiffEndpointIssue.Truncated>());
         Assert.Equal(ApiSurfaceProjectionLimit.InspectionFailures, truncated.Truncation.Limit);
     }
 
-    static async Task<InspectionEnvelope<LibraryApiDiffPresentationResult>> ExecuteForwardedConstraint(
+    static async Task<InspectionEnvelope<LibraryApiDiffOutcome>> ExecuteForwardedConstraint(
         bool memoryBacked,
         bool includeBase,
         ApiSurfaceProjectionLimits limits)
@@ -201,7 +209,7 @@ public sealed class LibraryApiDiffInspectionTests
             before, participant, after, participant, ApiSurfaceScope.Public, limits);
     }
 
-    static async Task<InspectionEnvelope<LibraryApiDiffPresentationResult>>
+    static async Task<InspectionEnvelope<LibraryApiDiffOutcome>>
         ExecutePathBacked(
             string beforePath,
             string afterPath,
@@ -224,7 +232,7 @@ public sealed class LibraryApiDiffInspectionTests
             limits);
     }
 
-    static async Task<InspectionEnvelope<LibraryApiDiffPresentationResult>>
+    static async Task<InspectionEnvelope<LibraryApiDiffOutcome>>
         ExecuteMemoryBacked(
             string beforePath,
             string afterPath,

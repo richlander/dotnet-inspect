@@ -32,6 +32,7 @@ public enum DependencyEvidenceFailurePhase
     Graph,
     Traversal,
     Library,
+    Pruning,
 }
 
 /// <summary>The closed parent family of one restored graph edge.</summary>
