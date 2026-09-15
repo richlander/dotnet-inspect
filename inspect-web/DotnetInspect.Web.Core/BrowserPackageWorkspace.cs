@@ -17,6 +17,7 @@ internal sealed record BrowserPackageCacheSnapshot(
     int MaxPackageEntries,
     int Workspaces,
     int MaxWorkspaces,
+    int MaxWorkspaceAssembliesPerRole,
     long ResidentBytes,
     long MaxResidentBytes,
     long MaxWorkspaceRetainedImageBytes);
@@ -242,6 +243,7 @@ internal static class BrowserPackageWorkspace
             MaxCachedPackages,
             Scopes.Count,
             MaxOpenScopes,
+            BrowserInspectionScope.MaxAssembliesPerRole,
             Cache.Values.Sum(entry => entry.Bytes.LongLength)
                 + Reservations.Values.Sum(reservation => reservation.ReservedBytes),
             MaxCachedPackageBytes,

@@ -46,6 +46,7 @@ const ready: DiagnosticsViewModel = {
       maxPackageEntries: 12,
       workspaces: 2,
       maxWorkspaces: 4,
+      maxWorkspaceAssembliesPerRole: 256,
       residentBytes: 12_582_912,
       maxResidentBytes: 134_217_728,
       maxWorkspaceRetainedImageBytes: 67_108_864,
@@ -72,6 +73,7 @@ test("Diagnostics renders runtime, build, and isolated-storage evidence in order
   assert.match(html, /Package-entry budget[\s\S]*>12</);
   assert.match(html, /Resident bytes[\s\S]*12 MB of 128 MB/);
   assert.match(html, /Workspace slots[\s\S]*2 of 4/);
+  assert.match(html, /Workspace assembly budget[\s\S]*256 per role/);
   assert.match(html, /Workspace image budget[\s\S]*64 MB each/);
   assert.match(html, /Startup phase legend/);
   assert.match(html, /Browser Performance API/);
@@ -102,6 +104,7 @@ test("Diagnostics distinguishes valid zero bytes from unavailable values", () =>
         maxPackageEntries: 12,
         workspaces: 0,
         maxWorkspaces: 4,
+        maxWorkspaceAssembliesPerRole: 256,
         residentBytes: 0,
         maxResidentBytes: 134_217_728,
         maxWorkspaceRetainedImageBytes: 67_108_864,
