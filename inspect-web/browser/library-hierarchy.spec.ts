@@ -1872,6 +1872,57 @@ async function openHomeDemo(
   return share;
 }
 
+test("Demos keeps a loading state when opened before its catalog is ready", async ({
+  page,
+}) => {
+  await installFacades(
+    page, surface, [], "ready", "ready", undefined, "ready", "ready", {
+      catalog: [{
+        id: "stj-serializer",
+        title: "System.Text.Json",
+        summary: "Browse a real package API",
+      }],
+      results: {},
+      catalogPending: true,
+    });
+  await page.goto("/");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-catalog-pending", "true");
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await expect(page).toHaveURL("/demos");
+  await expect(page.locator(".loading-screen")).toBeVisible();
+  await expect(page.getByText("No product demos are available.", { exact: true }))
+    .toHaveCount(0);
+  await releaseFacade(page, "finish-home-demo-catalog");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true })).toBeFocused();
+  await expect(page.locator('[data-workspace-demo="stj-serializer"]')).toBeVisible();
+});
+
+for (const dismissSettings of [false, true]) {
+  test(`Demos preserves Settings ${dismissSettings ? "dismissal" : "control"} focus through a later rerender`, async ({
+    page,
+  }) => {
+    await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+    await page.goto("/demos");
+    await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+      .toBeVisible();
+    await page.getByRole("button", { name: "Open settings" }).click();
+    const focusTarget = dismissSettings
+      ? page.getByRole("link", { name: "Credits", exact: true })
+      : page.getByRole("button", { name: "Dark", exact: true });
+    if (dismissSettings) {
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("button", { name: "Open settings" })).toBeFocused();
+    }
+    await focusTarget.focus();
+    await expect(focusTarget).toBeFocused();
+    await releaseFacade(page, "finish-build-identity");
+    await expect(page.locator(".data-bar-product"))
+      .toContainText("dotnet-inspect vfixture");
+    await expect(focusTarget).toBeFocused();
+  });
+}
+
 test("Demos is a dedicated page reached from Home and the data bar", async ({
   page,
 }, testInfo) => {

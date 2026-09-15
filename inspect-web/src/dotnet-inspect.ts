@@ -4623,15 +4623,21 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
     renderProductDemosPage();
     if (state.settings) {
-      document.querySelector<HTMLElement>("#settings-title")
-        ?.focus({ preventScroll: true });
+      if (!homeFocus
+        || !settingsOwnsHomeFocusTarget(homeFocus)
+        || !restoreHomeFocus(homeFocus)) {
+        document.querySelector<HTMLElement>("#settings-title")
+          ?.focus({ preventScroll: true });
+      }
     } else if (state.keyboardHelp) {
       document.querySelector<HTMLElement>("#keyboard-help-title")
         ?.focus({ preventScroll: true });
     } else if (workspaceFocus) {
       restoreWorkspaceFocus(document, workspaceFocus);
-    } else if (homeFocus) {
-      restoreHomeFocus(homeFocus);
+    } else if (homeFocus && restoreHomeFocus(homeFocus)) {
+      if (homeFocus === pendingHomeFocusTarget) {
+        pendingHomeFocusTarget = null;
+      }
     } else if (levelOneHeadingHadFocus) {
       focusLevelOneHeading();
     }
@@ -10575,7 +10581,7 @@ function focusWorkspaceOrHeading(): void {
 function openProductDemos(): void {
   dismissModalsForRoutedNavigation();
   navigationSequence.begin();
-  state.loading = false;
+  state.loading = !state.engineReady;
   clearNavigationError();
   if (!clearWorkspaceRouteFailure()) {
     render();

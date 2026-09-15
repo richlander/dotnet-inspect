@@ -149,6 +149,10 @@ stays separate from Demos` in `library-hierarchy.spec.ts` gate the production
 page composition and motivating navigation flow using the existing typed
 facade fixtures. Product demo execution remains covered by the neighboring
 package and Platform Methods and Call Graph cases.
+`Demos keeps a loading state when opened before its catalog is ready` covers
+the data-bar entry during startup. The `Demos preserves Settings` browser
+cases cover both an open dialog and a dismissed dialog through a later Build
+identity render, including a user's new focus selection after dismissal.
 
 Loading, catalog-unavailable, query-notice, and long-label states retain the
 same primary hierarchy. They do not replace Search with artwork, turn failure
