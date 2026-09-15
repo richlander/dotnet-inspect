@@ -156,10 +156,11 @@ outside EH regions. A leave can exit protected regions and catch or
 filter-associated handlers, but cannot originate in a filter, exit a `finally`
 or `fault` handler, or enter a filter or handler. A handler retained by both
 endpoints is neither exited nor entered, so a leave nested within that handler
-is valid. The ECMA-335 catch-to-associated-try exception is preserved;
-otherwise a leave cannot enter a new protected region. Other encoded
-cross-boundary transfers make construction of the correlated fact set
-unavailable rather than receive synthetic runtime cleanup semantics.
+is valid. The ECMA-335 handler-to-associated-try exception is preserved for
+catch and filter-associated handlers; otherwise a leave cannot enter a new
+protected region. Other encoded cross-boundary transfers make construction of
+the correlated fact set unavailable rather than receive synthetic runtime
+cleanup semantics.
 
 Exceptional search is outside the initial contract. `throw`, `rethrow`,
 `endfilter`, `endfinally`, and `fault` completion return typed unavailable
@@ -233,10 +234,11 @@ review and applicable notices.
 - body/fact re-pairing and structurally equal foreign blocks;
 - known-empty location context versus a non-instruction offset;
 - per-edge branch, distinct explicit-target and sequential-fallthrough entry,
-  catch-to-associated-try leave, retained enclosing handlers, ordinary leave,
-  and return facts, ordered nested cleanup handlers, canonical
-  block/method-exit continuations, typed out-of-range destination failure, and
-  rejection of a branch or direct return that illegally exits an EH context;
+  catch and filter-handler leave to their associated try, retained enclosing
+  handlers, ordinary leave, and return facts, ordered nested cleanup handlers,
+  canonical block/method-exit continuations, typed out-of-range destination
+  failure, and rejection of a branch or direct return that illegally exits an
+  EH context;
 - explicit exceptional-transfer unavailability; and
 - the runtime `TextReader.Read(Span<char>)` `finally` transfer, cleanup
   identity, and continuation witness.

@@ -1079,17 +1079,18 @@ internal sealed class ExceptionFlowTopology
         return regionsEntered
             .Where(region => region.Role == InstructionExceptionRegionRole.Protected)
             .All(region => sourceProtected.Contains(region.Ordinal)
-                || IsAssociatedCatchProtectedRegion(source, region));
+                || IsAssociatedHandlerProtectedRegion(source, region));
     }
 
-    bool IsAssociatedCatchProtectedRegion(
+    bool IsAssociatedHandlerProtectedRegion(
         ImmutableArray<ExceptionFlowTopologyRegion> source,
         ExceptionFlowTopologyRegion destinationProtected) =>
         source
             .Where(region => region.Role == InstructionExceptionRegionRole.Handler)
             .SelectMany(region => region.ClauseOrdinals)
             .Select(ordinal => Clauses[ordinal])
-            .Any(clause => clause.Kind == ExceptionRegionKind.Catch
+            .Any(clause => clause.Kind is
+                    ExceptionRegionKind.Catch or ExceptionRegionKind.Filter
                 && clause.Protected == destinationProtected.Extent);
 
     static bool IsLegalRegionEntry(

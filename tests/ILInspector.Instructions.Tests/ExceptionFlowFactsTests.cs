@@ -576,6 +576,49 @@ public class ExceptionFlowFactsTests
     }
 
     [Fact]
+    public void FilterHandlerLeaveMayTargetItsAssociatedProtectedRegion()
+    {
+        byte[] image = File.ReadAllBytes(SelfPath);
+        int token = TokenOf(nameof(ExceptionFlowFactsSamples.FilterAndFinally));
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodBodyBlock body = ReadBody(pe, reader, token);
+        ExceptionRegion clause = Assert.Single(
+            body.ExceptionRegions,
+            region => region.Kind == ExceptionRegionKind.Filter);
+        DecodedInstruction leave = MethodInstructions.Decode(body).Instructions.Single(
+            instruction => instruction.LeavesRegion
+                && instruction.Offset >= clause.HandlerOffset
+                && instruction.Offset < clause.HandlerOffset + clause.HandlerLength);
+        WriteBranchTarget(
+            image,
+            token,
+            leave,
+            clause.TryOffset);
+
+        MethodInstructions method = MethodInstructions.Decode(
+            ReadMutatedBody(image, token));
+        InstructionExceptionFlowFacts facts = AvailableFacts(method);
+        InstructionExceptionClause filterClause = Assert.Single(
+            facts.Clauses,
+            candidate => candidate.Kind == ExceptionRegionKind.Filter);
+        InstructionNormalTransfer transfer = Assert.IsType<
+            InstructionExceptionFlowResult<InstructionNormalTransfer>.Available>(
+                facts.NormalTransferAt(leave.Offset, clause.TryOffset)).Value;
+
+        Assert.Contains(
+            transfer.SourceContext,
+            region => region.Id == filterClause.HandlerRegion);
+        Assert.DoesNotContain(
+            transfer.SourceContext,
+            region => region.Id == filterClause.FilterRegion);
+        Assert.Contains(
+            transfer.RegionsEntered,
+            region => region.Id == filterClause.ProtectedRegion);
+        Assert.Empty(transfer.CleanupHandlers);
+    }
+
+    [Fact]
     public void BranchCannotReplaceLeaveAcrossAHandlerBoundary()
     {
         byte[] image = File.ReadAllBytes(SelfPath);
