@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
@@ -22,6 +23,25 @@ public static partial class PackageQuery
     public static PackageQueryPlanResult PlanInput(
         string text,
         IReadOnlyCollection<string>? facetIds = null,
+        int maximumCandidates = DefaultMaximumCandidates,
+        int? maximumMatches = DefaultMaximumMatches,
+        bool includePrerelease = false)
+        => PlanInput(
+            text,
+            facetIds,
+            terms: null,
+            maximumCandidates,
+            maximumMatches,
+            includePrerelease);
+
+    /// <summary>
+    /// Plans an input with the existing facet selections and parameterized
+    /// Package Query terms.
+    /// </summary>
+    public static PackageQueryPlanResult PlanInput(
+        string text,
+        IReadOnlyCollection<string>? facetIds,
+        IReadOnlyCollection<PortableQueryTerm>? terms,
         int maximumCandidates = DefaultMaximumCandidates,
         int? maximumMatches = DefaultMaximumMatches,
         bool includePrerelease = false)
@@ -62,7 +82,7 @@ public static partial class PackageQuery
         }
 
         return PlanCore(
-            Evidence(scope), Evidence(explanation), facetIds,
+            Evidence(scope), Evidence(explanation), facetIds, terms,
             maximumCandidates, maximumMatches, includePrerelease,
             packageInput: input);
     }
@@ -93,7 +113,8 @@ public static partial class PackageQuery
         }
 
         if (plan.PackageInput is SourceSelector.PackagePrefix prefix
-            && plan.Definitions.IsEmpty)
+            && plan.Definitions.IsEmpty
+            && plan.BoundTerms.IsEmpty)
         {
             await foreach (PackageQueryInputEvent item in AcquirePrefixMetadataAsync(
                 source, prefix.Request, cancellationToken).ConfigureAwait(false))
@@ -161,7 +182,7 @@ public static partial class PackageQuery
                 "Listed package resolution returned no source observation.");
         yield return new PackageQueryInputEvent.Acquired(1);
         PackageManifestFacts? manifest = null;
-        if (!plan.Definitions.IsEmpty)
+        if (!plan.Definitions.IsEmpty || !plan.BoundTerms.IsEmpty)
         {
             var (facts, failure) = await PackageProfileQuery.AcquireManifestAsync(
                 source, candidate, input.Coordinate.PackageId, candidate.Coordinate.Version,

@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 
@@ -181,4 +182,37 @@ public class TypeSearchServiceTests
         Assert.NotEmpty(results);
         Assert.DoesNotContain("Directory not found", capture.Error);
     }
+
+    [Fact]
+    public async Task FindTypesAsync_NullableGenericPatternIsClassifiedAsExact()
+    {
+        const string pattern = "NullablePatternTarget<string?>";
+        using var httpClient = new HttpClient();
+
+        FindSearchResult<TypeFindResult> search =
+            await TypeSearchService.FindTypesAsync(
+                new FindOptions
+                {
+                    Pattern = pattern,
+                    Assemblies =
+                    [
+                        typeof(NullablePatternTarget<>).Assembly.Location,
+                    ],
+                    IncludeAll = true,
+                },
+                [pattern],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        TypeFindResult result = Assert.Single(
+            search.Rows,
+            candidate =>
+                candidate.FullName
+                == typeof(NullablePatternTarget<>).FullName);
+        Assert.Equal(pattern, result.Pattern);
+        Assert.Equal(MatchKind.Exact, result.Match);
+    }
 }
+
+public sealed class NullablePatternTarget<T>;

@@ -290,7 +290,7 @@ internal static class TypeSearchService
 
         foreach (var (pattern, types) in exactMatches)
         {
-            var isGlob = pattern.Contains('*') || pattern.Contains('?');
+            bool isGlob = TypeMatcher.IsTypeGlobPattern(pattern);
             foreach (var t in types)
             {
                 results.Add(new TypeFindResult
