@@ -280,13 +280,14 @@ substrates, and inspection producers that will extend that space.
   owner defines the sole product-facing platform realization and
   reference-processing facade: explicit target/version settlement,
   exact-target source realization,
-  provenance-retaining bare-library handoff, and transparent .NET Standard
-  forwarding through Metadata. Package-reference processing and pruning
-  remain upstream in the package domain. Selected Workspace ecosystem
+  shared Library owner/reference handoff, and transparent .NET Standard
+  forwarding through Metadata. Live Library owners remain separate from
+  resource-free House values and receipts. Package-reference processing and
+  pruning remain upstream in the package domain. Selected Workspace ecosystem
   populations lower through their retained platform-family declarations into
   independent runtime and ASP.NET Core House target demands; package-prefix
-  contributions remain package-domain work. The House also settles
-  target, source, reference, implementation, and forwarding evidence needed by
+  contributions remain package-domain work. The House also settles target,
+  source, reference, implementation, and forwarding evidence needed by
   downstream source and documentation adapters. Documentation settlement,
   Workspace admission, the assembly-reference ladder, and host presentation
   remain with their focused owners.

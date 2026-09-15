@@ -4639,8 +4639,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     if (workspaceCatalogVisible) {
       renderWorkspaceCatalogView();
       if (state.settings) {
-        document.querySelector<HTMLElement>("#settings-title")
-          ?.focus({ preventScroll: true });
+        focusSettingsEntry();
       } else if (state.keyboardHelp) {
         document.querySelector<HTMLElement>("#keyboard-help-title")
           ?.focus({ preventScroll: true });
@@ -4917,8 +4916,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     }
   }
   if (state.settings) {
-    document.querySelector<HTMLElement>("#settings-title")
-      ?.focus({ preventScroll: true });
+    focusSettingsEntry();
   } else if (state.keyboardHelp) {
     document.querySelector<HTMLElement>("#keyboard-help-title")
       ?.focus({ preventScroll: true });
@@ -4934,8 +4932,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     focusLevelOneHeading();
   } else if (isIntegrationMode(integrationTabFocus)) {
     restoreIntegrationTabFocus(document, integrationTabFocus);
-  } else if (packageRetryHadFocus
-    || (packageControlHadFocus && (packageLoadingHadFocus || loadingPackageContent))) {
+  } else if (packageRetryHadFocus || packageControlHadFocus) {
     document.querySelector<HTMLElement>(
       loadingPackageContent ? "#package-content-loading" : `#${packageLoadingControl}`)
       ?.focus({ preventScroll: true });
@@ -7240,6 +7237,7 @@ function bindTypePanelEvents() {
       if (state.typeSource.status === "ready")
         void copyText(state.typeSource.source.text, "source copied");
     },
+    onExploreSource: () => openSettings("source"),
     onKindSelect: kind => {
       state.kindFilter = kind;
       state.typeCursor = 0;
@@ -8926,6 +8924,7 @@ async function switchPackageVersion(newVersion: string) {
   const framework = pkg.activeFramework;
   await loadPackage(id, newVersion, framework, {
     replacePackage: pkg,
+    packageLens: state.atPackageRoot ? state.packageLens : "overview",
     invalidateWorkspaceShareBasis: true,
     loadingPresentation: "content",
   });
@@ -8942,6 +8941,7 @@ async function switchPackageFramework(newFramework: string) {
     newFramework,
     {
       replacePackage: pkg,
+      packageLens: state.atPackageRoot ? state.packageLens : "overview",
       invalidateWorkspaceShareBasis: true,
       loadingPresentation: "content",
     });
@@ -10492,8 +10492,7 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
     if (!preservedFocus
       || !settingsOwnsHomeFocusTarget(preservedFocus)
       || !restoreHomeFocus(preservedFocus)) {
-      document.querySelector<HTMLElement>("#settings-title")
-        ?.focus({ preventScroll: true });
+      focusSettingsEntry();
     }
   }
 }
@@ -13958,9 +13957,17 @@ function dispatchApplicationAction(action: ApplicationAction) {
   }
 }
 
+function focusSettingsEntry() {
+  const selector = state.settingsReturn === "source"
+    ? "#settings-decompiler-title"
+    : "#settings-title";
+  document.querySelector<HTMLElement>(selector)
+    ?.focus({ preventScroll: true });
+}
+
 // Open Settings, remembering the logical control that receives focus after dismissal.
-function openSettings(from: "home" | "workbench") {
-  state.settingsReturn = from === "workbench" ? "workbench" : "home";
+function openSettings(from: "home" | "workbench" | "source") {
+  state.settingsReturn = from;
   state.keyboardHelp = false;
   state.settings = true;
   render();
@@ -13981,11 +13988,17 @@ function closeSettings() {
   render();
   requestAnimationFrame(() => {
     restoreOrdinaryModalDismissFocus(() => {
-      const selector = state.settingsReturn === "workbench"
-        ? "#application-menu-button"
-        : "#home-settings";
-      document.querySelector<HTMLElement>(selector)
-        ?.focus({ preventScroll: true });
+      const selectors = state.settingsReturn === "source"
+        ? ["#explore-source", "#application-menu-button"]
+        : state.settingsReturn === "workbench"
+          ? ["#application-menu-button"]
+          : ["#home-settings"];
+      selectors.some(selector => {
+        const target = document.querySelector<HTMLElement>(selector);
+        if (!target) return false;
+        target.focus({ preventScroll: true });
+        return true;
+      });
     });
   });
 }
@@ -14147,6 +14160,7 @@ interface LoadPackageOptions {
   navigationSeq?: number;
   queryNotice?: string;
   replacePackage?: AppPackage | null;
+  packageLens?: PackageLens;
   location?: ParsedLocation;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
@@ -14232,7 +14246,7 @@ async function loadPackage(
     } else {
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
-      state.packageLens = "overview";
+      state.packageLens = options.packageLens ?? "overview";
     }
     if (deep) {
       applyDeepLink(deep);

@@ -269,6 +269,9 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onCopyTypeSource: () => {
       calls.push("copy-type-source");
     },
+    onExploreSource: () => {
+      calls.push("explore-source");
+    },
     onKindSelect: value => calls.push(`kind:${value}`),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
@@ -529,6 +532,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const copySignature = root.add("#copy-signature", new FakeElement());
   const copyMemberSource = root.add("#copy-source", new FakeElement());
   const copyTypeSource = root.add("#copy-type-source", new FakeElement());
+  const exploreSource = root.add("#explore-source", new FakeElement());
   const calls: string[] = [];
 
   bindPanel(root, recordingActions(calls));
@@ -550,6 +554,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
   invalidAnchor.dispatch("click");
   copyMemberSource.dispatch("click");
   copyTypeSource.dispatch("click");
+  exploreSource.dispatch("click");
 
   assert.deepEqual(calls, [
     "member-jump-kind:method",
@@ -568,6 +573,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "copy-anchor:undefined",
     "copy-member-source",
     "copy-type-source",
+    "explore-source",
   ]);
 });
 
@@ -1177,7 +1183,7 @@ test("type PDB source renders code above provenance once loaded", () => {
   assert.doesNotMatch(html, /copy-type-source|open source/);
 });
 
-test("source page actions render copy and open for the page-owned group", () => {
+test("source page actions render copy, open, and Explore for the page-owned group", () => {
   const html = renderSourcePageActions({
     source: {
       provider: "pdb",
@@ -1193,6 +1199,9 @@ test("source page actions render copy and open for the page-owned group", () => 
   assert.match(
     html,
     /class="shell-action-link" href="https:\/\/example\.test\/source\.cs\?x=1&amp;y=2" target="_blank" rel="noreferrer">Open<\/a>/);
+  assert.match(
+    html,
+    /id="explore-source"[^>]*title="Explore source options"[^>]*>Explore<\/button>/);
 });
 
 test("source page actions disable copy until source is available", () => {
@@ -1204,6 +1213,8 @@ test("source page actions disable copy until source is available", () => {
 
   assert.match(html, /id="copy-source"[^>]* disabled>Copy<\/button>/);
   assert.doesNotMatch(html, /shell-action-link/);
+  assert.match(html, /id="explore-source"[^>]*>Explore<\/button>/);
+  assert.doesNotMatch(html, /id="explore-source"[^>]* disabled/);
 });
 
 test("decompiled type source discloses an escaped PDB-source limitation", () => {

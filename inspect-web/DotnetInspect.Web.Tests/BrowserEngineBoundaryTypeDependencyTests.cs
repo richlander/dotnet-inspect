@@ -498,6 +498,41 @@ public sealed partial class BrowserEngineBoundaryTests
             metadata.GraphEdges,
             edge => edge.FromId == typeName
                 && edge.ToId == typeof(IAsyncDisposable).FullName);
+        Assert.Empty(metadata.InspectionFailures);
+
+        const string authenticPackageId =
+            "Browser.TypeDependencies.System.Text.Json";
+        const string nestedType =
+            "System.Collections.Generic.OrderedDictionary`2.KeyCollection";
+        _ = await Coordinate(
+            authenticPackageId,
+            Package(
+                File.ReadAllBytes(Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    "TypeDependencies",
+                    "System.Text.Json.dll")),
+                "lib/net11.0/System.Text.Json.dll"));
+        BrowserTypeMetadata authentic = await QueryTypeProjection(
+            authenticPackageId,
+            "System.Text.Json.dll",
+            nestedType,
+            $$"""
+            [
+              {
+                "package": "{{authenticPackageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Contains(
+            authentic.GraphEdges,
+            edge => edge.FromId == nestedType
+                && edge.ToId
+                    == "System.Collections.Generic.IList<TKey>");
+        Assert.Empty(authentic.InspectionFailures);
     }
 
     [Fact]
