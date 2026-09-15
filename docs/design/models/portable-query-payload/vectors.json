@@ -2907,6 +2907,394 @@
         ]
       },
       "canonical": "{\"t\":[[\"k\",\"eq\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"ne\",\"v\"]]}"
+    },
+    {
+      "name": "stages-head-then-head",
+      "description": "A head stage followed by a head stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"head\",1],[\"head\",5]]}"
+    },
+    {
+      "name": "stages-head-then-tail",
+      "description": "A head stage followed by a tail stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "head",
+            1
+          ],
+          [
+            "tail",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"head\",1],[\"tail\",5]]}"
+    },
+    {
+      "name": "stages-head-then-top",
+      "description": "A head stage followed by a top stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "head",
+            1
+          ],
+          [
+            "top",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"head\",1],[\"top\",5]]}"
+    },
+    {
+      "name": "stages-head-then-window",
+      "description": "A head stage followed by a window stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "head",
+            1
+          ],
+          [
+            "window",
+            5,
+            6
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"head\",1],[\"window\",5,6]]}"
+    },
+    {
+      "name": "stages-tail-then-head",
+      "description": "A tail stage followed by a head stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            1
+          ],
+          [
+            "head",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"tail\",1],[\"head\",5]]}"
+    },
+    {
+      "name": "stages-tail-then-tail",
+      "description": "A tail stage followed by a tail stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            1
+          ],
+          [
+            "tail",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"tail\",1],[\"tail\",5]]}"
+    },
+    {
+      "name": "stages-tail-then-top",
+      "description": "A tail stage followed by a top stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            1
+          ],
+          [
+            "top",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"tail\",1],[\"top\",5]]}"
+    },
+    {
+      "name": "stages-tail-then-window",
+      "description": "A tail stage followed by a window stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            1
+          ],
+          [
+            "window",
+            5,
+            6
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"tail\",1],[\"window\",5,6]]}"
+    },
+    {
+      "name": "stages-top-then-head",
+      "description": "A top stage followed by a head stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ],
+          [
+            "head",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1],[\"head\",5]]}"
+    },
+    {
+      "name": "stages-top-then-tail",
+      "description": "A top stage followed by a tail stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ],
+          [
+            "tail",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1],[\"tail\",5]]}"
+    },
+    {
+      "name": "stages-top-then-top",
+      "description": "A top stage followed by a top stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1],[\"top\",5]]}"
+    },
+    {
+      "name": "stages-top-then-window",
+      "description": "A top stage followed by a window stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ],
+          [
+            "window",
+            5,
+            6
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1],[\"window\",5,6]]}"
+    },
+    {
+      "name": "stages-window-then-head",
+      "description": "A window stage followed by a head stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "window",
+            1,
+            2
+          ],
+          [
+            "head",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"window\",1,2],[\"head\",5]]}"
+    },
+    {
+      "name": "stages-window-then-tail",
+      "description": "A window stage followed by a tail stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "window",
+            1,
+            2
+          ],
+          [
+            "tail",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"window\",1,2],[\"tail\",5]]}"
+    },
+    {
+      "name": "stages-window-then-top",
+      "description": "A window stage followed by a top stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "window",
+            1,
+            2
+          ],
+          [
+            "top",
+            5
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"window\",1,2],[\"top\",5]]}"
+    },
+    {
+      "name": "stages-window-then-window",
+      "description": "A window stage followed by a window stage emits in that order; stage sequence is meaning, and no kind moves.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "window",
+            1,
+            2
+          ],
+          [
+            "window",
+            5,
+            6
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"window\",1,2],[\"window\",5,6]]}"
+    },
+    {
+      "name": "eight-rankings-supplied-descending",
+      "description": "Eight top stages and eight ranking operations supplied 7 down to 0 canonicalize to ascending stage index, 7 last.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            7,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            6,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            5,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            4,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            3,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            2,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            1,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            0,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1]],\"o\":[[0,\"named\",\"x\",\"asc\"],[1,\"named\",\"x\",\"asc\"],[2,\"named\",\"x\",\"asc\"],[3,\"named\",\"x\",\"asc\"],[4,\"named\",\"x\",\"asc\"],[5,\"named\",\"x\",\"asc\"],[6,\"named\",\"x\",\"asc\"],[7,\"named\",\"x\",\"asc\"]]}"
     }
   ],
   "encode-reject": [
@@ -10783,6 +11171,61 @@
         ]
       },
       "reject": "bad-integer"
+    },
+    {
+      "name": "role-names-a-tail-stage-in-intent",
+      "description": "A ranking role naming a tail stage is refused on the intent side; only top ranks.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            5
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "role-not-top"
+    },
+    {
+      "name": "role-names-a-window-stage-in-intent",
+      "description": "A ranking role naming a window stage is refused on the intent side; only top ranks.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            5,
+            6
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "role-not-top"
+    },
+    {
+      "name": "property-name-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in a property name is refused on the intent side by the string rule.",
+      "intent": {"\ud800":[["k","eq","v"]]},
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "property-name-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in a property name is refused on the intent side by the string rule.",
+      "intent": {"\udc00":[["k","eq","v"]]},
+      "reject": "unpaired-surrogate"
     }
   ],
   "reject": [
@@ -12630,9 +13073,9 @@
     },
     {
       "name": "last-term-invalid",
-      "description": "Every tuple is validated, not only the first: an empty key in the twenty-fourth term is refused on the wire.",
-      "bytes": "{\"t\":[[\"\",\"eq\",\"v\"],[\"k00\",\"eq\",\"v\"],[\"k01\",\"eq\",\"v\"],[\"k02\",\"eq\",\"v\"],[\"k03\",\"eq\",\"v\"],[\"k04\",\"eq\",\"v\"],[\"k05\",\"eq\",\"v\"],[\"k06\",\"eq\",\"v\"],[\"k07\",\"eq\",\"v\"],[\"k08\",\"eq\",\"v\"],[\"k09\",\"eq\",\"v\"],[\"k10\",\"eq\",\"v\"],[\"k11\",\"eq\",\"v\"],[\"k12\",\"eq\",\"v\"],[\"k13\",\"eq\",\"v\"],[\"k14\",\"eq\",\"v\"],[\"k15\",\"eq\",\"v\"],[\"k16\",\"eq\",\"v\"],[\"k17\",\"eq\",\"v\"],[\"k18\",\"eq\",\"v\"],[\"k19\",\"eq\",\"v\"],[\"k20\",\"eq\",\"v\"],[\"k21\",\"eq\",\"v\"],[\"k22\",\"eq\",\"v\"]]}",
-      "reject": "empty-identity"
+      "description": "Every tuple is validated, not only the first: a 65-byte key in the twenty-fourth term, which sorts last, is refused on the wire.",
+      "bytes": "{\"t\":[[\"k00\",\"eq\",\"v\"],[\"k01\",\"eq\",\"v\"],[\"k02\",\"eq\",\"v\"],[\"k03\",\"eq\",\"v\"],[\"k04\",\"eq\",\"v\"],[\"k05\",\"eq\",\"v\"],[\"k06\",\"eq\",\"v\"],[\"k07\",\"eq\",\"v\"],[\"k08\",\"eq\",\"v\"],[\"k09\",\"eq\",\"v\"],[\"k10\",\"eq\",\"v\"],[\"k11\",\"eq\",\"v\"],[\"k12\",\"eq\",\"v\"],[\"k13\",\"eq\",\"v\"],[\"k14\",\"eq\",\"v\"],[\"k15\",\"eq\",\"v\"],[\"k16\",\"eq\",\"v\"],[\"k17\",\"eq\",\"v\"],[\"k18\",\"eq\",\"v\"],[\"k19\",\"eq\",\"v\"],[\"k20\",\"eq\",\"v\"],[\"k21\",\"eq\",\"v\"],[\"k22\",\"eq\",\"v\"],[\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"eq\",\"v\"]]}",
+      "reject": "limit-exceeded"
     },
     {
       "name": "last-bound-invalid",
@@ -14685,6 +15128,36 @@
       "description": "Property o before s on the wire is not canonical; the order is exactly t, b, s, o.",
       "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"asc\"]],\"s\":[[\"head\",1]]}",
       "reject": "non-canonical"
+    },
+    {
+      "name": "role-names-a-tail-stage",
+      "description": "A ranking role naming a tail stage is refused on the wire; only top ranks.",
+      "bytes": "{\"s\":[[\"tail\",5]],\"o\":[[0,\"named\",\"x\",\"asc\"]]}",
+      "reject": "role-not-top"
+    },
+    {
+      "name": "role-names-a-window-stage",
+      "description": "A ranking role naming a window stage is refused on the wire; only top ranks.",
+      "bytes": "{\"s\":[[\"window\",5,6]],\"o\":[[0,\"named\",\"x\",\"asc\"]]}",
+      "reject": "role-not-top"
+    },
+    {
+      "name": "role-seven-before-the-rest-on-the-wire",
+      "description": "Role 7 ahead of roles 0 through 6 is not canonical; ranking operations emit in ascending stage index.",
+      "bytes": "{\"s\":[[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1]],\"o\":[[7,\"named\",\"x\",\"asc\"],[0,\"named\",\"x\",\"asc\"],[1,\"named\",\"x\",\"asc\"],[2,\"named\",\"x\",\"asc\"],[3,\"named\",\"x\",\"asc\"],[4,\"named\",\"x\",\"asc\"],[5,\"named\",\"x\",\"asc\"],[6,\"named\",\"x\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "property-name-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in a property name is refused by the string rule before the name is matched.",
+      "bytes": "{\"\\ud800\":[[\"k\",\"eq\",\"v\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "property-name-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in a property name is refused by the string rule before the name is matched.",
+      "bytes": "{\"\\udc00\":[[\"k\",\"eq\",\"v\"]]}",
+      "reject": "unpaired-surrogate"
     }
   ],
   "pair": [

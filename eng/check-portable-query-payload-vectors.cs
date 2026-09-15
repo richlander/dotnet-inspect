@@ -241,7 +241,11 @@ string? ValidateStructure(string text, out JsonDocument? doc, bool onTheWire)
         if (obj.ValueKind != JsonValueKind.Object) return "not-an-object";
 
         var names = new List<string>();
-        foreach (JsonProperty p in obj.EnumerateObject()) names.Add(p.Name);
+        foreach (JsonProperty p in obj.EnumerateObject())
+        {
+            try { names.Add(p.Name); }
+            catch (InvalidOperationException) { return "unpaired-surrogate"; }   // the string rule applies to a property name as to any string
+        }
         if (names.Distinct().Count() != names.Count) return "duplicate-property";
         foreach (string n in names) if (!properties.Contains(n)) return "unknown-property";
         foreach (JsonProperty p in obj.EnumerateObject())
