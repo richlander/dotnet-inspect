@@ -11,6 +11,10 @@ const paletteRoles = [
   "--shell-accent",
   "--shell-accent-fill",
   "--shell-accent-soft",
+  "--overlay-scrim",
+  "--shadow-menu",
+  "--shadow-dialog",
+  "--shadow-drawer-color",
   "--finding-allocation",
   "--graph-target-fill",
   "--graph-target-stroke",
@@ -72,6 +76,10 @@ test("shared theme roles use the modern .NET and C# palette", async ({
       "--shell-accent": "#b9aaee",
       "--shell-accent-fill": "#512bd4",
       "--shell-accent-soft": "#2b2054",
+      "--overlay-scrim": "rgb(8 6 18 / 72%)",
+      "--shadow-menu": "0 12px 32px rgb(0 0 0 / 35%)",
+      "--shadow-dialog": "0 24px 70px rgb(0 0 0 / 55%)",
+      "--shadow-drawer-color": "rgb(0 0 0 / 38%)",
       "--finding-allocation": "#e5663f",
       "--graph-target-fill": "#311a7f",
       "--graph-target-stroke": "#b9aaee",
@@ -90,6 +98,10 @@ test("shared theme roles use the modern .NET and C# palette", async ({
       "--shell-accent": "#512bd4",
       "--shell-accent-fill": "#512bd4",
       "--shell-accent-soft": "#eeeafb",
+      "--overlay-scrim": "rgb(33 26 50 / 32%)",
+      "--shadow-menu": "0 12px 32px rgb(33 26 50 / 18%)",
+      "--shadow-dialog": "0 24px 70px rgb(33 26 50 / 28%)",
+      "--shadow-drawer-color": "rgb(33 26 50 / 22%)",
       "--finding-allocation": "#b74728",
       "--graph-target-fill": "#eeeafb",
       "--graph-target-stroke": "#512bd4",
@@ -123,6 +135,97 @@ test("shared theme roles use the modern .NET and C# palette", async ({
     await expect(page.locator(".settings-seg.active")).toHaveCSS(
       "background-color",
       "rgb(81, 43, 212)",
+    );
+  }
+});
+
+test("overlays use the shared elevation hierarchy", async ({ page }) => {
+  const expected = {
+    dark: {
+      dialog: "rgba(0, 0, 0, 0.55) 0px 24px 70px 0px",
+      drawerBlock: "rgba(0, 0, 0, 0.38) 0px -12px 36px 0px",
+      drawerInline: "rgba(0, 0, 0, 0.38) -16px 0px 40px 0px",
+      menu: "rgba(0, 0, 0, 0.35) 0px 12px 32px 0px",
+      scrim: "rgba(8, 6, 18, 0.72)",
+    },
+    light: {
+      dialog: "rgba(33, 26, 50, 0.28) 0px 24px 70px 0px",
+      drawerBlock: "rgba(33, 26, 50, 0.22) 0px -12px 36px 0px",
+      drawerInline: "rgba(33, 26, 50, 0.22) -16px 0px 40px 0px",
+      menu: "rgba(33, 26, 50, 0.18) 0px 12px 32px 0px",
+      scrim: "rgba(33, 26, 50, 0.32)",
+    },
+  };
+
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+  await page.locator("#application-menu-button").click();
+  const menu = page.locator(".application-menu");
+  for (const theme of ["dark", "light"] as const) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    await expect(menu).toHaveCSS("box-shadow", expected[theme].menu);
+  }
+
+  await page.getByRole("menuitem", { name: "Settings" }).click();
+  const applicationBackdrop = page.locator("#settings-backdrop");
+  const applicationDialog = page.locator("#settings-dialog");
+  await page.evaluate(() => {
+    const toast = document.createElement("div");
+    toast.className = "toast";
+    toast.textContent = "selection link copied";
+    document.body.append(toast);
+  });
+  const toast = page.locator(".toast");
+  for (const theme of ["dark", "light"] as const) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    await expect(applicationBackdrop).toHaveCSS(
+      "background-color",
+      expected[theme].scrim,
+    );
+    await expect(applicationDialog).toHaveCSS(
+      "box-shadow",
+      expected[theme].dialog,
+    );
+    await expect(toast).toHaveCSS("box-shadow", expected[theme].menu);
+  }
+
+  await page.goto("/browser/annotated-source.html");
+  await page.locator("#annotated-chip-embedded-0-1-CSharp").click();
+  const embeddedDrawer = page.locator(".annotated-detail");
+  for (const theme of ["dark", "light"] as const) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    await expect(embeddedDrawer).toHaveCSS(
+      "box-shadow",
+      expected[theme].drawerBlock,
+    );
+  }
+
+  await page.locator('[data-annotated-action="close-detail"]').click();
+  await page.locator("#explore-annotated").click();
+  const annotatedBackdrop = page.locator("#annotated-source-backdrop");
+  const annotatedModal = page.locator("#annotated-source-modal");
+  await page.locator("#annotated-chip-modal-0-1-CSharp").click();
+  const modalDrawer = annotatedModal.locator(".annotated-detail");
+  for (const theme of ["dark", "light"] as const) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    await expect(annotatedBackdrop).toHaveCSS(
+      "background-color",
+      expected[theme].scrim,
+    );
+    await expect(annotatedModal).toHaveCSS(
+      "box-shadow",
+      expected[theme].dialog,
+    );
+    await expect(modalDrawer).toHaveCSS(
+      "box-shadow",
+      expected[theme].drawerInline,
     );
   }
 });
