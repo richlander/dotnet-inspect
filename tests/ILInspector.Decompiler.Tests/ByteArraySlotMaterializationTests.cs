@@ -53,24 +53,16 @@ public class ByteArraySlotMaterializationTests
     }
 
     [Theory]
-    [InlineData("signed")]
-    [InlineData("other-element")]
-    [InlineData("foreign")]
     [InlineData("generic")]
     [InlineData("rank-one")]
     [InlineData("rectangular")]
-    [InlineData("jagged")]
-    public void OtherArrayShapesRemainDeferred(string kind)
+    public void UnspellableAndNonSzArrayShapesRemainDeferred(string kind)
     {
         var type = kind switch
         {
-            "signed" => SByteArray,
-            "other-element" => TypeRef.SzArray(Int32),
-            "foreign" => TypeRef.SzArray(TypeRef.Definition("Other", "System", "Byte")),
             "generic" => TypeRef.SzArray(TypeRef.GenericInstance(Byte, [Int32])),
             "rank-one" => TypeRef.MdArray(Byte, 1),
             "rectangular" => TypeRef.MdArray(Byte, 2),
-            "jagged" => TypeRef.SzArray(ByteArray),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         var function = Function(type,
