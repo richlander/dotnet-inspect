@@ -20295,6 +20295,41 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Find_LocatorSimilarityCutoffPreservesInventoryOrder()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "JsonNodeX",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--all",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            [
+                "System.Text.Json.JsonDocument",
+                "System.Text.Json.JsonProperty",
+                "System.Text.Json.Schema.JsonSchema",
+                "System.Text.Json.Nodes.JsonNode",
+                "System.Text.Json.Nodes.JsonNodeOptions",
+            ],
+            document.RootElement
+                .EnumerateArray()
+                .Select(
+                    static row =>
+                        row.GetProperty("full_name").GetString()!)
+                .ToArray());
+    }
+
+    [Fact]
     public async Task Find_IncompleteLocatorMarkdownPreservesResultsView()
     {
         var (exit, output, error) = await RunAppAsync(

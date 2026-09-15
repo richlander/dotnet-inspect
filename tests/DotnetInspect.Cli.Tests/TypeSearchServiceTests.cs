@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Cache;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -15,6 +16,9 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public class TypeSearchServiceTests
 {
+    public TypeSearchServiceTests()
+        => PersistentCache.Initialize("dotnet-inspect-test");
+
     [Fact]
     public async Task FindWorkspacePlan_PreservesExplicitEcosystemOrder()
     {
@@ -50,14 +54,13 @@ public class TypeSearchServiceTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task FindTypesAsync_LocatorRetainsPackageAndPlatformChoices()
+    public async Task FindTypesAsync_LocatorRetainsPackageChoice()
     {
         using var httpClient = new HttpClient();
         var options = new FindOptions
         {
             Pattern = "System.Text.Json.JsonSerializer",
             Packages = ["System.Text.Json@10.0.0"],
-            PlatformAssemblies = ["System.Text.Json"],
             Tfm = "net10.0",
             IncludeAll = true,
         };
@@ -71,35 +74,25 @@ public class TypeSearchServiceTests
                 TestContext.Current.CancellationToken);
 
         Assert.False(result.HasFailures);
-        Assert.Equal(2, result.Rows.Count);
-        Assert.All(
-            result.Rows,
-            static row => Assert.Equal("class", row.Kind));
-        Assert.Contains(
-            result.Rows,
-            static row => row.Source == "System.Text.Json");
-        Assert.Contains(
-            result.Rows,
-            static row => row.Source == "runtime");
+        Assert.Single(result.Rows);
+        Assert.Equal("class", result.Rows[0].Kind);
+        Assert.Equal("System.Text.Json", result.Rows[0].Source);
         TypeDeclarationLocatorSectionResult.Evaluated section =
             Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
                 Assert.Single(result.LocatorSections));
         TypeDeclarationLocatorSectionAnswer answer =
             Assert.Single(section.Answers);
-        Assert.Equal(2, answer.AvailableCandidateCount);
-        Assert.Equal(2, answer.Candidates.Length);
+        Assert.Equal(1, answer.AvailableCandidateCount);
+        Assert.Single(answer.Candidates);
         Assert.All(result.Rows, row =>
         {
             Assert.NotNull(row.Location);
         });
 
-        TypeFindResult package =
-            Assert.Single(
-                result.Rows,
-                static row =>
-                    row.Location?.Coordinate
-                        is TypeDeclarationLocatorSectionCoordinate
-                            .PackageCoordinate);
+        TypeFindResult package = Assert.Single(result.Rows);
+        Assert.IsType<
+            TypeDeclarationLocatorSectionCoordinate.PackageCoordinate>(
+                package.Location?.Coordinate);
         TypeOptions packageType =
             TypeFindIfMissResult.Found(options.Pattern, package)
                 .ApplyTo(new TypeOptions());
@@ -110,22 +103,6 @@ public class TypeSearchServiceTests
             "lib/net10.0/System.Text.Json.dll",
             packageType.AssemblyPath);
         Assert.Equal("net10.0", packageType.Tfm);
-
-        TypeFindResult platform =
-            Assert.Single(
-                result.Rows,
-                static row =>
-                    row.Location?.Coordinate
-                        is TypeDeclarationLocatorSectionCoordinate
-                            .PlatformCoordinate);
-        TypeFindIfMissResult platformSelection =
-            TypeFindIfMissResult.Found(
-                options.Pattern,
-                platform);
-        Assert.Throws<InvalidOperationException>(
-            () => platformSelection.ApplyTo(new TypeOptions()));
-        Assert.Throws<InvalidOperationException>(
-            () => platformSelection.ApplyTo(new MemberOptions()));
 
         var (typeExit, typeOutput, _) =
             await ConsoleCapture.RunAsync(
@@ -187,27 +164,28 @@ public class TypeSearchServiceTests
     }
 
     [Fact]
-    public void DeclarationLocatorEligibility_ExcludesNetStandardPlatform()
+    public void DeclarationLocatorEligibility_ExcludesPlatformLibraries()
     {
         var request = new AssemblySetRequest
         {
-            PlatformAssemblies = ["netstandard"],
+            PlatformAssemblies = ["System.Text.Json"],
         };
 
         Assert.False(
             ConfiguredDeclarationLocatorWorkspace.IsEligible(
                 request,
-                "netstandard2.1"));
+                "net10.0"));
     }
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task FindTypesAsync_PackageReopeningPreservesImplementationAsset()
+    public async Task FindTypesAsync_MixedPackageLayoutUsesCompatibilityInventory()
     {
         using var httpClient = new HttpClient();
         var options = new FindOptions
         {
-            Pattern = "RuntimeBinder",
+            Pattern =
+                "Microsoft.CSharp.RuntimeBinder.RuntimeBinderException",
             Packages = ["Microsoft.CSharp@4.7.0"],
             Tfm = "netstandard2.0",
         };
@@ -221,31 +199,17 @@ public class TypeSearchServiceTests
                 TestContext.Current.CancellationToken);
 
         Assert.False(result.HasFailures);
-        TypeFindResult row = Assert.Single(result.Rows);
-        Assert.Equal(
-            "Microsoft.CSharp.RuntimeBinder.RuntimeBinderException",
-            row.FullName);
-        TypeOptions typeOptions =
-            TypeFindIfMissResult.Found(options.Pattern, row)
-                .ApplyTo(new TypeOptions());
-        Assert.Equal(
-            "lib/netstandard2.0/Microsoft.CSharp.dll",
-            typeOptions.AssemblyPath);
-        Assert.Equal("netstandard2.0", typeOptions.Tfm);
-        Assert.Collection(
-            result.LocatorSections,
-            section => Assert.Equal(
-                "RuntimeBinder",
-                SinglePatternRequest(section)),
-            section => Assert.Equal(
-                "*",
-                SinglePatternRequest(section)));
-
-        var (exitCode, output, _) =
-            await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(typeOptions));
-        Assert.Equal(0, exitCode);
-        Assert.Contains(row.FullName, output, StringComparison.Ordinal);
+        Assert.Equal(2, result.Rows.Count);
+        Assert.All(
+            result.Rows,
+            static row =>
+            {
+                Assert.Equal(
+                    "Microsoft.CSharp.RuntimeBinder.RuntimeBinderException",
+                    row.FullName);
+                Assert.Null(row.Location);
+            });
+        Assert.Empty(result.LocatorSections);
     }
 
     [Fact]
@@ -300,7 +264,7 @@ public class TypeSearchServiceTests
         var options = new FindOptions
         {
             Pattern = "System.Text",
-            PlatformAssemblies = ["System.Private.CoreLib"],
+            Packages = ["System.Text.Json@10.0.0"],
             Tfm = "net10.0",
         };
 
@@ -337,17 +301,13 @@ public class TypeSearchServiceTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task FindTypesAsync_PreservesDefinitionAndForwarderChoices()
+    public async Task FindTypesAsync_PlatformSelectionsUseCompatibility()
     {
         using var httpClient = new HttpClient();
         var options = new FindOptions
         {
-            Pattern = "System.Object",
-            PlatformAssemblies =
-            [
-                "System.Runtime",
-                "System.Private.CoreLib",
-            ],
+            Pattern = "FSharpKind",
+            PlatformAssemblies = ["System.Text.Json"],
             Tfm = "net10.0",
         };
 
@@ -360,31 +320,8 @@ public class TypeSearchServiceTests
                 TestContext.Current.CancellationToken);
 
         Assert.False(result.HasFailures);
-        Assert.Equal(2, result.Rows.Count);
-        Assert.All(
-            result.Rows,
-            static row => Assert.Equal("class", row.Kind));
-        Assert.Contains(
-            result.Rows,
-            static row =>
-                row.Location?.DeclarationKind
-                    == AssemblyTypeDeclarationKind.Definition);
-        Assert.Contains(
-            result.Rows,
-            static row =>
-                row.Location?.DeclarationKind
-                    == AssemblyTypeDeclarationKind.Forwarder);
-        TypeDeclarationLocatorSectionResult.Evaluated section =
-            Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
-                Assert.Single(result.LocatorSections));
-        Assert.All(
-            section.Contexts,
-            static context =>
-                Assert.True(context.IsRealized));
-        Assert.All(
-            section.Answers,
-            static answer =>
-                Assert.True(answer.IsComplete));
+        Assert.Empty(result.Rows);
+        Assert.Empty(result.LocatorSections);
     }
 
     [Fact]

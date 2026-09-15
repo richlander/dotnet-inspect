@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
@@ -434,6 +435,44 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal(
             "ReferenceOnly",
             row.GetProperty("library").GetString());
+    }
+
+    [Theory]
+    [InlineData("ref/net11.0/Mixed.dll")]
+    [InlineData("runtimes/any/lib/net11.0/Mixed.dll")]
+    public async Task Find_PackageWithAdditionalFrameworkAssemblyUsesCompatibility(
+        string additionalPath)
+    {
+        string id =
+            $"Workspace.Search.MixedLayout.{Guid.NewGuid():N}";
+        byte[] libraryAssembly = await File.ReadAllBytesAsync(
+            FixtureCatalog.DiffV1.AssemblyPath(),
+            TestContext.Current.CancellationToken);
+        byte[] additionalAssembly = await File.ReadAllBytesAsync(
+            FixtureCatalog.DiffV2.AssemblyPath(),
+            TestContext.Current.CancellationToken);
+        byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+            ($"{id}.nuspec", "<package />"u8.ToArray()),
+            ("lib/net11.0/Mixed.dll", libraryAssembly),
+            (additionalPath, additionalAssembly));
+        ConfigureCommandFeed(id, package);
+
+        var result = await RunCommandAsync(
+            [
+                "find",
+                "DiffFixtureSample.GenericOverloadSample",
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Equal("", result.Error);
+        using System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        Assert.Equal(2, document.RootElement.GetArrayLength());
     }
 
     [Fact]

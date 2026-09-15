@@ -11,7 +11,8 @@ namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
 /// CLI adoption of the Workspace-resident declaration locator for explicit
-/// Package and Platform Library source contexts.
+/// Package source contexts whose selected implementation population preserves
+/// Find's established assembly inventory.
 /// </summary>
 internal sealed class ConfiguredDeclarationLocatorWorkspace
     : IAsyncDisposable
@@ -26,6 +27,7 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
     ConfiguredDeclarationLocatorWorkspace(
         InspectionWorkspace workspace,
         bool hasFailures,
+        bool requiresCompatibility,
         IReadOnlyDictionary<int, string> sourceNames)
     {
         _workspace = workspace;
@@ -33,11 +35,14 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
         _sourceNames = sourceNames;
         HasLoadFailures = hasFailures;
         HasFailures = hasFailures;
+        RequiresCompatibility = requiresCompatibility;
     }
 
     internal bool HasLoadFailures { get; }
 
     internal bool HasFailures { get; private set; }
+
+    internal bool RequiresCompatibility { get; }
 
     internal IReadOnlyList<TypeDeclarationLocatorSectionResult> Sections =>
         _sections;
@@ -52,8 +57,9 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                 targetFramework,
                 "all",
                 StringComparison.OrdinalIgnoreCase)
-            || request.Packages.Count + request.PlatformAssemblies.Count == 0
+            || request.Packages.Count == 0
             || request.Assemblies.Count != 0
+            || request.PlatformAssemblies.Count != 0
             || request.PlatformFrameworks.Count != 0
             || request.Projects.Count != 0
             || request.Directories.Count != 0)
@@ -72,22 +78,6 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
             {
                 return false;
             }
-        }
-
-        if (request.PlatformAssemblies.Count > 0
-            && (!PlatformResolver.TryGetFrameworkSpecsForTargetFramework(
-                    targetFramework,
-                    out IReadOnlyList<string> frameworkSpecs)
-                || !frameworkSpecs.Any(
-                    static frameworkSpec =>
-                        frameworkSpec.StartsWith(
-                            "runtime@",
-                            StringComparison.OrdinalIgnoreCase)
-                        || frameworkSpec.StartsWith(
-                            "aspnetcore@",
-                            StringComparison.OrdinalIgnoreCase))))
-        {
-            return false;
         }
 
         return true;
@@ -121,8 +111,10 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
             PackageStore = new FileSystemPackageStore(),
             UseVersionCache = false,
             Log = logger.Log,
+            IncludePackageRootBindings = true,
         };
         bool hasFailures = false;
+        bool requiresCompatibility = false;
         var sourceNames = new Dictionary<int, string>();
 
         try
@@ -150,49 +142,21 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                 sourceNames.Add(context.Receipt.Order, packageId);
                 hasFailures |= context.ContextLoadOutcome
                     is WorkspaceContextLoadOutcome.Failed;
-            }
-
-            foreach (string assembly in options.PlatformAssemblies)
-            {
-                PlatformContext? platform =
-                    await ResolvePlatformContextAsync(
-                        assembly,
-                        options.Tfm,
-                        options.SourceOptions,
-                        logger,
-                        httpClient,
-                        cancellationToken).ConfigureAwait(false);
-                if (platform is null)
+                if (context.ContextLoadOutcome
+                    is WorkspaceContextLoadOutcome.Loaded loaded
+                    && loaded.PackageRoots.Any(
+                        static root =>
+                            root.Root
+                                .HasUnselectedTargetFrameworkAssemblyCandidates))
                 {
-                    hasFailures = true;
-                    continue;
+                    requiresCompatibility = true;
                 }
-
-                WorkspaceDeclarationContext context =
-                    await WorkspaceContextLoader
-                        .LoadDeclarationContextAsync(
-                            workspace,
-                            new WorkspaceContextInput
-                            {
-                                Framework = options.Tfm,
-                                Members =
-                                [
-                                    WorkspaceMemberCoordinate.Platform(
-                                        platform.Family,
-                                        assembly,
-                                        platform.Version),
-                                ],
-                            },
-                            loadOptions,
-                            cancellationToken).ConfigureAwait(false);
-                sourceNames.Add(context.Receipt.Order, platform.Family);
-                hasFailures |= context.ContextLoadOutcome
-                    is WorkspaceContextLoadOutcome.Failed;
             }
 
             return new(
                 workspace,
                 hasFailures,
+                requiresCompatibility,
                 sourceNames);
         }
         catch
@@ -330,60 +294,6 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                 CommandError.WriteWarning(message);
         }
     }
-
-    private static async Task<PlatformContext?> ResolvePlatformContextAsync(
-        string assembly,
-        string targetFramework,
-        NuGetSourceOptions? sourceOptions,
-        VerboseLogger logger,
-        HttpClient httpClient,
-        CancellationToken cancellationToken)
-    {
-        if (!PlatformResolver.TryGetFrameworkSpecsForTargetFramework(
-                targetFramework,
-                out IReadOnlyList<string> frameworkSpecs))
-        {
-            CommandError.WriteWarning(
-                $"Target framework '{targetFramework}' cannot select "
-                + $"Platform Library '{assembly}'.");
-            return null;
-        }
-
-        var failures = new List<string>();
-        foreach (string frameworkSpec in frameworkSpecs)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var resolution =
-                await PlatformResolver.ResolveAssemblyAsync(
-                    assembly,
-                    httpClient,
-                    logger.Log,
-                    frameworkSpec,
-                    sourceOptions: sourceOptions).ConfigureAwait(false);
-            if (resolution.AssemblyPath is not null
-                && resolution.Framework is "runtime" or "aspnetcore"
-                && resolution.Version is not null)
-            {
-                return new(
-                    resolution.Framework,
-                    resolution.Version);
-            }
-            if (!string.IsNullOrWhiteSpace(resolution.Error))
-                failures.Add(resolution.Error);
-        }
-
-        string detail = failures.Count == 0
-            ? "No supported runtime or ASP.NET Core family supplied it."
-            : string.Join("; ", failures.Distinct());
-        CommandError.WriteWarning(
-            $"Platform Library '{assembly}' could not be admitted to "
-            + $"the declaration locator: {detail}");
-        return null;
-    }
-
-    private sealed record PlatformContext(
-        string Family,
-        string Version);
 
     private sealed record LocatorFailureKey(
         int ContextOrder,

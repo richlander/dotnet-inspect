@@ -104,6 +104,15 @@ internal static class TypeSearchService
                         httpClient,
                         cancellationToken))
             {
+                if (locator.RequiresCompatibility)
+                {
+                    return await FindWithLegacyAsync(
+                        options,
+                        patterns,
+                        logger,
+                        httpClient);
+                }
+
                 located =
                     await FindWithLocatorAsync(
                         patterns,
@@ -266,8 +275,11 @@ internal static class TypeSearchService
                     options.IncludeAll,
                     workspace)
                 : [];
+        List<TypeSearchResult> orderedCensus =
+            [.. InFindSourceOrder(census)];
         List<string> typeNames =
-            census.Select(static candidate => candidate.FullName)
+            orderedCensus
+                .Select(static candidate => candidate.FullName)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
 
@@ -317,10 +329,10 @@ internal static class TypeSearchService
                         suggestions.Select(static suggestion => suggestion.Name)
                             .ToHashSet(StringComparer.Ordinal);
                     foreach (TypeSearchResult candidate
-                        in InFindSourceOrder(
-                                census.Where(
-                                    candidate => names.Contains(
-                                        candidate.FullName)))
+                        in orderedCensus
+                            .Where(
+                                candidate => names.Contains(
+                                    candidate.FullName))
                             .DistinctBy(
                                 static candidate => candidate.FullName))
                     {

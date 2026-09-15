@@ -75,30 +75,29 @@ the separately owned host-neutral coordinate-discovery substrate. Its
 The first CLI adoption is deliberately narrower than every source spelling
 accepted by `find`. It applies when the finite source request contains only:
 
-- exact-version Package references;
-- explicit Platform Library names; or
-- both,
+- exact-version Package references,
 
-and declares one explicit target framework other than `all`. Package archives,
-floating package versions, whole Platform families, reference-view catalogs,
+declares one explicit target framework other than `all`, and each acquired
+Package's selected implementation universe covers every DLL candidate in its
+selected target framework. Package archives, mixed-layout Packages, floating
+package versions, Platform Libraries and families, reference-view catalogs,
 local Libraries, projects, binary directories, package groups, and
-package-prefix expansion remain on the compatibility collector until their
-owners supply the exact declaration-context association required by the
-Workspace population.
+package-prefix expansion remain on compatibility collection until their owners
+supply the exact declaration-context association required by the Workspace
+population.
 
 The CLI creates one short-lived `InspectionWorkspace` from
 `EcosystemPackCatalog.CreateWorkspacePlan()` or, when the caller repeats
 `--ecosystem`, the exact caller-ordered selected plan. Registrations are inert:
-Find admits only concrete caller-selected Package and Platform Library
-content, and never executes a registered package-prefix population. It admits
-one `WorkspaceDeclarationContext` per selected source through
+Find admits only concrete caller-selected Package content and never executes a
+registered package-prefix population. It admits one
+`WorkspaceDeclarationContext` per selected source through
 `WorkspaceContextLoader.LoadDeclarationContextAsync`, obtains the Workspace's
 resident `WorkspaceDeclarationLocator`, and submits the already parsed direct
-patterns as `TypeDeclarationLocatorRequest.Pattern` values. Platform Library
-admission preserves the existing Platform resolver's family/version choice,
-then observes the selected implementation-pack content. It does not relabel a
-reference-pack declaration as that implementation view. Reference-view
-population remains a separately owned adapter.
+patterns as `TypeDeclarationLocatorRequest.Pattern` values. Package Root
+evidence identifies a selected-target-framework DLL outside the implementation
+universe before any locator result is published; that condition returns the
+whole request to compatibility collection.
 
 The service retains the shared
 `TypeDeclarationLocatorSectionResult` and each selected
@@ -246,14 +245,20 @@ described under [Implementation and validation status](#implementation-and-valid
 5. projects; and
 6. binary directories.
 
-For exact-version Packages and explicit Platform Libraries with one explicit
-target framework other than `all`, the service owns an
-`InspectionWorkspace` with awaited close. It admits declaration contexts
-through `WorkspaceContextLoader` and executes the Workspace-resident locator.
+For exact-version Packages with one explicit target framework other than
+`all`, the service may own an `InspectionWorkspace` with awaited close. It
+admits declaration contexts through `WorkspaceContextLoader` and executes the
+Workspace-resident locator only when the selected implementation universe
+covers every DLL candidate in the Package's selected target framework.
 Direct, namespace-prefix, and similarity-census requests reuse the same
-resident inventories. Floating, `@latest`, wildcard version selectors, and
-the other unsupported source shapes remain on the legacy route so this
-adoption does not redefine their selection semantics.
+resident inventories. A Package with another reference, library, runtime, or
+other target-framework assembly candidate stays on compatibility collection,
+which preserves the established multi-layout row population. Explicit Platform
+Libraries also remain on compatibility collection because that owner may
+select a reference view that the current implementation-pack locator adapter
+does not reproduce. Floating, `@latest`, wildcard version selectors, and the
+other unsupported source shapes remain on the legacy route so this adoption
+does not redefine their selection semantics.
 
 Unsupported source shapes retain an ephemeral
 `AssemblySetInspectionWorkspace`. Each admitted assembly executes the same
@@ -299,8 +304,10 @@ contributes results:
 3. **Similarity fallback.** A non-wildcard pattern with no direct or prefix
    result may produce up to five `Partial` suggestions. `TypeMatcher` compares
    normalized simple base names, requires similarity of at least `0.5`, and
-   supplies the score carried by `Similarity`. Duplicate full names collapse
-   to the first source-ranked candidate.
+   supplies the score carried by `Similarity`. The candidate census returns to
+   caller source and declaration inventory order before distinct names enter
+   the stable similarity ranking and five-name cutoff. Duplicate full names
+   collapse to the first source-ranked candidate.
 4. **Miss.** A pattern with no result on the earlier rungs has the
    `NotFound` outcome and no type or provenance payload. The optimized
    single-pattern path does not yet construct this row, as recorded under

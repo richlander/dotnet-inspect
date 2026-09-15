@@ -35,7 +35,7 @@ inside the Workspace owner.
 | 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): [explicit context projection](workspace-live-locator.md#implemented-explicit-context-projection), its [resident facade](workspace-live-locator.md#implemented-resident-context-facade), and [#7077](https://github.com/richlander/dotnet-inspect/issues/7077)'s [package-backed reference admission](workspace-live-locator.md#implemented-reference-population-admission) are implemented; other producers remain pending. | Coherent first-use observation, occurrence-based reuse, receipt-pinned vectors and owner-governed close cover context-loader and package-backed reference populations. Artifact Root/Scope, installed-reference and local/project adapters still need their owner-issued associations. |
 | 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: [cold reverse locator](reverse-type-declaration-locator.md#implemented-cold-query) over the implemented Workspace population input. | Implemented always-vector coordinate-plus-origin answers, deterministic outcomes and Release gates; additional population producers remain step 4 adoption, not inferred source authority. |
 | 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: [adopt the locator result's row unit and structured multi-format projection](output-shapes.md#reverse-type-declaration-locator-projection). | Implemented typed answer row sets, source-generated JSON, common Markout lowering, and mandatory coverage/failure disclosure independent of selected candidate rows. |
-| 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: the implemented exact-Package/explicit-Platform-Library path uses the live facade in a short-lived Workspace; Type and Member consume representable selected observations through exact typed handoff. | Implemented locate-once workflow, separate fallback requests, downstream limits, presentation-compatible Markdown and root-array JSON, and exact Package handoff. Locator evidence remains internal to Find; other source and exact Platform reopening adapters remain explicit follow-up scope. |
+| 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: the implemented exact-Package path uses the live facade in a short-lived Workspace when its selected implementation universe covers the established Find assembly population; Type and Member consume representable selected observations through exact typed handoff. | Implemented locate-once workflow, separate fallback requests, downstream limits, presentation-compatible Markdown and root-array JSON, and exact Package handoff. Multi-layout Packages, Platform Libraries, and other source adapters retain compatibility routing until their exact populations can be reproduced. Locator evidence remains internal to Find. |
 | 8 | [#6851](https://github.com/richlander/dotnet-inspect/issues/6851), Inspect Web: retain the same live facade across admitted additions and consume selected Type/Member context. | Browser/Wasm Find-after-append and navigation use typed data, not displayed names; portable sharing remains owner-governed. |
 | 9 | [#6850](https://github.com/richlander/dotnet-inspect/issues/6850), Platform discovery in Services: retire or narrow `PlatformTypeCatalog` after its consumers migrate. | No duplicated general reverse scan; retain acquisition/probing/naming and Spotlight's static filename population. |
 
@@ -58,10 +58,12 @@ consumption by Type and Member; returning a new unused DTO is not adoption.
 
 The concrete consumer seam is
 `DotnetInspect.Cli/Inspectors/TypeSearchService.FindTypesAsync`. Exact-version
-Package and explicit Platform Library requests with an explicit TFM use the
-resident locator. Unsupported source shapes continue through
-`AssemblySetInspectionWorkspace` until their owners provide exact declaration
-context associations.
+Package requests with an explicit TFM use the resident locator only when its
+implementation universe covers every assembly candidate in the selected
+target framework. Multi-layout Packages, explicit Platform Libraries, and
+other unsupported source shapes continue through compatibility collection
+until their owners provide exact declaration associations for the same
+population.
 
 The step 7 adapter submits the already parsed patterns as
 `TypeDeclarationLocatorRequest.Pattern` values through the shared resident
