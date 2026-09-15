@@ -183,6 +183,7 @@ SelectWorkspaceRegistration(EcosystemPackId)
 
 CreatePlatformWorkspacePlan() -> WorkspacePlan
 CreateWorkspacePlan()         -> WorkspacePlan
+CreateWorkspacePlan(IEnumerable<EcosystemPackId>) -> WorkspacePlan
 ```
 
 Grammar-invalid external text is rejected before exact lookup by the existing
