@@ -17,9 +17,14 @@ The implementation is staged without changing the ten-step count:
    manifest-defined framework closure, and implementation realization through
    the same adapter.
 
+Step 5a is implemented by `PackagePlatformSource` in
+`DotnetInspector.Platforms.Packages` and `PackagePlatformHouseAdapter` in
+`DotnetInspector.PlatformHouse.Packages`. Step 5b remains pending; the adapter
+does not advertise an implementation capability.
+
 The first consumers are the CLI and Browser/Wasm production hosts through
-their later Workspace adoption in steps 9 and 10. This step builds their shared
-source substrate; it does not move either host onto it yet.
+Workspace adoption in step 8 and production-host adoption in step 9. This step
+builds their shared source substrate; it does not move either host onto it yet.
 
 ## Authority and exact claim
 
@@ -221,6 +226,60 @@ The source authorization is evaluated independently for each closed package
 ID. Authorization for a reference package does not authorize its runtime pack,
 the other family, another RID, or another version.
 
+### Implemented reference entry points
+
+`PackagePlatformSource` accepts `IPackageSourceAuthorization`,
+`PackagePayloadAcquisitionPlan`, and optional `PackagePlatformSourceLimits`.
+It reuses the package owner's store, payload-limit, transfer-policy, and
+logging capabilities. It does not introduce another package-acquisition plan.
+
+`DiscoverAsync(request, operation)` returns one complete
+`PackagePlatformTargetInventory`, or a typed non-success outcome. Its ordered
+`Targets` are source-issued `PackagePlatformTargetSelection` values.
+`SelectTarget` is an exact lookup, not a preferred-version policy. Discovery
+and subsequent realization use operation leases from the same Package Source
+root generation so the package owner can preserve candidate authority.
+
+Reference `RealizeAsync` has two explicit inputs: an inventory-issued
+selection, or a `PackageReferencePackCoordinate` for an externally established
+target. Both also require a population demand, work allowance, and transferred
+operation lease. Successful libraries expose read-only streams over private
+snapshots and remain readable after Package Source settlement. The result
+retains its original package candidate and package-owner failures, including
+failures observed before a successful authorized acquisition.
+
+Source maximums intersect the request's allowance:
+
+| Dimension | Default source maximum |
+| --- | --- |
+| Discovered matching candidates | 1,024 |
+| Observed package entries | 32,768 |
+| Realized assemblies | 4,096 |
+| Bytes per reference entry | 64 MiB |
+| Aggregate reference bytes | 512 MiB |
+
+Zero is a valid explicit stop. Byte limits count reference content, not peak
+working memory or package-archive transfer; package payload admission has its
+own bounds. An absent reference DLL population is `Unavailable`, while a
+complete version discovery with no matching targets is a successful empty
+inventory. No bound returns a shortened success.
+
+The House adapter exposes discovery and reference capabilities only. Its
+external-target form takes an exact `PlatformHouseRequest`. Its discovered
+form takes the original selecting request, its live source discovery result,
+and an explicit selection from that inventory. The contribution and request
+association must match; omitting the selection is not a caller-pinned fallback.
+These methods supply source contributions, not House target settlement or
+completed House receipts. They do not depend on the future House executor to
+be callable.
+
+The host issues the transferred operation with the House request's
+cancellation token and an operation timeout no greater than its duration
+allowance. An incompatible operation is rejected before acquisition and is
+still released. This follows PackageHouse's owner-issued deadline pattern
+without attempting to cancel or dispose another owner's active operation.
+Caller cancellation remains cancellation; operation expiry is `Incomplete`.
+
 ## Step 5a: target discovery
 
 Discovery receives one `PlatformFamily`, one canonical
@@ -283,8 +342,9 @@ The package ID is derived from the family and validated during construction;
 it is retained as source evidence, not caller-selected arbitrary text.
 
 The exact package coordinate omits a RID. Its version is the exact canonical
-Platform version. Targets containing SemVer build metadata are rejected
-because NuGet package coordinates cannot preserve that identity.
+Platform version. Targets containing SemVer build metadata or uppercase
+prerelease identifiers are rejected because the package owner's normalized
+coordinate cannot preserve that exact Platform identity.
 
 Reference realization has two explicit source-specific forms:
 
@@ -441,8 +501,9 @@ source result remains beside the House contribution. House receipts do not
 retain configured authorities, source clients, stores, package content,
 streams, or byte buffers.
 
-Successful complete-population realization contributes
-`Authoritative`. Exact one-library realization contributes `DemandComplete`.
+Successful realization contributes `Authoritative` for its exact supplied
+population demand. A one-library contribution is therefore complete only for
+that library, not evidence of a complete reference-pack population.
 Target discovery contributes only the candidates established by one complete
 package-source discovery result.
 
@@ -453,7 +514,8 @@ The source outcome is closed:
 - `Succeeded` retains an immutable inventory or realization;
 - `Unavailable` records denied authorization, exact package absence, or absent
   requested membership;
-- `Rejected` records an unrepresentable coordinate, invalid package layout,
+- `Rejected` records rejected package-owner evidence, an unrepresentable
+  coordinate, invalid package layout,
   coordinate collision, malformed assembly, identity mismatch, invalid
   manifest, or invalid framework closure;
 - `Incomplete` records partial source discovery, source/House deadline expiry,
@@ -464,6 +526,14 @@ The source outcome is closed:
 Package-owner failures remain attached to the source outcome. The adapter
 projects a credential-safe summary to PlatformHouse without replacing or
 reclassifying the package evidence.
+Discovery expiry retains failures from completed authorities and the package
+owner's attributed timeout rather than replacing them with an empty diagnostic.
+
+Payload acquisition follows the existing PackageHouse rejection projection:
+package-owner `Input`, `InvalidResponse`, or `ResponseRejected` evidence yields
+`Rejected`, unless a timeout establishes incomplete work. A collision rejected
+during package admission therefore retains the package failure rather than
+inventing a Platform layout diagnostic for content this source never received.
 
 Cancellation remains cancellation. Caller cancellation is never converted to
 another outcome.
@@ -500,7 +570,16 @@ exception.
 
 ## Evidence gates
 
-The step 5a Release gates prove:
+`PackagePlatformSourceTests` and `PackagePlatformHouseAdapterTests` implement
+the step 5a Release gates in
+`tests/DotnetInspector.PlatformHouse.Packages.Tests`:
+
+```bash
+dotnet run --project tests/DotnetInspector.PlatformHouse.Packages.Tests \
+  -c Release -- --filter-not-trait "Speed=Slow"
+```
+
+These gates prove:
 
 - exact family-to-reference-package mapping;
 - prerelease-inclusive authoritative target discovery;
@@ -516,9 +595,9 @@ The step 5a Release gates prove:
   rejection;
 - per-entry, aggregate-byte, entry-count, assembly-count, duration, and
   cancellation bounds;
-- immutable snapshots remain readable after source inputs are retired; and
+- immutable snapshots remain readable after source inputs are retired;
 - every terminal path settles the transferred package-source operation lease,
-  while successful results retain no live package-source authority; and
+  without shortening successful snapshot lifetime; and
 - target discovery and reference realization map to authorized
   PlatformHouse contributions.
 
@@ -535,9 +614,11 @@ The step 5b Release gates additionally prove:
 - equal CLI-capable filesystem and Browser/Wasm in-memory realization.
 
 The normal solution build, dependency-policy evaluator, CI routing gate, and
-project-graph tests enforce the dependency direction. The pinned real-package
-probe is reproducible design evidence; minimized fixtures are the ordinary CI
-gate.
+project-graph tests enforce the dependency direction. Minimized fixtures are
+the ordinary CI gate. The pinned
+`GalleryReferencePackDiscoveryRealizationAndDetachedLifetime` real-package gate
+is tagged `Speed=Slow` and runs in daily Deep Inspect; removing the filter
+above runs it locally as well.
 
 ## Production adoption and retirement
 
@@ -562,6 +643,40 @@ runtime-pack scanning by defining manifest membership, while step 9 owns the
 Browser migration that realizes the performance change.
 
 ## Demo
+
+### Implemented reference-source call
+
+Given host-created authorization, store capabilities, and one Package Source
+root, the reusable C# entry point is:
+
+```csharp
+var source = new PackagePlatformSource(authorization, payloadPlan);
+var discovery = await source.DiscoverAsync(
+    new(PlatformFamily.DotNetRuntime,
+        PlatformTargetFramework.Parse("net11.0"), maxCandidates: 1024),
+    root.IssueOperationLease(cancellationToken));
+```
+
+A pinned real acquisition through `PackagePlatformHouseAdapter` observes:
+
+```text
+Target: DotNetRuntime/net11.0/11.0.0-rc.1.26425.128
+Candidate: microsoft.netcore.app.ref@11.0.0-rc.1.26425.128 (Discovered)
+Reporting authorities: 1
+Contribution: Reference, Authoritative
+Reference libraries: 176
+Package origin: Download
+Candidate preserved: True
+JSON reference: ref/net11.0/System.Text.Json.dll
+Zero-byte neighbor: Incomplete
+After Package Source close: 87848 retained JSON bytes
+```
+
+The same source and adapter accept Browser/Wasm in-memory stores; this is a
+source-substrate demonstration, not a CLI Find or TypeScript call site.
+Workspace locator admission and both production hosts remain the named later
+adoptions. In particular, acquiring this pack does not yet add a reference
+observation to the resident locator.
 
 ### Package-backed reference target
 
