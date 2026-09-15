@@ -405,16 +405,14 @@ internal static class ExactTypeInspectionQuery
             ];
         if (matchingNames.Length == 0)
         {
-                bool lookupIsInconclusive =
-                    participantFailures.Length > 0
-                    || lookupFailures.Any(failure =>
-                        MayAffectTypeLookup(
-                            failure,
-                            request.Type));
-                if (lookupIsInconclusive)
-                {
-                    return new ExactTypeInspectionResult(
-                        ExactTypeInspectionOutcome.Unavailable,
+            if (participantFailures.Length > 0
+                || lookupFailures.Any(failure =>
+                    MayAffectTypeLookup(
+                        failure,
+                        request.Type)))
+            {
+                return new ExactTypeInspectionResult(
+                    ExactTypeInspectionOutcome.Unavailable,
                     request.Type,
                     MatchedType: null,
                     Type: null,
