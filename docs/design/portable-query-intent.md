@@ -215,8 +215,9 @@ the owner's executable plan or one structured failure.
   part resolve in that part's [semantic order](#semantic-order), and within one
   element the checks run existence, then admissibility, then binding, then
   collision, so a term with both an inadmissible operator and a value its binder
-  would reject reports the operator. Two hosts resolving one intent report the
-  same failure.
+  would reject reports the operator. For an order reference the same sequence
+  reads: exists, is orderable, has the purpose its role requires. Two hosts
+  resolving one intent report the same failure.
 - Resolution **starts no work**. A rejected intent issues no acquisition, no
   source request, and no package payload fetch. This matters more here than for
   row predicates: a package-query term can authorize archive downloads, so a
@@ -227,9 +228,16 @@ the owner's executable plan or one structured failure.
   preconditions: enforced when a host constructs intent in process, and by the
   codec when a payload is decoded. Violating them is misuse there, not a
   resolution failure here, exactly as the row owner already states. Resolution
-  asks a stage one thing only — whether the vocabulary admits selection stages
-  at all. A vocabulary that does not select rows, as Package Query does not,
-  refuses any stage as not admitted.
+  asks a stage one thing only — whether the vocabulary admits **that stage
+  kind**. Admission is declared per kind, not all or none: Package Query selects
+  final package rows with head, tail, and window, and admits no top, because it
+  has no order namespace to rank by; a row vocabulary admits all four. A stage
+  of a kind the vocabulary does not declare is refused as not admitted.
+- **A ranking stage needs a ranking.** After every part has resolved, each top
+  stage without a bound ranking operation takes the vocabulary's declared
+  default ranking, as [row query and ordering](row-query-order.md) provides;
+  where the vocabulary declares none, the stage fails. This is the one check
+  that spans parts, so it runs last, in stage sequence.
 - A failure is **presentation-free**: the vocabulary identity, a typed location
   naming the part and the element within it, an owner-issued offending identity
   when the reason has one, and a typed reason. No diagnostic sentence, rendered
@@ -251,6 +259,8 @@ hosts produce the same failure and not merely the same reason:
 | Stage not admitted | the stage | the stage kind |
 | Unknown order reference | the operation, and the field-term index within a field list | the reference |
 | Order reference not orderable | the operation, and the field-term index within a field list | the reference |
+| Order not a ranking — a sequence-purpose named order supplied for a ranking role | the operation | the reference |
+| Ranking missing — a top stage with no bound operation and no declared default | the stage | none |
 
 A reason whose offender column reads *none* carries none rather than an empty or
 invented one.
@@ -372,7 +382,8 @@ successor slice.
 | `BoundKindsRemainDistinct` | An execution bound never resolves as a selection stage or the reverse, and each retains its owner-issued dimension identity. |
 | `IntentFailureShapeIsPresentationFree` | Failures carry only the vocabulary identity, a typed part-and-element location, an optional owner-issued offending identity, and a typed reason; a reason without an offending identity carries none rather than an empty or invented one. |
 | `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; an exact duplicate never reaches resolution, because membership is set-valued. |
-| `StagesCannotFailResolutionExceptByAdmission` | A structurally valid stage reaches resolution and is refused only when the vocabulary does not admit selection stages; structural violations are refused at construction or decode and never reach resolution. |
+| `StagesCannotFailResolutionExceptByAdmission` | A structurally valid stage reaches resolution and is refused only when the vocabulary does not declare its kind; admission is per kind, so a vocabulary admitting head, tail, and window but not top refuses exactly the top; structural violations are refused at construction or decode and never reach resolution. |
+| `RankingStagesResolveOrFail` | A top stage without a bound ranking operation takes the vocabulary's declared default ranking or fails as ranking missing, located at the stage with no offender, after every other part has resolved; a sequence-purpose named order in a ranking role fails as order not a ranking. |
 | `FailureReasonUnionIsClosed` | Every failure carries one reason from the table, at that reason's location, with that reason's offender or none; no implementation or vocabulary emits a reason outside it. |
 
 ## Decisions
