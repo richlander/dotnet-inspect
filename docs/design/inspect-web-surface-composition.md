@@ -617,6 +617,9 @@ with the prefix followed by a dot, using ordinal case-insensitive comparison.
 The rule operates on typed package IDs, so `Microsoft.Extensions`,
 `Microsoft.Extensions.Hosting`, and `Microsoft.Extensions.Logging` share the
 `Microsoft.Extensions` frame while `Microsoft.ExtensionsX` does not.
+The package facade classifies the graph's complete package-ID batch with
+`StringComparison.OrdinalIgnoreCase` before Mermaid lowering; browser Unicode
+casing tables do not reinterpret that .NET-owned comparison contract.
 
 Structural identity is independent from Workspace state. Whether a node
 switches to an existing Workspace package or loads on selection remains in its

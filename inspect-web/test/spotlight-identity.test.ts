@@ -7406,7 +7406,9 @@ test("dependency graph rendering contains artifact labels", async () => {
       dependenciesGroupIndex: 0,
       workspaceDependencies: {}
     },
-    () => null);
+    () => null,
+    (inspectedPackageId, packageIds) => packageIds.map(packageId =>
+      packageId === inspectedPackageId ? "inspected" : "external"));
   assert.ok(definition, "the fixture graph must render a mermaid definition");
 
   assert.match(

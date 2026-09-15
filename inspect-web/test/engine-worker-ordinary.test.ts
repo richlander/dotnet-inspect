@@ -42,6 +42,8 @@ function contractViolation<T>(value: unknown): T {
 
 const defaultFacades: EngineWorkerOrdinaryFacades = {
   package: {
+    classifyPackageGraphIdentities: () =>
+      unexpected("classifyPackageGraphIdentities"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
     getPlatformVersions: () => unexpected("getPlatformVersions"),
     listPackageAssemblyQueryPatterns: () =>
@@ -237,11 +239,16 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     future: { message: "preserved" },
   };
   let cleared = 0;
+  let classificationArguments: readonly unknown[] = [];
   let matchArguments: readonly unknown[] = [];
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
   const state = fixture({
     package: {
+      classifyPackageGraphIdentities: (...args) => {
+        classificationArguments = args;
+        return ["Inspected", "External"];
+      },
       searchTypes: () => searchResult,
       activateWorkspacePackageOccurrence: async () => activation,
       clearWorkspacePackageOccurrences: async () => {
@@ -282,6 +289,10 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example.dll",
     "M:Example.Api.Run",
   );
+  const classified = state.client.package.classifyPackageGraphIdentities(
+    "Example.Root",
+    "[\"Example.Root\",\"Other\"]",
+  );
   const matched = state.client.package.matchPackageDependencyCoordinate(
     "Dependency",
     null,
@@ -302,6 +313,11 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(await asyncDto, activation);
   assert.equal(await voidResult, undefined);
   assert.equal(await nullResult, null);
+  assert.deepEqual(await classified, ["Inspected", "External"]);
+  assert.deepEqual(classificationArguments, [
+    "Example.Root",
+    "[\"Example.Root\",\"Other\"]",
+  ]);
   assert.deepEqual(await matched, {
     outcome: "Unique",
     candidateKey: "candidate",
@@ -623,6 +639,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
   const expected = {
     package: [
       "activateWorkspacePackageOccurrence",
+      "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
       "getPackageDocument",
       "getPlatformCatalog",
@@ -699,7 +716,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 53);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 54);
 
   const state = fixture();
   const groups = [

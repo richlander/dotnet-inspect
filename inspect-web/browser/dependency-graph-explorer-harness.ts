@@ -93,7 +93,18 @@ async function mountGraph() {
     packageDependencies: { dependencyGroups: groups },
     dependenciesGroupIndex: groupIndex,
     workspaceDependencies: {},
-  }, (packages, id) => packages.find(candidate => candidate.id === id) ?? null);
+  }, (packages, id) => packages.find(candidate => candidate.id === id) ?? null,
+  (_inspectedPackageId, packageIds) => {
+    const roles = new Map([
+      [pkg.id, "inspected"],
+      [samePrefixLoaded.id, "samePrefix"],
+      ["Microsoft.Extensions.Options", "samePrefix"],
+      [externalLoaded.id, "external"],
+      ["Newtonsoft.Json", "external"],
+      ["Failed.Dependency", "external"],
+    ]);
+    return packageIds.map(packageId => roles.get(packageId) ?? "external");
+  });
   if (!graph) {
     diagram.innerHTML = "<p>No connected packages for this framework.</p>";
     return;

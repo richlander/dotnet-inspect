@@ -13,8 +13,6 @@ import {
 } from "../src/data.ts";
 import {
   buildDependencyGraphMermaid,
-  dependencyGraphFamilyPrefix,
-  dependencyGraphPresentationRole,
   resolveMermaidCssVariables,
 } from "../src/graph-mermaid.ts";
 import type {
@@ -57,80 +55,11 @@ const groups: BrowserPackageDependencyGroup[] = [
     dependencies: [{ id: "External", versionRange: "[4.0]" }] },
 ];
 
-test("package graph identity uses a bounded case-insensitive family prefix", () => {
-  assert.equal(
-    dependencyGraphFamilyPrefix("Microsoft.Extensions.Hosting"),
-    "Microsoft.Extensions",
-  );
-  assert.equal(
-    dependencyGraphFamilyPrefix("Microsoft.Extensions"),
-    "Microsoft.Extensions",
-  );
-  assert.equal(dependencyGraphFamilyPrefix("Serilog"), "Serilog");
-  assert.equal(
-    dependencyGraphPresentationRole(
-      "Microsoft.Extensions.Hosting",
-      "MICROSOFT.EXTENSIONS",
-    ),
-    "samePrefix",
-  );
-  assert.equal(
-    dependencyGraphPresentationRole(
-      "Microsoft.Extensions.Hosting",
-      "Microsoft.Extensions.Logging",
-    ),
-    "samePrefix",
-  );
-  assert.equal(
-    dependencyGraphPresentationRole(
-      "Microsoft.Extensions.Hosting",
-      "Microsoft.ExtensionsX.Logging",
-    ),
-    "external",
-  );
-  assert.equal(
-    dependencyGraphPresentationRole("Serilog", "Serilog.Sinks.Console"),
-    "samePrefix",
-  );
-  assert.equal(
-    dependencyGraphPresentationRole(
-      "Microsoft.Extensions.Hosting",
-      "microsoft.extensions.hosting",
-    ),
-    "inspected",
-  );
-  assert.equal(
-    dependencyGraphPresentationRole("Acme.\u212A.Root", "Acme.K.Child"),
-    "external",
-  );
-  assert.equal(
-    dependencyGraphPresentationRole("Acme.\u017F.Root", "Acme.S.Child"),
-    "external",
-  );
-  assert.equal(
-    dependencyGraphPresentationRole("Acme.\u03A3.Root", "ACME.\u03C2.Child"),
-    "samePrefix",
-  );
-  const greekSimpleUppercasePairs: Array<readonly [number, number]> = [
-    ...[0x1f80, 0x1f90, 0x1fa0].flatMap(start =>
-      Array.from(
-        { length: 8 },
-        (_, offset) => [start + offset, start + offset + 8] as const,
-      )),
-    [0x1fb3, 0x1fbc],
-    [0x1fc3, 0x1fcc],
-    [0x1ff3, 0x1ffc],
-  ];
-  for (const [lower, upper] of greekSimpleUppercasePairs) {
-    assert.equal(
-      dependencyGraphPresentationRole(
-        `Acme.${String.fromCodePoint(lower)}.Root`,
-        `ACME.${String.fromCodePoint(upper)}.Child`,
-      ),
-      "samePrefix",
-    );
-  }
-});
+const exactIdentityClassifier = (
+  inspectedPackageId: string,
+  packageIds: readonly string[],
+) => packageIds.map(packageId =>
+  packageId === inspectedPackageId ? "inspected" : "external");
 
 test("package graph presentation roles remain independent from navigation kinds", async () => {
   const inspected = {
@@ -163,6 +92,15 @@ test("package graph presentation roles remain independent from navigation kinds"
     workspaceDependencies: {},
   }, (_packages, id) => {
     return [samePrefixLoaded, externalLoaded].find(pkg => pkg.id === id) ?? null;
+  }, (_inspectedPackageId, packageIds) => {
+    const roles = new Map([
+      ["Microsoft.Extensions.Hosting", "inspected"],
+      ["Microsoft.Extensions.Logging", "samePrefix"],
+      ["Microsoft.Extensions.Options", "samePrefix"],
+      ["Serilog", "external"],
+      ["Newtonsoft.Json", "external"],
+    ]);
+    return packageIds.map(packageId => roles.get(packageId)!);
   });
   assert.ok(graph);
   assert.match(graph.definition, /d0\["Microsoft.Extensions.Hosting"\]:::inspected/);
@@ -216,6 +154,7 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
   };
   const navigationSequence = createNavigationSequence();
   const calls: [string, string | null, string][] = [];
+  const classifications: [string, string][] = [];
   const switches: string[] = [];
   const notices: string[] = [];
   const versions: string[] = [];
@@ -226,6 +165,19 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
   const context = {
     state, navigationSequence,
     engineClient: { package: {
+      classifyPackageGraphIdentities: async (
+        inspectedPackageId: string,
+        packageIdsJson: string,
+      ) => {
+        classifications.push([inspectedPackageId, packageIdsJson]);
+        const packageIds: unknown = JSON.parse(packageIdsJson);
+        if (!Array.isArray(packageIds)
+          || !packageIds.every(packageId => typeof packageId === "string")) {
+          throw new Error("Expected a package ID array.");
+        }
+        return exactIdentityClassifier(inspectedPackageId, packageIds)
+          .map(role => role === "inspected" ? "Inspected" : "External");
+      },
       matchPackageDependencyCoordinate: (...args: Parameters<Match>) => {
         calls.push(args);
         return match(...args);
@@ -287,7 +239,7 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
       runInNewContext("openDependencyPackage(id, range)", { ...context, id, range })),
   };
   return {
-    host, state, graph, calls, switches, notices, versions, loads, diagrams,
+    host, state, graph, calls, classifications, switches, notices, versions, loads, diagrams,
     navigationSequence,
     get list() { return list; },
     get bindings() { return bindings; },
@@ -432,6 +384,10 @@ test("duplicate dependency graphs share pending matching and do not cancel their
   pending.resolve(unique);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.diagrams.length, 1);
+  assert.deepEqual(h.classifications, [[
+    "Root",
+    JSON.stringify(["Root", "Dependency"]),
+  ]]);
   await h.host.renderDependencyGraph();
   assert.equal(h.calls.length, 1);
   diagram.resolve({ svg: "<svg>finished</svg>" });
@@ -487,7 +443,10 @@ test("incoming graph edges await the generated matching result", { timeout: 10_0
     },
     dependenciesGroupIndex: 0,
     workspaceDependencies: { "root@1.0.0@net10.0": { dependencyGroups: groups } },
-  }, () => { invoked.resolve(); return pending.promise; });
+  }, () => {
+    invoked.resolve();
+    return pending.promise;
+  }, exactIdentityClassifier);
   await invoked.promise;
   pending.resolve(dependency);
   const graph = await operation;
@@ -511,10 +470,32 @@ test("awaited dependency graph matching preserves the existing node bound", asyn
     },
     dependenciesGroupIndex: 0,
     workspaceDependencies: {},
-  }, async () => { matches++; return null; });
+  }, async () => { matches++; return null; }, exactIdentityClassifier);
   assert.ok(graph);
   assert.equal(graph.nodeLimit, 80);
   assert.equal(graph.nodeInfoById.size, 80);
   assert.equal(graph.truncated, true);
   assert.equal(matches, 80);
+});
+
+test("package graph classification rejects incomplete or invalid role batches", async () => {
+  const model = {
+    package: root,
+    packages: [root],
+    packageDependencies: { dependencyGroups: groups },
+    dependenciesGroupIndex: 0,
+    workspaceDependencies: {},
+  };
+  await assert.rejects(
+    buildDependencyGraphMermaid(model, () => null, () => ["inspected"]),
+    /returned 1 roles for 2 nodes/,
+  );
+  await assert.rejects(
+    buildDependencyGraphMermaid(
+      model,
+      () => null,
+      () => ["inspected", "unexpected"],
+    ),
+    /invalid role 'unexpected' at index 1/,
+  );
 });

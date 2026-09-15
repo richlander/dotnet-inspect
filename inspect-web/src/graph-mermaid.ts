@@ -172,8 +172,8 @@ type UniqueCompatiblePackage = (
 
 interface MermaidGraphNodeInfo extends DependencyGraphNodeInfo {
   key: string;
+  id: string;
   label: string;
-  role: DependencyGraphPresentationRole;
 }
 
 export type DependencyGraphPresentationRole =
@@ -181,69 +181,15 @@ export type DependencyGraphPresentationRole =
   | "samePrefix"
   | "external";
 
-export function dependencyGraphFamilyPrefix(packageId: string): string {
-  const firstDot = packageId.indexOf(".");
-  if (firstDot < 0) return packageId;
-  const secondDot = packageId.indexOf(".", firstDot + 1);
-  return secondDot < 0 ? packageId : packageId.slice(0, secondDot);
-}
-
-function ordinalIgnoreCaseScalar(value: string): string {
-  // Use .NET's precomposed simple mappings before rejecting JS compatibility folds.
-  const codePoint = value.codePointAt(0)!;
-  if ((codePoint >= 0x1f80 && codePoint <= 0x1f87)
-      || (codePoint >= 0x1f90 && codePoint <= 0x1f97)
-      || (codePoint >= 0x1fa0 && codePoint <= 0x1fa7)) {
-    return String.fromCodePoint(codePoint + 8);
-  }
-  if (codePoint === 0x1fb3 || codePoint === 0x1fc3 || codePoint === 0x1ff3)
-    return String.fromCodePoint(codePoint + 9);
-
-  const upper = value.toUpperCase();
-  const upperCodePoint = upper.codePointAt(0);
-  if (upperCodePoint === undefined
-    || String.fromCodePoint(upperCodePoint) !== upper
-    || upper.length !== value.length) {
-    return value;
-  }
-  return codePoint > 0x7f && upperCodePoint <= 0x7f
-    ? value
-    : upper;
-}
-
-function ordinalIgnoreCaseEquals(left: string, right: string): boolean {
-  if (left.length !== right.length) return false;
-  const leftScalars = left[Symbol.iterator]();
-  const rightScalars = right[Symbol.iterator]();
-  while (true) {
-    const leftScalar = leftScalars.next();
-    const rightScalar = rightScalars.next();
-    if (leftScalar.done || rightScalar.done)
-      return leftScalar.done === rightScalar.done;
-    if (ordinalIgnoreCaseScalar(leftScalar.value)
-        !== ordinalIgnoreCaseScalar(rightScalar.value)) {
-      return false;
-    }
-  }
-}
-
-export function dependencyGraphPresentationRole(
+type ClassifyDependencyGraphPresentationRoles = (
   inspectedPackageId: string,
-  packageId: string,
-): DependencyGraphPresentationRole {
-  if (ordinalIgnoreCaseEquals(packageId, inspectedPackageId)) return "inspected";
-  const prefix = dependencyGraphFamilyPrefix(inspectedPackageId);
-  return ordinalIgnoreCaseEquals(packageId, prefix)
-    || (packageId.length > prefix.length
-      && packageId[prefix.length] === "."
-      && ordinalIgnoreCaseEquals(packageId.slice(0, prefix.length), prefix))
-    ? "samePrefix"
-    : "external";
-}
+  packageIds: readonly string[],
+) => readonly string[] | Promise<readonly string[]>;
 
 export async function buildDependencyGraphMermaid(
   model: DependencyGraphModel,
   uniqueCompatiblePackage: UniqueCompatiblePackage,
+  classifyPresentationRoles: ClassifyDependencyGraphPresentationRoles,
 ): Promise<DependencyGraphResult | null> {
   const MAX_DEPTH = 3;
   const MAX_NODES = 80;
@@ -270,7 +216,6 @@ export async function buildDependencyGraphMermaid(
         kind,
         packageKey,
         versionRange: "",
-        role: dependencyGraphPresentationRole(model.package.id, pkg.id),
         label: sameIdCount > 1
           ? `${pkg.id}@${pkg.version} · ${pkg.activeFramework}`
           : pkg.id
@@ -293,7 +238,6 @@ export async function buildDependencyGraphMermaid(
         kind: "external",
         packageKey: "",
         versionRange,
-        role: dependencyGraphPresentationRole(model.package.id, dependency.id),
         label: versionRange
           ? `${dependency.id} ${versionRange}`
           : dependency.id
@@ -411,14 +355,28 @@ export async function buildDependencyGraphMermaid(
   if (!edges.length) return null;
 
   const keys = [...nodeInfo.keys()];
+  const roleValues = await classifyPresentationRoles(
+    model.package.id,
+    keys.map(key => nodeInfo.get(key)!.id),
+  );
+  if (roleValues.length !== keys.length) {
+    throw new Error(
+      `Package graph classification returned ${roleValues.length} roles for ${keys.length} nodes.`,
+    );
+  }
+  const roles = roleValues.map((role, index): DependencyGraphPresentationRole => {
+    if (role === "inspected" || role === "samePrefix" || role === "external")
+      return role;
+    throw new Error(`Package graph classification returned invalid role '${role}' at index ${index}.`);
+  });
   const idOf = new Map<string, string>();
   keys.forEach((key, index) => idOf.set(key, `d${index}`));
   const lines = ["flowchart TD"];
-  for (const key of keys) {
+  keys.forEach((key, index) => {
     const info = nodeInfo.get(key)!;
     const label = mermaidLabel(info.label);
-    lines.push(`  ${idOf.get(key)}["${label}"]:::${info.role}`);
-  }
+    lines.push(`  ${idOf.get(key)}["${label}"]:::${roles[index]}`);
+  });
   for (const edge of edges) {
     lines.push(`  ${idOf.get(edge.from)} --> ${idOf.get(edge.to)}`);
   }

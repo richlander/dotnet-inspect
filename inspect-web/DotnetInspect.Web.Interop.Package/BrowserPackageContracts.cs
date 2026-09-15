@@ -697,6 +697,14 @@ public sealed record BrowserDependencyCoordinateMatch(
     BrowserDependencyCoordinateMatchOutcome Outcome,
     string? CandidateKey);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageGraphIdentityRole>))]
+public enum BrowserPackageGraphIdentityRole
+{
+    Inspected,
+    SamePrefix,
+    External,
+}
+
 public sealed record BrowserPackageVersions(
     string[] Versions,
     int CurrentVersionInsertionIndex,
@@ -723,6 +731,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserWorkspacePackageOccurrenceActivation))]
 [JsonSerializable(typeof(BrowserDependencyCoordinateCandidate[]))]
 [JsonSerializable(typeof(BrowserDependencyCoordinateMatch))]
+[JsonSerializable(typeof(BrowserPackageGraphIdentityRole[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
 [JsonSerializable(typeof(string[]))]

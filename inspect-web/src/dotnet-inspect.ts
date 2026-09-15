@@ -12204,7 +12204,24 @@ async function renderDependencyGraph() {
     const built = await buildDependencyGraphMermaid(
       model,
       (_packages, packageId, versionRange) =>
-        uniqueCompatiblePackage(packages, packageId, versionRange));
+        uniqueCompatiblePackage(packages, packageId, versionRange),
+      async (inspectedPackageId, packageIds) => {
+        phase = "Dependency classification";
+        const roles =
+          await engineClient.package.classifyPackageGraphIdentities(
+            inspectedPackageId,
+            JSON.stringify(packageIds),
+          );
+        return roles.map(role => {
+          switch (role) {
+            case "Inspected": return "inspected";
+            case "SamePrefix": return "samePrefix";
+            case "External": return "external";
+            default:
+              throw new Error(`Package graph classification returned invalid role '${role}'.`);
+          }
+        });
+      });
     if (!depGraphRenderSequence.isCurrent(seq)
       || document.querySelector("#dependency-graph-diagram") !== container) return;
     if (!built) {
