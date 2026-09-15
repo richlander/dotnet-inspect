@@ -24,6 +24,7 @@ public sealed class TypeDeclarationLocatorCandidate
         Coordinate = coordinate;
         Name = declaration.Name;
         Kind = declaration.Kind;
+        IsPublicSurface = declaration.IsPublicSurface;
         DiscoveryAttributes = declaration.DiscoveryAttributes;
         Observation = observation;
     }
@@ -31,6 +32,7 @@ public sealed class TypeDeclarationLocatorCandidate
     public ExactLibrarySourceCoordinate Coordinate { get; }
     public MetadataTypeDefinitionName Name { get; }
     public AssemblyTypeDeclarationKind Kind { get; }
+    public bool IsPublicSurface { get; }
     public TypeDeclarationDiscoveryAttributes? DiscoveryAttributes { get; }
     public WorkspaceDeclarationMember Observation { get; }
 }

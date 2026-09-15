@@ -68,6 +68,44 @@ Hosts parse command or gesture syntax before constructing this family.
 PackageHouse receives the typed request and never parses `latest`, `*`, range,
 or address text.
 
+## Vector-producing population settlement
+
+Range enumeration without an address uses the same owner-issued range currency
+but remains separate from exact-coordinate resolution. Package Version
+Selection owns:
+
+- semantic endpoint equality and admission;
+- direction-preserving ordering;
+- duplicate semantic-version removal;
+- prerelease inclusion from the endpoints or explicit policy; and
+- the terminal classification of non-authoritative discovery.
+
+`PackageVersionVector.Create` is the deterministic vector operation. Both
+endpoints must be present in the admitted version set. The result includes
+only versions inside the inclusive semantic range, follows the caller's
+direction, and excludes prereleases unless an endpoint is prerelease or the
+request opts in.
+
+PackageHouse is the first operation-bearing adopter under
+[#7115](https://github.com/richlander/dotnet-inspect/issues/7115). Its separate
+`PackageHouseVersionPopulationRequest` asks Package Source for one complete
+configured-authority enumeration, applies this owner's vector operation, and
+returns a resource-free closed result. PackageHouse owns the request/result
+correspondence, operation lifetime, timeout precedence, and later cell
+execution. This owner does not acquire payloads, issue source candidates, or
+retain Package Source lease authority.
+
+An available House population retains the exact discovery and accepts only an
+address from its exact vector. It obtains the cell candidate from that
+discovery's `SelectCandidate` operation. Thus one discovery can serve multiple
+sparse or dense cells without rediscovery while every cell remains restricted
+to authorities that reported its version.
+
+The initial production bridge is online configured-source composition.
+Subject-owned Diff History and package version Count are the target consumers.
+Current API-range and top-level `timeline` execution, offline extraction,
+History coordination, and Browser/Wasm adoption remain separate slices.
+
 ## Resolution receipt
 
 `PackageVersionResolutionReceipt` is owner-issued and resource-free. Every arm
@@ -151,6 +189,7 @@ PackageHouse adoption work under #6426.
 
 - distinct request forms and discovery requirements;
 - semantic latest, prerelease, wildcard, and directed-range selection;
+- the closed, resource-free version-population request and terminal family;
 - total request-to-receipt resolution and deterministic terminal precedence;
 - rejection of missing or mismatched discovery package identity;
 - refresh evidence for `AlwaysLatest`;
@@ -160,6 +199,13 @@ PackageHouse adoption work under #6426.
   PackageHouse; and
 - the resource-free public surface of the request, receipt, and House
   contracts.
+
+`PackageHouseExecutionTests` additionally gate one population discovery serving
+multiple directed cells, no payload work during settlement, exact
+population-address membership, reporter-only acquisition, authoritative
+absence, missing endpoints, partial and failed discovery, timeout and caller
+cancellation, operation release, and rejection across Package Source root
+generations.
 
 The defining pathological case has two required authorities: one reports a
 candidate and the other times out. The retained discovery is partial, so no

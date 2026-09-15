@@ -123,10 +123,11 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// Declared NuGet dependency groups plus the selected compile assembly's direct references.
-    /// Package parsing and compatible dependency-group selection belong to
-    /// <see cref="PackageDependencyGroupsQuery"/>; the assembly-context query owns the metadata
-    /// session. This method only adapts their typed results for the browser.
+    /// Normalized NuGet dependency evidence plus the selected compile assembly's direct
+    /// references. Package parsing and compatible dependency-group selection belong to
+    /// <see cref="PackageDependencyGroupsQuery"/>, normalization belongs to
+    /// <see cref="PackageDependencyEvidenceQuery"/>, and the assembly-context query owns the
+    /// metadata session. This method only adapts their typed results for the browser.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryPackageDependencies(
@@ -162,26 +163,13 @@ public static partial class PackageExports
             BrowserPackageWireProjection.Project(
                 BrowserCompileLibraryProjection.Project(coordinate.Selection));
 
-        PackageDependencyGroupsResult dependencyResult =
-            await PackageDependencyGroupsQuery.ExecuteAsync(
-                coordinate.Package.Content,
-                coordinate.PackageId,
-                coordinate.Version,
-                coordinate.Framework,
-                allowCompatibleFallbackForRequestedTfm: true);
-        PackageDependencyGroups dependencies = dependencyResult switch
-        {
-            PackageDependencyGroupsResult.Available available => available.Value,
-            PackageDependencyGroupsResult.NoManifest =>
-                throw new InvalidDataException(
-                    "The package contains no root manifest."),
-            PackageDependencyGroupsResult.Failed failed =>
-                throw new InvalidOperationException(
-                    failed.Error.Message,
-                    failed.Error),
-            _ => throw new InvalidOperationException(
-                "Unknown package dependency-group query result."),
-        };
+        PackageDependencyEvidenceRoot dependencyEvidence =
+            await PackageDependencyEvidenceAsync(coordinate);
+        PackageDependencyEvidenceDeclarationResult.Available dependencies =
+            dependencyEvidence.Declaration
+                as PackageDependencyEvidenceDeclarationResult.Available
+                ?? throw new InvalidOperationException(
+                    "The package dependency declaration projection is unavailable.");
 
         string? assembly = null;
         BrowserAssemblyReferenceResult assemblyReferences;
@@ -245,10 +233,12 @@ public static partial class PackageExports
         }
 
         string? dependencyGroupError =
-            dependencies.SelectionStatus
-                == PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework
+            dependencyEvidence.Selection.Status
+                == PackageDependencyEvidenceSelectionStatus.NoMatchingTargetFramework
                     ? "The manifest declares no dependency group for the active target framework."
                     : null;
+        BrowserPackageDependencyDeclarationFailure[] declarationFailures =
+            ProjectDependencyDeclarationFailures(dependencies);
         return new BrowserPackageDependencies(
                 coordinate.PackageId,
                 coordinate.Version,
@@ -258,19 +248,139 @@ public static partial class PackageExports
                     .. dependencies.Groups.Select((group, index) =>
                         new BrowserPackageDependencyGroup(
                             index,
-                            BrowserFrameworkText.DependencyGroup(group.TargetFramework),
-                            index == dependencies.SelectedGroupIndex,
+                            BrowserFrameworkText.DependencyGroup(
+                                group.FrameworkScope.SourceSpelling.ToString()),
+                            group.Identity
+                                == dependencyEvidence.Selection.SelectedGroup,
                             [
-                                .. group.Dependencies.Select(dependency =>
+                                .. group.Declarations.Select(dependency =>
                                     new BrowserPackageDependency(
-                                        dependency.Id,
-                                        dependency.VersionRange)),
+                                        dependency.SourcePackageIdSpelling.ToString(),
+                                        dependency.SourceVersionConstraintSpelling.ToString())),
                             ])),
                 ],
+                declarationFailures,
                 assemblyReferences,
                 dependencyGroupError,
                 compileLibrary);
     }
+
+    internal static async Task<PackageDependencyEvidenceRoot>
+        PackageDependencyEvidenceAsync(BrowserPackageCoordinate coordinate)
+    {
+        PackageDependencyGroupsResult dependencyResult =
+            await PackageDependencyGroupsQuery.ExecuteAsync(
+                coordinate.Package.Content,
+                coordinate.PackageId,
+                coordinate.Version,
+                coordinate.Framework,
+                allowCompatibleFallbackForRequestedTfm: true);
+        PackageDependencyGroupsResult.Available available =
+            dependencyResult switch
+            {
+                PackageDependencyGroupsResult.Available value => value,
+                PackageDependencyGroupsResult.NoManifest =>
+                    throw new InvalidDataException(
+                        "The package contains no root manifest."),
+                PackageDependencyGroupsResult.Failed failed =>
+                    throw new InvalidOperationException(
+                        failed.Error.Message,
+                        failed.Error),
+                _ => throw new InvalidOperationException(
+                    "Unknown package dependency-group query result."),
+            };
+        PackageDependencyEvidenceInput.Package input =
+            PackageDependencyEvidenceQuery.CreatePackageInput(
+                available,
+                PackageDependencyEvidenceAcquisitionForm.PackageArchive);
+        PackageDependencyEvidenceOutcome outcome =
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest([input]));
+        return outcome.Roots.Length == 1
+            ? outcome.Roots[0]
+            : throw new InvalidOperationException(
+                "One package dependency input must produce one normalized evidence root.");
+    }
+
+    internal static BrowserPackageDependencyDeclarationFailure[]
+        ProjectDependencyDeclarationFailures(
+            PackageDependencyEvidenceDeclarationResult.Available declarations,
+            PackageDependencyEvidenceGroupIdentity? selectedGroup = null)
+    {
+        string? Framework(PackageDependencyEvidenceGroupIdentity group) =>
+            declarations.Groups
+                .FirstOrDefault(candidate => candidate.Identity == group)
+                ?.FrameworkScope.SourceSpelling.ToString();
+
+        return
+        [
+            .. declarations.Failures
+                .Where(failure =>
+                    selectedGroup is null
+                    || DependencyDeclarationFailureBelongsToGroup(
+                        failure,
+                        selectedGroup))
+                .Select(failure => failure switch
+                {
+                    PackageDependencyEvidenceDeclarationFailure
+                        .ConflictingPackageDeclaration conflicting =>
+                            new BrowserPackageDependencyDeclarationFailure(
+                                BrowserPackageDependencyDeclarationFailureKind
+                                    .ConflictingPackageDeclaration,
+                                Framework(conflicting.Group),
+                                conflicting.CanonicalPackageId,
+                                conflicting.SourceOccurrenceCount),
+                    PackageDependencyEvidenceDeclarationFailure
+                        .InvalidPackageDeclaration invalid =>
+                            new BrowserPackageDependencyDeclarationFailure(
+                                BrowserPackageDependencyDeclarationFailureKind
+                                    .InvalidPackageDeclaration,
+                                Framework(invalid.Group),
+                                Package: null,
+                                invalid.SourceOccurrenceCount),
+                    PackageDependencyEvidenceDeclarationFailure
+                        .RestoredProject =>
+                            new BrowserPackageDependencyDeclarationFailure(
+                                BrowserPackageDependencyDeclarationFailureKind
+                                    .RestoredProject,
+                                Framework: null,
+                                Package: null,
+                                SourceOccurrenceCount: null),
+                    PackageDependencyEvidenceDeclarationFailure
+                        .AuthoredProject =>
+                            new BrowserPackageDependencyDeclarationFailure(
+                                BrowserPackageDependencyDeclarationFailureKind
+                                    .AuthoredProject,
+                                Framework: null,
+                                Package: null,
+                                SourceOccurrenceCount: null),
+                    PackageDependencyEvidenceDeclarationFailure
+                        .AuthoredProjectUnresolvedSyntax =>
+                            new BrowserPackageDependencyDeclarationFailure(
+                                BrowserPackageDependencyDeclarationFailureKind
+                                    .AuthoredProjectUnresolvedSyntax,
+                                Framework: null,
+                                Package: null,
+                                SourceOccurrenceCount: null),
+                    _ => throw new InvalidOperationException(
+                        "Unknown dependency declaration failure."),
+                }),
+        ];
+    }
+
+    private static bool DependencyDeclarationFailureBelongsToGroup(
+        PackageDependencyEvidenceDeclarationFailure failure,
+        PackageDependencyEvidenceGroupIdentity selectedGroup) =>
+        failure switch
+        {
+            PackageDependencyEvidenceDeclarationFailure
+                .ConflictingPackageDeclaration conflicting =>
+                    conflicting.Group == selectedGroup,
+            PackageDependencyEvidenceDeclarationFailure
+                .InvalidPackageDeclaration invalid =>
+                    invalid.Group == selectedGroup,
+            _ => true,
+        };
 
     /// <summary>
     /// The UTF-8 text of one package-shipped Markdown document, identified by its exact package

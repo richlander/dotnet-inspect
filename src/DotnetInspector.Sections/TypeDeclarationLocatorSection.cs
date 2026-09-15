@@ -16,6 +16,13 @@ public sealed class TypeDeclarationLocatorSectionPlan
 {
     public TypeDeclarationLocatorSectionPlan(
         RowSelectionIntent<string> rowSelection)
+        : this(rowSelection, visibility: null)
+    {
+    }
+
+    public TypeDeclarationLocatorSectionPlan(
+        RowSelectionIntent<string> rowSelection,
+        TypeDeclarationVisibilityPlan? visibility)
     {
         ArgumentNullException.ThrowIfNull(rowSelection);
         if (rowSelection.Operations.Any(
@@ -28,12 +35,14 @@ public sealed class TypeDeclarationLocatorSectionPlan
         }
 
         RowSelection = rowSelection;
+        Visibility = visibility;
     }
 
     public static TypeDeclarationLocatorSectionPlan All { get; } =
         new(RowSelectionIntent<string>.Empty);
 
     public RowSelectionIntent<string> RowSelection { get; }
+    public TypeDeclarationVisibilityPlan? Visibility { get; }
 }
 
 /// <summary>
@@ -350,6 +359,7 @@ public sealed record TypeDeclarationLocatorSectionCandidate(
     AssemblyTypeDeclarationKind DeclarationKind,
     TypeDeclarationLocatorObservation Observation)
 {
+    public bool IsPublicSurface { get; init; }
     public TypeDeclarationDiscoveryAttributes? DiscoveryAttributes { get; init; }
 }
 
@@ -412,7 +422,8 @@ public sealed record TypeDeclarationLocatorSectionAnswer
         int availableCandidateCount,
         ImmutableArray<TypeDeclarationLocatorSectionCandidate> candidates,
         bool isRealizationComplete,
-        bool isEvaluationComplete)
+        bool isEvaluationComplete,
+        TypeDeclarationVisibilityCoverage? visibility = null)
     {
         Identity =
             identity
@@ -439,6 +450,7 @@ public sealed record TypeDeclarationLocatorSectionAnswer
         Candidates = candidates;
         IsRealizationComplete = isRealizationComplete;
         IsEvaluationComplete = isEvaluationComplete;
+        Visibility = visibility;
     }
 
     public TypeDeclarationLocatorAnswerIdentity Identity { get; }
@@ -448,8 +460,10 @@ public sealed record TypeDeclarationLocatorSectionAnswer
     { get; }
     public bool IsRealizationComplete { get; }
     public bool IsEvaluationComplete { get; }
+    public TypeDeclarationVisibilityCoverage? Visibility { get; }
     public bool IsComplete =>
-        IsRealizationComplete && IsEvaluationComplete;
+        IsRealizationComplete && IsEvaluationComplete
+        && (Visibility?.IsComplete ?? true);
     public bool IsRowSelectionComplete =>
         Candidates.Length == AvailableCandidateCount;
 }
@@ -491,7 +505,9 @@ public abstract record TypeDeclarationLocatorSectionResult
         TypeDeclarationLocatorRowSelectionFailure? RowSelectionFailure)
         : TypeDeclarationLocatorSectionResult
     {
-        public bool IsSuccess => RowSelectionFailure is null;
+        public TypeDeclarationVisibilityPlan? Visibility { get; init; }
+        public TypeDeclarationVisibilityInputFailure? VisibilityFailure { get; init; }
+        public bool IsSuccess => RowSelectionFailure is null && VisibilityFailure is null;
     }
 }
 
@@ -566,6 +582,12 @@ public static class TypeDeclarationLocatorSection
         var allCandidates =
             new ImmutableArray<TypeDeclarationLocatorSectionCandidate>[
                 result.Answers.Length];
+        var visibilityCoverage =
+            new TypeDeclarationVisibilityCoverage?[result.Answers.Length];
+        TypeDeclarationVisibilityInputFailure? visibilityFailure =
+            plan.Visibility is not null && !result.IncludeAll
+                ? TypeDeclarationVisibilityInputFailure.AllDeclarationsRequired
+                : null;
         var sequences =
             new RowsCohortSequence<
                 TypeDeclarationLocatorAnswerIdentity,
@@ -591,9 +613,21 @@ public static class TypeDeclarationLocatorSection
                                 candidate.Kind,
                                 Observation(candidate.Observation))
                             {
+                                IsPublicSurface = candidate.IsPublicSurface,
                                 DiscoveryAttributes = candidate.DiscoveryAttributes,
                             }),
                 ];
+            if (visibilityFailure is not null)
+            {
+                visibilityCoverage[index] = new(candidates.Length, 0, [], IsEvaluated: false);
+                candidates = [];
+            }
+            else if (plan.Visibility is { } visibility)
+            {
+                TypeDeclarationVisibilitySelection selection = visibility.Select(candidates);
+                visibilityCoverage[index] = selection.Coverage;
+                candidates = selection.Candidates;
+            }
             answerIdentities[index] = identity;
             requests[index] = request;
             allCandidates[index] = candidates;
@@ -607,15 +641,15 @@ public static class TypeDeclarationLocatorSection
 
         RowsCohortResult<
             TypeDeclarationLocatorAnswerIdentity,
-            TypeDeclarationLocatorSectionCandidate> selected =
-            RowsCohortExecutor.ApplyUnordered(
-                sequences,
-                plan.RowSelection);
+            TypeDeclarationLocatorSectionCandidate>? selected =
+            visibilityFailure is null
+                ? RowsCohortExecutor.ApplyUnordered(sequences, plan.RowSelection)
+                : null;
         IReadOnlyDictionary<
             TypeDeclarationLocatorAnswerIdentity,
             IReadOnlyList<TypeDeclarationLocatorSectionCandidate>>
             selectedByAnswer =
-            selected.IsSuccess
+            selected is { IsSuccess: true }
                 ? selected.RowSets.ToDictionary(
                     static rowSet => rowSet.Identity,
                     static rowSet => rowSet.Values)
@@ -646,11 +680,12 @@ public static class TypeDeclarationLocatorSection
                     allCandidates[index].Length,
                     [.. candidates],
                     answer.IsRealizationComplete,
-                    answer.IsEvaluationComplete));
+                    answer.IsEvaluationComplete,
+                    visibilityCoverage[index]));
         }
 
         TypeDeclarationLocatorRowSelectionFailure? failure = null;
-        if (selected.Failure is { } semanticFailure)
+        if (selected?.Failure is { } semanticFailure)
         {
             int index =
                 Array.IndexOf(
@@ -677,7 +712,11 @@ public static class TypeDeclarationLocatorSection
             contexts,
             members,
             answers.MoveToImmutable(),
-            failure);
+            failure)
+        {
+            Visibility = plan.Visibility,
+            VisibilityFailure = visibilityFailure,
+        };
     }
 
     private static TypeDeclarationLocatorSectionRequest ProjectRequest(

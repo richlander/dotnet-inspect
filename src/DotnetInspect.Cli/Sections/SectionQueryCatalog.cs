@@ -49,7 +49,7 @@ public sealed record SectionQueryCatalog(
             queries.Add(new(
                 PackageProfileSections.Packages,
                 PackageQueryOptions.DiscoverySummary,
-                [PackageQueryOptions.QueryFacet]));
+                PackageQueryOptions.QueryFacets));
         }
         if (command is "library" or "type" or "member")
         {

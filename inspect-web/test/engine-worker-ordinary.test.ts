@@ -69,6 +69,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
+    queryPackagePruning: () =>
+      unexpected("queryPackagePruning"),
     queryPackageVersions: () => unexpected("queryPackageVersions"),
     queryWorkspacePackageOccurrences: () =>
       unexpected("queryWorkspacePackageOccurrences"),
@@ -242,6 +244,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let cleared = 0;
   let classificationArguments: readonly unknown[] = [];
   let matchArguments: readonly unknown[] = [];
+  let pruningArguments: readonly unknown[] = [];
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
   const state = fixture({
@@ -260,6 +263,31 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       matchPackageDependencyCoordinate: (...args) => {
         matchArguments = args;
         return { outcome: "Unique", candidateKey: "candidate" };
+      },
+      queryPackagePruning: (...args) => {
+        pruningArguments = args;
+        return Promise.resolve({
+          schemaVersion: 1,
+          package: "Example",
+          version: "1.0.0",
+          targetFramework: "net10.0",
+          selectedFramework: "net10.0",
+          family: "Microsoft.NETCore.App",
+          platformVersion: "10.0.0",
+          completion: "Complete",
+          rows: [],
+          declarationFailures: [],
+          summary: {
+            declarations: 0,
+            evaluated: 0,
+            delegated: 0,
+            retained: 0,
+            notEvaluated: 0,
+            failed: 0,
+            declarationFailures: 0,
+          },
+          message: null,
+        });
       },
     },
     metadata: {
@@ -299,6 +327,12 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     null,
     "[{\"key\":\"candidate\"}]",
   );
+  const pruning = state.client.package.queryPackagePruning(
+    "Example",
+    "1.0.0",
+    "net10.0",
+    "{\"schemaVersion\":1}",
+  );
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
     "{\"schemaVersion\":1}",
@@ -327,6 +361,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Dependency",
     null,
     "[{\"key\":\"candidate\"}]",
+  ]);
+  assert.equal((await pruning).completion, "Complete");
+  assert.deepEqual(pruningArguments, [
+    "Example",
+    "1.0.0",
+    "net10.0",
+    "{\"schemaVersion\":1}",
   ]);
   assert.deepEqual(await libraryDiff, {
     schemaVersion: 1,
@@ -436,6 +477,7 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
         maxPackageEntries: 12,
         workspaces: 1,
         maxWorkspaces: 4,
+        maxWorkspaceAssembliesPerRole: 256,
         residentBytes: 1024,
         maxResidentBytes: 134_217_728,
         maxWorkspaceRetainedImageBytes: 67_108_864,
@@ -455,6 +497,7 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
     maxPackageEntries: 12,
     workspaces: 1,
     maxWorkspaces: 4,
+    maxWorkspaceAssembliesPerRole: 256,
     residentBytes: 1024,
     maxResidentBytes: 134_217_728,
     maxWorkspaceRetainedImageBytes: 67_108_864,
@@ -477,6 +520,7 @@ test("malformed and oversized generated results reject only their calls", async 
         maxPackageEntries: 12,
         workspaces: 0,
         maxWorkspaces: 4,
+        maxWorkspaceAssembliesPerRole: 256,
         residentBytes: 64,
         maxResidentBytes: 134_217_728,
         maxWorkspaceRetainedImageBytes: 67_108_864,
@@ -626,6 +670,7 @@ test("a closed-epoch ordinary client cannot dispatch into a replacement", async 
           maxPackageEntries: 12,
           workspaces: 0,
           maxWorkspaces: 4,
+          maxWorkspaceAssembliesPerRole: 256,
           residentBytes: 0,
           maxResidentBytes: 134_217_728,
           maxWorkspaceRetainedImageBytes: 67_108_864,
@@ -672,6 +717,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
+      "queryPackagePruning",
       "queryPackageVersions",
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",

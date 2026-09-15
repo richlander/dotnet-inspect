@@ -732,6 +732,17 @@ headroom, while all three stress witnesses plus the top-10 archive set consume
 75.89 MiB of the 128 MiB cache. This demonstrates useful headroom for common
 packages and admits a complete runtime-pack stress case without claiming that
 every NuGet package fits; an over-limit package remains a visible refusal.
+
+The [2026-09-15 Workspace census](../data/inspect-web-workspace-budget-census-2026-09-15.tsv)
+separately measures the shipped 44-package Microsoft.Extensions set. Its
+archives total 12.87 MiB, and the real Workspace role realization admits its
+shared 44-assembly, 5.47 MiB selected image set within one Workspace slot. The
+128 MiB archive, 256-assembly-per-role, 64 MiB retained-image, and four-slot
+limits have substantial headroom for this first complex scenario. The
+12-package-entry limit rejects the complete set and is not sufficient for the
+planned multi-Package Workspace experience. Selecting a larger entry bound
+remains owned by that Workspace adoption because an atomic edit may retain the
+old realization while acquiring its replacement.
 Browser API-surface projection additionally spends one shared
 32,000,000-character retained-text budget across its selected assemblies. The
 extractor charges every string-bearing model field as it retains each member,
