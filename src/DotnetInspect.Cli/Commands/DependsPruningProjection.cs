@@ -18,6 +18,7 @@ public partial class DependsCommand
             DependsOptions options,
             PackageDependencyEvidenceOutcome evidence,
             IReadOnlyList<int> admittedIndexes,
+            IReadOnlyList<LibraryAssetResult> libraries,
             DesktopPackageSourceComposition composition,
             NuGetOperationContext operationContext,
             CommandContext context,
@@ -32,12 +33,16 @@ public partial class DependsCommand
         var rows = ImmutableArray.CreateBuilder<DependsPruningRow>();
         var failures = ImmutableArray.CreateBuilder<DependsFailureRow>();
         var pending = new List<PendingPruningDeclaration>();
-        int roots = evidence.Roots.Length + evidence.FailedRoots.Length;
+        int failedLibraryRoots = libraries.Count(
+            static library => library.Document is null);
+        int roots = evidence.Roots.Length
+            + evidence.FailedRoots.Length
+            + libraries.Count;
         int declarations = 0;
-        int notEvaluated = evidence.FailedRoots.Length;
+        int notEvaluated = evidence.FailedRoots.Length + libraries.Count;
         int sourceBounded = 0;
-        int failed = evidence.FailedRoots.Length;
-        int successful = 0;
+        int failed = evidence.FailedRoots.Length + failedLibraryRoots;
+        int successful = libraries.Count - failedLibraryRoots;
 
         for (int inputIndex = 0;
              inputIndex < evidence.Roots.Length;

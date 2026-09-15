@@ -591,12 +591,20 @@ public partial class DependsCommand
                 evidenceOutcome,
                 admittedIndexes,
                 failedIndexes);
+        List<LibraryAssetResult> libraries =
+            await AcquireLibraryRootsAsync(
+                options,
+                context,
+                plan.Traversal,
+                traversalDepth,
+                cancellationToken).ConfigureAwait(false);
         DependsPruningProjectionResult pruning =
             plan.Pruning
                 ? await AcquirePruningProjectionAsync(
                     options,
                     evidenceOutcome,
                     admittedIndexes,
+                    libraries,
                     composition,
                     operationContext,
                     context,
@@ -740,13 +748,6 @@ public partial class DependsCommand
             }
         }
 
-        List<LibraryAssetResult> libraries =
-            await AcquireLibraryRootsAsync(
-                options,
-                context,
-                plan.Traversal,
-                traversalDepth,
-                cancellationToken).ConfigureAwait(false);
         if (plan.Traversal)
         {
             graphDocuments.AddRange(
