@@ -16,4 +16,25 @@ public static class WorkspaceDefinitionConsumer
     public static InspectionWorkspace CreateWorkspace(
         ResolvedScenario scenario) =>
         new(GetPlan(scenario));
+
+    public static CommittedScenarioDefinitionSet GetCommittedDefinitions(
+        InspectionDefinitionRegistry registry,
+        string scenarioId)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        return registry.PrepareScenario(scenarioId) switch
+        {
+            InspectionDefinitionScenarioPreparationResult.Version2 prepared =>
+                prepared.Definitions,
+            InspectionDefinitionScenarioPreparationResult
+                .LegacyCompatibilityRequired =>
+                throw new InvalidOperationException(
+                    "The scenario requires schema-version-1 compatibility execution."),
+            InspectionDefinitionScenarioPreparationResult.Version1 =>
+                throw new InvalidOperationException(
+                    "The scenario is a schema-version-1 composition."),
+            _ => throw new InvalidOperationException(
+                "The scenario preparation result is unknown."),
+        };
+    }
 }

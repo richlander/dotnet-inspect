@@ -293,16 +293,16 @@ namespace DotnetInspect.Web.Interop.Catalog
             }
 
             var workspace = new WorkspaceDefinition(
-                InspectionDefinitionJson.CurrentSchemaVersion,
+                InspectionDefinitionSchema.Version1,
                 WorkspaceSharePacketTransposer.WorkspaceId,
                 workspaceContexts);
             var navigation = new NavigationDefinition(
-                InspectionDefinitionJson.CurrentSchemaVersion,
+                InspectionDefinitionSchema.Version1,
                 WorkspaceSharePacketTransposer.NavigationId,
                 navigationTabs,
                 state.ActiveTabId);
             var view = new ViewDefinition(
-                InspectionDefinitionJson.CurrentSchemaVersion,
+                InspectionDefinitionSchema.Version1,
                 WorkspaceSharePacketTransposer.ViewId,
                 lens: state.View.Lens,
                 type: state.View.Type,
@@ -311,7 +311,7 @@ namespace DotnetInspect.Web.Interop.Catalog
                 section: state.View.Section,
                 libraries: state.View.Libraries);
             var scenario = new ScenarioDefinition(
-                InspectionDefinitionJson.CurrentSchemaVersion,
+                InspectionDefinitionSchema.Version1,
                 WorkspaceSharePacketTransposer.ScenarioId,
                 workspace: workspace.Id,
                 context: state.SelectedContextId,

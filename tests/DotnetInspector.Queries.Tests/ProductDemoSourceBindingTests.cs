@@ -120,7 +120,7 @@ public sealed class ProductDemoSourceBindingTests
     private static InspectionDefinitionRecord[] CreateMissingReferenceRecords() =>
     [
         new ScenarioDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             "scenario",
             workspace: "missing"),
     ];
@@ -132,7 +132,7 @@ public sealed class ProductDemoSourceBindingTests
         string scenarioId,
         string section)
     {
-        const int version = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int version = InspectionDefinitionSchema.Version1;
         var package = new DefinitionMemberCoordinate.PackageCoordinate(
             "Example.Package",
             "1.0.0",

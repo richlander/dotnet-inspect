@@ -82,6 +82,72 @@ public sealed class InspectionDefinitionRegistry
                 $"Unknown scenario id '{scenarioId}'.");
         }
 
+        ScenarioRecordComposition records = ResolveScenarioRecords(scenario);
+        ValidateSameSchemaVersion(scenario, records);
+        if (scenario.SchemaVersion != InspectionDefinitionSchema.Version1)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenarioId}' uses schema version 2 and requires portable selector resolution.");
+        }
+
+        return ResolveVersion1Scenario(scenario);
+    }
+
+    /// <summary>
+    /// Performs strict schema dispatch and resource-free composition. Version 2
+    /// remains unresolved until the portable selector-resolution participant.
+    /// </summary>
+    public InspectionDefinitionScenarioPreparationResult PrepareScenario(
+        string scenarioId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scenarioId);
+        if (!TryGet<ScenarioDefinition>(scenarioId, out var scenario))
+        {
+            throw new InspectionDefinitionException(
+                $"Unknown scenario id '{scenarioId}'.");
+        }
+
+        var records = ResolveScenarioRecords(scenario);
+        ValidateSameSchemaVersion(scenario, records);
+        ValidateSelectedContext(
+            scenario,
+            records.Workspace as WorkspaceDefinition);
+        ValidateNavigationIds(records.Navigation);
+        if (scenario.SchemaVersion == InspectionDefinitionSchema.Version2)
+        {
+            return new InspectionDefinitionScenarioPreparationResult.Version2(
+                CreateCommittedScenario(records));
+        }
+
+        if (scenario.Workspace is not null)
+        {
+            NavigationDefinition? navigation =
+                records.Navigation as NavigationDefinition;
+            NavigationTabDefinition? focused = navigation?.Tabs.First(
+                tab => tab.Id == navigation.Focus);
+            if (focused?.Coordinate
+                is not DefinitionMemberCoordinate.PackageCoordinate)
+            {
+                return new InspectionDefinitionScenarioPreparationResult
+                    .LegacyCompatibilityRequired(
+                        new LegacyCompatibilityDefinitionPlan(
+                            scenario,
+                            records.Workspace as WorkspaceDefinition,
+                            records.Query as QueryDefinition,
+                            records.View as ViewDefinition,
+                            navigation,
+                            focused,
+                            records.Catalogs));
+            }
+        }
+
+        return new InspectionDefinitionScenarioPreparationResult.Version1(
+            ResolveVersion1Scenario(scenario));
+    }
+
+    private ResolvedScenario ResolveVersion1Scenario(
+        ScenarioDefinition scenario)
+    {
         WorkspaceDefinition? workspace = null;
         WorkspacePlan? workspacePlan = null;
         WorkspaceContextDefinition? selectedContext = null;
@@ -181,6 +247,298 @@ public sealed class InspectionDefinitionRegistry
             navigation);
     }
 
+    private ScenarioRecordComposition ResolveScenarioRecords(
+        ScenarioDefinition scenario)
+    {
+        InspectionDefinitionRecord? workspace = ResolveOptional(
+            InspectionDefinitionKind.Workspace,
+            scenario.Workspace,
+            scenario,
+            "workspace");
+        InspectionDefinitionRecord? navigation = ResolveOptional(
+            InspectionDefinitionKind.Navigation,
+            scenario.Navigation,
+            scenario,
+            "navigation");
+        return new(
+            scenario,
+            workspace,
+            ResolveOptional(
+                InspectionDefinitionKind.Query,
+                scenario.Query,
+                scenario,
+                "query"),
+            ResolveOptional(
+                InspectionDefinitionKind.View,
+                scenario.View,
+                scenario,
+                "view"),
+            navigation,
+            ResolveCatalogDependencies(
+                workspace as WorkspaceDefinition,
+                navigation));
+    }
+
+    private InspectionDefinitionRecord? ResolveOptional(
+        InspectionDefinitionKind kind,
+        string? id,
+        ScenarioDefinition scenario,
+        string field)
+    {
+        if (id is null)
+            return null;
+        if (!TryGet(kind, id, out InspectionDefinitionRecord? record))
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' references unknown {field} '{id}'.");
+        }
+
+        return record;
+    }
+
+    private static void ValidateSameSchemaVersion(
+        ScenarioDefinition scenario,
+        ScenarioRecordComposition records)
+    {
+        foreach (InspectionDefinitionRecord record in records.Referenced)
+        {
+            if (record.SchemaVersion != scenario.SchemaVersion)
+            {
+                throw new InspectionDefinitionException(
+                    $"Scenario '{scenario.Id}' mixes schema version {scenario.SchemaVersion} "
+                        + $"with {record.Kind.ToString().ToLowerInvariant()} "
+                        + $"'{record.Id}' schema version {record.SchemaVersion}.");
+            }
+        }
+    }
+
+    private static void ValidateSelectedContext(
+        ScenarioDefinition scenario,
+        WorkspaceDefinition? workspace)
+    {
+        if (workspace is null)
+            return;
+        if (scenario.Context is not null)
+        {
+            if (workspace.Contexts.All(
+                    context => context.Name != scenario.Context))
+            {
+                throw new InspectionDefinitionException(
+                    $"Scenario '{scenario.Id}' references unknown context "
+                        + $"'{scenario.Context}' in workspace '{workspace.Id}'.");
+            }
+        }
+        else if (workspace.Contexts.Count != 1)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' must set context because workspace "
+                    + $"'{workspace.Id}' has multiple contexts.");
+        }
+    }
+
+    private static void ValidateNavigationIds(
+        InspectionDefinitionRecord? navigation)
+    {
+        IReadOnlyList<NavigationTabDefinition>? tabs = navigation switch
+        {
+            NavigationDefinition version1 => version1.Tabs,
+            CommittedNavigationDefinition version2 => version2.Tabs,
+            _ => null,
+        };
+        if (tabs is null)
+            return;
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (NavigationTabDefinition tab in tabs)
+        {
+            if (!ids.Add(tab.Id))
+            {
+                throw new InspectionDefinitionException(
+                    $"Navigation '{navigation!.Id}' has duplicate tab id '{tab.Id}'.");
+            }
+        }
+    }
+
+    private IReadOnlyList<CatalogDefinition> ResolveCatalogDependencies(
+        WorkspaceDefinition? workspace,
+        InspectionDefinitionRecord? navigation)
+    {
+        IEnumerable<string> subscriptions =
+            (workspace?.Contexts
+                .Select(context => context.Subscribe)
+                .Where(value => value is not null)
+                .Cast<string>()
+                ?? [])
+            .Concat(navigation switch
+            {
+                NavigationDefinition version1 =>
+                    version1.Tabs
+                        .Select(tab => tab.Subscribe)
+                        .Where(value => value is not null)
+                        .Cast<string>(),
+                CommittedNavigationDefinition version2 =>
+                    version2.Tabs
+                        .Select(tab => tab.Subscribe)
+                        .Where(value => value is not null)
+                        .Cast<string>(),
+                _ => [],
+            });
+        HashSet<string> roots = subscriptions
+            .SelectMany(SubscriptionRoots)
+            .ToHashSet(StringComparer.Ordinal);
+        if (roots.Count == 0)
+            return Array.Empty<CatalogDefinition>();
+
+        return new ReadOnlyCollection<CatalogDefinition>(
+            _records.Values
+                .OfType<CatalogDefinition>()
+                .Where(catalog => catalog.Groups.Any(
+                    group => roots.Contains(group.Name)))
+                .ToArray());
+    }
+
+    private static IEnumerable<string> SubscriptionRoots(string expression)
+    {
+        foreach (string part in expression.Split('+'))
+        {
+            ReadOnlySpan<char> path = part;
+            if (!path.IsEmpty && path[0] == ':')
+                path = path[1..];
+            if (path.IsEmpty)
+                continue;
+            int end = path.IndexOfAny(':', '@');
+            ReadOnlySpan<char> root = end < 0 ? path : path[..end];
+            if (!root.IsEmpty)
+                yield return root.ToString();
+        }
+    }
+
+    private static CommittedScenarioDefinitionSet CreateCommittedScenario(
+        ScenarioRecordComposition records)
+    {
+        ScenarioDefinition scenario = records.Scenario;
+        WorkspaceDefinition? workspace = records.Workspace as WorkspaceDefinition;
+        if (records.Workspace is not null && workspace is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' references an incompatible workspace record.");
+        }
+
+        CommittedNavigationDefinition? navigation =
+            records.Navigation as CommittedNavigationDefinition;
+        if (records.Navigation is not null && navigation is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' requires a schema-version-2 navigation record.");
+        }
+
+        CommittedViewDefinition? view =
+            records.View as CommittedViewDefinition;
+        if (records.View is not null && view is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' requires a schema-version-2 committed view record.");
+        }
+
+        if (records.Query is not null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' cannot reference a schema-version-2 query in the query-free record slice.");
+        }
+
+        if ((navigation is null) != (view is null))
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' must reference committed navigation and view together.");
+        }
+        if (navigation is not null && view is not null)
+            ValidateCommittedView(navigation, view);
+
+        return new CommittedScenarioDefinitionSet(
+            scenario,
+            workspace,
+            navigation,
+            view,
+            records.Catalogs);
+    }
+
+    private static void ValidateCommittedView(
+        CommittedNavigationDefinition navigation,
+        CommittedViewDefinition view)
+    {
+        if (view.States.Count != navigation.Tabs.Count + 1)
+        {
+            throw new InspectionDefinitionException(
+                $"Committed view '{view.Id}' requires one Workspace state followed by one state for every navigation tab.");
+        }
+
+        CommittedViewStateDefinition workspaceState = view.States[0];
+        if (workspaceState.Navigation is not null)
+        {
+            throw new InspectionDefinitionException(
+                $"Committed view '{view.Id}' must begin with its null-navigation Workspace state.");
+        }
+        if (workspaceState.Subject is PortableSubjectRequest.Package)
+        {
+            throw new InspectionDefinitionException(
+                $"Committed view '{view.Id}' Workspace state cannot request a Package subject.");
+        }
+        if (workspaceState.Context is not null)
+        {
+            throw new InspectionDefinitionException(
+                $"Committed view '{view.Id}' Workspace state cannot retain Package context.");
+        }
+
+        ValidateQueryFreeState(view, workspaceState, 0);
+        for (int index = 0; index < navigation.Tabs.Count; index++)
+        {
+            NavigationTabDefinition tab = navigation.Tabs[index];
+            CommittedViewStateDefinition state = view.States[index + 1];
+            if (!string.Equals(
+                    state.Navigation,
+                    tab.Id,
+                    StringComparison.Ordinal))
+            {
+                throw new InspectionDefinitionException(
+                    $"Committed view '{view.Id}' state {index + 1} must reference navigation tab '{tab.Id}'.");
+            }
+
+            if (tab.Coordinate
+                is not DefinitionMemberCoordinate.PackageCoordinate
+                && IsDecorated(state))
+            {
+                throw new InspectionDefinitionException(
+                    $"Committed view '{view.Id}' non-Package navigation row '{tab.Id}' must remain undecorated.");
+            }
+
+            ValidateQueryFreeState(view, state, index + 1);
+        }
+    }
+
+    private static bool IsDecorated(CommittedViewStateDefinition state) =>
+        state.Subject is not null
+        || state.Context is not null
+        || state.Facet is not null
+        || state.Queries.Count != 0
+        || state.Libraries.Count != 0;
+
+    private static void ValidateQueryFreeState(
+        CommittedViewDefinition view,
+        CommittedViewStateDefinition state,
+        int index)
+    {
+        if (state.Queries.Count != 0)
+        {
+            throw new InspectionDefinitionException(
+                $"Committed view '{view.Id}' state {index} cannot reference queries until #6971 supplies owner codecs.");
+        }
+        if (state.Libraries.Count != 0)
+        {
+            throw new InspectionDefinitionException(
+                $"Committed view '{view.Id}' state {index} cannot carry query Library scope without query-owner codecs.");
+        }
+    }
+
     private static WorkspaceContextInput ResolveContextInput(
         WorkspaceDefinition workspace,
         WorkspaceContextDefinition context)
@@ -239,6 +597,111 @@ public sealed class InspectionDefinitionRegistry
             navigation.Focus,
             focusIndex);
     }
+}
+
+internal sealed record ScenarioRecordComposition(
+    ScenarioDefinition Scenario,
+    InspectionDefinitionRecord? Workspace,
+    InspectionDefinitionRecord? Query,
+    InspectionDefinitionRecord? View,
+    InspectionDefinitionRecord? Navigation,
+    IReadOnlyList<CatalogDefinition> Catalogs)
+{
+    public IEnumerable<InspectionDefinitionRecord> Referenced
+    {
+        get
+        {
+            if (Workspace is not null)
+                yield return Workspace;
+            if (Query is not null)
+                yield return Query;
+            if (View is not null)
+                yield return View;
+            if (Navigation is not null)
+                yield return Navigation;
+            foreach (CatalogDefinition catalog in Catalogs)
+                yield return catalog;
+        }
+    }
+}
+
+/// <summary>Closed resource-free schema dispatch for one scenario graph.</summary>
+public abstract record InspectionDefinitionScenarioPreparationResult
+{
+    private protected InspectionDefinitionScenarioPreparationResult()
+    {
+    }
+
+    public sealed record Version1(
+        ResolvedScenario Scenario)
+        : InspectionDefinitionScenarioPreparationResult;
+
+    public sealed record Version2(
+        CommittedScenarioDefinitionSet Definitions)
+        : InspectionDefinitionScenarioPreparationResult;
+
+    public sealed record LegacyCompatibilityRequired(
+        LegacyCompatibilityDefinitionPlan Plan)
+        : InspectionDefinitionScenarioPreparationResult;
+}
+
+/// <summary>
+/// Exact schema-version-1 composition retained for a compatibility executor
+/// when the focused navigation source is not a direct Package coordinate.
+/// </summary>
+public sealed record LegacyCompatibilityDefinitionPlan(
+    ScenarioDefinition Scenario,
+    WorkspaceDefinition? Workspace,
+    QueryDefinition? Query,
+    ViewDefinition? View,
+    NavigationDefinition? Navigation,
+    NavigationTabDefinition? FocusedTab,
+    IReadOnlyList<CatalogDefinition> Catalogs);
+
+/// <summary>
+/// Strictly composed schema-version-2 records before runtime selector
+/// resolution.
+/// </summary>
+public sealed class CommittedScenarioDefinitionSet
+{
+    internal CommittedScenarioDefinitionSet(
+        ScenarioDefinition scenario,
+        WorkspaceDefinition? workspace,
+        CommittedNavigationDefinition? navigation,
+        CommittedViewDefinition? view,
+        IReadOnlyList<CatalogDefinition> catalogs)
+    {
+        Scenario = scenario;
+        Workspace = workspace;
+        Navigation = navigation;
+        View = view;
+        Catalogs = catalogs;
+        Records = new ReadOnlyCollection<InspectionDefinitionRecord>(
+            new InspectionDefinitionRecord?[]
+            {
+                Workspace,
+                Navigation,
+                View,
+                Scenario,
+            }
+            .Where(record => record is not null)
+            .Cast<InspectionDefinitionRecord>()
+            .Concat(Catalogs)
+            .ToArray());
+
+    }
+
+    public ScenarioDefinition Scenario { get; }
+
+    public WorkspaceDefinition? Workspace { get; }
+
+    public CommittedNavigationDefinition? Navigation { get; }
+
+    public CommittedViewDefinition? View { get; }
+
+    public IReadOnlyList<CatalogDefinition> Catalogs { get; }
+
+    public IReadOnlyList<InspectionDefinitionRecord> Records { get; }
 }
 
 /// <summary>Host-facing result of resolving one scenario composition.</summary>
