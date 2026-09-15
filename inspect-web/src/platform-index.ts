@@ -9,6 +9,22 @@ export function platformCatalogFramework(tfm: string): string {
   return match?.[1] ?? tfm;
 }
 
+export function requirePlatformPackageSupplies(
+  target: PlatformCatalogTarget,
+): readonly PlatformPackageSupply[] {
+  if (target.supplies === null) {
+    throw new Error(
+      `Platform target ${target.tfm}@${target.version} has no exact package supply inventory.`,
+    );
+  }
+  return target.supplies;
+}
+
+export function isExactPlatformPruningFramework(tfm: string): boolean {
+  const match = /^net(\d+)\.(\d+)$/i.exec(tfm);
+  return match !== null && Number(match[1]) >= 5;
+}
+
 export interface PlatformAssemblyRow {
   readonly tfm: string;
   readonly pack: PlatformPack;
@@ -23,7 +39,7 @@ export interface PlatformAssemblyRow {
   readonly packVersion: string;
 }
 
-interface PlatformPackageSupply {
+export interface PlatformPackageSupply {
   readonly pack: "netcore.app" | "aspnetcore.app";
   readonly family: "Microsoft.NETCore.App" | "Microsoft.AspNetCore.App";
   readonly package: string;
@@ -34,7 +50,7 @@ export interface PlatformCatalogTarget {
   readonly tfm: string;
   readonly version: string;
   readonly rows: readonly PlatformAssemblyRow[];
-  readonly supplies: readonly PlatformPackageSupply[];
+  readonly supplies: readonly PlatformPackageSupply[] | null;
 }
 
 export interface PlatformIndex {
@@ -80,7 +96,9 @@ export function parsePlatformCatalogTarget(input: unknown): PlatformCatalogTarge
   if (!Array.isArray(target.rows) || target.rows.length === 0) {
     throw new Error("Platform catalog has no library inventory.");
   }
-  if (target.supplies !== undefined && !Array.isArray(target.supplies)) {
+  if (target.supplies !== undefined
+    && target.supplies !== null
+    && !Array.isArray(target.supplies)) {
     throw new Error("Platform catalog has invalid package supply evidence.");
   }
   const identities = new Set<string>();
@@ -127,8 +145,9 @@ export function parsePlatformCatalogTarget(input: unknown): PlatformCatalogTarge
     });
   });
   const supplyIdentities = new Set<string>();
-  const supplies = (target.supplies ?? []).map(
-    (value: unknown): PlatformPackageSupply => {
+  const supplies = target.supplies === undefined || target.supplies === null
+    ? null
+    : target.supplies.map((value: unknown): PlatformPackageSupply => {
       const supply = record(value, "package supply");
       const packageId = text(supply.package, "package supply identity");
       const supplyVersion = text(supply.version, "package supply version");
@@ -154,13 +173,12 @@ export function parsePlatformCatalogTarget(input: unknown): PlatformCatalogTarge
         package: packageId,
         version: supplyVersion,
       });
-    },
-  );
+    });
   return Object.freeze({
     tfm,
     version,
     rows: Object.freeze(rows),
-    supplies: Object.freeze(supplies),
+    supplies: supplies === null ? null : Object.freeze(supplies),
   });
 }
 
