@@ -166,6 +166,9 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.Equal(
             "N.Outer+Inner",
             nested.Candidate.Definition.ToEscapedFullName());
+        Assert.Equal(
+            ["N.NestedChild"],
+            nested.Type.DerivedTypes);
 
         var topLevel =
             Assert.IsType<ExactTypeInspectionResult.Available>(
@@ -176,6 +179,9 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.Equal(
             "N.Outer.Inner",
             topLevel.Candidate.Definition.ToEscapedFullName());
+        Assert.Equal(
+            ["N.TopChild"],
+            topLevel.Type.DerivedTypes);
     }
 
     [Fact]
@@ -1184,7 +1190,7 @@ public sealed partial class WorkspaceContextLoaderTests
             TypeAttributes.NestedPublic | TypeAttributes.Class);
         nested.DefineDefaultConstructor(MethodAttributes.Public);
         outer.DefineDefaultConstructor(MethodAttributes.Public);
-        nested.CreateType();
+        Type nestedType = nested.CreateType();
         outer.CreateType();
         if (includeTopLevelCollision)
         {
@@ -1192,7 +1198,15 @@ public sealed partial class WorkspaceContextLoaderTests
                 "N.Outer.Inner",
                 TypeAttributes.Public | TypeAttributes.Class);
             topLevel.DefineDefaultConstructor(MethodAttributes.Public);
-            topLevel.CreateType();
+            Type topLevelType = topLevel.CreateType();
+            module.DefineType(
+                "N.NestedChild",
+                TypeAttributes.Public | TypeAttributes.Class,
+                nestedType).CreateType();
+            module.DefineType(
+                "N.TopChild",
+                TypeAttributes.Public | TypeAttributes.Class,
+                topLevelType).CreateType();
         }
 
         using var stream = new MemoryStream();

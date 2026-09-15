@@ -975,6 +975,17 @@ public static class ApiSurfaceExtractor
                         observeText,
                         observeDecodeWork);
                     apiType.Interfaces.Add(ifaceName);
+                    if (DecodeTypeDefinitionReference(
+                            reader,
+                            iface.Interface,
+                            typeContext,
+                            observeText,
+                            observeDecodeWork)
+                        is { } interfaceReference)
+                    {
+                        apiType.InterfaceReferences.Add(
+                            interfaceReference);
+                    }
                 }
             }
 
@@ -3629,6 +3640,10 @@ public static class ApiSurfaceExtractor
         var fullName = string.IsNullOrEmpty(targetType.Namespace)
             ? targetType.Name
             : $"{targetType.Namespace}.{targetType.Name}";
+        MetadataTypeDefinitionName? definitionName =
+            targetType.DefinitionName;
+        ApiAssemblyIdentity? assemblyIdentity =
+            surface.AssemblyIdentity;
 
         List<string> derivedTypes = [];
 
@@ -3637,8 +3652,17 @@ public static class ApiSurfaceExtractor
             if (type == targetType)
                 continue;
 
-            // Check if this type's base is our target
-            if (type.BaseType == fullName)
+            bool isDerived = definitionName is not null
+                && assemblyIdentity is not null
+                    ? type.BaseTypeReference is
+                        {
+                            DefinitionName: { } baseDefinition,
+                            Assembly: { } baseAssembly,
+                        }
+                        && baseDefinition.Equals(definitionName)
+                        && baseAssembly.Equals(assemblyIdentity)
+                    : type.BaseType == fullName;
+            if (isDerived)
             {
                 var derivedFullName = string.IsNullOrEmpty(type.Namespace)
                     ? type.Name
@@ -3646,10 +3670,17 @@ public static class ApiSurfaceExtractor
                 derivedTypes.Add(derivedFullName);
             }
 
-            // Check if this type implements our target (if target is an interface)
-            if (targetType.Kind == "interface" && type.Interfaces != null)
+            if (targetType.Kind == "interface")
             {
-                if (type.Interfaces.Contains(fullName))
+                bool implements = definitionName is not null
+                    && assemblyIdentity is not null
+                        ? type.InterfaceReferences.Any(reference =>
+                            reference.DefinitionName?.Equals(
+                                definitionName) == true
+                            && reference.Assembly.Equals(
+                                assemblyIdentity))
+                        : type.Interfaces.Contains(fullName);
+                if (implements)
                 {
                     var derivedFullName = string.IsNullOrEmpty(type.Namespace)
                         ? type.Name

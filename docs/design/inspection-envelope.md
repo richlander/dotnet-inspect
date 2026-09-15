@@ -287,6 +287,10 @@ matching.
 The Browser row-to-operation handoff carries this escaped definition identity,
 not the flattened query spelling. Method enrichment retains the selected
 MethodDef token rather than resolving its declaring Type again through text.
+Same-assembly derived-Type enrichment joins the structured base definition and
+structured implemented-interface definitions with their assembly identity;
+flattened Type text is only a compatibility fallback for older serialized
+surfaces without structured identity.
 The optional exact `PackageCompileAsset.Id`, Metadata-issued assembly identity
 (or bounded exact assembly-name selector for callers that have only a name)
 narrows declaration discovery within the surface role;
