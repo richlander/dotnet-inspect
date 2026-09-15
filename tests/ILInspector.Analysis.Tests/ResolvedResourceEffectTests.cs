@@ -1515,6 +1515,146 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void EmptyBorrowKindDomainDoesNotConflictThroughLender()
+    {
+        DirectCallDefinitionResolutionOutcome.Completed calls =
+            ResolveOwnershipFixture();
+        DirectCallDefinitionResolution.Resolved apply =
+            Assert.Single(
+                calls.Results
+                    .OfType<DirectCallDefinitionResolution.Resolved>(),
+                result =>
+                    result.Call.Caller.Name == "BindOccurrenceReferences"
+                    && result.Definition.Member.Name == "Apply");
+        ResourceEffectTargetSelector target =
+            OccurrenceBindingModel(apply).TypedDeclarations[0].Target;
+        ResourceEffectGenericVariable variable =
+            new(ResourceEffectGenericVariableKind.Type, 0);
+        ResourceKindIdentity first = new("example.borrow-lender-first");
+        ResourceKindIdentity second = new("example.borrow-lender-second");
+        ResourceKindReference firstKind = new(first, [variable]);
+        ResourceKindReference secondKind = new(second, [variable]);
+        ResourceEffectLocation.OperationSlot slot = new(
+            new ResourceEffectLocation.Parameter(0),
+            firstKind);
+        var model = new ResourceEffectModelIdentity(
+            "example.borrow-lender-empty-domain");
+        ResourceEffectAdmission admission = AdmitModels(
+            new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                model,
+                [
+                    new ResourceKindDefinition(
+                        first,
+                        arity: 1,
+                        [Provenance(model.Value, 0)]),
+                    new ResourceKindDefinition(
+                        second,
+                        arity: 1,
+                        [Provenance(model.Value, 1)]),
+                ],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Consume(
+                            new ResourceEffectLocation.Parameter(0),
+                            slot,
+                            firstKind),
+                        [Provenance(model.Value, 2)]),
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Borrow(
+                            slot,
+                            new ResourceEffectLocation.Return(),
+                            ResourceBorrowAccess.Read,
+                            new ResourceBorrowScope.Call(),
+                            secondKind,
+                            new ResourceEffectLocation.Receiver(),
+                            Materialization: null),
+                        [Provenance(model.Value, 3)]),
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Independent(
+                            new ResourceEffectLocation.Receiver(),
+                            new ResourceEffectLocation.Return()),
+                        [Provenance(model.Value, 4)]),
+                ]));
+
+        Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+            ResolveEffects(admission, calls));
+    }
+
+    [Fact]
+    public void AcquireLenderConflictDoesNotUseLenderKindDomain()
+    {
+        DirectCallDefinitionResolutionOutcome.Completed calls =
+            ResolveOwnershipFixture();
+        DirectCallDefinitionResolution.Resolved apply =
+            Assert.Single(
+                calls.Results
+                    .OfType<DirectCallDefinitionResolution.Resolved>(),
+                result =>
+                    result.Call.Caller.Name == "BindOccurrenceReferences"
+                    && result.Definition.Member.Name == "Apply");
+        ResourceEffectTargetSelector target =
+            OccurrenceBindingModel(apply).TypedDeclarations[0].Target;
+        ResourceEffectGenericVariable variable =
+            new(ResourceEffectGenericVariableKind.Type, 0);
+        ResourceKindIdentity first = new("example.acquire-lender-first");
+        ResourceKindIdentity second = new("example.acquire-lender-second");
+        ResourceKindReference firstKind = new(first, [variable]);
+        ResourceKindReference secondKind = new(second, [variable]);
+        ResourceEffectLocation.OperationSlot slot = new(
+            new ResourceEffectLocation.Parameter(0),
+            firstKind);
+        var model = new ResourceEffectModelIdentity(
+            "example.acquire-lender-dependency");
+        ResourceEffectAdmission admission = AdmitModels(
+            new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                model,
+                [
+                    new ResourceKindDefinition(
+                        first,
+                        arity: 1,
+                        [Provenance(model.Value, 0)]),
+                    new ResourceKindDefinition(
+                        second,
+                        arity: 1,
+                        [Provenance(model.Value, 1)]),
+                ],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Consume(
+                            new ResourceEffectLocation.Parameter(0),
+                            slot,
+                            firstKind),
+                        [Provenance(model.Value, 2)]),
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Acquire(
+                            secondKind,
+                            new ResourceEffectLocation.Return(),
+                            new ResourceEffectCompletion.NormalReturn(),
+                            Correspondence: null,
+                            Lender: slot),
+                        [Provenance(model.Value, 3)]),
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Independent(
+                            slot,
+                            new ResourceEffectLocation.Return()),
+                        [Provenance(model.Value, 4)]),
+                ]));
+
+        Assert.IsType<ResourceEffectResolutionOutcome.Conflict>(
+            ResolveEffects(admission, calls));
+    }
+
+    [Fact]
     public void CompletionOperationSlotKindIsResolved()
     {
         DirectCallDefinitionResolutionOutcome.Completed calls =

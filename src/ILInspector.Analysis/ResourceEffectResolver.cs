@@ -666,13 +666,16 @@ public static class ResourceEffectResolver
                         otherEffect,
                         independence)
                     || (value.Lender is not null
-                        && SameRelation(
+                        && SameLenderRelation(
                             independenceEffect,
                             value.Lender,
                             value.Target,
-                            value.Kind,
                             otherEffect,
-                            independence)),
+                            independence,
+                            KindDomain(
+                                otherEffect,
+                                value.Source,
+                                value.Kind))),
                 ResourceEffect.Derive value =>
                     SameRelation(
                         independenceEffect,
@@ -715,13 +718,16 @@ public static class ResourceEffectResolver
                         independence),
                 ResourceEffect.Acquire value =>
                     value.Lender is not null
-                    && SameRelation(
+                    && SameLenderRelation(
                         independenceEffect,
                         value.Lender,
                         value.Target,
-                        value.Kind,
                         otherEffect,
-                        independence),
+                        independence,
+                        KindDomain(
+                            otherEffect,
+                            value.Target,
+                            value.Kind)),
                 _ => false,
             };
 
@@ -738,7 +744,35 @@ public static class ResourceEffectResolver
                     independence.Source,
                     declared: null),
                 KindDomain(otherEffect, source, kind))
-            && otherEffect.Binding.Location(source).CanonicalKey
+            && SameEndpoints(
+                independenceEffect,
+                source,
+                target,
+                otherEffect,
+                independence);
+
+        static bool SameLenderRelation(
+            ResolvedResourceEffect independenceEffect,
+            ResourceEffectLocation lender,
+            ResourceEffectLocation target,
+            ResolvedResourceEffect otherEffect,
+            ResourceEffect.Independent independence,
+            OwnershipKindDomain dependentDomain) =>
+            !dependentDomain.IsEmpty
+            && SameEndpoints(
+                independenceEffect,
+                lender,
+                target,
+                otherEffect,
+                independence);
+
+        static bool SameEndpoints(
+            ResolvedResourceEffect independenceEffect,
+            ResourceEffectLocation source,
+            ResourceEffectLocation target,
+            ResolvedResourceEffect otherEffect,
+            ResourceEffect.Independent independence) =>
+            otherEffect.Binding.Location(source).CanonicalKey
                 == independenceEffect.Binding
                     .Location(independence.Source).CanonicalKey
             && otherEffect.Binding.Location(target).CanonicalKey
