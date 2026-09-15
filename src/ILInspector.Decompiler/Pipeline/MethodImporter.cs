@@ -1,9 +1,19 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
+
+internal sealed class MethodBodyEvidenceUnavailableException(
+    string message,
+    ClassicAsyncRequestAdapterResult? classicAsyncRequest)
+    : Exception(message)
+{
+    internal ClassicAsyncRequestAdapterResult? ClassicAsyncRequest { get; } =
+        classicAsyncRequest;
+}
 
 /// <summary>
 /// Imports one method from a live <see cref="MetadataSource"/> into fully
@@ -122,6 +132,36 @@ public static class MethodImporter
             GenericParameters = ParameterConstraints(reader, method.GetGenericParameters(), scope),
         };
 
+        int methodToken = MetadataTokens.GetToken(methodHandle);
+        MethodClassification? asyncClassification =
+            MethodClassificationScanner.ClassifyAsyncMethod(
+                reader,
+                method);
+        ClassicAsyncRequestAdapterResult? classicAsyncRequest =
+            asyncClassification is not null
+                ? source.AdaptClassicAsyncRequest(
+                    methodHandle,
+                    asyncClassification)
+                : null;
+        MethodBodyData physicalBody = MethodBodySource.Read(
+            source.Pe,
+            methodToken) switch
+        {
+            MethodBodyReadResult.Available available => available.Body,
+            MethodBodyReadResult.NoBody => throw new MethodBodyEvidenceUnavailableException(
+                $"MethodDef 0x{methodToken:X8} has no managed IL body.",
+                classicAsyncRequest),
+            MethodBodyReadResult.Unavailable unavailable =>
+                throw new MethodBodyEvidenceUnavailableException(
+                    $"MethodDef 0x{methodToken:X8} body evidence is unavailable: "
+                    + Describe(unavailable.Reason),
+                    classicAsyncRequest),
+            _ => throw new InvalidOperationException(
+                "Unknown method-body read result."),
+        };
+
+        // Header and local-signature facts are not part of the detached
+        // exception catalog. Do not read regions from this block.
         var body = source.Pe.GetMethodBody(method.RelativeVirtualAddress);
 
         var locals = ImmutableArray<TypeRef>.Empty;
@@ -131,29 +171,66 @@ public static class MethodImporter
             locals = GuardedDecode.LocalTypes(reader, localSignature, scope);
         }
 
-        var handlers = ImmutableArray.CreateBuilder<HandlerRegion>(body.ExceptionRegions.Length);
-        foreach (var region in body.ExceptionRegions)
+        MethodInstructions? exceptionInstructions = null;
+        IReadOnlyDictionary<MethodExceptionClauseId, InstructionExceptionClause>?
+            decodedClauses = null;
+        if (physicalBody.ExceptionRegionCatalog.HasExceptionRegions)
         {
-            handlers.Add(new HandlerRegion(
-                region.Kind switch
+            exceptionInstructions = MethodInstructions.Decode(physicalBody);
+            if (exceptionInstructions.ExceptionFlow is
+                InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Available availableFlow)
+            {
+                decodedClauses = availableFlow.Value.Clauses.ToDictionary(
+                    clause => clause.Id);
+            }
+        }
+
+        var handlers = ImmutableArray.CreateBuilder<HandlerRegion>(
+            physicalBody.ExceptionRegionCatalog.Clauses.Length);
+        var clauseImports =
+            ImmutableArray.CreateBuilder<DecompilerExceptionClauseImport>(
+                physicalBody.ExceptionRegionCatalog.Clauses.Length);
+        foreach (MethodExceptionClause clause in
+                 physicalBody.ExceptionRegionCatalog.Clauses)
+        {
+            var handler = new HandlerRegion(
+                clause.Kind switch
                 {
                     ExceptionRegionKind.Catch => HandlerKind.Catch,
                     ExceptionRegionKind.Filter => HandlerKind.Filter,
                     ExceptionRegionKind.Finally => HandlerKind.Finally,
                     _ => HandlerKind.Fault,
                 },
-                region.TryOffset,
-                region.TryLength,
-                region.HandlerOffset,
-                region.HandlerLength,
-                region.FilterOffset,
-                CatchType(reader, region.CatchType, scope)));
+                clause.ProtectedExtent.Start,
+                clause.ProtectedExtent.Length,
+                clause.HandlerExtent.Start,
+                clause.HandlerExtent.Length,
+                clause.FilterExtent?.Start ?? -1,
+                CatchType(reader, clause, scope));
+            handlers.Add(handler);
+
+            if (decodedClauses is not null)
+            {
+                if (!decodedClauses.TryGetValue(
+                        clause.Id,
+                        out InstructionExceptionClause? decodedClause)
+                    || !ReferenceEquals(decodedClause.Clause, clause))
+                {
+                    throw new InvalidOperationException(
+                        "Instructions did not preserve the exact Metadata exception clause.");
+                }
+
+                clauseImports.Add(new DecompilerExceptionClauseImport(
+                    handler,
+                    decodedClause));
+            }
         }
 
-        var il = body.GetILBytes() ?? [];
+        ImmutableArray<byte> il = physicalBody.IL;
         var declarations = source.LocalDeclarations(methodHandle, locals.Length);
         var methodBody = new MethodBody(
-            [.. il],
+            il,
             body.MaxStack,
             locals,
             LocalNames: declarations.Names,
@@ -161,12 +238,9 @@ public static class MethodImporter
             SkipLocalsInit: !body.LocalVariablesInitialized)
         {
             LocalDeclaredInNestedScope = NestedScopeFlags(declarations.Scopes, il.Length),
+            ExceptionInstructions = exceptionInstructions,
+            ExceptionClauseImports = clauseImports.MoveToImmutable(),
         };
-        MethodClassification? asyncClassification =
-            MethodClassificationScanner.ClassifyAsyncMethod(
-                reader,
-                method);
-
         return new ImportedMethod(
             declaringType,
             reader.GetString(method.Name),
@@ -176,16 +250,12 @@ public static class MethodImporter
             DeclaringTypeCompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes())),
             IsRuntimeAsync: FactState(
                 asyncClassification == MethodClassification.RuntimeAsync),
-            MetadataToken: MetadataTokens.GetToken(methodHandle),
+            MetadataToken: methodToken,
             DeclaringTypeGenericParameterNames: typeGenericParameterNames)
         {
             DeclaringTypeParameters = ParameterConstraints(reader, typeDef.GetGenericParameters(), scope),
             ClassicAsyncRequest =
-                asyncClassification is not null
-                    ? source.AdaptClassicAsyncRequest(
-                        methodHandle,
-                        asyncClassification)
-                    : null,
+                classicAsyncRequest,
             RequiresUnsafeContract =
                 MethodDefinitionFacts.RequiresUnsafeContract(
                     source.MemorySafety,
@@ -270,6 +340,50 @@ public static class MethodImporter
         HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)handle, 0),
         HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, scope, (TypeSpecificationHandle)handle, 0),
         _ => null,
+    };
+
+    static TypeRef? CatchType(
+        MetadataReader reader,
+        MethodExceptionClause clause,
+        GenericScope scope)
+    {
+        if (clause.Kind != ExceptionRegionKind.Catch)
+            return null;
+
+        MethodExceptionCatchType catchType = clause.CatchType
+            ?? throw new BadImageFormatException(
+                "A catch clause has no catch-type evidence.");
+        return catchType.Name switch
+        {
+            MetadataTypeNameResult.Absent when catchType.MetadataToken == 0 =>
+                null,
+            MetadataTypeNameResult.Resolved when catchType.MetadataToken != 0 =>
+                CatchType(
+                    reader,
+                    MetadataTokens.EntityHandle(catchType.MetadataToken),
+                    scope)
+                ?? throw new BadImageFormatException(
+                    "The resolved catch-type token is not a supported type handle."),
+            MetadataTypeNameResult.Rejected => null,
+            _ => throw new BadImageFormatException(
+                "Catch-type name evidence and token identity disagree."),
+        };
+    }
+
+    static string Describe(MethodBodyUnavailableReason reason) => reason switch
+    {
+        MethodBodyUnavailableReason.NotMethodDefinitionToken =>
+            "the token is not a MethodDef",
+        MethodBodyUnavailableReason.RowOutOfRange =>
+            "the MethodDef row is out of range",
+        MethodBodyUnavailableReason.UnsupportedImplementation =>
+            "the method implementation is not managed IL",
+        MethodBodyUnavailableReason.MalformedBody =>
+            "the method body or exception catalog is malformed",
+        MethodBodyUnavailableReason.ILByteLimitExceeded limit =>
+            $"the {limit.ILByteCount}-byte body exceeds the "
+            + $"{limit.MaxILBytes}-byte limit",
+        _ => "the method-body result has an unknown unavailable reason",
     };
 
     static ImmutableArray<string> ParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)

@@ -160,6 +160,31 @@ highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
 small pass refactor may need the entry gate plus a no-movement quality card. A
 new raise or structuring change must go much higher.
 
+### Shared EH evidence adoption
+
+Decompiler physical import consumes Metadata's closed method-body result and
+complete exception-clause catalog. For a body that declares EH, it decodes that
+same body observation once through Instructions and preserves exact clause and
+region associations while raising flat EH into structured IR. Production
+membership and supported explicit normal edges come from Instructions
+`LocationAt` and `NormalTransferAt`; Decompiler continues to own C#
+raisability, IR construction, correspondence, fidelity, and diagnostics.
+
+A metadata-backed method never falls back to independent range reconstruction.
+Missing, unavailable, ambiguous, or rejected correlated Instructions/catch
+evidence retains the flat representation and reports `DEC0017`; an unavailable
+Metadata body reports the closed import failure as `ContextUnavailable`.
+Synthetic Layer 0 test inputs without Metadata identity retain the explicit
+raw-range compatibility path. Body-replacement transforms clear stale root
+correlation rather than attaching evidence from one body observation to
+another.
+
+`DecompilerExceptionFactAdoptionTests` is the Release gate for exact body and
+clause association, Metadata catch order, runtime cleanup identity, closed
+failure handling, visible refusal, and raw compatibility. It does not verify
+the later protected-region, classic-async correspondence, or return-timing
+consumer migrations.
+
 ### EH normal-continuation return timing
 
 This section owns one semantic-fidelity rule for exception-handling
