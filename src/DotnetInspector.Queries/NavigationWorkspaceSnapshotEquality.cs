@@ -118,7 +118,9 @@ internal static class NavigationWorkspaceSnapshotEquality
         && a.IsSealed == b.IsSealed && a.IsAbstract == b.IsAbstract && a.IsStatic == b.IsStatic
         && a.IsByRefLike == b.IsByRefLike && a.IsReadOnly == b.IsReadOnly
         && a.BaseType == b.BaseType && a.BaseTypeReference == b.BaseTypeReference
-        && Sequence(a.Interfaces, b.Interfaces) && Sequence(a.DerivedTypes, b.DerivedTypes)
+        && Sequence(a.Interfaces, b.Interfaces)
+        && Sequence(a.InterfaceReferences, b.InterfaceReferences)
+        && Sequence(a.DerivedTypes, b.DerivedTypes)
         && Sequence(a.TypeParameters, b.TypeParameters, TypeParameter)
         && Sequence(a.Members, b.Members, Member)
         && a.SourceFilePath == b.SourceFilePath && a.SourceUrl == b.SourceUrl && a.GitHubBrowseUrl == b.GitHubBrowseUrl

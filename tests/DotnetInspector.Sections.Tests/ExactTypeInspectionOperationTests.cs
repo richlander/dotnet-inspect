@@ -8,6 +8,7 @@ using System.Text.Json;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -413,6 +414,160 @@ public sealed class ExactTypeInspectionOperationTests
         Assert.Contains(
             envelope.Diagnostics,
             diagnostic => diagnostic.Code == "exact-type.ambiguous");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PrefersExactShortNameOverGenericFallback()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Arity.dll",
+                BuildAssembly(
+                    "Arity",
+                    ("N.Widget", typeof(IDisposable)),
+                    ("N.Widget`1", typeof(IAsyncDisposable)))));
+        using var client = new HttpClient(new FailingHandler());
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "Widget"),
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            envelope.Content.Outcome);
+        ExactTypeApi type = Assert.IsType<ExactTypeApi>(
+            envelope.Content.Type);
+        Assert.Equal("N.Widget", type.FullName);
+        Assert.Contains(typeof(IDisposable).FullName!, type.Interfaces);
+        Assert.DoesNotContain(
+            typeof(IAsyncDisposable).FullName!,
+            type.Interfaces);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PrefersFullNameOverNamespaceSuffix()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/FullName.dll",
+                BuildAssembly(
+                    "FullName",
+                    ("N.Widget", typeof(IDisposable)),
+                    ("Other.N.Widget", typeof(IAsyncDisposable)))));
+        using var client = new HttpClient(new FailingHandler());
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "N.Widget"),
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            envelope.Content.Outcome);
+        ExactTypeApi type = Assert.IsType<ExactTypeApi>(
+            envelope.Content.Type);
+        Assert.Equal("N.Widget", type.FullName);
+        Assert.Contains(typeof(IDisposable).FullName!, type.Interfaces);
+        Assert.DoesNotContain(
+            typeof(IAsyncDisposable).FullName!,
+            type.Interfaces);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_HiddenExactDefinitionPreventsFalseUniqueness()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Public.dll",
+                BuildAssembly(
+                    "Public",
+                    TypeAttributes.Public,
+                    ("N.Widget", typeof(IDisposable)))),
+            ("lib/net11.0/Internal.dll",
+                BuildAssembly(
+                    "Internal",
+                    TypeAttributes.NotPublic,
+                    ("N.Widget", typeof(IAsyncDisposable)))));
+        using var client = new HttpClient(new FailingHandler());
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "N.Widget"),
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Ambiguous,
+            envelope.Content.Outcome);
+        Assert.Equal("N.Widget", envelope.Content.MatchedType);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NormalizesFrameworkAssociation()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Framework.dll",
+                BuildAssembly(
+                    "Framework",
+                    "N.Widget",
+                    typeof(IDisposable))));
+        using var client = new HttpClient(new FailingHandler());
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework.ToUpperInvariant(),
+                    "N.Widget"),
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            envelope.Content.Outcome);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShareUsesNestedDefinitionIdentity()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Nested.dll",
+                BuildNestedAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "N.Outer.Inner"),
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            envelope.Content.Outcome);
+        Assert.Equal("N.Outer+Inner", envelope.Content.MatchedType);
+        WorkspaceSharePacket packet =
+            WorkspaceSharePacketCodec.Decode(
+                Assert.IsType<InspectionShare.Available>(
+                    envelope.Share).Packet,
+                TestContext.Current.CancellationToken);
+        Assert.Equal("N.Outer+Inner", packet.Type);
     }
 
     [Fact]
@@ -1369,6 +1524,15 @@ public sealed class ExactTypeInspectionOperationTests
     static byte[] BuildAssembly(
         string assemblyName,
         params (string TypeName, Type ImplementedInterface)[] types)
+        => BuildAssembly(
+            assemblyName,
+            TypeAttributes.Public,
+            types);
+
+    static byte[] BuildAssembly(
+        string assemblyName,
+        TypeAttributes visibility,
+        params (string TypeName, Type ImplementedInterface)[] types)
     {
         var assembly = new PersistedAssemblyBuilder(
             new AssemblyName(assemblyName),
@@ -1378,12 +1542,50 @@ public sealed class ExactTypeInspectionOperationTests
         {
             TypeBuilder type = module.DefineType(
                 typeName,
-                TypeAttributes.Public
+                visibility
                     | TypeAttributes.Abstract
                     | TypeAttributes.Class);
+            int aritySeparator = typeName.LastIndexOf('`');
+            if (aritySeparator >= 0
+                && int.TryParse(
+                    typeName.AsSpan(aritySeparator + 1),
+                    out int arity)
+                && arity > 0)
+            {
+                type.DefineGenericParameters(
+                    [
+                        .. Enumerable.Range(0, arity)
+                            .Select(index => "T" + index),
+                    ]);
+            }
             type.AddInterfaceImplementation(implementedInterface);
             type.CreateType();
         }
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildNestedAssembly()
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("Nested"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule("Nested");
+        TypeBuilder outer = module.DefineType(
+            "N.Outer",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        TypeBuilder nested = outer.DefineNestedType(
+            "Inner",
+            TypeAttributes.NestedPublic
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        nested.AddInterfaceImplementation(typeof(IDisposable));
+        nested.CreateType();
+        outer.CreateType();
 
         using var stream = new MemoryStream();
         assembly.Save(stream);
