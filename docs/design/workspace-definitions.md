@@ -31,9 +31,11 @@ including inactive direct-Package state, is mostly implemented by
 [#7094](https://github.com/richlander/dotnet-inspect/pull/7094).
 [#7049](https://github.com/richlander/dotnet-inspect/issues/7049) remains open
 to materialize omitted direct-Package context as exact Package-only Navigation
-context and gate it through Navigation restoration. Query payload codecs,
-complete view binding, and the restoration coordinator defined here are not
-yet implemented.
+context and gate it through Navigation restoration. The host-neutral portable
+query intent and canonical payload codec are implemented by
+[#7093](https://github.com/richlander/dotnet-inspect/pull/7093); vocabulary
+resolution, Definitions query adoption, complete view binding, and the
+restoration coordinator defined here are not yet implemented.
 [#7087](https://github.com/richlander/dotnet-inspect/issues/7087) owns
 query-free packet-format-2 transposition. Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
@@ -93,10 +95,10 @@ shape, definition and packet version boundaries, legacy lowering, projection
 classification, and complete-restoration coordination defined here. Its
 immediate inputs are an owner-authorized activation demand, product-issued
 acquisition coordinates, structural subject selectors, View Facet Registry
-IDs, query presets and their portable payload codecs, and owner-issued body or
-source-target identities carried by those query payloads. Its output is a
-canonical definition composition or packet, a typed projection refusal, or
-one complete restoration result.
+IDs, query presets expressed as a portable vocabulary ID plus canonical intent
+payload, and owner-issued body or source-target identities carried by those
+intents. Its output is a canonical definition composition or packet, a typed
+projection refusal, or one complete restoration result.
 
 Adjacent owners remain independent:
 
@@ -115,8 +117,9 @@ Adjacent owners remain independent:
 - [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
   owns admission, realization, roles, lifetime, and publication for each
   supported coordinate composition.
-- Query owners define each query ID, payload shape, selector requirements, and
-  portable payload codec.
+- Portable Query Intent and Portable Query Payload define the shared intent
+  shape and canonical codec. Vocabulary owners define each query ID, selector
+  requirements, typed binding, and execution.
 - [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
   renders owner-issued state.
   [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) owns
@@ -358,10 +361,12 @@ Field semantics:
   the subscription. A context must have at least one of `subscribe` and
   `members`; a workspace must have at least one context.
 - `query` records — named query presets. Schema version 1 carries only an
-  optional product query ID. Version 2 additionally permits the query owner's
-  closed portable payload. This note pins the record and reference slots; the
-  query-plan owner defines each payload shape, canonical codec, and validation,
-  and must itself sit at or below the dependency boundary.
+  optional product query ID. Version 2 additionally carries the canonical
+  payload for one `PortableQueryIntent`; the `queryId` supplies the intent's
+  vocabulary identity beside that payload. This note pins the record and
+  reference slots; Portable Query Payload owns the one payload shape and codec,
+  while the vocabulary owner defines binding and execution and must itself sit
+  at or below the dependency boundary.
 - schema-version-1 `view` records — named view presets whose shape this note
   pins (`lens`, `type`, `memberAnchor` or `memberSignature`, definition-only
   `memberKey`, `section`, and library scope — each field individually optional;
@@ -580,10 +585,12 @@ Each state has these fields:
   order. It is valid only with a present exact `facet`; recommendation cannot
   carry query state for a facet that may change. Query records carry every
   result-affecting filter and every owner-issued body or source-target
-  refinement. A query owner supplies the closed payload, canonical
-  serializer, and exact selector validation; Workspace Definitions does not
-  reinterpret its fields. The query-free schema-version-2 record slice rejects
-  every nonempty query list until #6971 supplies those owner codecs.
+  refinement as a vocabulary ID plus canonical `PortableQueryIntent` payload.
+  The shared payload codec owns its closed structure and bytes; the named
+  vocabulary owns exact binding and selector validation. Workspace Definitions
+  does not reinterpret either. The query-free schema-version-2 record slice
+  still rejects every nonempty query list until #6971 supplies vocabulary
+  resolution and Definitions adoption.
 - `libraries` is an optional unique, canonically ordered list of
   `PortableLibraryIdentity` values used as query scope. It is not the active
   Library subject and does not select one. It is valid only on a direct
@@ -600,10 +607,11 @@ spelled here or typed query state. Presentation-only disclosure, focus, hover,
 scroll, transient loading, diagnostics expansion, and responsive layout are
 not portable. An overload is never an ordinal: retained Member context uses a
 `memberAnchor` or canonical `memberSignature`. A body or source target is
-portable only when the responsible query owner supplies its exact stable
-identity and version-2 codec. Otherwise the state is `NonProjectable`; the
-transposer never serializes a Browser `selectedOverloadIndex`, metadata token
-alone, display name, or host object key.
+portable only when the responsible vocabulary supplies stable keys and
+values expressible by `PortableQueryIntent`. Otherwise the state is
+`NonProjectable`; the transposer never serializes a Browser
+`selectedOverloadIndex`, metadata token alone, display name, or host object
+key.
 
 The leading Workspace row cannot carry retained Package context and cannot
 request a Package subject. A non-Package navigation row is undecorated: it
@@ -773,16 +781,17 @@ When `facet` is absent, Navigation owns recommendation and its complete
 evidence.
 
 Every query reference resolves one version-2 query record. Its public
-owner-issued descriptor declares the exact structural inputs and facet IDs it
-accepts, whether it consumes state-level Library scope, and its payload codec.
-Unknown query IDs, duplicate query purposes, missing required selectors, extra
-payload fields, a payload whose owner codec is unavailable, a query
+vocabulary descriptor declares the exact structural inputs and facet IDs it
+accepts, whether it consumes state-level Library scope, and how canonical
+intent binds to typed execution. Malformed portable payload, unknown
+vocabulary, duplicate query purposes, missing required selectors, a query
 incompatible with the exact subject or facet, and `libraries` consumed by no
-referenced query all fail closed. Descriptors that do not declare Library
-scope do not receive it. A state with no query reference denotes the
-owner-defined unrefined facet state. A visible result that depends on a filter,
-body, source target, or other query state without a portable query payload is
-non-projectable rather than silently restored with a default.
+referenced query all fail closed through their owning typed results.
+Descriptors that do not declare Library scope do not receive it. A state with
+no query reference denotes the owner-defined unrefined facet state. A visible
+result that depends on a filter, body, source target, or other query state
+without a portable query payload is non-projectable rather than silently
+restored with a default.
 
 A query descriptor may require the state coordinate, the scenario's selected
 context, or both. Structural-subject resolution uses only the state
@@ -1568,17 +1577,18 @@ remains the independently selected binding context.
   a direct Package tuple supplies its exact resolution occurrence.
 
 `q`, when present, is a table of packet-local query states. Each tuple is
-`[queryId,payload]`: `queryId` is the exact product query identity and
-`payload` is the closed JSON object emitted by that query owner's version-2
-packet codec. The owner codec defines its property order, string and numeric
-grammar, selector identities, and limits beneath the packet's outer limits.
-It must round-trip its payload byte-for-byte through parse and canonical
-write. Unknown query IDs, a missing codec, a payload rejected by its owner,
-duplicate semantic tuples, unreferenced entries, and a `q` index naming no
-entry are invalid packets.
+`[queryId,payload]`: `queryId` is the exact portable vocabulary identity and
+`payload` is the closed JSON object emitted by
+`PortableQueryPayloadCodec`. That one codec defines property order, string and
+numeric grammar, identity spelling, and limits beneath the packet's outer
+limits, and round-trips the payload byte-for-byte through parse and canonical
+write. A malformed payload, duplicate semantic tuple, unreferenced entry, or
+`q` index naming no entry is an invalid packet. An unknown `queryId` remains
+syntactically valid and reaches the portable resolver's typed
+`Unknown vocabulary` refusal; packet decode does not guess or discard it.
 
-The query table is sorted first by ordinal `queryId`, then by the query codec's
-canonical UTF-8 payload bytes. Semantically identical query states are
+The query table is sorted first by ordinal `queryId`, then by the shared
+codec's canonical UTF-8 payload bytes. Semantically identical query states are
 deduplicated. Long-form query record IDs do not enter the packet; each
 version-2 view state's peer references transpose to the matching canonical
 indexes. This preserves reusable named records in bundles without making a
@@ -1588,21 +1598,23 @@ Format 2 uses format 1's coordinate, context, base64url, canonical scalar
 escaping, exact-version normalization, and all-or-nothing validation rules.
 Its bounds are 32 KiB encoded text, 24 KiB decoded UTF-8 JSON, nesting depth
 24, 2048 JSON values, 12 tuples, 24 contexts, exactly one leading Workspace
-view state plus one view state per tuple, and at most 24 query states. One
-query payload is additionally limited to 4 KiB of UTF-8 JSON, nesting depth
-12, and 256 JSON values before its owner codec runs. Cancellation is checked
-before decode and before each query payload is bound. Breaching either the
-outer or nested limit is a typed packet failure and restores nothing.
+view state plus one view state per tuple, and at most 24 query states. Each
+query payload additionally obeys `PortableQueryPayloadCodec`'s pinned 3 KiB,
+depth-4, identity, value, part-count, and semantic-model limits before any
+vocabulary binder runs. Cancellation is checked before decode and before each
+query payload is bound. Breaching either the outer or nested limit is a typed
+packet failure and restores nothing.
 
 Packet-to-record transposition creates one schema-version-2 workspace,
 navigation, view, scenario, and the needed query records. Record-to-packet
 projection first validates the complete version-2 composition, then requires
 one leading Workspace state, one view state per navigation tab, and one packet
-codec for every query payload. Valid state outside the table or byte bounds, a
-coordinate kind unavailable in the compact tuple grammar, or a portable query
-whose owner has no format-2 codec is `NonProjectable`. An invalid subject,
-retained context, facet, query, or cross-record relationship is
-`InvalidDefinitionSet`. Neither outcome flattens, drops, or defaults a field.
+query entry for every query reference. Valid state outside the table or byte
+bounds, a coordinate kind unavailable in the compact tuple grammar, or a query
+state not expressible as canonical portable intent is `NonProjectable`. An
+invalid subject, retained context, facet, query, or cross-record relationship
+is `InvalidDefinitionSet`. Neither outcome flattens, drops, or defaults a
+field.
 
 #### Legacy lowering
 
@@ -2116,8 +2128,9 @@ Implementation must add, at minimum:
   replaced by the active state; an exact focused or inactive subject resolves
   in its owning Package occurrence when that coordinate is outside `g[x]` or
   reused by several contexts; query records deduplicate and sort by canonical
-  semantic content rather than peer ID; and a valid unsupported query codec is
-  `NonProjectable` while an invalid relationship is `InvalidDefinitionSet`.
+  semantic content rather than peer ID; a valid query state not expressible as
+  canonical portable intent is `NonProjectable`; and an invalid relationship
+  is `InvalidDefinitionSet`.
   Portable Library identity cases must cover signed, unsigned, neutral-culture,
   culture-specific, same-name/different-version, alternate-equivalent spelling,
   malformed version/token, and duplicate semantic identity inputs while
@@ -2150,7 +2163,7 @@ Implementation must add, at minimum:
   cover its exact fixed vector, absent/Workspace/Package subject requests,
   mixed format-1/format-2
   fields, view-table cardinality and order, query-table order and references,
-  owner-codec canonical byte equality, long and compact
+  shared-payload-codec canonical byte equality, long and compact
   `PortableLibraryIdentity` equality and canonical ordering, structured
   `MetadataTypeDefinitionName` equality, exact compact
   `ToEscapedFullName()` matching, nesting-versus-literal-delimiter collision
@@ -2171,7 +2184,7 @@ Implementation must add, at minimum:
   and request basis. Package-only recommendation, Package Overview, and Package
   Dependencies are the only lowering dispositions. For those dispositions,
   no legacy token is submitted to the Registry, final composition validation
-  follows exact Registry and query-owner resolution, the explicit Workspace
+  follows exact Registry and query-vocabulary resolution, the explicit Workspace
   state is added, inactive direct Package coordinates become recommendation
   states, inactive non-Package coordinates become undecorated dormant rows,
   and exact format-1 packet restoration retains its byte basis. Any

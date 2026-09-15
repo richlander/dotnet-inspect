@@ -34,13 +34,14 @@ produce it identically or sharing does not work. Every rule below serves that
 claim; anything that does not is not this document's.
 
 [Workspace definitions](workspace-definitions.md) packet format 2 defines its
-`q` table as `[queryId, payload]`, where the payload is "the closed JSON object
-emitted by that query owner's version-2 packet codec" and must "round-trip its
-payload byte-for-byte through parse and canonical write." It delegates property
-order, string and numeric grammar, selector encodings, and limits to that codec.
-This document is that codec's contract. It does not redefine the packet family,
-its outer bounds, its base64url and JSON hardening, or any coordinate-bearing
-arm.
+`q` table as `[queryId, payload]`, where `queryId` names the exact portable
+vocabulary and `payload` is the closed JSON object emitted by
+`PortableQueryPayloadCodec`. The payload must round-trip byte-for-byte through
+parse and canonical write. Workspace Definitions delegates property order,
+string and numeric grammar, identity spelling, and nested limits to this
+document's shared codec contract; vocabulary owners retain semantic binding
+and execution. This document does not redefine the packet family, its outer
+bounds, its base64url and JSON hardening, or any coordinate-bearing arm.
 
 ## Where the rules live
 

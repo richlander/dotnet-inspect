@@ -3,23 +3,22 @@
 ## Status
 
 **Partly implemented.** `DotnetInspector.PortableQueries` carries the intent
-type, the identity texts, and the semantic orders, and the successor slice's
-codec serializes them. **Resolution is not implemented**: no vocabulary binds an
-intent yet, so every gate in [Required gates](#required-gates) remains a
-requirement on that work rather than a property enforced today, and statements
-below about what a resolver does, admits, or refuses describe the contract an
-implementation must satisfy, not observed behavior.
+type, identity texts, semantic orders, and canonical payload codec.
+**Resolution is not implemented**: no vocabulary binds an intent yet, so every
+gate in [Required gates](#required-gates) remains a requirement on that work
+rather than a property enforced today, and statements below about what a
+resolver does, admits, or refuses describe the contract an implementation must
+satisfy, not observed behavior.
 
 This is **slice 1 of 2** under
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971). It owns the
 intent model: what a query intent is, how it resolves, and what replaying one
-must guarantee, including the semantic order of every part. Slice 2, Portable
-query payload, owns the single byte spelling that model has — how those orders
-are emitted, the closed shape, pinned tokens, declared limits, and the packet
-projection — and adds the cross-references between the two documents when it
-lands. The model goes first because the
-payload has nothing to encode without it, while a host can hold and resolve
-intent in process without ever serializing one.
+must guarantee, including the semantic order of every part. Slice 2,
+[Portable query payload](portable-query-payload.md), now owns the single byte
+spelling that model has — how those orders are emitted, the closed shape,
+pinned tokens, declared limits, and packet projection. The model went first
+because the payload has nothing to encode without it, while a host can hold and
+resolve intent in process without ever serializing one.
 
 ## Owner and consumers
 
@@ -48,10 +47,12 @@ Three consumers need this layer and none of them has it:
   cannot be shared, saved, or demonstrated.
 - **The share packet** reserves a delegation slot with nothing to fill it.
   [Workspace definitions](workspace-definitions.md) packet format 2 defines its
-  `q` table as `[queryId, payload]`, where the payload is "the closed JSON
-  object emitted by that query owner's version-2 packet codec." No query owner
-  supplies such a codec. Filling that slot is the successor slice's claim; this
-  one defines what the slot would carry.
+  `q` table as `[queryId, payload]`. Portable Query Payload now supplies the one
+  closed payload shape and canonical codec: `queryId` names the vocabulary and
+  `payload` carries the intent's four serializable parts. Together they identify
+  one canonical `PortableQueryIntent`. Vocabulary resolution, Workspace
+  Definitions record binding, and query-bearing packet adoption remain work
+  under #6971.
 
   **The slot alone is not sufficient for a package query.** Format 2 permits a
   query reference from its leading coordinate-free Workspace state or from a
@@ -62,7 +63,7 @@ Three consumers need this layer and none of them has it:
   attachment is therefore a **Workspace Definitions-owned composition point**,
   not something either slice may specify, and its adoption is a counted step
   on the path to a working `/query` share link rather than an implied
-  consequence of supplying a codec. Workspace Definitions' format-2
+  consequence of landing the codec. Workspace Definitions' format-2
   composition gate separately round-trips a Workspace-compatible query on the
   leading state and proves that this does not admit a Package query there.
 - **The CLI** spells Package Query facets as `--where "facet=<opaque id>"`, one
