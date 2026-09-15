@@ -33,7 +33,7 @@ defines what its result means.
 
 Metadata already exposes three partial forms:
 
-- `MethodBodySource.TryRead` copies IL and `ExceptionRegion` values into
+- `MethodBodySource.TryRead` copies IL and the owner-issued catalog into
   `MethodBodyData`, but returns failure through `bool` plus an error string.
 - `PdbContext.ResolveExceptionRegions` projects clause ranges, kinds, and catch
   types into presentation-oriented rows.
@@ -43,9 +43,9 @@ Metadata already exposes three partial forms:
 `MethodBodySource.Read` now consolidates their physical evidence.
 `TryRead` remains a compatibility adapter over the closed result, and the two
 `PdbContext` projections now lower the owner-issued catalog instead of reading
-and interpreting clauses independently. Instructions' raw
-`MethodBodyData.ExceptionRegions` compatibility property remains until #6965
-step 3.
+and interpreting clauses independently. #6965 step 3 migrated Instructions to
+the catalog and retired the temporary raw
+`MethodBodyData.ExceptionRegions` compatibility property.
 
 ## Body evidence currency
 

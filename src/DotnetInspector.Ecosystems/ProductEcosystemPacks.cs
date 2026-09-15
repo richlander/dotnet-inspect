@@ -194,6 +194,36 @@ internal static class ProductEcosystemPacks
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                 new PackagePrefixDeclaration("Microsoft.Authentication.WebAssembly")),
         ]),
+        ProjectWorkspace(new(
+            EcosystemPackIds.Maui,
+            ".NET MAUI",
+            ".NET MAUI controls, Hybrid, toolkit, and graphics integrations.",
+            800,
+            PackageSet: null,
+            [])
+        {
+            NamespaceRoots =
+            [
+                "Microsoft.Maui",
+                "CommunityToolkit.Maui",
+            ],
+            CorePackages =
+            [
+                new("Microsoft.Maui.Controls"),
+                new("Microsoft.AspNetCore.Components.WebView.Maui"),
+                new("CommunityToolkit.Maui"),
+                new("Microsoft.Maui.Graphics.Skia"),
+                new("Microsoft.Maui.Graphics.Text.Markdig"),
+            ],
+        }, "ecosystem.maui",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.Maui.")),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("CommunityToolkit.Maui")),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.AspNetCore.Components.WebView.Maui")),
+        ]),
     ]);
 
     internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
@@ -214,6 +244,7 @@ internal static class ProductEcosystemPacks
             EcosystemPackIds.AI,
             EcosystemPackIds.Azure,
             EcosystemPackIds.Blazor,
+            EcosystemPackIds.Maui,
         ],
         requireAllPacks: true);
 
