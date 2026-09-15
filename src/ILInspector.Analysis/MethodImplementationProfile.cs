@@ -96,7 +96,8 @@ internal static class MethodImplementationProfileAnalysis
         int filters = 0;
         int finallys = 0;
         int faults = 0;
-        foreach (var region in context.ExceptionRegions)
+        foreach (var region in
+            context.RequireExceptionCatalog().Clauses)
         {
             switch (region.Kind)
             {
