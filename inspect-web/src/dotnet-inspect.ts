@@ -10618,7 +10618,8 @@ function openProductDemos(): void {
 }
 
 async function openProductDemosRoute(): Promise<void> {
-  if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
+  const demosEntryActive = isProductHomeDemosPath(location.pathname);
+  if (state.workspaceSubjectOpen && demosEntryActive) {
     return;
   }
   const navigationSeq = navigationSequence.begin();
@@ -10646,7 +10647,7 @@ async function openProductDemosRoute(): Promise<void> {
     if (retainedWorkspaces.activeWorkspaceId !== null)
       activeWorkspaceUrl = predecessor.toString();
   }
-  if (!workspaceLocation.push("/demos")) {
+  if (!demosEntryActive && !workspaceLocation.push("/demos")) {
     throw new Error("The browser rejected the Demos history entry.");
   }
   ++syncUrlRevision;

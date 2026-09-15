@@ -794,16 +794,22 @@ async function installFacades(
         };
       }
       let deferPackageEncoding = ${workspaceEncoding === "deferred-package"};
+      let deferNextPackageEncoding = false;
       let packageEncodingRequests = 0;
       let packageEncodingCompletions = 0;
+      document.addEventListener("defer-next-package-encoding", () => {
+        deferNextPackageEncoding = true;
+      });
       export async function encodeWorkspaceShareState(json) {
-        if (JSON.parse(json).view.lens === "overview") {
+        const deferredNextEncoding = deferNextPackageEncoding;
+        if (JSON.parse(json).view.lens === "overview" || deferredNextEncoding) {
           document.documentElement.dataset.packageEncodingRequests =
             String(++packageEncodingRequests);
           if (${workspaceEncoding === "failed-package"}) {
             throw new Error("Package encoding unavailable");
           }
-          if (deferPackageEncoding) {
+          if (deferPackageEncoding || deferredNextEncoding) {
+            deferNextPackageEncoding = false;
             document.documentElement.dataset.packageEncodingPending = "true";
             await new Promise(resolve => document.addEventListener(
               "finish-package-encoding", resolve, { once: true }));
@@ -2139,6 +2145,36 @@ test("Demos self-link preserves the preceding inspection for Back", async ({
   await expect(page).toHaveURL("/demos");
   await page.getByRole("link", { name: "Demos", exact: true }).click();
   await expect(page).toHaveURL("/demos");
+  await page.goBack();
+  await expect(page).toHaveURL(inspectionUrl);
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+});
+
+test("Demos preserves the preceding inspection when a staged inspection returns to its catalog entry", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto("/?package=Example.Package&version=1.0.0&framework=net10.0");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
+  const inspectionUrl = page.url();
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await expect(page).toHaveURL("/demos");
+
+  await releaseFacade(page, "defer-next-package-encoding");
+  await page.keyboard.press("Control+p");
+  await expect(page.locator('[data-sl-pkg-open="Example.Package"]')).toBeVisible();
+  await page.locator('[data-sl-pkg-open="Example.Package"]').click();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-encoding-pending", "true");
+  await expect(page).toHaveURL("/demos");
+
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
+  await expect(page).toHaveURL("/demos");
+  await releaseFacade(page, "finish-package-encoding");
   await page.goBack();
   await expect(page).toHaveURL(inspectionUrl);
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");

@@ -160,7 +160,9 @@ navigation; an encoding failure retains the inspection with a visible notice.
 Rejected predecessor replacement and rejected Demos-entry publication likewise
 retain the current inspection or Home surface and expose the history failure.
 The Demos data-bar self-link is idempotent, so it cannot insert another catalog
-entry between the inspection and browser Back.
+entry between the inspection and browser Back, including while a catalog-origin
+inspection is visible but its canonical destination publication remains
+pending.
 These cases consume the existing modal-focus, retry, and canonical-history
 contracts rather than introducing new navigation semantics.
 
