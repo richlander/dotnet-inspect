@@ -56,6 +56,9 @@ continue to produce the existing decoded instructions and EH-aware
 `BlockGraph`, but their shared exception-flow result is explicitly unavailable
 because they lack Metadata's evidence currency. Both paths use the same
 topology builder; the legacy path cannot issue correlated public identities.
+An illegal normal transfer makes the correlated fact set unavailable without
+invalidating an otherwise structurally complete Layer 0 block graph, preserving
+inspection and disassembly of arbitrary IL.
 The temporary `MethodBodyData.ExceptionRegions` handoff has been retired.
 
 Clause identities remain Metadata identities. Instructions additionally issues
@@ -149,8 +152,8 @@ outside EH regions. A leave can exit protected regions and catch/filter
 handlers, but cannot originate in a filter, `finally`, or `fault` body or
 target a filter or handler. The ECMA-335 catch-to-associated-try exception is
 preserved; otherwise a leave cannot enter a new protected region. Other
-encoded cross-boundary transfers make construction unavailable rather than
-receive synthetic runtime cleanup semantics.
+encoded cross-boundary transfers make construction of the correlated fact set
+unavailable rather than receive synthetic runtime cleanup semantics.
 
 Exceptional search is outside the initial contract. `throw`, `rethrow`,
 `endfilter`, `endfinally`, and `fault` completion return typed unavailable

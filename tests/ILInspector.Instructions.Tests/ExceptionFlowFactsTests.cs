@@ -434,7 +434,7 @@ public class ExceptionFlowFactsTests
         MethodInstructions method = MethodInstructions.Decode(
             ReadMutatedBody(image, token));
 
-        Assert.False(method.IsComplete);
+        Assert.True(method.IsComplete, method.Blocks.IncompleteReason);
         var unavailable = Assert.IsType<
             InstructionExceptionFlowResult<
                 InstructionExceptionFlowFacts>.Unavailable>(
@@ -463,7 +463,7 @@ public class ExceptionFlowFactsTests
         MethodInstructions method = MethodInstructions.Decode(
             ReadMutatedBody(image, token));
 
-        Assert.False(method.IsComplete);
+        Assert.True(method.IsComplete, method.Blocks.IncompleteReason);
         var unavailable = Assert.IsType<
             InstructionExceptionFlowResult<
                 InstructionExceptionFlowFacts>.Unavailable>(

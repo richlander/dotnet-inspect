@@ -66,7 +66,7 @@ public sealed record BlockGraph(
             blocks,
             instructions,
             topology.Models,
-            topology.IncompleteReason);
+            topology.BlockGraphIncompleteReason);
         return new BlockGraph(blocks, topology.Models, reason is null, reason);
     }
 

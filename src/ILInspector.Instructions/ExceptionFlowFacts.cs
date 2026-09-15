@@ -490,7 +490,8 @@ internal sealed class ExceptionFlowTopology
         ImmutableArray<InstructionExceptionClause> issuedClauses,
         ImmutableArray<InstructionExceptionRegion> issuedRegions,
         InstructionExceptionFlowUnavailableReason? unavailableReason,
-        string? incompleteReason)
+        string? incompleteReason,
+        string? blockGraphIncompleteReason)
     {
         Clauses = clauses;
         Models = models;
@@ -499,6 +500,7 @@ internal sealed class ExceptionFlowTopology
         IssuedRegions = issuedRegions;
         UnavailableReason = unavailableReason;
         IncompleteReason = incompleteReason;
+        BlockGraphIncompleteReason = blockGraphIncompleteReason;
     }
 
     internal ImmutableArray<ExceptionFlowClauseDescriptor> Clauses { get; }
@@ -508,6 +510,7 @@ internal sealed class ExceptionFlowTopology
     internal ImmutableArray<InstructionExceptionRegion> IssuedRegions { get; }
     internal InstructionExceptionFlowUnavailableReason? UnavailableReason { get; }
     internal string? IncompleteReason { get; }
+    internal string? BlockGraphIncompleteReason { get; }
     internal bool IsComplete => IncompleteReason is null;
 
     internal static ExceptionFlowTopology Create(
@@ -805,7 +808,8 @@ internal sealed class ExceptionFlowTopology
             issuedClauses,
             issuedRegions,
             unavailableReason: null,
-            incompleteReason: null);
+            incompleteReason: null,
+            blockGraphIncompleteReason: null);
 
         if (!result.TryValidateAllNormalTransfers(
                 instructions,
@@ -821,7 +825,8 @@ internal sealed class ExceptionFlowTopology
                 issuedClauses: [],
                 issuedRegions: [],
                 transferUnavailableReason,
-                transferReason);
+                transferReason,
+                blockGraphIncompleteReason: null);
         }
 
         return result;
@@ -1104,5 +1109,6 @@ internal sealed class ExceptionFlowTopology
             issuedClauses: [],
             issuedRegions: [],
             reason,
-            detail);
+            detail,
+            blockGraphIncompleteReason: detail);
 }
