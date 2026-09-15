@@ -95,14 +95,18 @@ Issue #6113 adopts the stateless-core pattern within this existing Navigation
 owner: immutable product-issued `NavigationState` is passed explicitly to
 `NavigationTransitions`, while the host owns the current-state slot and
 operation execution. The approved slice separates semantic revision from
-action-publication generation; it does not implement Browser cutover (#6757),
-protected Scope-result admission (#5584), or restoration (#6112).
-Implementation conformance remains unverified until the relevant Release
-gates in [Verification](#verification) pass. The workspace-owned identity
-prerequisite is implemented by `InspectionWorkspaceIdentity`; the observational
-occurrence view remains available for its unmigrated Browser consumer.
-Registry adoption is tracked by #5509, and portable Workspace/Package subject
-projection by #5525.
+action-publication generation. Issue #6112 adds the canonical preparation
+participant for a fresh unpublished Workspace: it validates the exact retained
+context and optional subject/lens pair, then returns either one complete
+independent `NavigationState` with effect authority or a typed non-prepared
+result with no state or authority. It does not implement Browser cutover
+(#6757), protected Scope-result admission (#5584), complete Definitions
+restoration, or Workspace publication. Implementation conformance is gated by
+the named Release tests in [Verification](#verification). The workspace-owned
+identity prerequisite is implemented by `InspectionWorkspaceIdentity`; the
+observational occurrence view remains available for its unmigrated Browser
+consumer. Registry adoption is tracked by #5509, and portable
+Workspace/Package subject projection by #5525.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).
@@ -1404,12 +1408,16 @@ context permits initial recommendation inside that exact occurrence; no
 retained context selects Workspace. The lens identity's exact subject must
 equal the requested subject. A path/subject mismatch, subject-less lower path,
 internally inconsistent context, or subject/lens mismatch fails before Registry
-resolution and aborts initialization. Navigation then resolves its subject and
-lens halves and publishes one complete snapshot inside the new
-Workspace only when both halves succeed. Any half-failure closes the
-new Workspace through the Definitions coordinator, and supersession prevents
-an older attempt's Workspace from becoming active. The focused local state
-machine is
+resolution and aborts initialization. Navigation publishes one complete
+snapshot inside the new Workspace when structural preparation succeeds and the
+optional exact Registry request is `Available`, `Unavailable`, or `Failed`.
+The latter two retain the exact request basis and Registry evidence with no
+effective lens; they remain complete, installable Navigation snapshots.
+Registry `Unknown` or `Inapplicable`, incomplete structural evidence, and
+invalid or absent requested subjects produce typed non-prepared results with no
+Navigation state or effect authority. Definitions closes that unpublished
+Workspace, and supersession prevents an older attempt's Workspace from becoming
+active. The focused local state machine is
 [`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
 This owner does not install the new Workspace or coordinate its
@@ -1460,8 +1468,9 @@ the migration historically tracked by
 The canonical-state owner consumes structured subject and lens identities.
 Definitions and plans remain detached. Navigation state, action IDs, receipts,
 work tickets, and retained-session authority are never serialized or reused in
-a new realization. The fresh-initialization contract above remains #6112's
-separate implementation scope.
+a new realization. The fresh-initialization contract above is implemented by
+`NavigationTransitions.PrepareRestoration`; complete Definitions and host
+adoption remain separate scope.
 
 ### Other hosts
 
@@ -1603,14 +1612,24 @@ The eventual subject-navigation implementation must include named gates for:
 - `ConsumerSynchronization_MaintenanceOrderAndLivenessArePreserved`
 - `ExternalIntentAbort_ReleasesMaintenanceAfterAcknowledgement`
 - `CanonicalRestoration_PreparedPairEqualsExactRequest`
+- `CanonicalRestoration_ExactRegistryStatusRemainsPrepared`
+- `CanonicalRestoration_RejectsUnknownOrInapplicableExactLens`
 - `CanonicalRestoration_RejectsMismatchedSubjectBoundLens`
+- `CanonicalRestoration_RejectsExactLensWithoutSubject`
 - `CanonicalRestoration_RejectsSubjectFromAnotherOccurrence`
+- `CanonicalRestoration_RejectsForeignPreparedPackageFacts`
 - `CanonicalRestoration_RejectsInconsistentRetainedOccurrenceContext`
 - `CanonicalRestoration_RejectsSameOccurrenceSubjectOutsideRetainedPath`
 - `CanonicalRestoration_RejectsSubjectlessLowerRetainedPath`
+- `CanonicalRestoration_SubjectlessPackageContextRecommends`
+- `CanonicalRestoration_ExactPackageRootIsPrepared`
+- `CanonicalRestoration_NonReadyPackageFailsWithoutRegistryResolution`
 - `CanonicalRestoration_DerivesTypeInventoryContextFromRetainedPathAndFacts`
 - `CanonicalRestoration_WorkspaceSubjectPreservesDistinctDescendantContexts`
-- `CanonicalRestoration_FailedPreparationSettlesAsAbort`
+- `CanonicalRestoration_InventoryMissDistinguishesAbsentFromIncomplete`
+- `CanonicalRestoration_IncompleteFailureEvidenceIsDetached`
+- `CanonicalRestoration_TrustworthyRequestedRowSurvivesPeerFailure`
+- `CanonicalRestoration_EqualInputsIssueIndependentStateAndAuthority`
 
 The closed-kind, component-binding, and construction gates are updated in
 place. Initial recommendation and coordinate reconciliation receive the
