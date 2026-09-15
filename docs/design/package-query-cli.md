@@ -111,6 +111,13 @@ operator: eq
 value: <package-id>
 ```
 
+The unresolved triple and canonical operator identity use
+`DotnetInspector.PortableQueries.PortableQueryTerm` and
+`PortableQueryOperator`; Package Query owns this vocabulary's descriptor,
+value binding, duplicate-after-binding rule, tier, execution, and evidence.
+This slice does not yet resolve a complete `PortableQueryIntent` or encode its
+payload.
+
 The CLI spells it through the existing predicate grammar:
 
 ```console

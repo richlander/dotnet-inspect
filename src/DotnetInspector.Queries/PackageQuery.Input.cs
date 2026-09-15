@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
@@ -40,7 +41,7 @@ public static partial class PackageQuery
     public static PackageQueryPlanResult PlanInput(
         string text,
         IReadOnlyCollection<string>? facetIds,
-        IReadOnlyCollection<PackageQueryTerm>? terms,
+        IReadOnlyCollection<PortableQueryTerm>? terms,
         int maximumCandidates = DefaultMaximumCandidates,
         int? maximumMatches = DefaultMaximumMatches,
         bool includePrerelease = false)

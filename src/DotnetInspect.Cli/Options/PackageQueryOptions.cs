@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
@@ -78,7 +79,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
     {
         options = null;
         var ids = ImmutableArray.CreateBuilder<string>();
-        var terms = ImmutableArray.CreateBuilder<PackageQueryTerm>();
+        var terms = ImmutableArray.CreateBuilder<PortableQueryTerm>();
         foreach (string expression in expressions)
         {
             if (!RowPredicateSyntaxParser.TryParse(
@@ -116,9 +117,9 @@ public sealed record PackageQueryOptions : IProjectionOptions
                     PackageQuery.DependsTermKey,
                     StringComparison.OrdinalIgnoreCase))
             {
-                terms.Add(new PackageQueryTerm(
+                terms.Add(new PortableQueryTerm(
                     PackageQuery.DependsTermKey,
-                    PackageQuery.EqualsOperatorId,
+                    PortableQueryOperator.Equal,
                     syntax.Value));
                 continue;
             }

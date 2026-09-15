@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using InertText;
@@ -75,9 +76,9 @@ public class PackageQueryCliTests
                 out OptionError error),
             error.ToString());
 
-        PackageQueryTerm term = Assert.Single(options!.Plan.Terms);
+        PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
         Assert.Equal(PackageQuery.DependsTermKey, term.Key);
-        Assert.Equal(PackageQuery.EqualsOperatorId, term.Operator);
+        Assert.Equal(PortableQueryOperator.Equal, term.Operator);
         Assert.Equal(
             "Microsoft.Extensions.DependencyInjection",
             term.Value);

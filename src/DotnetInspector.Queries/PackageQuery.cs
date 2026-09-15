@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Xml;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using InertText;
@@ -49,12 +50,6 @@ public sealed record PackageQueryFacetDescriptor(
     /// </summary>
     public bool CombinesWithinSelectionGroup { get; init; }
 }
-
-/// <summary>One unresolved parameterized Package Query term.</summary>
-public sealed record PackageQueryTerm(
-    string Key,
-    string Operator,
-    string Value);
 
 /// <summary>One product-owned parameterized Package Query term.</summary>
 public sealed record PackageQueryTermDescriptor(
@@ -198,7 +193,7 @@ public sealed class PackageQueryPlan
 
     public InertString Prefix { get; }
     public ImmutableArray<PackageQueryFacetDescriptor> Facets { get; }
-    public ImmutableArray<PackageQueryTerm> Terms { get; }
+    public ImmutableArray<PortableQueryTerm> Terms { get; }
     public int MaximumCandidates { get; }
     public int? MaximumMatches { get; }
     public bool IncludePrerelease { get; }
@@ -228,7 +223,7 @@ public sealed record PackageQueryEvidence(
 {
     public PackageQueryEvidenceScope Scope { get; init; }
     public PackageQueryEvidenceSummary? Summary { get; init; }
-    public PackageQueryTerm? Term { get; init; }
+    public PortableQueryTerm? Term { get; init; }
     public string Value => Text.ToString();
 }
 
@@ -371,7 +366,7 @@ internal sealed record PackageQueryFacetDefinition(
 
 internal sealed record BoundPackageQueryTerm(
     PackageQueryTermDescriptor Descriptor,
-    PackageQueryTerm Term,
+    PortableQueryTerm Term,
     InertString Value);
 
 internal sealed record PackageQueryFacetEvidence(
@@ -411,7 +406,6 @@ public static partial class PackageQuery
     public const string DependencySelectionGroupId = "package.query.dependencies";
     public const string ToolSelectionGroupId = "package.query.dotnet-tool-format";
     public const string ToolDisplayGroupId = "package.query.display.dotnet-tool";
-    public const string EqualsOperatorId = "eq";
     public const string DependsTermKey = "depends";
 
     static readonly ImmutableArray<PackageQueryFacetDefinition> Definitions =
@@ -557,7 +551,7 @@ public static partial class PackageQuery
             "Matches a direct dependency declared in any package manifest group.",
             350,
             PackageQueryFacetTier.Nuspec,
-            [EqualsOperatorId],
+            [PortableQueryModel.TextOf(PortableQueryOperator.Equal)],
             "NuGet package ID",
             "Microsoft.Extensions.DependencyInjection"),
     ];
@@ -610,7 +604,7 @@ public static partial class PackageQuery
         InertString prefix,
         InertString scopeEvidence,
         IReadOnlyCollection<string>? facetIds,
-        IReadOnlyCollection<PackageQueryTerm>? terms,
+        IReadOnlyCollection<PortableQueryTerm>? terms,
         int maximumCandidates,
         int? maximumMatches,
         bool includePrerelease,
@@ -696,14 +690,16 @@ public static partial class PackageQuery
                 value: maximumCandidates);
         }
 
-        IReadOnlyCollection<PackageQueryTerm> requestedTerms = terms ?? [];
-        ImmutableArray<PackageQueryTerm> distinctTerms =
+        IReadOnlyCollection<PortableQueryTerm> requestedTerms = terms ?? [];
+        ImmutableArray<PortableQueryTerm> distinctTerms =
         [
             .. requestedTerms
                 .Distinct()
-                .OrderBy(term => term.Key, StringComparer.Ordinal)
-                .ThenBy(term => term.Operator, StringComparer.Ordinal)
-                .ThenBy(term => term.Value, StringComparer.Ordinal),
+                .OrderBy(term => term.Key, PortableQueryModel.ScalarOrder)
+                .ThenBy(
+                    term => PortableQueryModel.TextOf(term.Operator),
+                    PortableQueryModel.ScalarOrder)
+                .ThenBy(term => term.Value, PortableQueryModel.ScalarOrder),
         ];
         if (distinctTerms.Length > MaximumTerms)
         {
@@ -722,7 +718,7 @@ public static partial class PackageQuery
         }
         if (distinctTerms.Any(term =>
             !TermsByKey[term.Key].Operators.Contains(
-                term.Operator,
+                PortableQueryModel.TextOf(term.Operator),
                 StringComparer.Ordinal)))
         {
             return Rejected(

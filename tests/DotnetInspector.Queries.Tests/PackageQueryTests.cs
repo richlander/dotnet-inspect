@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Sections;
 using InertText;
 using NuGetFetch;
@@ -205,7 +206,9 @@ public sealed class PackageQueryTests
         PackageQueryTermDescriptor descriptor =
             Assert.Single(PackageQuery.Terms);
         Assert.Equal(PackageQuery.DependsTermKey, descriptor.Key);
-        Assert.Equal([PackageQuery.EqualsOperatorId], descriptor.Operators);
+        Assert.Equal(
+            [PortableQueryModel.TextOf(PortableQueryOperator.Equal)],
+            descriptor.Operators);
         Assert.Equal(PackageQueryFacetTier.Nuspec, descriptor.Tier);
         Assert.Equal("NuGet package ID", descriptor.ValueKind);
     }
@@ -213,22 +216,22 @@ public sealed class PackageQueryTests
     [Theory]
     [InlineData(
         "unknown",
-        "eq",
+        PortableQueryOperator.Equal,
         "Microsoft.Extensions.DependencyInjection",
         PackageQueryRequestFailureReason.UnknownTerm)]
     [InlineData(
         "depends",
-        "ne",
+        PortableQueryOperator.NotEqual,
         "Microsoft.Extensions.DependencyInjection",
         PackageQueryRequestFailureReason.TermOperatorNotAdmitted)]
     [InlineData(
         "depends",
-        "eq",
+        PortableQueryOperator.Equal,
         "not/a/package",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     public void PlanInput_RejectsInvalidTermsBeforeExecution(
         string key,
-        string @operator,
+        PortableQueryOperator @operator,
         string value,
         PackageQueryRequestFailureReason reason)
     {
@@ -236,7 +239,7 @@ public sealed class PackageQueryTests
             PackageQuery.PlanInput(
                 "Microsoft.Extensions.*",
                 facetIds: null,
-                terms: [new PackageQueryTerm(key, @operator, value)]));
+                terms: [new PortableQueryTerm(key, @operator, value)]));
 
         Assert.Equal(reason, rejected.Reason);
     }
@@ -244,9 +247,9 @@ public sealed class PackageQueryTests
     [Fact]
     public void PlanInput_CollapsesExactTermsAndRejectsBoundDuplicates()
     {
-        var exact = new PackageQueryTerm(
+        var exact = new PortableQueryTerm(
             PackageQuery.DependsTermKey,
-            PackageQuery.EqualsOperatorId,
+            PortableQueryOperator.Equal,
             "Microsoft.Extensions.DependencyInjection");
         PackageQueryPlan plan = Accepted(
             PackageQuery.PlanInput(
@@ -262,11 +265,10 @@ public sealed class PackageQueryTests
                 terms:
                 [
                     exact,
-                    exact with
-                    {
-                        Value =
-                            "microsoft.extensions.dependencyinjection",
-                    },
+                    new(
+                        PackageQuery.DependsTermKey,
+                        PortableQueryOperator.Equal,
+                        "microsoft.extensions.dependencyinjection"),
                 ]));
         Assert.Equal(
             PackageQueryRequestFailureReason.DuplicateTerm,
@@ -279,12 +281,12 @@ public sealed class PackageQueryTests
     [Fact]
     public void PlanInput_AppliesTheTermLimitAfterExactDuplicateCollapse()
     {
-        PackageQueryTerm[] terms =
+        PortableQueryTerm[] terms =
         [
             .. Enumerable.Range(1, PackageQuery.MaximumTerms)
-                .Select(index => new PackageQueryTerm(
+                .Select(index => new PortableQueryTerm(
                     PackageQuery.DependsTermKey,
-                    PackageQuery.EqualsOperatorId,
+                    PortableQueryOperator.Equal,
                     $"Dependency.{index:D2}")),
         ];
 
@@ -304,7 +306,7 @@ public sealed class PackageQueryTests
                     .. terms,
                     new(
                         PackageQuery.DependsTermKey,
-                        PackageQuery.EqualsOperatorId,
+                        PortableQueryOperator.Equal,
                         "Dependency.25"),
                 ]));
         Assert.Equal(
@@ -359,11 +361,11 @@ public sealed class PackageQueryTests
                 [
                     new(
                         PackageQuery.DependsTermKey,
-                        PackageQuery.EqualsOperatorId,
+                        PortableQueryOperator.Equal,
                         "microsoft.extensions.configuration"),
                     new(
                         PackageQuery.DependsTermKey,
-                        PackageQuery.EqualsOperatorId,
+                        PortableQueryOperator.Equal,
                         "Microsoft.Extensions.DependencyInjection"),
                 ],
                 maximumCandidates: 2,
