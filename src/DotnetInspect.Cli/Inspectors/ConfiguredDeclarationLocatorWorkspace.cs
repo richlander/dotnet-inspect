@@ -131,7 +131,7 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                             loadOptions,
                             cancellationToken).ConfigureAwait(false);
                 sourceNames.Add(context.Receipt.Order, packageId);
-                hasFailures |= context.Outcome
+                hasFailures |= context.ContextLoadOutcome
                     is WorkspaceContextLoadOutcome.Failed;
             }
 
@@ -169,7 +169,7 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                             loadOptions,
                             cancellationToken).ConfigureAwait(false);
                 sourceNames.Add(context.Receipt.Order, platform.Family);
-                hasFailures |= context.Outcome
+                hasFailures |= context.ContextLoadOutcome
                     is WorkspaceContextLoadOutcome.Failed;
             }
 
