@@ -922,6 +922,21 @@ public sealed class DependsFailureView
                     inventory.AffectedRootOccurrences),
                 Occurrences = inventory.AffectedDeclarations,
             },
+            DependsPruningFailure.Prerequisite prerequisite => new()
+            {
+                Phase = DependencyEvidenceFailurePhase.Pruning.ToString(),
+                Reason = nameof(DependsPruningFailure.Prerequisite),
+                Source = prerequisite.DeclarationState.ToString(),
+                SubjectText = prerequisite.RootDisplay,
+                Group = null,
+                Package = null,
+                Version = null,
+                SourceLabelText = null,
+                MessageText = prerequisite.Message,
+                AffectedRoots = prerequisite.RootOccurrence.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture),
+                Occurrences = 1,
+            },
             DependsPruningFailure.Candidate candidate => new()
             {
                 Phase = DependencyEvidenceFailurePhase.Pruning.ToString(),

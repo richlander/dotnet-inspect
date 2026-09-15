@@ -55,6 +55,22 @@ public partial class DependsCommand
                                 .Unavailable)
                 {
                     failed++;
+                    if (root.Declaration
+                        is PackageDependencyEvidenceDeclarationResult
+                            .Unavailable)
+                    {
+                        failures.Add(
+                            new DependsFailureRow.Pruning(
+                                new DependsPruningFailure.Prerequisite(
+                                    admittedIndexes[inputIndex],
+                                    root.Identity,
+                                    root.Display,
+                                    DependencyEvidenceDeclarationState
+                                        .Unavailable,
+                                    new InertString(
+                                        TextPolicy.Prose,
+                                        "Dependency declaration evidence is unavailable for pruning evaluation."))));
+                    }
                 }
                 else
                 {

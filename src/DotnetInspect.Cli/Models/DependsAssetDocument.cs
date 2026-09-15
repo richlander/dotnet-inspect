@@ -786,6 +786,8 @@ internal sealed record DependsPruningFailureJson
     public DependencyEvidenceDeclarationIdentityJson? DeclarationIdentity
         { get; init; }
 
+    public DependencyEvidenceDeclarationState? DeclarationState { get; init; }
+
     public string? PackageId { get; init; }
 
     public string? VersionConstraint { get; init; }
@@ -813,6 +815,17 @@ internal sealed record DependsPruningFailureJson
                 Message = inventory.Message,
                 AffectedRoots = [.. inventory.AffectedRootOccurrences],
                 AffectedDeclarations = inventory.AffectedDeclarations,
+            },
+            DependsPruningFailure.Prerequisite prerequisite => new()
+            {
+                Kind = nameof(DependsPruningFailure.Prerequisite),
+                Message = prerequisite.Message,
+                Root = prerequisite.RootOccurrence,
+                RootIdentity = DependencyEvidenceRootIdentityJson.Create(
+                    prerequisite.RootIdentity),
+                DeclarationState = prerequisite.DeclarationState,
+                AffectedRoots = [prerequisite.RootOccurrence],
+                AffectedDeclarations = 0,
             },
             DependsPruningFailure.Candidate candidate => new()
             {

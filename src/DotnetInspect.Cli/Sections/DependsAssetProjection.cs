@@ -279,6 +279,13 @@ internal abstract record DependsPruningFailure
         ImmutableArray<int> AffectedRootOccurrences,
         int AffectedDeclarations) : DependsPruningFailure;
 
+    internal sealed record Prerequisite(
+        int RootOccurrence,
+        PackageDependencyEvidenceRootIdentity RootIdentity,
+        InertString RootDisplay,
+        DependencyEvidenceDeclarationState DeclarationState,
+        InertString Message) : DependsPruningFailure;
+
     internal sealed record Candidate(
         int RootOccurrence,
         PackageDependencyEvidenceRootIdentity RootIdentity,

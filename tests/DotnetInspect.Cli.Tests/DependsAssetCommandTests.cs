@@ -2172,6 +2172,19 @@ public sealed class DependsAssetCommandTests
             Assert.Equal(1, pruning.GetProperty("roots").GetInt32());
             Assert.Equal(1, pruning.GetProperty("not_evaluated").GetInt32());
             Assert.Equal(1, pruning.GetProperty("failed").GetInt32());
+            JsonElement failure = Assert.Single(
+                document.RootElement.GetProperty("failures")
+                    .EnumerateArray());
+            Assert.Equal("Pruning", failure.GetProperty("phase").GetString());
+            JsonElement prerequisite = failure.GetProperty("pruning");
+            Assert.Equal(
+                "Prerequisite",
+                prerequisite.GetProperty("kind").GetString());
+            Assert.Equal(1, prerequisite.GetProperty("root").GetInt32());
+            Assert.Equal(
+                "Unavailable",
+                prerequisite.GetProperty("declaration_state").GetString());
+            Assert.True(prerequisite.TryGetProperty("root_identity", out _));
         }
 
         (int countExitCode, string countOutput, string countError) =
@@ -2247,6 +2260,18 @@ public sealed class DependsAssetCommandTests
         Assert.Single(
             document.RootElement.GetProperty("pruning")
                 .EnumerateArray());
+        JsonElement failure = Assert.Single(
+            document.RootElement.GetProperty("failures")
+                .EnumerateArray());
+        Assert.Equal("Pruning", failure.GetProperty("phase").GetString());
+        JsonElement prerequisite = failure.GetProperty("pruning");
+        Assert.Equal(
+            "Prerequisite",
+            prerequisite.GetProperty("kind").GetString());
+        Assert.Equal(1, prerequisite.GetProperty("root").GetInt32());
+        Assert.Equal(
+            "Unavailable",
+            prerequisite.GetProperty("declaration_state").GetString());
 
         (int countExitCode, string countOutput, string countError) =
             await RunCapturedAsync(
