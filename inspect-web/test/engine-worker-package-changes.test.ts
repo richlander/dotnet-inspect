@@ -217,41 +217,58 @@ test("Package Changes terminal envelope remains physically successful when parti
   );
 });
 
-test("Package Changes admits a maximum-row document with duplicated evidence", () => {
-  const advisory = {
-    ghsaId: "GHSA-0000-0000-0000",
-    cveId: "CVE-2026-0001",
+test("Package Changes admits multiplicative advisory evidence at maximum rows", () => {
+  const advisories = Array.from({ length: 30 }, (_, index) => ({
+    ghsaId: `GHSA-0000-0000-${String(index).padStart(4, "0")}`,
+    cveId: null,
     severity: "High",
-    advisoryUrl: "https://github.com/advisories/GHSA-0000-0000-0000",
+    advisoryUrl: `https://github.com/advisories/${index}`,
     publishedAt: "2026-03-01T00:00:00.0000000+00:00",
     updatedAt: "2026-03-02T00:00:00.0000000+00:00",
-  };
-  const populatedRow: BrowserPackageChangesRow = {
-    ...row,
-    currentAdvisoryContext: {
-      availability: "Complete",
-      advisories: [advisory, advisory, advisory, advisory],
-    },
-    fixedVersionEvidence: {
-      availability: "Complete",
-      advisories: [advisory, advisory, advisory, advisory],
-    },
-  };
+  }));
+  const populatedRows: BrowserPackageChangesRow[] =
+    Array.from({ length: 1_000 }, (_, index) => {
+      const packageId = `Example.Package.${index}`;
+      return {
+        ...row,
+        catalogActivity: {
+          ...row.catalogActivity,
+          packageId,
+          normalizedPackageId: packageId.toLowerCase(),
+          leafUrl:
+            `https://api.nuget.org/v3/catalog0/page/${packageId}.json`,
+        },
+        currentAdvisoryContext: {
+          availability: "Complete",
+          advisories,
+        },
+        fixedVersionEvidence: advisoryEvidence,
+      };
+    });
   const maximum = inspection();
   const populated = {
     ...maximum,
     content: {
       ...maximum.content,
-      rows: Array.from({ length: 1_000 }, () => populatedRow),
+      request: {
+        ...maximum.content.request,
+        packageScope: {
+          ...maximum.content.request.packageScope,
+          packageIds: populatedRows.map(
+            item => item.catalogActivity.packageId),
+        },
+        maximumRows: 1_000,
+      },
+      rows: populatedRows,
       summary: {
         ...maximum.content.summary,
         advisoryEvidence: {
           ...maximum.content.summary.advisoryEvidence,
-          packages: Array.from({ length: 1_000 }, () => ({
-            packageId: "Example.Package",
-            version: "1.0.0",
-            currentAdvisoryContext: populatedRow.currentAdvisoryContext,
-            fixedVersionEvidence: populatedRow.fixedVersionEvidence,
+          packages: populatedRows.map(item => ({
+            packageId: item.catalogActivity.packageId,
+            version: item.catalogActivity.version,
+            currentAdvisoryContext: item.currentAdvisoryContext,
+            fixedVersionEvidence: item.fixedVersionEvidence,
           })),
         },
         eligibleRowCount: 1_000,
@@ -263,6 +280,18 @@ test("Package Changes admits a maximum-row document with duplicated evidence", (
   assert.equal(
     engineWorkerPackageChangesInspection.decode(populated).kind,
     "decoded",
+  );
+  assert.equal(
+    mapEngineWorkerPackageChangesResult({
+      version: 1,
+      kind: "Succeeded",
+      inspection: populated,
+      failureKind: null,
+      error: null,
+      diagnostic: null,
+      reason: null,
+    }).kind,
+    "succeeded",
   );
 });
 

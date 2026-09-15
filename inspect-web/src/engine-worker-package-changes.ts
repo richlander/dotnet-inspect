@@ -32,7 +32,9 @@ const maximumRequestCharacters = 1_024;
 const maximumCallbackCharacters = 8 * 1_024 * 1_024;
 const maximumTerminalCharacters = 32 * 1_024 * 1_024;
 const maximumDiagnosticCharacters = 64 * 1_024;
-const maximumItems = 128_000;
+// Covers the densest schema-valid shape beneath the terminal text ceiling,
+// including advisory references repeated in rows and the summary.
+const maximumItems = 1_250_000;
 const roundTripTimestamp =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{7}(?:Z|[+-]\d{2}:\d{2})$/;
 
