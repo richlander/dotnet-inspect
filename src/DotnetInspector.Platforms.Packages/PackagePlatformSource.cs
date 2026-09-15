@@ -67,6 +67,7 @@ public sealed class PackagePlatformSource
         {
             ArgumentNullException.ThrowIfNull(request);
             var generation = new PackagePlatformSourceGeneration();
+            ImmutableArray<PackageAuthorityFailure> packageFailures = [];
             try
             {
                 operation.ThrowIfExpired();
@@ -84,6 +85,7 @@ public sealed class PackagePlatformSource
                 PackageVersionDiscoveryResult discovery = await operation.DiscoverVersionsAsync(
                     packageId, authorization,
                     PackageVersionDiscoveryContract.CompleteVersionEnumeration).ConfigureAwait(false);
+                packageFailures = [.. discovery.Failures];
                 operation.ThrowIfExpired();
                 if (discovery.State != PackageVersionDiscoveryState.Authoritative)
                 {
@@ -128,7 +130,7 @@ public sealed class PackagePlatformSource
             }
             catch (NuGetOperationTimeoutException)
             {
-                return Timeout<PackagePlatformTargetInventory>(generation);
+                return Timeout<PackagePlatformTargetInventory>(generation, packageFailures);
             }
         }
     }

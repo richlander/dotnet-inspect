@@ -526,6 +526,8 @@ The source outcome is closed:
 Package-owner failures remain attached to the source outcome. The adapter
 projects a credential-safe summary to PlatformHouse without replacing or
 reclassifying the package evidence.
+Discovery expiry retains failures from completed authorities and the package
+owner's attributed timeout rather than replacing them with an empty diagnostic.
 
 Payload acquisition follows the existing PackageHouse rejection projection:
 package-owner `Input`, `InvalidResponse`, or `ResponseRejected` evidence yields

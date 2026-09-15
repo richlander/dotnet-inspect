@@ -642,7 +642,10 @@ public sealed class PackagePlatformSourceTests
             [
                 TestSourceBehavior.Create(
                     PackagePlatformTestEnvironment.RuntimePackageId,
-                    beforeVersions: token => Task.Delay(TimeSpan.FromMilliseconds(60), token)),
+                    versionFailure: PackageSourceFailureKind.Transport),
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment.RuntimePackageId,
+                    beforeVersions: token => Task.Delay(TimeSpan.FromMilliseconds(300), token)),
             ]);
         var timeout = Assert.IsType<
             PackagePlatformSourceOutcome<PackagePlatformTargetInventory>.Incomplete>(
@@ -651,9 +654,21 @@ public sealed class PackagePlatformSourceTests
                     timedOut.IssueOperation(
                         TestContext.Current.CancellationToken,
                         requestTimeout: TimeSpan.FromSeconds(1),
-                        operationTimeout: TimeSpan.FromMilliseconds(20))));
+                        operationTimeout: TimeSpan.FromMilliseconds(150))));
         Assert.Equal(PackagePlatformSourceDiagnosticKind.Timeout, timeout.Diagnostic.Kind);
-        Assert.Empty(timeout.Diagnostic.PackageFailures);
+        PackageAuthorityFailure transport = Assert.Single(
+            timeout.Diagnostic.PackageFailures,
+            failure => failure.Kind == PackageAuthorityFailureKind.Transport);
+        Assert.Same(timedOut.Clients[0].Source, transport.ResultSource);
+        PackageAuthorityFailure deadline = Assert.Single(
+            timeout.Diagnostic.PackageFailures,
+            failure => failure.Kind == PackageAuthorityFailureKind.Timeout);
+        Assert.Equal(PackageSourceTimeoutKind.Operation, deadline.Timeout?.Kind);
+        Assert.Equal(
+            PackageSourceDisplay.ForDiagnostics(
+                timedOut.Authorization.AuthorizeSourcesFor(
+                    PackagePlatformTestEnvironment.RuntimePackageId).Authorities[1].Source),
+            deadline.Authority);
         await timedOut.AssertSettledAsync();
     }
 
