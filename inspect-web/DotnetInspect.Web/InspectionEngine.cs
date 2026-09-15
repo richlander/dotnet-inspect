@@ -18,7 +18,7 @@ namespace DotnetInspect.Web;
 /// </para>
 /// <para>
 /// It inspects no assembly, opens no workspace, and publishes no capability result. Shared browser
-/// policy — the MSDL proxy origin <see cref="ConfigureHost"/> configures — belongs to
+/// policy — the same-origin proxy base <see cref="ConfigureHost"/> configures — belongs to
 /// <c>DotnetInspect.Web.Core</c> and is applied before the entry point starts application work.
 /// </para>
 /// </remarks>
@@ -66,5 +66,5 @@ public static partial class InspectionEngine
     /// </summary>
     [JSExport]
     public static void ConfigureHost(string origin) =>
-        BrowserPackageWorkspace.ConfigureMsdlProxy(origin);
+        BrowserPackageWorkspace.ConfigureHostProxies(origin);
 }

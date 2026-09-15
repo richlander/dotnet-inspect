@@ -218,6 +218,11 @@ dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 dotnet-inspect ecosystem platform -S Pruning
 ```
 
+`Core Packages` are inert registered package roots. Catalog inspection performs
+no source work; a later bounded operation that selects the ecosystem may resolve
+those concrete packages and follow their ordinary dependencies. Package-prefix
+matches remain discovery scope and are not substituted for those roots.
+
 Use `package changes --ecosystem` to report package activity in one named
 ecosystem's exact product-owned package set. The ecosystem option selects where
 to look; `ecosystem` itself remains the acquisition-free vocabulary command.

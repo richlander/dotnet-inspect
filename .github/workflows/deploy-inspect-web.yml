@@ -76,7 +76,7 @@ jobs:
             artifacts/inspect-web-publish/async-lowering.json \
             artifacts/inspect-web-compiler-async-receipts
 
-      - name: Publish MSDL managed API
+      - name: Publish Inspect Web managed API
         run: >
           dotnet publish
           inspect-web/msdl-proxy/MsdlProxy.csproj

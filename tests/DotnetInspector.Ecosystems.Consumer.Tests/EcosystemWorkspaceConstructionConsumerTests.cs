@@ -47,6 +47,41 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
         Assert.Single(declarations);
     }
 
+    [Fact]
+    public void AllKnownAzureRegistrationSeparatesConcreteRootsFromDiscoveryPrefixes()
+    {
+        WorkspaceEcosystemRegistrationDeclaration azure =
+            Assert.IsType<WorkspaceRegistration.Ecosystem>(
+                EcosystemPackCatalog.CreateWorkspacePlan().Registrations[^1])
+                .Declaration;
+
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.Azure",
+                "Azure.AI.OpenAI",
+                "Microsoft.Azure.SignalR",
+                "Aspire.Azure.AI.OpenAI",
+                "Aspire.Hosting.Azure.SignalR",
+                "Azure.Identity",
+                "Azure.Security.KeyVault.Secrets",
+                "Azure.Storage.Blobs",
+                "Azure.Messaging.ServiceBus",
+            ],
+            azure.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Azure.",
+                "Microsoft.Azure.",
+                "Microsoft.Extensions.Azure",
+                "Aspire.Azure.",
+                "Aspire.Hosting.Azure.",
+            ],
+            azure.Populations.Select(population =>
+                Assert.IsType<
+                    WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                        population).Prefix.Prefix));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
