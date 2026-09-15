@@ -51,6 +51,17 @@ public class TypeMatcherTests
         Assert.True(TypeMatcher.Matches("Ns.Widget`1", "Ns.Widget"));
     }
 
+    [Fact]
+    public void ExactTypeNameMatching_PreservesGenericArity()
+    {
+        Assert.True(TypeMatcher.MatchesExactTypeName(
+            "Other.N.Widget",
+            "N.Widget"));
+        Assert.False(TypeMatcher.MatchesExactTypeName(
+            "N.Widget`1",
+            "Widget"));
+    }
+
     [Theory]
     [InlineData("List`1", 1)]
     [InlineData("Dictionary`2", 2)]
