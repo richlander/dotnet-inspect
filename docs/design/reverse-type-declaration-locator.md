@@ -2,11 +2,13 @@
 
 ## Status and authority
 
-Design-only focused slice
+The [cold query](#implemented-cold-query) is implemented under
+[#6849](https://github.com/richlander/dotnet-inspect/issues/6849), following
+the focused design in
 [#6852](https://github.com/richlander/dotnet-inspect/issues/6852) of
 [#6843](https://github.com/richlander/dotnet-inspect/issues/6843), within
-[#6761](https://github.com/richlander/dotnet-inspect/issues/6761). No new query,
-coordinate arm, CLI behavior, or browser capability is implemented here.
+[#6761](https://github.com/richlander/dotnet-inspect/issues/6761). Resident
+inventories and CLI/Browser adoption remain pending.
 
 **Reverse Type-Declaration Locator**, in `DotnetInspector.Queries`, owns:
 
@@ -249,6 +251,90 @@ execution. A caller cancellation propagates as cancellation after ordinary
 owner cleanup; it is not a completed envelope. Unexpected operation-wide
 errors likewise propagate, not become empty successful vectors.
 
+## Implemented cold query
+
+`TypeDeclarationLocatorQuery.Execute` consumes the Workspace-issued
+`WorkspaceDeclarationPopulation` and a nonempty immutable request sequence.
+`TypeDeclarationLocatorRequest.Exact` carries a Metadata-issued definition
+name; `Pattern` carries non-whitespace type-filter text. Pattern interpretation
+remains `TypeMatcher.MatchesTypeFilter`, including its explicit generic
+notation behavior; this query adds no pattern grammar or fallback.
+
+`TypeDeclarationLocatorResult` is either typed `Rejected` admission evidence
+or an `Evaluated` result containing the detached population receipt, selected
+visibility, optional work bound, attributed member outcomes, and ordered
+answers. Every answer retains its request and an immutable candidate vector,
+plus separate realization/evaluation completeness. The candidate's
+`Observation` retains the existing Workspace member evidence, not a live
+context or authority.
+
+Each eligible member is read once per call through the population's scoped
+Metadata access, then evaluated against every request. Inventories are not
+retained across calls. `Searched` preserves any visible unsupported
+declarations; currently these are module exports. Such a member conservatively
+makes evaluation incomplete for every request in the call, while its supported
+matching declarations remain candidates. Metadata inventory rejections and
+Workspace access failures keep their owner-issued kinds and occurrence.
+Coordinate-unavailable members remain explicit and are not inventoried.
+
+The query declares `InspectionCost.Unbounded`, like the existing
+assembly-context inventory query. `maxInventoryReads` optionally bounds
+attempted whole-image reads in population order, including rejected attempts.
+It is not an intra-image Metadata limit, a pattern-comparison budget, or an
+output-row window. Members beyond that bound become `NotEvaluated`; every
+request still has a vector with incomplete evaluation. A null bound authorizes
+the full selected roster. Invalid requests/bounds are rejected before reads.
+An already closing/closed Workspace input is rejected at query admission;
+later access loss is attributed to the affected member.
+
+Ordering follows the contract above. Canonical Package ID and version text
+compare ordinally; Platform family compares by its stable enum value.
+Assembly names and tokens use ordinal-ignore-case comparison, versions compare
+numerically, and culture uses Metadata's existing `NormalizeCulture`
+projection before ordinal-ignore-case comparison. That helper is exposed by
+Metadata rather than copying its equivalence rules into Queries. The final
+occurrence tie-break preserves equal coordinates from different origins/views.
+
+Current population producers are exactly those supported by
+[explicit context projection](workspace-live-locator.md#implemented-explicit-context-projection).
+This query does not add Artifact Root, local/project, or reference-pack
+population adapters. Coordinate ordering recognizes the existing four source
+arms, but that is not evidence that every producer already feeds this input.
+The result is an L1 prerequisite for the future resident facade and common
+Sections, not a completed host boundary. Their adoption supplies the common
+[inspection envelope](inspection-envelope.md#boundary); this prerequisite
+does not invent a Share result.
+
+Release gates live in `WorkspaceContextLoaderTests`, with the `TypeLocator_`
+prefix:
+
+| Claim | Gate suffix |
+| --- | --- |
+| Zero/one/many vectors and independent request order | `ZeroOneManyAndRepeatedRequestsKeepVectors` |
+| Structured identity, nesting, case and generic/glob semantics | `ExactNestingAndPatternArityUseMetadataSemantics` |
+| Public/all policy and no implicit fallback | `PublicAndAllAreDistinctWithoutFallbackSearches` |
+| Equal coordinates retain feeds, views and stable occurrences | `EqualCoordinatesKeepFeedAndTargetObservations` |
+| Source/assembly ordering and facade identity without binding | `SourceAndAssemblyOrderingDoNotSelectDefinitionsOverForwarders` |
+| Owner-normalized assembly equality components | `EquivalentAssemblyCulturesUseOccurrenceOrder` |
+| Unsupported declaration and whole-inventory failures | `ModuleExportsAndRejectedInventoriesRemainAttributed` |
+| Upstream failure versus complete empty population | `UpstreamFailuresDifferFromCompleteEmptyPopulations` |
+| Unsupported coordinate remains visible | `UnsupportedCoordinateIsNotDroppedOrScanned` |
+| Bounds do not certify absence or uniqueness | `WorkBoundNeverCertifiesAbsenceOrUniqueness` |
+| Admission and cancellation | `RequestValidationPrecedesReadsAndCancellationPropagates` |
+| Detached answers and visible loss of access | `DetachedAnswersSurviveCloseAndReleasedMembersRemainVisible` |
+| Real Package/Platform and forwarder/definition vectors | `RealJsonChoicesAndRuntimeObjectForwarderRemainDistinct` |
+
+The real-asset gate uses `System.Text.Json@10.0.0` and the actual Platform
+implementation-pack producer for
+`Microsoft.NETCore.App.Runtime.linux-x64@10.0.10`. It selects
+`System.Text.Json`, `netstandard`, and `System.Private.CoreLib`, preserving two
+`JsonSerializer` choices and both the `System.Object` forwarder and definition.
+This supplements, rather than impersonates, the pinned reference-pack evidence
+below: reference-view population production and reopening remain unverified
+until their owners adopt that path. The whole-assembly real-asset gate is
+`Speed=Slow` and stays in daily Deep Inspect's unfiltered Queries suite; the
+small-fixture contract cases remain PR-fast.
+
 ## Reopening and lifetime boundary
 
 The immediate output obligation is to preserve each candidate's coordinate,
@@ -371,9 +457,11 @@ for the consumer. A complete no-match search returns `candidates: []`.
 
 ## Required evidence and adoption
 
-All new locator properties are **unverified** until their implementation gates
-run in Release. The production probes above motivate the design; they are not
-candidate implementation tests.
+The [implemented cold-query gates](#implemented-cold-query) cover its current
+input boundary. The remaining Workspace, reference-view, Sections and host
+properties below are **unverified** until their adoption gates run in Release.
+The production probes above motivate the design; they are not candidate
+implementation tests.
 
 | Claim | Required outcome-level gate |
 | --- | --- |
