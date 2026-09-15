@@ -43,6 +43,7 @@ internal static class TypeSearchService
                     request,
                     options.Tfm!,
                     logger.Log,
+                    options.WorkspacePlan ?? WorkspacePlan.Empty,
                     cancellationToken);
             if (configured is null)
                 return new([], HasFailures: true);
@@ -72,10 +73,11 @@ internal static class TypeSearchService
             return CreateSearchResult(
                 configuredResults,
                 hasFailures,
-                options.PackagePrefixLimitReached);
+                sourceSelectionIncomplete: false);
         }
 
-        await using var workspace = new AssemblySetInspectionWorkspace();
+        await using var workspace =
+            new AssemblySetInspectionWorkspace(options.WorkspacePlan);
         Task<List<TypeSearchResult>> Collect(string? pattern) =>
             CollectTypesAsync(
                 options,
@@ -94,7 +96,7 @@ internal static class TypeSearchService
                 options,
                 Collect),
                 hasFailures,
-                options.PackagePrefixLimitReached);
+                sourceSelectionIncomplete: false);
         }
 
         // Multi-pattern or tabular output: collect all types, then match each pattern
@@ -104,7 +106,7 @@ internal static class TypeSearchService
                 options,
                 Collect),
             hasFailures,
-            options.PackagePrefixLimitReached);
+            sourceSelectionIncomplete: false);
     }
 
     private static FindSearchResult<TypeFindResult> CreateSearchResult(

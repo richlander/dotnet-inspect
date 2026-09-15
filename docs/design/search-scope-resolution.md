@@ -168,12 +168,12 @@ ecosystem.
 ## Command participation
 
 Type-search `find`, `implements`, and `extensions` use this normalization to
-select acquisition scope. `find PATTERN --package-prefix PREFIX` remains in
-that type/member search space. Package-row selection is owned by
-[`package query`](package-query-cli.md), which does not consume these API
-search scopes and rejects source overrides before acquisition.
-incompatible API-search scope before network access. It does not apply type
-search normalization or expand the prefix. `depends` uses
+select acquisition scope. Find no longer accepts `--package-prefix`: broad
+package-coordinate discovery is owned by
+[`package query`](package-query-cli.md), and concrete returned packages may
+then be presented to Find. Package Query does not consume API search scopes and
+rejects source overrides before acquisition. It does not apply type-search
+normalization. `depends` uses
 normalization only for type-hierarchy mode; its
 package-dependency and library-reference modes are unary source operations and
 do not acquire a search default.

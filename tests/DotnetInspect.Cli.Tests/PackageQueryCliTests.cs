@@ -314,13 +314,16 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public async Task PatternlessFindPrefix_UsesPackageQueryGuidance()
+    public void FindPackagePrefix_IsRetired()
     {
-        var result = await Run("find", "--package-prefix", "Contoso.");
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains("requires a type or member pattern", result.Error);
-        Assert.Contains("package query", result.Error);
-        Assert.Empty(result.Output);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "JsonDocument", "--package-prefix", "Contoso."]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--package-prefix",
+                StringComparison.Ordinal));
     }
 
     [Theory]

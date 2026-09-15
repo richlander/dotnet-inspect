@@ -74,10 +74,27 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             string targetFramework,
             Action<string>? log,
             CancellationToken cancellationToken = default)
+        => await OpenAsync(
+            httpClient,
+            request,
+            targetFramework,
+            log,
+            WorkspacePlan.Empty,
+            cancellationToken).ConfigureAwait(false);
+
+    internal static async ValueTask<ConfiguredPackageSearchWorkspace?>
+        OpenAsync(
+            HttpClient httpClient,
+            AssemblySetRequest request,
+            string targetFramework,
+            Action<string>? log,
+            WorkspacePlan workspacePlan,
+            CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+        ArgumentNullException.ThrowIfNull(workspacePlan);
         if (request.Packages is not [string packageSpec])
         {
             throw new ArgumentException(
@@ -85,7 +102,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 nameof(request));
         }
 
-        InspectionWorkspace workspace = new();
+        InspectionWorkspace workspace = new(workspacePlan);
         try
         {
             if (!InspectionGraphCommand.TryCreateMembers(

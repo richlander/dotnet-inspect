@@ -179,7 +179,8 @@ integer range rather than the old 1,000 match-budget maximum.
 an exact package ID or one terminal-star package-ID prefix. It rejects API
 scopes and source overrides before acquisition. Patternless
 `find --package-prefix` and `package search` are removed rather than retained
-as aliases; `find PATTERN --package-prefix PREFIX` remains API search.
+as aliases. Find accepts concrete package coordinates returned by Package
+Query instead of acquiring a prefix population itself.
 
 One semantic result row is one matched package, carrying its exact version,
 source, and product-authored nonempty evidence. `-n` and `--rows` select those
@@ -315,10 +316,10 @@ command and then adopted by the package command"), rather than leaving it as
 bespoke CLI-side code.
 
 **That migration already happened, inside #4551 itself, rather than as a
-follow-up slice.** `find --package-prefix` is built directly on
+follow-up slice.** The former `find --package-prefix` route was built directly on
 `PackageProfileSections` and `SectionPipeline<PackageProfileView>` — there was
 no intermediate bespoke formatter to migrate away from. Concretely, on `main`
-today: `--count`, `--rows`, `-D`/`--discover` (with section cost annotations
+at that point: `--count`, `--rows`, `-D`/`--discover` (with section cost annotations
 and category maps), and the JSON/TSV/JSONL/projected-JSON output formats all
 route through the shared pipeline, the same infrastructure `library`/`member`/
 `package` use.
@@ -327,7 +328,7 @@ route through the shared pipeline, the same infrastructure `library`/`member`/
 recommendation. This document's own "one deliberate, called-out behavior
 change" for this migration step was retiring `-t`-as-package-limit in favor of
 the historical #4677 `-n` proposal — but before #6489,
-`find --package-prefix`'s corpus limit remained `-t` (`FindOptions.Limit`,
+the former `find --package-prefix` corpus limit remained `-t` (`FindOptions.Limit`,
 validated as "`-t` must be between 1 and..."). #6107 added `-S Packages` and
 the finite `--where` facet binding without replacing that ordinary profile
 mode.
@@ -471,7 +472,7 @@ download count") uses `--top 500 --order-by "DownloadCount desc"`; a plain
 "first 500 that match" uses `-n 500`.
 
 The Sections-registry migration was the intended moment to apply that
-grammar, but it landed without that part: `find --package-prefix` rows are now
+grammar, but it landed without that part: `find --package-prefix` rows were
 declared sections, yet the corpus limit is still `-t`. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for the resulting follow-up.
@@ -670,7 +671,7 @@ the CLI's named facets as canonical for the browser's facet rail.
 1. **This document** — layering and vocabulary, reviewable independently of
    any implementation.
 2. **Sections migration — done, via #4551, but not as its own slice.**
-   `find --package-prefix` rendering already routes through the shared
+   the former `find --package-prefix` rendering routed through the shared
    Sections registry (`PackageProfileSections`,
    `SectionPipeline<PackageProfileView>`), so `--count`/`--rows` work the
    same way they do for `library`/`member`/`package`, without a second
@@ -696,9 +697,10 @@ the CLI's named facets as canonical for the browser's facet rail.
    explicit `--take`, a lone Head is delegated through the shared optional
    match budget and, for direct rows, the candidate budget. Browser callers
    retain their numeric match budgets.
-6. **Command retirement — implemented by #6768.** `package search` and
-   patternless `find --package-prefix` are removed without aliases.
-   Patterned `find PATTERN --package-prefix PREFIX` remains API search.
+6. **Command retirement — completed by #6768 and #6844.** `package search` and
+   every `find --package-prefix` form are removed without aliases. Package
+   Query returns package coordinates that callers may present concretely to
+   Find.
 7. **Assembly-semantic Find transferred to its focused owner.**
    [Find assembly-semantic query](find-assembly-semantic-query.md) owns the
    existing exact-package route and target bounded package-prefix population.

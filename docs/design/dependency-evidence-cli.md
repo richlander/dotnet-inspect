@@ -263,7 +263,7 @@ inputs retain their own source labels even when they select identical bytes.
 ### Package-prefix binding
 
 `--package-prefix` uses the same NuGet Gallery profile producer and bounds as
-`find --package-prefix`:
+the former `find --package-prefix` route:
 
 - 500 packages by default;
 - at most 1,000 packages; and

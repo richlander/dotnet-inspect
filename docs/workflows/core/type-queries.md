@@ -1,8 +1,8 @@
 ---
 id: type-queries
 description: Discover, inspect, and document types in packages and platform libraries
-commands: [type, find, --package-prefix]
-areas: [types, discovery, inspection, documentation, shape, generics, package-prefix, unsafe, sourcelink, platform-version]
+commands: [type, find]
+areas: [types, discovery, inspection, documentation, shape, generics, unsafe, sourcelink, platform-version]
 ---
 
 # Type Queries
@@ -386,14 +386,14 @@ Tips:
 grep -c 'Command'
 ```
 
-### 6c. Search across package prefix
+### 6c. Search a concrete package
 
 ```prompt
-What chat types are found across up to 500 Azure AI packages returned by prefix search?
+What chat types are exposed by the Azure AI OpenAI package?
 ```
 
 ```bash
-dotnet-inspect find "Chat*" --package-prefix Azure.AI -v:q
+dotnet-inspect find "Chat*" --package Azure.AI.OpenAI -v:q
 ```
 
 ```expect

@@ -220,7 +220,7 @@ public class SearchSourceAdapterTests
     {
         using var handler = new PrefixHandler([]);
         using var client = new HttpClient(handler);
-        var intent = DeclareSources("find", "--package-prefix", "Contoso.");
+        var intent = DeclareSources("implements", "--package-prefix", "Contoso.");
         var (_, output, error) = await ConsoleCapture.RunAsync(async () =>
         {
             var (selection, request) = await SearchSourceAdapter.BindAsync(
@@ -287,7 +287,7 @@ public class SearchSourceAdapterTests
     {
         using var handler = new PrefixHandler([], response);
         using var client = new HttpClient(handler);
-        var intent = DeclareSources("find", "--package-prefix", "Contoso.");
+        var intent = DeclareSources("implements", "--package-prefix", "Contoso.");
 
         var error = await Assert.ThrowsAsync<PrefixResolutionException>(() =>
             SearchSourceAdapter.BindAsync(intent, client, false, handler.SourceOptions));
@@ -353,7 +353,6 @@ public class SearchSourceAdapterTests
     }
 
     [Theory]
-    [InlineData("find", "--package-prefix", "Contoso..Bad")]
     [InlineData("implements", "--package-prefix", "Contoso..Bad")]
     [InlineData("extensions", "--package-prefix", "Contoso..Bad")]
     [InlineData("find", "--library", " ")]
@@ -365,21 +364,6 @@ public class SearchSourceAdapterTests
         var (exit, _, error) = await Invoke(command, "Probe", option, value);
         Assert.Equal(1, exit);
         Assert.Equal($"Error: Invalid value '{value}' for {option}.", error.Trim());
-    }
-
-    [Theory]
-    [InlineData("--platform")]
-    [InlineData("--extensions")]
-    [InlineData("--aspnetcore")]
-    public async Task PatternlessPackagePrefixUsesPackageQueryMigrationBeforeSourceValidation(string group)
-    {
-        var (exit, _, error) = await Invoke("find", "--package-prefix", "prefix with spaces", group);
-        Assert.Equal(1, exit);
-        Assert.Equal(
-            "Error: find --package-prefix requires a type or member pattern; "
-            + "use 'package query <ID-or-prefix*>' for package rows.",
-            error.Trim());
-        Assert.DoesNotContain("Invalid package", error);
     }
 
     internal static SourceIntent DeclareSources(string command, params string[] args)

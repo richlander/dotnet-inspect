@@ -60,6 +60,12 @@ public static class SearchCommandDefinitions
             Description = "Search all DLLs in output directory(s). Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
+        var ecosystemOption = new Option<string[]>("--ecosystem")
+        {
+            Description =
+                "Register an ecosystem in the Find Workspace. Can repeat; registrations do not expand package prefixes.",
+            AllowMultipleArgumentsPerToken = false
+        };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var membersOption = new Option<bool>("--members") { Description = "Search member names instead of type names (auto-enabled when the pattern starts with '.', e.g. .Serialize)" };
@@ -69,12 +75,6 @@ public static class SearchCommandDefinitions
             Arity = ArgumentArity.ExactlyOne
         };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var packagePrefixOption = new Option<string?>("--package-prefix")
-        {
-            Description =
-                $"With a type or member pattern, search up to "
-                + $"{ScopeConstants.PackagePrefixExpansionLimit} matching package IDs"
-        };
         var typeFilterOption = new Option<string?>("--type")
         {
             Description = "Filter API types by glob (for example --type *Json*)"
@@ -88,6 +88,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(aspnetcoreOption);
         findCommand.Options.Add(projectOption);
         findCommand.Options.Add(binOption);
+        findCommand.Options.Add(ecosystemOption);
         findCommand.Options.Add(tfmOption);
         findCommand.Options.Add(allOption);
         findCommand.Options.Add(membersOption);
@@ -96,7 +97,6 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(findCommand);
-        findCommand.Options.Add(packagePrefixOption);
         findCommand.Options.Add(opts.Discover);
         findCommand.Options.Add(opts.Tree);
         findCommand.Options.Add(opts.Columns);
@@ -109,8 +109,8 @@ public static class SearchCommandDefinitions
 
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
-            extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
-            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
+            extensionsOption, aspnetcoreOption, projectOption, binOption, ecosystemOption,
+            tfmOption, allOption, typeFilterOption, compactOption, opts.NoHeaders, membersOption,
             literalOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
@@ -126,6 +126,7 @@ public static class SearchCommandDefinitions
                         "find Chat* --platform                     # explicit platform scope",
                         "find Chat* --extensions                   # Microsoft.Extensions packages",
                         "find Chat* --aspnetcore                   # ASP.NET Core packages",
+                        "find Chat* --ecosystem platform           # selected Workspace registration",
                         "find Chat* --package Newtonsoft.Json       # specific package",
                         "find --literal Json --package System.Text.Json@10.0.0 --tfm net10.0",
                         "find Chat* --platform --extensions         # combine scopes");

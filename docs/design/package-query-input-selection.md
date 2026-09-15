@@ -106,8 +106,8 @@ The production path has three steps:
    operation feedback and demand-credit adapter are retained.
 3. CLI `package query` uses the same positional spelling: an unadorned ID is
    exact selection and one terminal `*` is literal prefix selection.
-   `find PATTERN --package-prefix PREFIX` remains a separate API-search scope;
-   patternless `find --package-prefix` is not a Package Query alias.
+   Find accepts the concrete package coordinates selected by this operation;
+   it does not expose a package-prefix acquisition option.
 
 The earlier Gallery discovery substrate and browse/order gesture are retired
 from NuGetFetch, shared Query, and Browser/Wasm interop. The supported Gallery

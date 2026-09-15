@@ -149,7 +149,7 @@ stderr rather than mixed into structured output.
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
-| API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
+| Workspace and API discovery | `find`, `type`, `member` | Workspace-wide coordinate search, type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. |
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL and selected-member authored-source evidence. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
@@ -175,7 +175,7 @@ stderr rather than mixed into structured output.
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
-| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet package manifests, or with `--literal TEXT` to find decoded IL string literals in explicitly named packages. |
+| `find [X]` | Search concrete content presented to one Workspace. Find registers every known ecosystem by default; repeat `--ecosystem NAME` to register an exact subset without expanding package prefixes. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead, or omit `X` with `--literal TEXT` to find decoded IL string literals in explicitly named packages. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
@@ -383,12 +383,14 @@ a literal package-ID prefix. Explicit `--take` bounds candidate work before
 `-n` selects final package rows. Without explicit `--take`, a simple `-n N`
 also bounds direct package-row acquisition to N, up to the 1,000-candidate
 execution ceiling. Larger semantic heads remain valid and use that ceiling.
-`find PATTERN --package-prefix PREFIX` remains API search across
-packages matching the prefix:
+Use `package query` to discover package coordinates, then present concrete
+packages to `find`:
 
 ```bash
-dotnet-inspect find Serialize --members --type System.Text.Json.JsonSerializer \
-  --package-prefix System.Text
+dotnet-inspect package query 'System.Text*' --take 20 --jsonl
+dotnet-inspect find Serialize --members \
+  --type System.Text.Json.JsonSerializer \
+  --package System.Text.Json
 ```
 
 Add `--where "facet=<ID>"` to select a host-neutral Package Query facet, with
@@ -416,9 +418,10 @@ and partial failures are reported explicitly. `--count` counts selected
 matching package rows only when completion or the semantic selection proves
 the count exact.
 
-**Breaking change:** `package search` and patternless
-`find --package-prefix PREFIX` have been removed. Use `package query` with an
-exact package ID or an explicit terminal-star prefix.
+**Breaking change:** `package search` and all
+`find --package-prefix PREFIX` forms have been removed. Use `package query` with
+an exact package ID or an explicit terminal-star prefix to discover package
+coordinates, then pass concrete packages to `find`.
 
 ### Assembly-semantic Find over explicit packages
 

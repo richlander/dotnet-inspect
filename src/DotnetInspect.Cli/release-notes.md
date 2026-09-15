@@ -19,15 +19,18 @@
 - Routes vocabulary Markdown, plain text, table, TSV, JSONL, and projected JSON
   through one generated Markout serializer view while preserving the
   schema-versioned unprojected JSON contract (#6811).
-- **Breaking:** Replaces `package search` and patternless
-  `find --package-prefix` with host-neutral `package query`. Exact package IDs
+- **Breaking:** Replaces `package search` and every
+  `find --package-prefix` form with host-neutral `package query`. Exact package IDs
   and terminal-star package prefixes share the Package Query engine;
   explicit `--take` bounds candidate work before `-n` selects final rows,
   while a lone `-n` is pushed into direct or filtered query execution.
   Selecting a content facet authorizes archive acquisition; `--nuspec-only`
   rejects queries that require it. The initial CLI facet set identifies .NET
   tool packages and reports CLI v1, CLI v2, or unrecognized tool settings.
-  Patterned `find PATTERN --package-prefix PREFIX` remains API search (#6768).
+  Find now constructs its Workspace with all known ecosystem registrations by
+  default, accepts repeated `--ecosystem` for an exact subset, and uses the
+  resident declaration locator plus shared coverage-aware output for exact
+  package type searches (#6768, #6844).
 - **Breaking:** Removes the `dependency-evidence` command and the positional
   type-to-library fallback from `depends`. Use `depends` with explicit
   `--package`, `--nuspec`, `--project`, `--library`, or `--package-prefix`

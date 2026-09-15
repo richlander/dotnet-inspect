@@ -3,6 +3,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -36,7 +37,7 @@ public class FindOptionsParserTests
 
     [Theory]
     [InlineData("Json*", null)]
-    [InlineData("--package-prefix", "Example.")]
+    [InlineData("--ecosystem", "platform")]
     [InlineData("--library", "Example.dll")]
     [InlineData("--platform", null)]
     [InlineData("--extensions", null)]
@@ -63,6 +64,7 @@ public class FindOptionsParserTests
     [InlineData("-t")]
     [InlineData("--candidates")]
     [InlineData("--matches")]
+    [InlineData("--package-prefix")]
     public void RetiredFindOptions_AreNotRecognized(string option)
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
@@ -73,6 +75,68 @@ public class FindOptionsParserTests
             error => error.Message.Contains(
                 option,
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void WorkspacePlan_DefaultsToAllKnownEcosystems()
+    {
+        Assert.True(
+            FindOptionsParser.TryCreateWorkspacePlan(
+                [],
+                out var plan));
+
+        Assert.NotNull(plan);
+        Assert.Equal(
+            EcosystemPackCatalog.Discover()
+                .Count(static pack => pack.HasWorkspaceRegistration),
+            plan.Registrations.Length);
+    }
+
+    [Fact]
+    public void WorkspacePlan_PreservesSelectedEcosystemOrder()
+    {
+        Assert.True(
+            FindOptionsParser.TryCreateWorkspacePlan(
+                ["azure", "ecosystem.platform"],
+                out var plan));
+
+        Assert.NotNull(plan);
+        Assert.Equal(
+            ["ecosystem.azure", "ecosystem.platform"],
+            plan.Registrations.Select(
+                registration =>
+                    Assert.IsType<
+                        DotnetInspector.Queries.WorkspaceRegistration
+                            .Ecosystem>(registration)
+                        .Declaration.Id.Value));
+    }
+
+    [Fact]
+    public async Task WorkspacePlan_RejectsUnknownEcosystem()
+    {
+        var result = await Run(
+            "find", "Json*", "--ecosystem", "not-an-ecosystem");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "Unknown ecosystem 'not-an-ecosystem'.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WorkspacePlan_RejectsDuplicateEcosystem()
+    {
+        var result = await Run(
+            "find", "Json*",
+            "--ecosystem", "platform",
+            "--ecosystem", "ecosystem.platform");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "cannot register ecosystem 'ecosystem.platform' more than once",
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Theory]

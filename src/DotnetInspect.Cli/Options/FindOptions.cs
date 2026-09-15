@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 
@@ -12,7 +13,7 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 {
     internal SearchSourceSelection? SourceSelection { get; init; }
 
-    internal bool PackagePrefixLimitReached { get; init; }
+    internal WorkspacePlan? WorkspacePlan { get; init; }
 
     /// <summary>
     /// Type name or glob pattern (positional argument). Comma-separated for multiple.
@@ -157,16 +158,6 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
-    /// NuGet package ID prefix for prefix-based package discovery.
-    /// </summary>
-    public string? PackagePrefix { get; init; }
-
-    /// <summary>
-    /// Whether <c>--package-prefix</c> was explicitly supplied.
-    /// </summary>
-    public bool PackagePrefixSpecified { get; init; }
-
-    /// <summary>
     /// Returns true if a scope has been selected, including a normalized empty contribution.
     /// </summary>
     public bool HasAnyScope =>
@@ -176,9 +167,7 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
         PlatformAssemblies.Length > 0 ||
         PlatformFrameworks.Length > 0 ||
         Projects.Length > 0 ||
-        BinPaths.Length > 0 ||
-        PackagePrefixSpecified ||
-        PackagePrefix is not null;
+        BinPaths.Length > 0;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).

@@ -87,18 +87,40 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync(arguments);
 
         Assert.True(result.Exit == 0, result.Error);
-        Assert.Contains(
-            "Using committed package Root for search:",
-            result.Error,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            $"\"source\": \"{id}\"",
-            result.Output,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            $"\"source_version\": \"{Version}\"",
-            result.Output,
-            StringComparison.Ordinal);
+        if (operation == "type")
+        {
+            Assert.Contains(
+                "Using the resident Workspace locator",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                $"\"package_id\": \"{id.ToLowerInvariant()}\"",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                $"\"version\": \"{Version}\"",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "\"is_complete\": true",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains(
+                "Using committed package Root for search:",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                $"\"source\": \"{id}\"",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                $"\"source_version\": \"{Version}\"",
+                result.Output,
+                StringComparison.Ordinal);
+        }
         Assert.Contains(
             requests,
             request => request.EndsWith(
@@ -299,15 +321,37 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             ]);
 
         Assert.Equal(0, result.Exit);
-        Assert.Contains(
-            "Using committed package Root for search:",
-            result.Error,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            expectedStatus,
-            result.Error,
-            StringComparison.Ordinal);
-        Assert.Equal("[]", result.Output.Trim());
+        if (expectedStatus == "EmptyCompileGroup")
+        {
+            Assert.Contains(
+                "Using committed package Root for search:",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                expectedStatus,
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.Equal("[]", result.Output.Trim());
+        }
+        else
+        {
+            Assert.Contains(
+                "Using the resident Workspace locator",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "\"is_complete\": false",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "\"candidates\": []",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "\"failures\": [",
+                result.Output,
+                StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -332,15 +376,26 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             ]);
 
         Assert.Equal(0, result.Exit);
-        Assert.Equal("[]", result.Output.Trim());
         Assert.Contains(
-            $"Could not commit package Root '{id}@{Version}'",
+            "\"is_complete\": false",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"candidates\": []",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Using the resident Workspace locator",
             result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"failures\": [",
+            result.Output,
             StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Find_PackageRootUsesReferencePreferredCompileSurface()
+    public async Task Find_LocatorPreservesMetadataAssemblyIdentity()
     {
         string id =
             $"Workspace.Search.Reference.{Guid.NewGuid():N}";
@@ -371,11 +426,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             referenceResult.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "\"library\": \"Workspace.Search\"",
+            "\"library_identity\"",
             referenceResult.Output,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "\"library\": \"Implementation\"",
+        Assert.Contains(
+            $"\"name\": \"{typeof(AssemblySetResolver).Assembly.GetName().Name}\"",
             referenceResult.Output,
             StringComparison.Ordinal);
     }

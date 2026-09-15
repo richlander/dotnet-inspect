@@ -25,8 +25,9 @@ The Package Query adoption has four steps:
 2. reconcile Package Query's former `--candidates` and `--matches` options
    with `--take` and the universal row-selection grammar;
 3. adopt the result on the dedicated `package query` command; and
-4. retire `package search` and patternless `find --package-prefix`, leaving
-   patterned prefix-scoped API search under `find`.
+4. retire `package search` and every `find --package-prefix` form, leaving
+   package discovery under `package query` and concrete Workspace search under
+   `find`.
 
 Steps 1 and 2 are established by #6489. Steps 3 and 4 are implemented by
 issue #6768.
@@ -550,11 +551,10 @@ work dimension. Its adoption:
 
 ### Step 4: retire overlapping package discovery commands
 
-`package search` and patternless `find --package-prefix` are removed without
+`package search` and every `find --package-prefix` form are removed without
 compatibility aliases. `package query ID` owns exact package selection;
 `package query 'PREFIX*'` owns package-prefix discovery and classification.
-`find PATTERN --package-prefix PREFIX` remains API search and does not acquire
-package rows merely because the prefix option is present.
+Find searches concrete package coordinates presented by the caller.
 
 The interim semantic row-limit adoption from #6776 is retired with
 `package search`. Its reusable source-limit and incompleteness evidence remains

@@ -49,6 +49,7 @@ internal static class MemberSearchService
                     request,
                     options.Tfm!,
                     logger.Log,
+                    options.WorkspacePlan ?? WorkspacePlan.Empty,
                     cancellationToken);
             List<MemberFindResult> configuredResults =
                 configured is null
@@ -64,12 +65,12 @@ internal static class MemberSearchService
                 MarkFailure();
             return new(configuredResults, hasFailures)
             {
-                SourceSelectionIncomplete =
-                    options.PackagePrefixLimitReached,
+                SourceSelectionIncomplete = false,
             };
         }
 
-        await using var workspace = new AssemblySetInspectionWorkspace();
+        await using var workspace =
+            new AssemblySetInspectionWorkspace(options.WorkspacePlan);
         return new(
             await CollectMembersAsync(
                 options,
@@ -80,8 +81,7 @@ internal static class MemberSearchService
                 MarkFailure),
             hasFailures)
         {
-            SourceSelectionIncomplete =
-                options.PackagePrefixLimitReached,
+            SourceSelectionIncomplete = false,
         };
     }
 

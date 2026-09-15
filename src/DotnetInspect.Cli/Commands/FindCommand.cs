@@ -6,6 +6,8 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Ecosystems;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -54,11 +56,23 @@ public class FindCommand
                         semanticSelectionName: "Find");
                 }
 
+                string[] discoverPatterns =
+                    options.Pattern.Split(
+                        ',',
+                        StringSplitOptions.RemoveEmptyEntries
+                            | StringSplitOptions.TrimEntries);
                 var schema = options.Members
                     ? new DocumentSchema()
                         .Add("Members", "column", "Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source")
-                    : new DocumentSchema()
-                        .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
+                    : FindTypeDeclarationLocator.IsEligible(
+                        options,
+                        discoverPatterns)
+                        ? new DocumentSchema()
+                            .Add("Results", "column", "Request", "Type", "Kind", "Source", "Library", "Origin", "Context")
+                            .Add("Coverage", "column", "Request", "Available", "Selected", "Realized", "Evaluated", "Complete")
+                            .Add("Gaps", "column", "Scope", "Kind", "Detail")
+                        : new DocumentSchema()
+                            .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
                 return DiscoverOutput.Execute(options.Discover, schema,
                     DiscoveryOutputRequest.Create(
                         options.JsonOutput ? OutputFormat.Json
@@ -82,6 +96,13 @@ public class FindCommand
                     context,
                     cancellationToken);
             }
+
+            options = options with
+            {
+                WorkspacePlan =
+                    options.WorkspacePlan
+                    ?? EcosystemPackCatalog.CreateWorkspacePlan(),
+            };
 
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (patterns.Length == 0)
@@ -107,6 +128,22 @@ public class FindCommand
                     logger,
                     context.HttpClient,
                     cancellationToken);
+            }
+
+            switch (await FindTypeDeclarationLocator.TryExecuteAsync(
+                        options,
+                        patterns,
+                        logger,
+                        context.HttpClient,
+                        cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                case FindTypeDeclarationLocatorAttempt.Failed:
+                    return 1;
+                case FindTypeDeclarationLocatorAttempt.Located located:
+                    return WriteTypeDeclarationLocator(
+                        located.Result,
+                        options);
             }
 
             FindSearchResult<TypeFindResult> search =
@@ -223,8 +260,6 @@ public class FindCommand
             || options.PlatformFrameworks.Length > 0
             || options.Projects.Length > 0
             || options.BinPaths.Length > 0
-            || options.PackagePrefixSpecified
-            || options.PackagePrefix is not null
             || options.Members
             || options.IncludeAll
             || options.TypeFilter is not null)
@@ -232,7 +267,7 @@ public class FindCommand
             CommandError.Write(
                 "--literal searches only explicit ID@VERSION packages; "
                 + "it cannot be combined with a type pattern, API search scopes, "
-                + "--package-prefix, --members, --all, or --type.");
+                + "--ecosystem, --members, --all, or --type.");
             return 1;
         }
 
@@ -341,6 +376,106 @@ public class FindCommand
         WriteAssemblyQueryDiagnostics(events);
 
         return view.FailureCount == 0 ? 0 : 1;
+    }
+
+    private static int WriteTypeDeclarationLocator(
+        TypeDeclarationLocatorResult result,
+        FindOptions options)
+    {
+        TypeDeclarationLocatorSectionPlan plan =
+            options.RowSelection is { } rowSelection
+                ? new TypeDeclarationLocatorSectionPlan(rowSelection)
+                : TypeDeclarationLocatorSectionPlan.All;
+        TypeDeclarationLocatorSectionResult section =
+            TypeDeclarationLocatorSection.Project(result, plan);
+        TypeDeclarationLocatorView view =
+            TypeDeclarationLocatorView.Create(section);
+
+        if (options.Count)
+        {
+            if (section is not TypeDeclarationLocatorSectionResult.Evaluated
+                {
+                    IsSuccess: true,
+                } evaluated
+                || evaluated.Answers.Any(static answer => !answer.IsComplete))
+            {
+                CommandError.Write(
+                    "Cannot count type-location rows because the Workspace search was incomplete.");
+                return 1;
+            }
+
+            return CountOutput.TryWriteProjected(
+                    view,
+                    TypeDeclarationLocatorViewContext.Default,
+                    "Results",
+                    options.Columns,
+                    options.Fields,
+                    rows: null)
+                ? 0
+                : 1;
+        }
+
+        if (options.JsonOutput && !IsColumnProjectionRequested(options))
+        {
+            Console.WriteLine(
+                TypeDeclarationLocatorSectionJson.Serialize(
+                    section,
+                    options.CompactJson));
+        }
+        else if (options.JsonOutput)
+        {
+            OutputFormatter.WriteProjectedJson(
+                Console.Out,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        TypeDeclarationLocatorViewContext.Default,
+                        writerOptions),
+                !options.CompactJson,
+                maxRows: null);
+        }
+        else if (options.Tabular)
+        {
+            OutputFormatter.WriteProjectedTable(
+                Console.Out,
+                !options.NoHeader,
+                options.Tsv,
+                options.Jsonl,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        TypeDeclarationLocatorViewContext.Default,
+                        writerOptions),
+                maxRows: null);
+        }
+        else
+        {
+            OutputFormatter.WriteWindowedMarkdown(
+                Console.Out,
+                rows: null,
+                writerOptions =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        TypeDeclarationLocatorViewContext.Default,
+                        writerOptions),
+                options.Columns,
+                options.Fields);
+        }
+
+        return section is TypeDeclarationLocatorSectionResult.Evaluated
+            {
+                IsSuccess: true,
+            }
+            ? 0
+            : 1;
     }
 
     private static void WriteAssemblyQueryDiagnostics(

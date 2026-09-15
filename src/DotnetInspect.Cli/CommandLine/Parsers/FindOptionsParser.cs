@@ -4,7 +4,9 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -31,12 +33,12 @@ public static class FindOptionsParser
         Option<bool> AspNetCoreOption,
         Option<string[]> ProjectOption,
         Option<string[]> BinOption,
+        Option<string[]> EcosystemOption,
         Option<string?> TfmOption,
         Option<bool> AllOption,
         Option<string?> TypeFilterOption,
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
-        Option<string?> PackagePrefixOption,
         Option<bool> MembersOption,
         Option<string?> LiteralOption);
 
@@ -58,7 +60,7 @@ public static class FindOptionsParser
     public record Success(FindOptions Options, Verbosity Verbosity, TipLevel TipLevel) : FindParseResult;
 
     /// <summary>
-    /// Parses find command options asynchronously (due to package prefix resolution).
+    /// Parses find command options asynchronously.
     /// </summary>
     public static async Task<FindParseResult> ParseAsync(
         ParseResult parseResult,
@@ -67,24 +69,9 @@ public static class FindOptionsParser
     {
         var pattern = parseResult.GetValue(args.PatternArg);
         var literal = parseResult.GetValue(args.LiteralOption);
-        var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
         var typeFilter = parseResult.GetValue(args.TypeFilterOption);
-        bool packagePrefixSpecified =
-            parseResult.GetResult(args.PackagePrefixOption)
-                is { Implicit: false };
-        if (string.IsNullOrEmpty(pattern)
-            && !packagePrefixSpecified
-            && literal is null)
+        if (string.IsNullOrEmpty(pattern) && literal is null)
             return new ShowHelpWithTips();
-        if (string.IsNullOrEmpty(pattern)
-            && packagePrefixSpecified
-            && literal is null)
-        {
-            CommandError.Write(
-                "find --package-prefix requires a type or member pattern; "
-                + "use 'package query <ID-or-prefix*>' for package rows.");
-            return new Invalid();
-        }
 
         if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
@@ -93,6 +80,13 @@ public static class FindOptionsParser
                 out string? rowSelectionError))
         {
             CommandError.Write(rowSelectionError!);
+            return new Invalid();
+        }
+
+        if (!TryCreateWorkspacePlan(
+                parseResult.GetValue(args.EcosystemOption) ?? [],
+                out WorkspacePlan? workspacePlan))
+        {
             return new Invalid();
         }
 
@@ -109,7 +103,6 @@ public static class FindOptionsParser
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
         AssemblySetRequest sources;
         SearchSourceSelection? selection = null;
-        bool packagePrefixLimitReached = false;
         if (literal is not null)
         {
             // Literal assembly queries read the declared sources directly: the shared
@@ -129,13 +122,11 @@ public static class FindOptionsParser
             var intent = SearchSourceAdapter.Declare(
                 parseResult, args.PackageOption, args.AssemblyOption, args.ProjectOption,
                 args.PlatformOption, args.PlatformLibraryOption, args.ExtensionsOption,
-                args.AspNetCoreOption, args.BinOption, args.PackagePrefixOption);
+                args.AspNetCoreOption, args.BinOption);
             SearchSourceBinding binding = await SearchSourceAdapter.BindAsync(
                 intent, HttpClientFactory.Shared, parseResult.GetValue(opts.Verbose), sourceOptions);
             selection = binding.Selection;
             sources = binding.Request;
-            packagePrefixLimitReached =
-                binding.PackagePrefixLimitReached;
         }
 
         var verbosity = opts.ParseVerbosity(parseResult);
@@ -144,7 +135,7 @@ public static class FindOptionsParser
             Pattern = pattern ?? "",
             Literal = literal,
             SourceSelection = selection,
-            PackagePrefixLimitReached = packagePrefixLimitReached,
+            WorkspacePlan = workspacePlan,
             Packages = [.. sources.Packages],
             Assemblies = [.. sources.Assemblies],
             PlatformAssemblies = [.. sources.PlatformAssemblies],
@@ -173,8 +164,6 @@ public static class FindOptionsParser
             Fields = opts.ParseFields(parseResult),
             Discover = opts.ParseDiscover(parseResult),
             Tree = opts.ParseTree(parseResult),
-            PackagePrefix = packagePrefix,
-            PackagePrefixSpecified = packagePrefixSpecified,
             SourceOptions = sourceOptions
         };
 
@@ -192,9 +181,9 @@ public static class FindOptionsParser
         string literal)
     {
         if (!string.IsNullOrEmpty(pattern)
-            || parseResult.GetResult(args.PackagePrefixOption)
-                is { Implicit: false }
             || parseResult.GetResult(args.AssemblyOption)
+                is { Implicit: false }
+            || parseResult.GetResult(args.EcosystemOption)
                 is { Implicit: false }
             || parseResult.GetResult(args.PlatformOption)
                 is { Implicit: false }
@@ -214,7 +203,7 @@ public static class FindOptionsParser
             CommandError.Write(
                 "--literal searches only explicit ID@VERSION packages; "
                 + "it cannot be combined with a type pattern, API search scopes, "
-                + "--package-prefix, --members, --all, or --type.");
+                + "--ecosystem, --members, --all, or --type.");
             return false;
         }
 
@@ -245,6 +234,55 @@ public static class FindOptionsParser
                 PackageAssemblyQueryDiagnostics.Describe(ex));
             return false;
         }
+    }
+
+    internal static bool TryCreateWorkspacePlan(
+        IReadOnlyList<string> values,
+        out WorkspacePlan? plan)
+    {
+        if (values.Count == 0)
+        {
+            plan = EcosystemPackCatalog.CreateWorkspacePlan();
+            return true;
+        }
+
+        var selected = new List<EcosystemPackId>(values.Count);
+        var seen = new HashSet<EcosystemPackId>();
+        var packs = EcosystemPackCatalog.Discover();
+        foreach (string value in values)
+        {
+            if (!EcosystemCommand.TryResolveFocus(
+                    value,
+                    packs,
+                    out EcosystemPackDescriptor? pack)
+                || pack is null)
+            {
+                if (pack is null
+                    && value.Equals(
+                        "list",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    CommandError.Write(
+                        "'list' is not an ecosystem selection. "
+                        + "Run 'ecosystem' to list available ecosystems.");
+                }
+                plan = null;
+                return false;
+            }
+
+            if (!seen.Add(pack.Id))
+            {
+                CommandError.Write(
+                    $"Find cannot register ecosystem '{value}' more than once.");
+                plan = null;
+                return false;
+            }
+
+            selected.Add(pack.Id);
+        }
+
+        plan = EcosystemPackCatalog.CreateWorkspacePlan(selected);
+        return true;
     }
 
     /// <summary>

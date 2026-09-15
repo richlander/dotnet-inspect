@@ -714,7 +714,7 @@ public class CommandLineTests
     public void PreprocessArgs_NegativeOptionValueIsNotHeadShorthand(
         string option)
     {
-        string[] args = ["find", "--package-prefix", "Azure", option, "-5"];
+        string[] args = ["implements", "Probe", "--package-prefix", "Azure", option, "-5"];
 
         string[] result = PreprocessAndApplyLineWindow(args);
 

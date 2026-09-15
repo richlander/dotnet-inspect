@@ -12,7 +12,11 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 internal sealed class AssemblySetInspectionWorkspace : IAsyncDisposable
 {
-    private readonly InspectionWorkspace _workspace = new();
+    private readonly InspectionWorkspace _workspace;
+
+    internal AssemblySetInspectionWorkspace(
+        WorkspacePlan? plan = null) =>
+        _workspace = new(plan ?? WorkspacePlan.Empty);
 
     internal long PeakRetainedImageBytes { get; private set; }
 

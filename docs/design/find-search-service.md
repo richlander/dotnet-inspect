@@ -31,10 +31,13 @@ L1 query, a host-neutral API, or a browser/Wasm contract. The service boundary
 is still useful: commands do not classify candidates, and writers do not
 reconstruct search semantics.
 
-The proposed [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md)
-is the separately owned host-neutral coordinate-discovery successor. Its
-[adoption map](reverse-type-locator-adoption.md) tracks the CLI migration;
-this service's current behavior and gaps remain unchanged until that adoption.
+The [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) is
+the separately owned host-neutral coordinate-discovery successor. Its
+[adoption map](reverse-type-locator-adoption.md) tracks the CLI migration.
+Find now uses the resident locator for one exact `ID@VERSION` package with an
+explicit TFM and one type pattern. The compatibility service remains for
+source shapes whose population adapters or fallback behavior are not yet
+available through the locator.
 
 The analogous `MemberSearchService` confirms the local convention of one
 ordered source collector, typed query execution, flat result rows, and
@@ -46,6 +49,7 @@ contract, however, and is not owned here.
 `FindCommand` supplies:
 
 - one or more non-empty, trimmed patterns;
+- an all-known or exact selected-ecosystem Workspace plan;
 - an explicit source scope, after applying the platform default when the user
   supplied none;
 - source and network authorization in `FindOptions`;
@@ -59,6 +63,29 @@ mode must not be a semantic search input. The current `Tabular` check violates
 that target: it selects the implementation path, and the paths currently
 produce different typed results for an all-miss single pattern. This gap is
 described under [Implementation and validation status](#implementation-and-validation-status).
+
+## Workspace construction
+
+Every ordinary Find invocation constructs its Workspace from a resource-free
+ecosystem plan. With no `--ecosystem`, the plan registers every shipped
+ecosystem. Repeated `--ecosystem` values resolve short or canonical names and
+produce exactly that ordered registration set. Duplicate and unknown
+selections fail before source acquisition.
+
+Registration is inert. It does not add package candidates, acquire content, or
+expand package-prefix populations. `find --package-prefix` is retired; broad
+package-coordinate discovery belongs to `package query` and `package changes`.
+Find operates only over concrete package, Platform, project, directory, or
+assembly content selected by its existing source contract.
+
+The exact-package locator route creates a short-lived `InspectionWorkspace`
+from the same plan, loads one declaration context through
+`WorkspaceContextLoader`, executes the resident locator, detaches its result,
+and renders the shared Sections projection. Complete literal-pattern misses
+return to the compatibility classifier so namespace-prefix and similarity
+fallback remain available. Incomplete or rejected locator outcomes remain
+visible with their Coverage and Gaps rather than being replaced by a
+success-shaped compatibility result.
 
 ## Candidate collection
 
@@ -180,9 +207,12 @@ around each synchronous typed query execution.
 
 ## Implementation and validation status
 
-The original classification refactor is complete: `FindCommand` calls
-`FindTypesAsync` and only performs count, projection, view construction, and
-rendering after receiving `TypeFindResult` rows.
+The original classification refactor is complete for compatibility routes:
+`FindCommand` calls `FindTypesAsync` and only performs count, projection, view
+construction, and rendering after receiving `TypeFindResult` rows. The exact
+package route instead renders `TypeDeclarationLocatorSectionResult` directly
+so coordinate, structured name, origin, observation, and coverage remain
+typed.
 
 The Release tests in
 `tests/DotnetInspect.Cli.Tests/TypeSearchServiceTests.cs` currently verify candidate

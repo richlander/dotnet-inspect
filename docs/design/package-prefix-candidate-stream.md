@@ -14,8 +14,9 @@ validate, retain, or snapshot the response's version-history collection.
 Ordinary materialized search APIs retain their complete `SearchResult`
 projection because callers may consume that history.
 
-The production consumer is `PackageProfileQuery`, used by CLI
-`find --package-prefix` and the shared Package Query prefix path. End-to-end tracker
+The production consumer is `PackageProfileQuery`, used by the shared Package
+Query prefix path. The former CLI `find --package-prefix` route also consumed
+this producer before that command surface retired. End-to-end tracker
 [#5816](https://github.com/richlander/dotnet-inspect/issues/5816) records the broader
 responsiveness work. Website package-ID/prefix adoption is tracked in
 [#6070](https://github.com/richlander/dotnet-inspect/issues/6070).
