@@ -51,6 +51,12 @@ the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-
 It does not claim that current commands already implement the option or the
 content-JSON alignment below.
 
+The envelope owner's proposed
+[service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
+adds a typed companion without changing that content boundary. Its planned
+`--evidence-envelope` consumer is additional adoption work for #6719, not a
+new rung in this ladder or an already available output option.
+
 ### Two serialization boundaries
 
 For the same completed operation, with no additional content-output selection
@@ -73,7 +79,7 @@ subtree decoded from `--envelope`. They use the same owner-issued content
 serialization contract, including native value kinds, nullability, sequence
 order, and owner-specific Outcome discrimination. JSON whitespace and object
 property order are not part of this equality. Serialized property spelling
-and transport framing remain with the transport contract.
+and transport framing follow [Envelope transport](#envelope-transport).
 
 Content can be a Result, Document, or owner-specific Outcome as defined by
 [host-observable content kinds](host-observable-content-kinds.md). Content-only
@@ -127,8 +133,8 @@ implement the shared transport with an already-enveloped operation, then
 exercise a second content kind through Library API Diff. The wider CLI and
 Browser adoption remains in
 [the five-step Diff plan](command-transition-model.md#cutover-and-production-path).
-Framing, serializer registration, and remaining option interactions still need
-their transport specification before implementation.
+The transport contract below completes the first specification step. It does
+not complete #6719's implementation or publish support on any command.
 
 Use the real `System.Text.Json@9.0.0..10.0.0` Library comparison as the paired
 JSON scenario. Planned Release gates must compare decoded unprojected content
@@ -140,6 +146,193 @@ post-service shaping. A content-only success must not imply that Share is
 available or envelope diagnostics are empty.
 These implementation properties remain **unverified** until the adopting
 production-host gates exist; Markdown validation does not establish them.
+
+### Envelope transport
+
+This section owns the public CLI wire contract for `--envelope` and
+`--evidence-envelope`. The input is one completed, owner-issued service value.
+The output is one JSON object, not a document rendering or a stream of
+independently inspected items. An operation over several participants must
+have one owner-issued aggregate content value; transport does not concatenate
+envelopes or invent an aggregation model.
+
+The baseline object's required members are:
+
+| Member | JSON kind | Meaning |
+| --- | --- | --- |
+| `schema_version` | Integer | Version of the wire contract selected by `result_kind`, initially `1`. |
+| `result_kind` | String | Stable registered content-contract identity, independent of command spelling and CLR type names. |
+| `content` | Owner-defined, non-null | Complete owner-issued Content, including any Outcome discriminator. |
+| `share` | Object, non-null | Complete owner-issued Share outcome. |
+| `diagnostics` | Array | Ordered diagnostics; `[]` when empty, never omitted. |
+
+`--evidence-envelope` adds one required non-null `evidence` member to this
+same object. Ordinary `--envelope` omits that member, rather than writing
+`null`. CLR composition's `Inspection` property does not introduce wire
+nesting. There is no second baseline copy or transport-created success flag.
+
+The two framing members belong to the CLI transport, not to the shared CLR
+envelope. The pair `(result_kind, schema_version)` identifies the complete
+registered wire contract, including its admitted ordinary and enriched forms.
+An incompatible change to an existing form, including its Content or Evidence
+schema, requires a version increment and change disclosure. A version is
+specific to its result kind; an unrelated result kind need not advance.
+This is schema identification, not a version-negotiation option or a promise
+to retain obsolete serializers.
+
+The first adopter identities are `type-dependencies` for
+`TypeDependencySectionResult` and `library-api-diff` for
+`LibraryApiDiffOutcome`. An Outcome's Available, Rejected, or other case does
+not change `result_kind`; its own discriminator remains inside `content`.
+Another operation with a different content contract, such as Discover or
+semantic Count, needs its own registration. Neither the command token nor
+the generic CLR name is a wire discriminator.
+
+Envelope and diagnostic member names use lower snake case. Share keeps its
+owner-issued `kind` discriminator and values, including `available` and
+`nonProjectable`; the CLI does not rename cases. Other Share members use lower
+snake case, such as `full_url`. Diagnostic severity uses the strings
+`Information`, `Warning`, and `Error`. Nullable diagnostic correspondence is
+present as `null` when absent. NonProjectable's `full_url` and `packet` are
+likewise `null`, not manufactured strings.
+
+Content and Evidence retain their owners' named properties, discriminators,
+native value kinds, optionality, ordering, and contained-text serialization.
+Each registration binds their concrete typed serializers; transport does not
+apply a second casing, enum, null-omission, or display-text conversion to their
+output. In particular, both JSON modes use the same Content serializer.
+A value without an established named serialization contract is an adoption
+gap, not permission to emit tuple positions, `Item1`/`Item2`, an empty object,
+or a host-authored substitute. The adopting owner must settle that gap before
+the route advertises support.
+
+This deliberately follows the existing typed-JSON/source-generated serializer
+path rather than Markout's lowered-JSON dialect. The
+[projected-JSON design](projected-json.md#ownership-and-pipeline) provides
+the analogous validate-before-commit boundary; its string-valued display
+lowering is not suitable for intact service values. Existing CLI
+`LibraryApiDiffOutput` illustrates the migration boundary: its presentation
+document is useful human output but is not `LibraryApiDiffOutcome`.
+
+### Admission and option interactions
+
+Both envelope options are public, presence-only options, with no short alias
+or optional value. They fix JSON encoding; they do not require `--json`.
+Zero-arity validation follows
+[CLI option-value validation](cli-option-value-validation.md).
+`--raw` keeps its unrelated URL-shape meaning.
+
+Support is admitted per resolved command operation, not merely per command
+name. Its registration binds the result kind/version, complete closed content
+and envelope serialization contracts, and the supported request boundary.
+Evidence support additionally binds the closed evidence type and the
+evidence-enabled service entry point. Missing serialization support or
+unavailable evidence capability rejects the request; it never selects a
+legacy formatter or silently falls back to the baseline form.
+
+Admission precedes inspection execution. Syntax-known conflicts reject before
+acquisition; support depending on resolved input may require the route's
+ordinary authorized resolution first. Resolution does not authorize an
+inspection solely to discover whether transport can represent its result.
+Evidence capture intent reaches the service before execution, under the
+[enrichment contract](inspection-envelope.md#request-and-capture-boundary).
+Serialization never recaptures evidence or projects Share.
+
+| Alongside an envelope option | Rule |
+| --- | --- |
+| The other envelope option, or `--json` | Reject: these select different output boundaries, not cumulative modifiers. |
+| Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing presentation choices, including explicit choices equal to a rendering default. |
+| `--compact` | Where admitted, changes JSON whitespace only. Otherwise reject; never silently ignore it. |
+| `--share[=url\|packet]` | Where sharing is supported, preserve its existing stderr and exit contract using this envelope's Share. |
+| `--verbose`, `--trace`, `--info`, `--tips` | Where supported, retain their stderr-only role; they do not request service evidence. |
+| Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. |
+| `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. |
+| `--fields`, `--columns`, `--bare`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. |
+| Discover, schema/query help, or another content operation | Require that operation's own envelope registration; never fall through an early ordinary-output return. |
+
+The semantic-versus-presentation rule follows the actual operation contract,
+not the option's name. For example, a service-issued Count result can be
+enveloped; counting rows after extracting a service result cannot masquerade
+as that operation. A Library Diff classification filter applied only by
+`LibraryApiDiffOutput` is likewise not an input to the shared comparison.
+Transport adoption does not move either algorithm into a service by fiat.
+
+Implicit rendering defaults do not decorate, window, or suppress the JSON
+payload. Ordinary semantic defaults and capability limits still apply.
+Every explicitly requested modifier must be honored in its admitted role or
+rejected. This includes output destinations: an existing file-output route
+needs explicit adoption preserving the complete payload; otherwise reject
+the combination. Shell redirection requires no additional CLI capability.
+
+### Stdout, diagnostics, and failure
+
+Successful serialization writes one complete UTF-8 JSON value without a BOM,
+followed by a newline. Whitespace and object-property order are not semantic
+contracts. No headings, ANSI styling, progress, tips, Share scalar, or
+rendered-line truncation enters that payload.
+
+The complete value must be representable and serialized before its first
+stdout byte is committed. A serialization failure reports a bounded error
+on stderr, exits nonzero, and leaves stdout empty. It does not retry through
+a content renderer, omit an unsupported part, or create an error-shaped
+replacement envelope. This applies equally to paired unprojected Content
+JSON. Buffering strategy is an implementation choice, not a new content
+size limit. A sink failure during the actual write may leave partial bytes;
+it remains an I/O failure, never a successfully delivered envelope.
+
+An owner-issued partial or non-success Content is still serializable content:
+write its complete envelope and retain the operation's exit-status policy.
+Do not replace it with a diagnostic alone or successful empty content.
+Parse, admission, acquisition, cancellation, and unexpected execution failures
+that produce no service value retain their stderr/nonzero behavior and produce
+no envelope payload. The transport does not fabricate a service result.
+
+Ordinary diagnostic disclosure remains on stderr even though the same typed
+diagnostics appear in the envelope. Their severity alone does not decide exit
+status. Progress and host-only notices remain outside the value.
+`Share.NonProjectable` alone does not fail an otherwise successful inspection;
+an explicit `--share` request still follows
+[CLI Workspace sharing](cli-workspace-sharing.md#output-selection), including
+its nonzero refusal and final non-empty stderr line for an available scalar.
+
+### Transport adoption gates
+
+The transport is a supported public machine contract, not a Debug-only dump.
+Each production adopter exposes only the operations it can complete. Baseline
+adoption does not wait for optional Evidence support in #7117, Browser UI,
+History, or subject-owned command cutover. Those consumers reuse this
+transport rather than publish another framing convention.
+
+The three-step #6719 path above remains the counted delivery plan. The first
+runtime adoption uses type dependencies; Library API Diff supplies the second
+content kind through the same CLI transport. Changing their legacy
+unprojected `--json` from a graph/presentation document to shared Content is
+**intentionally breaking** where the schemas differ. The adopting PR must
+record the exact old/new schemas and update current help, product guidance,
+and Breaking release notes; there is no compatibility-only JSON switch.
+Other formats and unadopted operations keep their owned behavior.
+Browser's baseline delivery remains independently governed by the envelope
+owner; this CLI-specific framing does not change its wire or interaction model.
+
+The adopting Release gates must exercise the public command entry point:
+
+- parse each complete payload and compare Content between the paired JSON
+  modes, including empty success and owner-issued non-success;
+- round-trip named fields, native values, both Share cases, and ordered
+  diagnostics through the registered closed serialization contracts;
+- preserve stderr and exit behavior, reject competing modes and post-service
+  modifiers, and retain admitted semantic selection without clipping JSON;
+- demonstrate visible pre-commit serialization failure with empty stdout,
+  using the product writer rather than a harness-produced replacement;
+- when evidence is adopted, preserve the baseline subtree, deliver the
+  concrete Evidence, and reject unavailable capture without fallback.
+
+Use #6709's real type-dependency package inputs and the existing
+`System.Text.Json@9.0.0..10.0.0` comparison, with smaller boundary fixtures for
+PR-fast cases. Reuse the existing production runtime/serialization gates for
+CoreCLR and NativeAOT; no new platform exception is introduced here.
+All transport implementation properties remain **unverified** until those
+gates land. This specification adds no executable options or serializers.
 
 ## The shape ladder
 

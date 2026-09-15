@@ -63,7 +63,6 @@ fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld
 fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures
 fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
-fixtures/metadata/ILInspector.Metadata.StateMachineFixtures
 fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer
 fixtures/metadata/ILInspector.Metadata.TypeDependencyReference
 fixtures/presentation/LibraryApiDiff.V1

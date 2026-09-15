@@ -14,7 +14,7 @@ Integration scanner implementation, plus product demos that exercise ordinary
 shipping sections over exact pinned inputs.
 
 The Package Set Registry includes Microsoft.Extensions, ASP.NET Core, and the
-audited 82-package Aspire inventory. The static pack registry, seven-pack
+audited 82-package Aspire inventory. The static pack registry, eight-pack
 manifest, ten-demo contribution, Workspace-owned lazy source binding, CLI
 handoff, inspect-web facade handoff, and the corresponding active Release gates
 named below are implemented. The assembly-friend tests, solution
@@ -78,6 +78,13 @@ and two overlapping discovery prefixes for the
 `Microsoft.AspNetCore.Components` and
 `Microsoft.Authentication.WebAssembly` families. It has no curated package
 set, scanner, tool, or demo.
+
+The .NET MAUI contribution approved in
+[#7099](https://github.com/richlander/dotnet-inspect/issues/7099) is implemented
+as the eighth pack. It contributes five join-oriented concrete package roots
+and three overlapping discovery prefixes for first-party MAUI, Community
+Toolkit, and the Blazor Hybrid bridge. It has no curated package set, scanner,
+tool, or demo.
 
 Explicit [tool-package references](#tool-package-references) are implemented
 under #6060, beginning with `Aspire.Cli`. They are independent discovery
@@ -652,6 +659,11 @@ that owner's existing contract. As with the co-located package-set registry,
 these entries have no version, framework, or runtime-identifier override.
 The catalog does not reinterpret coordinate grammar, resolve a version,
 authorize a source, or inspect a package to publish this data.
+A concrete root identifies the package traversal seed and need not itself
+contain a compile library. A dependency-aggregate package remains valid when
+ordinary package traversal reaches the implementation libraries that make the
+root useful; the operation must keep package acquisition and any missing
+compile assets visible under its own contract.
 
 The sequence itself supplies preference order within the pack; there is no
 second numeric priority or catalog-wide ranking. It is not a query-result
@@ -961,7 +973,7 @@ action metadata through their existing presentation owners.
 
 ## Shipped packs and staged adoption
 
-The current application catalog describes seven packs from already-owned
+The current application catalog describes eight packs from already-owned
 currencies and content:
 
 | Pack identity | Package-set identity | Product demos | Residual capabilities |
@@ -973,6 +985,7 @@ currencies and content:
 | `ecosystem.ai` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
 | `ecosystem.azure` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
 | `ecosystem.blazor` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
+| `ecosystem.maui` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
 
 The eight existing demo IDs, metadata, global order, records, pins, and run
 plans remain unchanged. Their global orders are assigned in their current
@@ -992,9 +1005,10 @@ authored alongside those capabilities:
 | AI | `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, `ModelContextProtocol` | `Microsoft.Extensions.AI`, `Microsoft.Extensions.AI.Abstractions`, `Microsoft.Extensions.VectorData.Abstractions`, `Microsoft.Agents.AI`, `ModelContextProtocol` |
 | Azure | `Azure`, `Microsoft.Extensions.Azure` | `Microsoft.Extensions.Azure`, `Azure.AI.OpenAI`, `Microsoft.Azure.SignalR`, `Aspire.Azure.AI.OpenAI`, `Aspire.Hosting.Azure.SignalR`, `Azure.Identity`, `Azure.Security.KeyVault.Secrets`, `Azure.Storage.Blobs`, `Azure.Messaging.ServiceBus` |
 | Blazor | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` | `Microsoft.AspNetCore.Components.WebAssembly`, `Microsoft.AspNetCore.Components.WebView.Maui`, `Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter`, `Microsoft.Authentication.WebAssembly.Msal` |
+| .NET MAUI | `Microsoft.Maui`, `CommunityToolkit.Maui` | `Microsoft.Maui.Controls`, `Microsoft.AspNetCore.Components.WebView.Maui`, `CommunityToolkit.Maui`, `Microsoft.Maui.Graphics.Skia`, `Microsoft.Maui.Graphics.Text.Markdig` |
 
 Aspire additionally contributes `Aspire.Cli` in its separate tool-package
-sequence; the other six packs contribute no tool references.
+sequence; the other seven packs contribute no tool references.
 
 Each root is a compact descriptive subtree, not a package correspondence.
 The Extensions entries prioritize foundational DI, configuration, and logging
@@ -1140,10 +1154,66 @@ ordinary package traversal alone acquires MAUI.
 The two literal prefixes omit a trailing dot so each base package name and its
 child families remain discoverable. The Components prefix deliberately
 overlaps the broader ASP.NET Core prefix and curated package set.
-`Microsoft.AspNetCore.Components.WebView.Maui` may also be a registered root
-of a future MAUI pack. Those overlaps preserve independent product-authored
+`Microsoft.AspNetCore.Components.WebView.Maui` is also a registered root
+of the MAUI pack. Those overlaps preserve independent product-authored
 entry points; they do not infer exclusive ownership, package equivalence, or
 automatic traversal.
+
+### .NET MAUI contribution evidence
+
+The .NET MAUI row is grounded in Microsoft's current framework guidance and
+stable package releases inspected on 2026-09-15:
+
+| Scenario role | Package evidence | Namespace hint | Workspace population prefix |
+| --- | --- | --- | --- |
+| First-party application UI | [`Microsoft.Maui.Controls@10.0.101`](https://www.nuget.org/packages/Microsoft.Maui.Controls/10.0.101) | `Microsoft.Maui` | `Microsoft.Maui.` |
+| Blazor Hybrid | [`Microsoft.AspNetCore.Components.WebView.Maui@10.0.101`](https://www.nuget.org/packages/Microsoft.AspNetCore.Components.WebView.Maui/10.0.101) | none added | `Microsoft.AspNetCore.Components.WebView.Maui` |
+| Community extensions | [`CommunityToolkit.Maui@15.0.1`](https://www.nuget.org/packages/CommunityToolkit.Maui/15.0.1) | `CommunityToolkit.Maui` | `CommunityToolkit.Maui` |
+| Skia graphics | [`Microsoft.Maui.Graphics.Skia@10.0.101`](https://www.nuget.org/packages/Microsoft.Maui.Graphics.Skia/10.0.101) | `Microsoft.Maui` | `Microsoft.Maui.` |
+| Markdown graphics text | [`Microsoft.Maui.Graphics.Text.Markdig@10.0.101`](https://www.nuget.org/packages/Microsoft.Maui.Graphics.Text.Markdig/10.0.101) | `Microsoft.Maui` | `Microsoft.Maui.` |
+
+Microsoft's [.NET MAUI
+overview](https://learn.microsoft.com/dotnet/maui/what-is-maui) identifies the
+framework's native mobile and desktop UI, device, graphics, and platform
+surfaces. The [.NET MAUI Community Toolkit
+guidance](https://learn.microsoft.com/dotnet/communitytoolkit/maui/get-started)
+uses `CommunityToolkit.Maui` as the primary extension package through
+`MauiAppBuilder`. The [Blazor Hybrid
+guidance](https://learn.microsoft.com/aspnet/core/blazor/hybrid/) identifies
+.NET MAUI as a host for Razor components.
+
+The roots prioritize package-dependency and assembly-reference neighborhoods
+that can join other ecosystems:
+
+- `Microsoft.Maui.Controls@10.0.101` is a dependency-aggregate package with no
+  direct DLL. It reaches Controls Core and XAML; Controls Core reaches MAUI
+  Core, whose dependency neighborhood includes Microsoft.Extensions
+  configuration, DI, hosting, and logging. The package identity is therefore a
+  useful application-level traversal root without making package-local library
+  presence a catalog requirement.
+- `Microsoft.AspNetCore.Components.WebView.Maui@10.0.101` directly references
+  MAUI Controls and Essentials alongside Blazor Components and WebView, JS
+  interop, DI, file-provider, and logging abstractions.
+- `CommunityToolkit.Maui@15.0.1` depends on Community Toolkit Core and MAUI
+  Controls, while its assemblies reference DI abstractions, MAUI Controls,
+  Essentials, Graphics, and platform libraries.
+- `Microsoft.Maui.Graphics.Skia@10.0.101` depends on and references MAUI
+  Graphics and SkiaSharp, including platform-specific SkiaSharp views.
+- `Microsoft.Maui.Graphics.Text.Markdig@10.0.101` depends on and references
+  MAUI Graphics and Markdig.
+
+These dependency and reference edges nominate traversal roots; they do not
+claim that every dependency produces a retained call edge. Call Graph owns
+later matching and visible completeness.
+
+The three literal prefixes remain overlapping discovery scope.
+`Microsoft.Maui.` covers the first-party child package family.
+`CommunityToolkit.Maui` omits the trailing dot so both the root package and
+its child packages participate. The focused
+`Microsoft.AspNetCore.Components.WebView.Maui` prefix preserves the Hybrid
+bridge without treating all Blazor packages as MAUI. That package is
+deliberately a concrete root and prefix match in both the Blazor and MAUI
+packs; neither pack gains exclusive ownership or triggers traversal by prefix.
 
 The initial Workspace projection is implemented under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
@@ -1153,11 +1223,12 @@ order. Platform requires a source-owned runtime population declaration;
 ASP.NET Core requires both its source-owned shared-framework population and
 its concrete registered packages; Microsoft.Extensions contributes concrete
 registered packages. A separate all-known manifest
-uses that order followed by Aspire, AI, Azure, and Blazor. Aspire retains its
+uses that order followed by Aspire, AI, Azure, Blazor, and .NET MAUI. Aspire retains its
 `Aspire.` prefix, concrete package roots, and exact scanner binding; AI retains
 its concrete package roots and four discovery prefixes; Azure retains its nine
 concrete package roots and five discovery prefixes; Blazor retains its four
-concrete package roots and two discovery prefixes. The
+concrete package roots and two discovery prefixes; .NET MAUI retains its five
+concrete package roots and three discovery prefixes. The
 handoff owns completeness and fresh-construction semantics for the two intents
 approved in #6763; this is not a compatibility catalog of earlier manifests.
 Later product builds may change either manifest without changing raw Workspace
@@ -1369,6 +1440,15 @@ Aspire
 
 AI
   5 registered core package roots
+
+Azure
+  9 registered core package roots
+
+Blazor
+  4 registered core package roots
+
+.NET MAUI
+  5 registered core package roots
 ```
 
 Listing either projection constructs no definition records. Selecting
@@ -1390,8 +1470,8 @@ consumer gates.
 | `EcosystemPackRegistryTests.InvalidNamespaceRootsFailBeforePublication`, `InvalidCorePackagesFailBeforePublication`, and `MissingKnowledgeSequencesFailBeforePublication` | Malformed roots, missing sequences, and null, invalid, duplicate, versioned, or target-specific core coordinates fail complete construction visibly, without invoking demo sources. |
 | `EcosystemPackRegistryTests.EmptyKnowledgePreservesCapabilityRequirements` | Empty contributions remain empty; knowledge-only registrations fail the existing capability requirement. |
 | `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Reading knowledge and selecting one capability preserve the selected owner's outcome without invoking neighboring demo/scanner capabilities. |
-| `ProductEcosystemPackTests.ShippedNamespaceAndRegisteredPackageKnowledgeMatchesLiteralPolicy` | All seven packs retain literal authored roots and registered package priorities, including Platform's empty core sequence and the AI, Azure, and Blazor join-oriented package roots. |
-| `PackageSetRegistryConsumerTests.PublicSurfaceKeepsCoreReferencesSeparateFromCuratedMembership` | An ordinary non-friend consumer reads immutable knowledge through discovery/lookup; Extensions core entries and curated membership remain distinct, Platform gains no package-set or scanner capability, and AI remains uncurated while overlapping existing Microsoft.Extensions membership. |
+| `ProductEcosystemPackTests.ShippedNamespaceAndRegisteredPackageKnowledgeMatchesLiteralPolicy` | All eight packs retain literal authored roots and registered package priorities, including Platform's empty core sequence and the AI, Azure, Blazor, and .NET MAUI join-oriented package roots. |
+| `PackageSetRegistryConsumerTests.PublicSurfaceKeepsCoreReferencesSeparateFromCuratedMembership` | An ordinary non-friend consumer reads immutable knowledge through discovery/lookup; Extensions core entries and curated membership remain distinct, Platform gains no package-set or scanner capability, and uncurated contributions preserve intentional cross-pack overlap such as Blazor/MAUI WebView.Maui. |
 
 ### Tool-reference gates
 

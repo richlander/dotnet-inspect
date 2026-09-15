@@ -215,6 +215,7 @@ dotnet-inspect ecosystem aspire -S Integrations
 dotnet-inspect ecosystem ai -S "Core Packages"
 dotnet-inspect ecosystem azure -S "Core Packages"
 dotnet-inspect ecosystem blazor -S "Core Packages"
+dotnet-inspect ecosystem maui -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 dotnet-inspect ecosystem platform -S Pruning
 ```
@@ -396,6 +397,17 @@ packages matching the prefix:
 ```bash
 dotnet-inspect find Serialize --members --type System.Text.Json.JsonSerializer \
   --package-prefix System.Text
+```
+
+Use `depends=<package-id>` to require a direct dependency declared in any
+package manifest group. Repeat the term to require every named dependency:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends=Microsoft.Extensions.DependencyInjection"
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends=Microsoft.Extensions.DependencyInjection" \
+  --where "depends=Microsoft.Extensions.Configuration" --count
 ```
 
 Add `--where "facet=<ID>"` to select a host-neutral Package Query facet, with

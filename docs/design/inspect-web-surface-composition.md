@@ -1534,7 +1534,8 @@ issued for the current browser session:
 - aggregate acquired-package, resident-payload, Workspace, and resident-byte
   cache statistics; and
 - acquisition-owner limits for package entries, Workspace slots, aggregate
-  resident bytes, and retained assembly-image bytes per Workspace.
+  resident bytes, selected assemblies per Workspace role, and retained
+  assembly-image bytes per Workspace.
 
 Runtime, build, and package-cache absence or failure remain visible in the same
 route geometry. A cache-statistics failure does not preserve prior counts as an

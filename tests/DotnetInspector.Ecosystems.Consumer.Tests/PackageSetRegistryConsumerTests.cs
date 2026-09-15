@@ -34,7 +34,7 @@ public sealed class PackageSetRegistryConsumerTests
         EcosystemPackDescriptor[] packs = [.. EcosystemPackCatalog.Discover()];
         EcosystemDemoDescriptor[] demos = [.. EcosystemPackCatalog.DiscoverDemos()];
 
-        Assert.Equal(7, packs.Length);
+        Assert.Equal(8, packs.Length);
         Assert.Equal(10, demos.Length);
         Assert.Equal(ProductDemoIds.StjSerializer, demos[0].ScenarioId);
         Assert.Equal(ProductDemoIds.AspireRedisCallGraph, demos[^1].ScenarioId);
@@ -168,6 +168,31 @@ public sealed class PackageSetRegistryConsumerTests
             aspNetCore.Members,
             member => member.PackageId
                 == "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter");
+
+        EcosystemPackDescriptor maui = Assert.IsType<EcosystemPackLookupResult.Known>(
+            EcosystemPackCatalog.Lookup(EcosystemPackIds.Maui)).Descriptor;
+        Assert.Equal(
+            [
+                "Microsoft.Maui",
+                "CommunityToolkit.Maui",
+            ],
+            maui.NamespaceRoots);
+        Assert.Equal(
+            [
+                "Microsoft.Maui.Controls",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "CommunityToolkit.Maui",
+                "Microsoft.Maui.Graphics.Skia",
+                "Microsoft.Maui.Graphics.Text.Markdig",
+            ],
+            maui.CorePackages.Select(package => package.PackageId));
+        Assert.Null(maui.PackageSet);
+        Assert.False(maui.HasScanner);
+        Assert.Empty(maui.Demos);
+        PackageCoordinate blazorMaui =
+            new("Microsoft.AspNetCore.Components.WebView.Maui");
+        Assert.Contains(blazorMaui, blazor.CorePackages);
+        Assert.Contains(blazorMaui, maui.CorePackages);
     }
 
     [Fact]
