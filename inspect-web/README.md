@@ -2427,6 +2427,9 @@ reproduce the exact retained dotnet/runtime#129622 and #129857 product
 rejection. The latter is deployable only to the R2R diagnostic site so
 contributors can share a failing product URL; an unfamiliar failure, missing
 evidence, or infrastructure failure leaves the prior site in place.
+The error detail preserves the first managed/Wasm operation diagnostic and
+stack before any secondary cleanup failure such as
+`The runtime is not running`.
 
 Each artifact carries exact `dotnet --info`, the installed workload list, and a
 machine-readable SDK/runtime/workload receipt. That receipt identifies the
