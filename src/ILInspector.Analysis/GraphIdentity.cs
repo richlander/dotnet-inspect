@@ -39,7 +39,8 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
     }
 
     internal AssemblyReferenceIdentity AssemblyIdentity { get; }
-    internal Guid SourceValue => _source.Value;
+    internal string SourceReceiptEvidence =>
+        MetadataReceiptEvidence.For(_source);
     public Guid ModuleVersionId { get; }
     public GraphNodeStorageKind Kind { get; }
     public int MethodToken { get; }

@@ -1013,7 +1013,10 @@ public static class ResourceEffectResolver
             DirectCallDefinitionResolution directCall)
         {
             var value = new StringBuilder();
-            Append(value, directCall.Participant.Assembly.Registration.Value);
+            Append(
+                value,
+                MetadataReceiptEvidence.For(
+                    directCall.Participant.Assembly.Registration));
             Append(value, directCall.PhysicalInvocation.ModuleVersionId);
             Append(value, directCall.PhysicalInvocation.MethodToken);
             Append(value, directCall.PhysicalInvocation.ILOffset);
@@ -1021,7 +1024,10 @@ public static class ResourceEffectResolver
             Append(value, (int)directCall.Call.Kind);
             if (directCall is DirectCallDefinitionResolution.Resolved resolved)
             {
-                Append(value, resolved.Definition.Registration.Value);
+                Append(
+                    value,
+                    MetadataReceiptEvidence.For(
+                        resolved.Definition.Registration));
                 Append(value, resolved.Definition.ModuleVersionId);
                 Append(value, resolved.Definition.MetadataToken);
                 AppendForwarding(value, resolved.Definition.Forwarding);
@@ -1248,7 +1254,9 @@ public static class ResourceEffectResolver
             if (type.Definition is { } definition)
             {
                 Append(value, "definition");
-                Append(value, definition.Value);
+                Append(
+                    value,
+                    MetadataReceiptEvidence.For(definition));
                 Append(value, (int)definition.Kind);
             }
             else
@@ -1263,7 +1271,7 @@ public static class ResourceEffectResolver
             if (type.GenericScope is { } scope)
             {
                 Append(value, (int)scope.Kind);
-                Append(value, scope.Owner.SourceValue);
+                Append(value, scope.Owner.SourceReceiptEvidence);
                 Append(value, scope.Owner.ModuleVersionId);
                 Append(value, scope.Owner.MethodToken);
             }
@@ -1335,7 +1343,7 @@ public static class ResourceEffectResolver
                 HashAlgorithmName.SHA256);
             AppendHash("resource-effect-occurrence-population-v1");
             AppendHash(directCalls.Catalog.Value.ToString("D"));
-            AppendHash(directCalls.Generation.Value.ToString("D"));
+            AppendHash(MetadataReceiptEvidence.For(directCalls.Generation));
             foreach (CatalogCallGraphParticipant participant
                 in participants)
             {
@@ -1390,7 +1398,10 @@ public static class ResourceEffectResolver
             CatalogCallGraphParticipant participant)
         {
             var value = new StringBuilder();
-            Append(value, participant.Assembly.Registration.Value);
+            Append(
+                value,
+                MetadataReceiptEvidence.For(
+                    participant.Assembly.Registration));
             AppendAssembly(value, participant.Assembly.Identity);
             Append(
                 value,
@@ -1558,13 +1569,15 @@ public static class ResourceEffectResolver
         {
             Append(
                 value,
-                hop.SourceAssembly.Assembly.Registration.Value);
+                MetadataReceiptEvidence.For(
+                    hop.SourceAssembly.Assembly.Registration));
             AppendAssembly(
                 value,
                 hop.SourceAssembly.Assembly.Identity);
             Append(
                 value,
-                hop.SourceOccurrence.Assembly.Registration.Value);
+                MetadataReceiptEvidence.For(
+                    hop.SourceOccurrence.Assembly.Registration));
             Append(value, hop.Declarations.Length);
             foreach (ExportedTypeToken declaration in hop.Declarations)
                 Append(value, declaration.Value);
@@ -1603,7 +1616,7 @@ public static class ResourceEffectResolver
         static string CanonicalPhysical(GraphNodeStorageKey physical)
         {
             var value = new StringBuilder();
-            Append(value, physical.SourceValue);
+            Append(value, physical.SourceReceiptEvidence);
             Append(value, physical.ModuleVersionId);
             Append(value, (int)physical.Kind);
             Append(value, physical.MethodToken);

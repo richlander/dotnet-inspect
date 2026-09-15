@@ -15,7 +15,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="ILInspector.Analysis" />
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
     <!-- The renderer tests cross a subsystem boundary to build projection
