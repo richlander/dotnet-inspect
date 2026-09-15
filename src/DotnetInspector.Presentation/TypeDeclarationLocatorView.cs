@@ -105,7 +105,15 @@ public sealed class TypeDeclarationLocatorView
                 gaps.Add(
                     new(
                         $"Context {context.ContextOrder + 1}",
-                        failure.Kind.ToString(),
+                        failure switch
+                        {
+                            TypeDeclarationLocatorContextFailure.ContextLoad load => load.Code.ToString(),
+                            TypeDeclarationLocatorContextFailure.ReferenceSource source =>
+                                $"{source.Outcome}: {source.Code}",
+                            TypeDeclarationLocatorContextFailure.ReferenceImage image =>
+                                image.Failure.Kind.ToString(),
+                            _ => throw new InvalidOperationException("Unknown declaration context failure."),
+                        },
                         Safe(failure.Message)));
             }
         }
@@ -245,6 +253,8 @@ public sealed class TypeDeclarationLocatorView
                 TypeDeclarationLocatorRealization.PlatformRealization
                     platform =>
                     platform.Producer,
+                TypeDeclarationLocatorRealization.PlatformReferenceRealization reference =>
+                    reference.Source.Authority,
                 TypeDeclarationLocatorRealization.EmbeddedRealization =>
                     "Embedded content",
                 _ => throw new InvalidOperationException(
@@ -272,6 +282,9 @@ public sealed class TypeDeclarationLocatorView
                 TypeDeclarationLocatorRealization.EmbeddedRealization
                     embedded =>
                     embedded.ContentRef,
+                TypeDeclarationLocatorRealization.PlatformReferenceRealization reference =>
+                    Join("Reference", reference.Source.Family.ToString(), reference.Source.Version,
+                        reference.Source.Framework, reference.Path),
                 _ => throw new InvalidOperationException(
                     "Unknown locator realization."),
             };

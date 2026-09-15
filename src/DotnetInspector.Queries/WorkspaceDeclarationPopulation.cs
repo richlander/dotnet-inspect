@@ -33,15 +33,13 @@ public sealed class WorkspaceDeclarationMember
         WorkspaceDeclarationOccurrence occurrence,
         ExactLibrarySourceCoordinate? coordinate,
         AssemblyReferenceIdentity assemblyIdentity,
-        WorkspaceMemberCoordinate declared,
-        RealizedMemberCoordinate realized,
+        WorkspaceDeclarationOrigin origin,
         AssemblyResolutionProvenance selection)
     {
         Occurrence = occurrence;
         Coordinate = coordinate;
         AssemblyIdentity = assemblyIdentity;
-        Declared = declared;
-        Realized = realized;
+        Origin = origin;
         Selection = selection;
     }
 
@@ -52,23 +50,22 @@ public sealed class WorkspaceDeclarationMember
             ? WorkspaceDeclarationCoordinateStatus.CoordinateUnavailable
             : WorkspaceDeclarationCoordinateStatus.Available;
     public AssemblyReferenceIdentity AssemblyIdentity { get; }
-    public WorkspaceMemberCoordinate Declared { get; }
-    public RealizedMemberCoordinate Realized { get; }
+    public WorkspaceDeclarationOrigin Origin { get; }
     public AssemblyResolutionProvenance Selection { get; }
 }
 
 /// <summary>
-/// Detached declaration, realization coverage, and roster from one context load.
+/// Detached request, realization coverage, and roster from one admitted context.
 /// </summary>
 public sealed class WorkspaceDeclarationContextReceipt
 {
     internal WorkspaceDeclarationContextReceipt(
         InspectionWorkspaceIdentity workspace,
         int order,
-        WorkspaceContextInput request,
+        WorkspaceDeclarationRequest request,
         bool isRealized,
         ImmutableArray<WorkspaceDeclarationMember> members,
-        ImmutableArray<WorkspaceContextLoadFailure> failures)
+        ImmutableArray<WorkspaceDeclarationFailure> failures)
     {
         Workspace = workspace;
         Order = order;
@@ -80,27 +77,39 @@ public sealed class WorkspaceDeclarationContextReceipt
 
     public InspectionWorkspaceIdentity Workspace { get; }
     public int Order { get; }
-    public WorkspaceContextInput Request { get; }
+    public WorkspaceDeclarationRequest Request { get; }
     public bool IsRealized { get; }
     public ImmutableArray<WorkspaceDeclarationMember> Members { get; }
-    public ImmutableArray<WorkspaceContextLoadFailure> Failures { get; }
+    public ImmutableArray<WorkspaceDeclarationFailure> Failures { get; }
 }
 
 /// <summary>
-/// A loader-issued context input. Live group access remains separate from its receipt.
+/// An admitted context. Live group access remains separate from its receipt.
 /// </summary>
 public sealed class WorkspaceDeclarationContext
 {
     internal WorkspaceDeclarationContext(
         WorkspaceDeclarationContextReceipt receipt,
         WorkspaceContextLoadOutcome outcome)
+        : this(receipt,
+            outcome is WorkspaceContextLoadOutcome.Loaded loaded ? loaded.Group : null)
+    {
+        ContextLoadOutcome = outcome;
+    }
+
+    internal WorkspaceDeclarationContext(
+        WorkspaceDeclarationContextReceipt receipt,
+        AssemblyContextGroup? group)
     {
         Receipt = receipt;
-        Outcome = outcome;
+        Group = group;
     }
 
     public WorkspaceDeclarationContextReceipt Receipt { get; }
-    public WorkspaceContextLoadOutcome Outcome { get; }
+    public AssemblyContextGroup? Group { get; }
+
+    /// <summary>The original loader result, when admitted by the context loader.</summary>
+    public WorkspaceContextLoadOutcome? ContextLoadOutcome { get; }
 }
 
 /// <summary>Identity of one captured association, not an arithmetic revision.</summary>

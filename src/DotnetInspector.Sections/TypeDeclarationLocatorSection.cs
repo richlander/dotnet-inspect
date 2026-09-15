@@ -225,6 +225,7 @@ public abstract record TypeDeclarationLocatorSectionCoordinate
 [JsonDerivedType(typeof(TypeDeclarationLocatorRealization.PackageRealization), "package")]
 [JsonDerivedType(typeof(TypeDeclarationLocatorRealization.PlatformRealization), "platform")]
 [JsonDerivedType(typeof(TypeDeclarationLocatorRealization.EmbeddedRealization), "embedded")]
+[JsonDerivedType(typeof(TypeDeclarationLocatorRealization.PlatformReferenceRealization), "platform-reference")]
 public abstract record TypeDeclarationLocatorRealization
 {
     private TypeDeclarationLocatorRealization()
@@ -251,6 +252,10 @@ public abstract record TypeDeclarationLocatorRealization
         string ContentRef,
         string Digest,
         string DeclaredName)
+        : TypeDeclarationLocatorRealization;
+
+    public sealed record PlatformReferenceRealization(
+        TypeDeclarationLocatorReferenceEvidence Source, string Path)
         : TypeDeclarationLocatorRealization;
 }
 
@@ -371,12 +376,6 @@ public sealed record TypeDeclarationLocatorMemberCoverage(
         UnsupportedDeclarations,
     CandidateOpenFailure? CandidateFailure,
     WorkspaceDeclarationPopulationFailure? WorkspaceFailure);
-
-/// <summary>One context-realization failure retained independently of rows.</summary>
-public sealed record TypeDeclarationLocatorContextFailure(
-    WorkspaceContextLoadFailureKind Kind,
-    string Message,
-    MetadataRootMalformedReason? MetadataRootReason);
 
 /// <summary>Coverage for one requested population context.</summary>
 public sealed record TypeDeclarationLocatorContextCoverage(
@@ -519,6 +518,7 @@ public static class TypeDeclarationLocatorSection
         TypeDeclarationLocatorResult.Evaluated result,
         TypeDeclarationLocatorSectionPlan plan)
     {
+        var references = new TypeDeclarationLocatorReferenceProjection();
         var observations =
             new Dictionary<
                 WorkspaceDeclarationMember,
@@ -528,7 +528,7 @@ public static class TypeDeclarationLocatorSection
         {
             if (!observations.TryGetValue(member, out var observation))
             {
-                observation = ProjectObservation(member);
+                observation = ProjectObservation(member, references);
                 observations.Add(member, observation);
             }
 
@@ -538,17 +538,12 @@ public static class TypeDeclarationLocatorSection
         ImmutableArray<TypeDeclarationLocatorContextCoverage> contexts =
         [
             .. result.Population.Contexts.Select(
-                static context =>
+                context =>
                     new TypeDeclarationLocatorContextCoverage(
                         context.Order,
                         context.IsRealized,
                         [
-                            .. context.Failures.Select(
-                                static failure =>
-                                    new TypeDeclarationLocatorContextFailure(
-                                        failure.Kind,
-                                        failure.Message,
-                                        failure.MetadataRootReason)),
+                            .. context.Failures.Select(references.Failure),
                         ])),
         ];
         ImmutableArray<TypeDeclarationLocatorMemberCoverage> members =
@@ -767,38 +762,13 @@ public static class TypeDeclarationLocatorSection
     }
 
     private static TypeDeclarationLocatorObservation ProjectObservation(
-        WorkspaceDeclarationMember member) =>
+        WorkspaceDeclarationMember member,
+        TypeDeclarationLocatorReferenceProjection references) =>
         new(
             member.Occurrence.ContextOrder,
             member.Occurrence.MemberOrder,
             member.AssemblyIdentity,
-            member.Realized switch
-            {
-                RealizedMemberCoordinate.Package package =>
-                    new TypeDeclarationLocatorRealization
-                        .PackageRealization(
-                        package.PackageId,
-                        package.Version,
-                        package.Producer,
-                        package.Framework,
-                        package.RuntimeIdentifier),
-                RealizedMemberCoordinate.Platform platform =>
-                    new TypeDeclarationLocatorRealization
-                        .PlatformRealization(
-                        platform.Family,
-                        platform.Version,
-                        platform.Producer,
-                        platform.Framework,
-                        platform.Assembly),
-                RealizedMemberCoordinate.Embedded embedded =>
-                    new TypeDeclarationLocatorRealization
-                        .EmbeddedRealization(
-                        embedded.ContentRef,
-                        embedded.Digest,
-                        embedded.DeclaredName),
-                _ => throw new InvalidOperationException(
-                    "Unknown realized workspace member coordinate."),
-            },
+            ProjectRealization(member.Origin, references),
             member.Selection switch
             {
                 AssemblyResolutionProvenance.PackageAsset package =>
@@ -831,4 +801,25 @@ public static class TypeDeclarationLocatorSection
                 _ => throw new InvalidOperationException(
                     "Unknown assembly selection provenance."),
             });
+
+    private static TypeDeclarationLocatorRealization ProjectRealization(
+        WorkspaceDeclarationOrigin origin,
+        TypeDeclarationLocatorReferenceProjection references) =>
+        origin switch
+        {
+            WorkspaceDeclarationOrigin.ContextLoad { Realized: RealizedMemberCoordinate.Package package } =>
+                new TypeDeclarationLocatorRealization.PackageRealization(
+                    package.PackageId, package.Version, package.Producer,
+                    package.Framework, package.RuntimeIdentifier),
+            WorkspaceDeclarationOrigin.ContextLoad { Realized: RealizedMemberCoordinate.Platform platform } =>
+                new TypeDeclarationLocatorRealization.PlatformRealization(
+                    platform.Family, platform.Version, platform.Producer, platform.Framework, platform.Assembly),
+            WorkspaceDeclarationOrigin.ContextLoad { Realized: RealizedMemberCoordinate.Embedded embedded } =>
+                new TypeDeclarationLocatorRealization.EmbeddedRealization(
+                    embedded.ContentRef, embedded.Digest, embedded.DeclaredName),
+            WorkspaceDeclarationOrigin.PlatformReference reference =>
+                new TypeDeclarationLocatorRealization.PlatformReferenceRealization(
+                    references.Evidence(reference.Source), reference.Path),
+            _ => throw new InvalidOperationException("Unknown declaration origin."),
+        };
 }

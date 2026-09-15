@@ -8,8 +8,11 @@ the merged [reverse locator contract](reverse-type-declaration-locator.md)
 in [#6853](https://github.com/richlander/dotnet-inspect/pull/6853).
 The [explicit context projection](#implemented-explicit-context-projection)
 and [resident context facade](#implemented-resident-context-facade) are
-implemented for loader-issued declaration contexts. Other population producers,
-reference-view projection and host adoption remain pending. The interaction
+implemented for loader-issued declaration contexts. The
+[reference-population adapter](#implemented-reference-population-admission)
+adds package-backed reference realizations under
+[#7077](https://github.com/richlander/dotnet-inspect/issues/7077).
+Other population producers and host adoption remain pending. The interaction
 model supplements, rather than certifies, the implementation.
 
 **Workspace Live Locator**, within Workspace composition in
@@ -195,7 +198,8 @@ and already-cancelled callers do not activate it. The first getter fixes the
 options, and a later getter cannot silently change the active service's limits.
 
 The observed population consists of completed `LoadDeclarationContextAsync`
-calls on that Workspace. This method is explicit searchable-context admission;
+calls and explicit reference admissions on that Workspace. These operations
+are searchable-context admission;
 ordinary `LoadAsync`, raw groups, inert registrations, and Artifact Root/Scope
 publication do not implicitly join it. Cold callers may still capture an exact
 subset with `CaptureDeclarationPopulation`. The resident facade has one
@@ -283,12 +287,85 @@ The 17 small-fixture cases are PR-fast. The real multi-assembly case is
 It uses the existing loader's **implementation-pack** Platform view:
 `System.Text.Json@10.0.0` followed by selected
 `Microsoft.NETCore.App.Runtime.linux-x64@10.0.10` assemblies. Reference-view
-population projection is still unverified at this adapter. The dedicated
+population projection is covered separately below. The dedicated
 [package-backed Platform source](package-backed-platform-realization.md)
 owns reference-pack realization; adopting its correspondence is not permission
 to label reference-pack files as the legacy loader's implementation view.
 Other producer adapters and the complete CLI/Browser handoff remain successor
 work; this implementation does not close all of #6845.
+
+## Implemented reference-population admission
+
+`WorkspaceReferenceDeclarationLoader` consumes the
+[package-backed Platform source](package-backed-platform-realization.md);
+it does not add another reference-pack resolver. `LoadAsync` takes either an
+externally established exact reference coordinate or an unchanged source-issued
+target selection, the selected population, work bounds, and a Package Source
+operation. `Admit` accepts an already-realized source value, including one
+returned by the House adapter. Neither operation selects a version, ranks a
+producer, or changes reference bytes into implementation-view evidence.
+
+The adapter's claim is explicit admission into the existing searchable
+population: a successful source roster becomes one retained group and one
+completed declaration context; a source or image-retention failure becomes an
+attributed failed context without a partial roster. Request order is reserved
+before asynchronous source work. A successful exact-assembly demand is complete
+for that demand, not for the entire reference pack.
+
+The general receipt now uses closed `WorkspaceDeclarationRequest`,
+`WorkspaceDeclarationOrigin`, and `WorkspaceDeclarationFailure` alternatives.
+The context-loader alternatives preserve its existing input, realized
+coordinates, and failures. The reference alternatives preserve the source's
+exact family target and population, reference entry path, candidate kind,
+discovery observations, safe authority display, serving source identity,
+source-attempt generation, package-content generation, and preceding package
+failures. These are observation evidence, not a new portable acquisition
+coordinate. In particular, reference admission does not extend or relabel the
+legacy implementation-pack `RealizedMemberCoordinate.Platform`.
+
+The logical Library coordinate remains Platform plus Metadata assembly
+identity. Equal coordinates, equal bytes, or equal authority display labels
+do not identify an occurrence. Admitting the same realization twice, or equal
+coordinates from different sources, creates separate contexts and occurrences.
+`WorkspaceDeclarationContext.Group` carries live group access; its optional
+`ContextLoadOutcome` carries the original context-loader result only. Detached
+receipts and locator answers retain source evidence instead of this live access.
+
+Both adapters use the existing immutable-image retention and closed-world
+binding construction. Each reference group has its own retained-image budget
+and lends its retained images to Metadata through the existing scoped session
+path. A rejected image names its source and entry. Cancellation stays
+cancellation. A group committed before cancellation remains Workspace-owned,
+as on the context-loader path. Package Source owns acquisition and consumes
+its operation; the Workspace adapter releases operations rejected before that
+transfer. Workspace close prevents later publication and drains admitted
+groups and locator maintenance, not separately caller-owned source acquisition.
+
+No additional resident lifecycle is introduced. Explicit reference completion
+uses the same coherent publication/notification path, including upstream gaps.
+An active locator maintains appended occurrences without another Find.
+Earlier captures and answers stay unchanged; cold and resident queries over
+the same capture retain the same choices and coverage.
+
+Release gates live in `WorkspaceReferenceDeclarationLoaderTests`:
+
+| Claim | Gate |
+| --- | --- |
+| Distinct source observations and retained access after source settlement | `ExactReferencesFromDistinctProducersRemainDistinctAndOutliveSourceSettlement` |
+| Source-issued selection, automatic append, pinned earlier results and cold equivalence | `DiscoveredReferenceAppendMaintainsResidentLocatorAndPreservesEarlierEvidence` |
+| Upstream failure remains visible beside healthy evidence | `SourceFailureRemainsVisibleBesideHealthyReference` |
+| Image bounds produce an attributed failure, not a partial roster | `ZeroRetainedImageBudgetRejectsReferenceContextAtomically` |
+| Cancellation and closed admission release the operation | `CancellationAndClosedWorkspaceReleasePackageOperations` |
+| Real Package/reference observations and acquisition-free Find reuse | `RealPackageReferenceAppendAddsSecondJsonSerializerChoiceWithoutFindNetwork` |
+
+The real-package case pins `System.Text.Json@10.0.0` beside
+`Microsoft.NETCore.App.Ref@10.0.10` and is retained as `Speed=Slow` in the
+existing unfiltered daily Queries suite. Small-fixture cases are PR-fast.
+The shared [Sections projection](output-shapes.md#reverse-type-declaration-locator-projection)
+consumes the reference alternatives; CLI and TypeScript/Browser production
+adoption remain steps 7 and 8 of the
+[delivery map](reverse-type-locator-adoption.md). Artifact Root/Scope,
+installed-reference, local/project, and other producer adapters remain separate.
 
 ## Resident inventories and shared work
 
@@ -433,8 +510,10 @@ Before product support, #6845 requires Release gates over the actual facade:
 
 Metadata borrowing/visibility (#6848), exact population projection (#6845),
 and the cold query (#6849) precede the resident facade's executable delivery.
-The same #6845 issue remains open for that implementation after this design
-lands. Common Sections (#6846), CLI (#6844), and Browser (#6851) adopt the
-live facade along the existing nine-step map; the one-shot CLI uses a short
+Issue #6845 is closed after the explicit-context and resident deliveries; #7077
+tracks the package-backed reference adapter. Other producer adapters remain
+explicit step 4 successors, not implied by the closed tracker. Common Sections
+(#6846) is implemented; CLI (#6844) and Browser (#6851) adopt the
+live facade along the existing nine-step map. The one-shot CLI uses a short
 Workspace lifetime rather than a separate index. Local/project coordinate
 support remains #6847. Old Platform lookup retirement remains #6850.
