@@ -2837,6 +2837,76 @@
         ]
       },
       "canonical": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"k\",\"desc\"]]}"
+    },
+    {
+      "name": "terms-key-before-operator",
+      "description": "Two terms whose key order and operator order disagree: the key decides. An operator-first comparator would emit them the other way round.",
+      "queryId": "row.query",
+      "intent": {
+        "t": [
+          [
+            "z",
+            "eq",
+            "v"
+          ],
+          [
+            "a",
+            "ne",
+            "v"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"a\",\"ne\",\"v\"],[\"z\",\"eq\",\"v\"]]}"
+    },
+    {
+      "name": "terms-operator-before-value",
+      "description": "Two terms on one key whose operator order and value order disagree: the operator decides. A value-first comparator would emit them the other way round.",
+      "queryId": "row.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "ne",
+            "a"
+          ],
+          [
+            "k",
+            "eq",
+            "z"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"z\"],[\"k\",\"ne\",\"a\"]]}"
+    },
+    {
+      "name": "all-four-operators-ordered",
+      "description": "All four operators on one key and value sort eq, gte, lte, ne — scalar order of the operator texts, with every adjacent comparison forced.",
+      "queryId": "row.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "ne",
+            "v"
+          ],
+          [
+            "k",
+            "lte",
+            "v"
+          ],
+          [
+            "k",
+            "gte",
+            "v"
+          ],
+          [
+            "k",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"ne\",\"v\"]]}"
     }
   ],
   "encode-reject": [
@@ -10031,6 +10101,502 @@
         ]
       },
       "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "operator-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the operator slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "a\ud800b",
+            "v"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "operator-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the operator slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "a\udc00b",
+            "v"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "stage-kind-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the stage-kind slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "s": [
+          [
+            "a\ud800b",
+            1
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "stage-kind-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the stage-kind slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "s": [
+          [
+            "a\udc00b",
+            1
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "order-kind-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the order-kind slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "a\ud800b",
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "order-kind-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the order-kind slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "a\udc00b",
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "role-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the role slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "a\ud800b",
+            "named",
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "role-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the role slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "a\udc00b",
+            "named",
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "direction-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the direction slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            "n",
+            "a\ud800b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "direction-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the direction slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            "n",
+            "a\udc00b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-1-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the field-direction-1 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "k",
+            "a\ud800b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-1-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the field-direction-1 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "k",
+            "a\udc00b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-2-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the field-direction-2 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "k",
+            "a\ud800b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-2-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the field-direction-2 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "k",
+            "a\udc00b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-3-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the field-direction-3 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "k",
+            "a\ud800b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-3-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the field-direction-3 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "k",
+            "a\udc00b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-4-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the field-direction-4 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "k",
+            "a\ud800b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-4-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the field-direction-4 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "k",
+            "a\udc00b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-5-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the field-direction-5 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "k",
+            "a\ud800b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-5-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the field-direction-5 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "k",
+            "a\udc00b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-6-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the field-direction-6 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "k",
+            "a\ud800b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-6-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the field-direction-6 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "k",
+            "a\udc00b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-7-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the field-direction-7 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "k",
+            "a\ud800b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-7-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the field-direction-7 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "k",
+            "a\udc00b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-8-unpaired-high-surrogate-in-intent",
+      "description": "A lone high surrogate in the field-direction-8 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "k",
+            "a\ud800b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-8-unpaired-low-surrogate-in-intent",
+      "description": "A lone low surrogate in the field-direction-8 slot is refused on the intent side by the string rule, before any token is matched.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "k",
+            "a\udc00b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
     }
   ],
   "reject": [
@@ -13656,6 +14222,192 @@
       "name": "field-key-8-unpaired-low-surrogate",
       "description": "A lone low surrogate escape in the key of field-list pair 8 is refused on the wire.",
       "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\udc00b\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "terms-operator-before-key-on-the-wire",
+      "description": "The same two terms in operator-first order are not canonical.",
+      "bytes": "{\"t\":[[\"z\",\"eq\",\"v\"],[\"a\",\"ne\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "terms-value-before-operator-on-the-wire",
+      "description": "The same two terms in value-first order are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"ne\",\"a\"],[\"k\",\"eq\",\"z\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operators-adjacent-swap-1-on-the-wire",
+      "description": "The four operators with one adjacent pair swapped (gte, eq, lte, ne) are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"gte\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"ne\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operators-adjacent-swap-2-on-the-wire",
+      "description": "The four operators with one adjacent pair swapped (eq, lte, gte, ne) are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"ne\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operators-adjacent-swap-3-on-the-wire",
+      "description": "The four operators with one adjacent pair swapped (eq, gte, ne, lte) are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"ne\",\"v\"],[\"k\",\"lte\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operator-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the operator slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"t\":[[\"k\",\"a\\ud800b\",\"v\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "operator-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the operator slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"t\":[[\"k\",\"a\\udc00b\",\"v\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "stage-kind-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the stage-kind slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"s\":[[\"a\\ud800b\",1]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "stage-kind-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the stage-kind slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"s\":[[\"a\\udc00b\",1]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "order-kind-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the order-kind slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"a\\ud800b\",\"n\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "order-kind-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the order-kind slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"a\\udc00b\",\"n\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "role-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the role slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"a\\ud800b\",\"named\",\"n\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "role-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the role slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"a\\udc00b\",\"named\",\"n\",\"asc\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "direction-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the direction slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"a\\ud800b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "direction-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the direction slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"a\\udc00b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-1-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the field-direction-1 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"k\",\"a\\ud800b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-1-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the field-direction-1 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"k\",\"a\\udc00b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-2-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the field-direction-2 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"k\",\"a\\ud800b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-2-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the field-direction-2 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"k\",\"a\\udc00b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-3-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the field-direction-3 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"k\",\"a\\ud800b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-3-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the field-direction-3 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"k\",\"a\\udc00b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-4-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the field-direction-4 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"k\",\"a\\ud800b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-4-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the field-direction-4 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"k\",\"a\\udc00b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-5-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the field-direction-5 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"k\",\"a\\ud800b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-5-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the field-direction-5 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"k\",\"a\\udc00b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-6-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the field-direction-6 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"k\",\"a\\ud800b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-6-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the field-direction-6 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"k\",\"a\\udc00b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-7-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the field-direction-7 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"k\",\"a\\ud800b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-7-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the field-direction-7 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"k\",\"a\\udc00b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-8-unpaired-high-surrogate",
+      "description": "A lone high surrogate escape in the field-direction-8 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"k\",\"a\\ud800b\"]]}",
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "field-direction-8-unpaired-low-surrogate",
+      "description": "A lone low surrogate escape in the field-direction-8 slot is refused on the wire by the string rule, before any token is matched.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"k\",\"a\\udc00b\"]]}",
       "reject": "unpaired-surrogate"
     }
   ],
