@@ -502,6 +502,49 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task Find_LocatorNullableGenericPatternIsExact()
+    {
+        string id =
+            $"Workspace.Search.Nullable.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "nullable generic pattern package",
+            library: assembly,
+            libraryName: "NullablePattern.dll");
+        ConfigureCommandFeed(id, package);
+        const string Pattern =
+            "DotnetInspect.Cli.Tests.NullablePatternTarget<string?>";
+
+        var result = await RunCommandAsync(
+            [
+                "find", Pattern,
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        using System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        System.Text.Json.JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            Pattern,
+            row.GetProperty("pattern").GetString());
+        Assert.Equal(
+            "Exact",
+            row.GetProperty("match").GetString());
+        Assert.Equal(
+            typeof(NullablePatternTarget<>).FullName,
+            row.GetProperty("full_name").GetString());
+    }
+
+    [Fact]
     public async Task Find_PackageLocatorInventoryRejectionIsVisible()
     {
         string id =

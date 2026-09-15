@@ -3,10 +3,13 @@
 This document owns the CLI-scoped type-search operation implemented by
 `TypeSearchService.FindTypesAsync`: given a host-authorized source scope and
 one or more parsed type patterns, it collects Metadata-issued candidates,
-classifies each pattern, and returns typed candidate rows. A row produced by
-the reverse-locator path retains its exact coordinate, structured name,
-declaration kind, origin, and observation context; a presentation adapter may
-still lower that row to the established `TypeFindResult` display shape.
+classifies each pattern, and returns flat `TypeFindResult` rows with source
+provenance. `find` is coordinate discovery, not declaration selection: one
+pattern may intentionally return several source-backed Type candidates.
+A row produced by the reverse-locator path retains its exact coordinate,
+structured name, declaration kind, origin, and observation context through a
+JSON-ignored association; the published row remains the established
+`TypeFindResult` shape.
 
 [CLI host architecture](../cli-architecture.md) owns parsing, source
 authorization, operation lifetime, diagnostics, exit status, and rendering.
@@ -149,6 +152,48 @@ ordered source collector, typed query execution, flat result rows, and
 writer-owned presentation. Member search has a different classification
 contract, however, and is not owned here.
 
+## Discovery, not selection
+
+`find` answers "which source-backed Type candidates match this pattern?" It
+does not answer "which one Type did the user select?" Multiplicity is useful
+discovery evidence, not ambiguity, and the service does not rank one direct
+match as the terminal declaration.
+
+The direct matching grammar is deliberately lenient:
+
+- a non-glob pattern without explicit generic notation leaves generic arity
+  unspecified, so `Action` may discover `Action`, `Action<T>`,
+  `Action<T1,T2>`, and the other matching arities;
+- simple names and namespace-qualified suffixes may discover candidates with
+  additional namespace qualification;
+- explicit generic notation such as `Action<T>` preserves the requested arity;
+  and
+- `*` and `?` explicitly widen the search through the glob grammar.
+
+All direct matches remain eligible, subject to the operation limit. An exact
+full-name match does not suppress another direct simple-name, suffix, or
+arity-unspecified match. The exact single-Type operation owns the contrasting
+selection contract: it applies full-name and arity-preserving precedence before
+generic-name fallback and must either identify one terminal definition or
+surface ambiguity or unavailability. See [Exact single-Type
+operation](assembly-inspection-query.md#exact-single-type-operation).
+
+The current `MatchKind.Exact` name is compatibility vocabulary for a **direct
+non-glob grammar match**. It does not claim exact Metadata identity, exact full
+name, explicit generic arity, uniqueness, or successful terminal selection.
+`Glob` means the direct or namespace-prefix wildcard grammar matched, while
+`Partial` remains similarity fallback. A future vocabulary migration may choose
+the clearer name `Direct`, but it must preserve the current one-to-many
+discovery behavior unless a separately owned product change revises it.
+
+The real platform `System.Action` family demonstrates the boundary:
+
+| Request | Discovery or selection result |
+| --- | --- |
+| `find Action` | May return the non-generic and every generic arity in scope, each as a direct `Exact` row. |
+| `find Action<T>` | Returns direct arity-one candidates; it does not include non-generic or other arities. |
+| `type Action` in one exact source | Prefers the non-generic declaration under the separately owned exact-Type selection contract. |
+
 ## Request boundary
 
 `FindCommand` supplies:
@@ -221,8 +266,11 @@ contributes results:
 1. **Direct match.** `TypeMatcher.MatchesTypeFilter` applies the Metadata-owned
    case-insensitive type grammar, including simple-name, namespace-qualified,
    generic-arity, nested-type, and wildcard matching. A wildcard pattern
-   produces `Glob`; another direct pattern produces `Exact`. Direct matches
-   preserve each candidate's source provenance.
+   produces `Glob`; another direct pattern produces the compatibility
+   classification `Exact`, meaning direct non-glob grammar match rather than
+   exact identity or unique selection. Direct matches preserve every
+   candidate's source provenance; the service does not apply terminal-selection
+   precedence within this rung.
 2. **Namespace-prefix fallback.** A non-wildcard dotted pattern without
    explicit generic notation may be retried as `<pattern>*`. The fallback is
    visible on stderr, the effective wildcard is carried in `Pattern`, and the
@@ -325,8 +373,15 @@ the command compatibility boundary:
 - configured-source command decline; and
 - separate `System.Object` definition and forwarder choices.
 
-The classification cascade itself has no focused service-level gate. In
-particular, the following properties are unverified or known gaps:
+`FindTypesAsync_NullableGenericPatternIsClassifiedAsExact` is the first focused
+service-level classification gate. It verifies that result classification uses
+the matcher-owned normalized glob predicate, so nullable generic syntax remains
+a direct `Exact` match rather than becoming `Glob` merely because its raw
+spelling contains `?`.
+`Find_LocatorNullableGenericPatternIsExact` applies the same predicate contract
+to an exact-version Package admitted through the reverse locator. Broader
+cascade equivalence remains ungated. In particular, the following properties
+are unverified or known gaps:
 
 - the optimized single-pattern path returns an empty list for an all-miss
   pattern, while the census path constructs a `NotFound` row;
@@ -337,7 +392,10 @@ particular, the following properties are unverified or known gaps:
 - partial suggestions are selected by similarity but emitted in collected
   candidate order and are not additionally capped by `Limit`;
 - mixed-pattern result order is grouped by outcome dictionaries rather than
-  explicitly preserving request order.
+  explicitly preserving request order; and
+- `MatchKind.Exact` is ambiguous compatibility vocabulary for a direct
+  non-glob match; any rename to `Direct` must account for typed and rendered
+  output compatibility without making matching stricter.
 
 The minimum pathological fixture for future adoption is one non-wildcard
 pattern with no direct, namespace-prefix, or similarity match, exercised
@@ -358,6 +416,8 @@ This design does not:
 - define Metadata type identity, spelling normalization, or similarity
   algorithms;
 - define `type` command lookup, ambiguity, or `--find-if-miss` routing;
+- select one terminal Type, treat multiple direct matches as ambiguity, or give
+  a full-name direct match precedence over other direct matches;
 - make source order a general assembly-resolution precedence outside this
   operation;
 - define duplicate input-pattern normalization;
