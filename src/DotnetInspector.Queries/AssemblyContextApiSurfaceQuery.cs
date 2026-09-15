@@ -338,6 +338,37 @@ public static class AssemblyContextApiSurfaceQuery
             session => Project(session, scope));
     }
 
+    internal static AssemblyContextEntry<AssemblyApiSurface>
+        ExecuteParticipantResolved(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            ApiSurfaceScope scope)
+    {
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+
+        return AssemblyContextQueryExecutor.ExecuteParticipantOverSnapshot(
+            group,
+            participant,
+            (_, snapshot) =>
+            {
+                using var catalog = new TypeResolutionCatalog();
+                catalog.RegisterRetainedSnapshot(
+                    participant.Assembly,
+                    snapshot);
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Open(snapshot);
+                ApiSurface surface = session.ApiSurface(
+                    participant.Assembly,
+                    catalog,
+                    participant.BindingPolicy,
+                    ExtractionScope(scope));
+                return new AssemblyApiSurface(
+                    surface,
+                    [.. surface.InspectionFailures]);
+            });
+    }
+
     /// <summary>
     /// Projects a selected participant set under explicit bounds, stopping at the first bound it
     /// would exceed and reporting that stop.

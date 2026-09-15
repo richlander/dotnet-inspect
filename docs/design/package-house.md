@@ -678,11 +678,10 @@ Resource-free settlements, runtime realizations, early acquisition or
 selection failures, operation-timeout failures, and acquired coordinates
 outside the existing package Root grammar return a typed no-contribution
 outcome preserving the original House result. The package Root coordinate
-currently cannot represent every configured HTTP or local Package Source
-producer key, or the broader Unicode package-id grammar accepted by Package
-Source. Until
-[#6946](https://github.com/richlander/dotnet-inspect/issues/6946) extends that
-Artifact/Workspace producer contract, and
+records the Package Source-issued portable producer token, so configured HTTP
+and local producers contribute without exposing their complete producer key.
+The coordinate still cannot represent the broader Unicode package-id grammar
+accepted by Package Source. Until
 [#6967](https://github.com/richlander/dotnet-inspect/issues/6967) reconciles
 the package-id grammars, the adapter reports `CoordinateNotRepresentable`
 rather than throwing, guessing another identity, or weakening correspondence.

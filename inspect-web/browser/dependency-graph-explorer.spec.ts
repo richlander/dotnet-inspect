@@ -16,7 +16,8 @@ test("Dependencies relocates the live graph and group controls, not the lists", 
   await page.getByRole("button", { name: "Explore", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Dependency graph" });
   await expect(dialog.locator(".graph-explorer-kind")).toHaveText("Dependency graph");
-  await expect(dialog.locator("#graph-explorer-title")).toHaveText("Example.Package@1.0.0");
+  await expect(dialog.locator("#graph-explorer-title"))
+    .toHaveText("Microsoft.Extensions.Hosting@10.0.0");
   await expect(dialog.locator(".graph-explorer-context")).toHaveText("Target framework net10.0");
   await expect(dialog.locator(".graph-explorer-summary"))
     .toHaveText("callers above · dependencies below · click a package to open");
@@ -24,8 +25,8 @@ test("Dependencies relocates the live graph and group controls, not the lists", 
   await expect(dialog.locator("#dep-tfm-chips")).toBeVisible();
   const legend = dialog.locator(".graph-legend");
   await expect(legend).toContainText("inspected package");
-  await expect(legend).toContainText("open in workspace");
-  await expect(legend).toContainText("load on selection");
+  await expect(legend).toContainText("same prefix");
+  await expect(legend).toContainText("external");
   await expect(legend.locator(".legend-swatch")).toHaveCount(3);
   await expect(dialog.locator("#dep-list-section, #assembly-references, #coordinates")).toHaveCount(0);
   await expect(page.locator("#graph-explorer-title")).toBeFocused();
@@ -76,13 +77,71 @@ test("a pending diagram completes in the viewer without another mount", async ({
 
 test("Dependency graph nodes show hover and keyboard-focus feedback", async ({ page }) => {
   await page.getByRole("button", { name: "Explore", exact: true }).click();
-  const node = page.getByRole("button", { name: "Open Loaded.Dependency", exact: true });
+  const node = page.getByRole("button", {
+    name: "Open Microsoft.Extensions.Logging",
+    exact: true,
+  });
   await expectGraphNodeInteractionFeedback(page, node);
+});
+
+test("structural identity is independent from loaded navigation state", async ({
+  page,
+}) => {
+  const colors = async () => ({
+    inspected: await page.locator(
+      "#dependency-graph-diagram g.node.inspected rect.label-container",
+    ).evaluate(element => getComputedStyle(element).fill),
+    samePrefix: await page.locator(
+      "#dependency-graph-diagram g.node.samePrefix rect.label-container",
+    ).first().evaluate(element => getComputedStyle(element).fill),
+    external: await page.locator(
+      "#dependency-graph-diagram g.node.external rect.label-container",
+    ).first().evaluate(element => getComputedStyle(element).fill),
+  });
+  const samePrefixLoaded = page.getByRole("button", {
+    name: "Open Microsoft.Extensions.Logging",
+    exact: true,
+  });
+  const samePrefixUnloaded = page.getByRole("button", {
+    name: "Load Microsoft.Extensions.Options",
+    exact: true,
+  });
+  const externalLoaded = page.getByRole("button", {
+    name: "Open Serilog",
+    exact: true,
+  });
+  const externalUnloaded = page.getByRole("button", {
+    name: "Load Newtonsoft.Json",
+    exact: true,
+  });
+
+  await expect(samePrefixLoaded).toHaveClass(/samePrefix/);
+  await expect(samePrefixUnloaded).toHaveClass(/samePrefix/);
+  await expect(externalLoaded).toHaveClass(/external/);
+  await expect(externalUnloaded).toHaveClass(/external/);
+  expect(await colors()).toEqual({
+    inspected: "rgb(49, 26, 127)",
+    samePrefix: "rgb(40, 76, 115)",
+    external: "rgb(52, 58, 70)",
+  });
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "light";
+    return window.dependencyExploreProbe.update("ready");
+  });
+  expect(await colors()).toEqual({
+    inspected: "rgb(238, 234, 251)",
+    samePrefix: "rgb(201, 220, 241)",
+    external: "rgb(224, 227, 232)",
+  });
 });
 
 test("dependency nodes are keyboard navigable and dragging does not activate them", async ({ page }) => {
   await page.getByRole("button", { name: "Explore", exact: true }).click();
-  const node = page.getByRole("button", { name: "Open Loaded.Dependency", exact: true });
+  const node = page.getByRole("button", {
+    name: "Open Microsoft.Extensions.Logging",
+    exact: true,
+  });
   const box = await node.boundingBox();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.down();
@@ -92,7 +151,8 @@ test("dependency nodes are keyboard navigable and dragging does not activate the
   await node.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Dependencies: Loaded.Dependency");
+  await expect(page.getByRole("heading", { level: 1 }))
+    .toHaveText("Dependencies: Microsoft.Extensions.Logging");
   await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
 });
 
@@ -103,10 +163,14 @@ test("unloaded package navigation dismisses the viewer; failure remains inline",
   await expect(page.getByRole("status")).toContainText("fixture acquisition failure");
   await expect(page.getByRole("button", { name: "Explore", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Explore", exact: true }).click();
-  await page.getByRole("button", { name: "Load New.Dependency", exact: true }).focus();
+  await page.getByRole("button", {
+    name: "Load Microsoft.Extensions.Options",
+    exact: true,
+  }).focus();
   await page.keyboard.press("Space");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Dependencies: New.Dependency");
+  await expect(page.getByRole("heading", { level: 1 }))
+    .toHaveText("Dependencies: Microsoft.Extensions.Options");
   await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
 });
 

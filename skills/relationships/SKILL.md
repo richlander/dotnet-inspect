@@ -44,6 +44,25 @@ dnx dotnet-inspect -y -- depends \
   --package-prefix Microsoft.Extensions --tfm net10.0 -v:n
 ```
 
+## Would the platform supply a direct dependency?
+
+`depends -S Pruning` explicitly compares each selected direct declaration's
+source-authorized package candidate with one exact installed platform
+inventory. It requires `--tfm`; the default family is `runtime`, and
+`--platform-family aspnetcore` selects ASP.NET Core. The section does not
+traverse or remove graph edges.
+
+```bash
+dnx dotnet-inspect -y -- depends \
+  --package System.Text.Json@9.0.0 \
+  --tfm net11.0 \
+  -S Pruning
+```
+
+Read `Candidate` as the selected package version and `Platform Provides` as
+separate comparison evidence. An older platform-provided version produces
+`PackageRetained`; it is not selected as a downgrade.
+
 ## What implements or extends it?
 
 `implements Interface` finds concrete implementors and subclasses;

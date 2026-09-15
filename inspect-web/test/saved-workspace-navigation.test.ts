@@ -694,20 +694,18 @@ function harness() {
 
 test("failed workspace restore retains the background Wasm stack through its foreground retry", async () => {
   const h = harness();
-  const runtimeFailure = new WebAssembly.RuntimeError(
-    "memory access out of bounds",
-  );
-  runtimeFailure.stack = [
-    "RuntimeError: memory access out of bounds",
-    "    at wasm://wasm/0123456a:wasm-function[18442]:0x4f22bc",
+  const runtimeDiagnostic = [
+    "index out of bounds",
+    "WasmR2RToInterpreterThunk@wasm://wasm/0123456a:wasm-function[18442]:0x4f22bc",
   ].join("\n");
-  const cleanupFailure = new Error(
-    "Assert failed: The runtime is not running.",
-  );
-  cleanupFailure.stack = [
+  const runtimeFailure = new Error(runtimeDiagnostic);
+  runtimeFailure.stack = runtimeDiagnostic;
+  const cleanupDiagnostic = [
     "Error: Assert failed: The runtime is not running.",
     "    at engine-worker-client.js:1:74861",
   ].join("\n");
+  const cleanupFailure = new Error(cleanupDiagnostic);
+  cleanupFailure.stack = cleanupDiagnostic;
   let attempts = 0;
   h.controls.queryPackage = async () => {
     attempts++;
@@ -724,12 +722,18 @@ test("failed workspace restore retains the background Wasm stack through its for
   await h.restoreWithProductionLoad(loc);
 
   assert.equal(attempts, 2);
+  assert.match(h.state.error, /index out of bounds/u);
   assert.match(h.state.error, /runtime is not running/u);
-  assert.match(h.state.errorDetail, /^RuntimeError: memory access out of bounds/u);
+  assert.doesNotMatch(
+    h.state.error,
+    /WasmR2RToInterpreterThunk|engine-worker-client/u,
+  );
+  assert.doesNotMatch(h.state.error, /\n/u);
+  assert.match(h.state.errorDetail, /^index out of bounds/u);
   assert.match(h.state.errorDetail, /wasm-function\[18442\]/u);
   assert.match(h.state.errorDetail, /Subsequent failure:/u);
   assert.ok(
-    h.state.errorDetail.indexOf("memory access out of bounds")
+    h.state.errorDetail.indexOf("index out of bounds")
       < h.state.errorDetail.indexOf("runtime is not running"),
   );
 });

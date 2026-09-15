@@ -20,8 +20,10 @@ ordinary canonical Browser workspace only after the selected result is ready.
 CLI Platform demos use the same `WorkspaceContextLoader` implementation-pack
 realization before lowering the selected images into the ordinary type/member
 section pipeline.
-Schema version 2, packet format 2, complete view binding, and the restoration
-coordinator defined here are not yet implemented. Issue
+The query-free schema-version-2 record, strict JSON, same-version composition,
+and schema-dispatch substrate are implemented. Query payload codecs, packet
+format 2, runtime selector resolution, complete view binding, and the
+restoration coordinator defined here are not yet implemented. Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
 complete-restoration implementation; its first retained production consumer is
 Inspect Web activation
@@ -443,8 +445,8 @@ claim.
 ### Complete committed views
 
 Definition schema version 2 replaces the flat version-1 view with one
-committed state for every entry in the scenario's navigation record. This is
-the long-form shape:
+null-coordinate Workspace state followed by one state for every entry in the
+scenario's navigation record. This is the query-free long-form shape:
 
 ```json
 {
@@ -453,11 +455,18 @@ the long-form shape:
   "id": "serializer-views",
   "states": [
     {
-      "navigation": "platform"
+      "navigation": null,
+      "subject": {
+        "kind": "workspace"
+      },
+      "facet": "workspace.overview"
     },
     {
       "navigation": "stj",
       "subject": {
+        "kind": "workspace"
+      },
+      "context": {
         "kind": "member",
         "library": {
           "name": "System.Text.Json",
@@ -471,32 +480,26 @@ the long-form shape:
         },
         "memberAnchor": "74b6b4b321"
       },
-      "facet": "member.call-graph",
-      "queries": ["member-callers"]
+      "facet": "workspace.overview"
     }
   ]
 }
 ```
 
-A version-2 query record has the common closed envelope
-`schemaVersion`, `kind`, `id`, required `queryId`, and required `payload`.
-`payload` is one JSON object whose complete nested shape belongs to the
-registered query owner. Workspace Definitions dispatches by exact `queryId`
-to that owner's version-2 parser and canonical writer; an unknown ID or
-missing codec fails before any payload field is interpreted. An empty object
-is valid only when that query owner explicitly defines it. This keeps record
-composition and packet transposition common while preventing a generic
-property bag from bypassing query-owned validation. Dispatch is one static
-product registry over inert IDs; packet text never becomes a reflection name,
-dependency-injection key, path, URI, or dynamic provider lookup.
+The version-2 navigation record retains the version-1 ordered tab shape but
+requires a present nullable `focus`. `null` selects the leading Workspace
+state with no active Package occurrence. A non-null focus must equal one exact
+direct Package-coordinate tab ID. Group subscriptions and Platform, embedded,
+project, local, or directory coordinates remain valid dormant inventory but
+cannot be focused in schema version 2.
 
-`states` has exactly one entry for every tab ID in the composed version-2
-navigation record. Entries use navigation order, and `navigation` must equal
-the corresponding tab ID; a missing, duplicated, reordered, unknown, or
-foreign tab reference is an invalid definition set. The active coordinate is
-still `navigation.focus`. It receives no second active flag in the view.
-Inactive entries remain committed state rather than being collapsed into the
-active entry.
+`states` has exactly one leading entry whose required `navigation` value is
+`null`, followed by exactly one entry for every tab ID in navigation order.
+Each non-null `navigation` value must equal the corresponding tab ID. A
+missing, duplicated, reordered, unknown, or foreign tab reference is an
+invalid definition set. Focus receives no second active flag in the view.
+Inactive entries remain committed requested state rather than being collapsed
+into the active entry.
 
 The table retains requested portable state, not one retained Navigation
 session per coordinate. Only `navigation.focus` has an installed Navigation
@@ -508,11 +511,16 @@ not construct another Workspace.
 
 Each state has these fields:
 
-- `navigation` is the exact record-local tab ID whose coordinate owns the
-  state.
-- `subject` is optional. Absence asks Inspection Subject Navigation for its
-  initial-subject recommendation after that coordinate is realized. Presence
-  requests one exact portable structural subject.
+- `navigation` is required and is either `null` for the leading Workspace row
+  or the exact record-local tab ID whose coordinate owns the state.
+- `subject` is optional and is one closed `workspace` or `package` request.
+  Absence asks Inspection Subject Navigation for its initial-subject
+  recommendation. A `package` subject requires retained Package context.
+- `context` is optional retained occurrence context. Its Package ancestry is
+  the owning direct Package-coordinate row. The selector is `package`,
+  `allLibraries`, or one exact Library/Type/Member path. It is independent
+  from the active subject, so a Workspace subject may retain a descendant
+  context. A subject-less state may retain only Package context.
 - `facet` is an optional exact View Facet Registry ID. It is valid only with a
   present subject. Absence requests Navigation's recommendation for that exact
   subject, or accompanies absent `subject` so initial subject and facet are
@@ -524,12 +532,14 @@ Each state has these fields:
   result-affecting filter and every owner-issued body or source-target
   refinement. A query owner supplies the closed payload, canonical
   serializer, and exact selector validation; Workspace Definitions does not
-  reinterpret its fields.
+  reinterpret its fields. The query-free schema-version-2 record slice rejects
+  every nonempty query list until #6971 supplies those owner codecs.
 - `libraries` is an optional unique, canonically ordered list of
   `PortableLibraryIdentity` values used as query scope. It is not the active
   Library subject and does not select one. It requires at least one referenced
   query whose public owner-issued descriptor declares that it consumes
-  state-level multi-Library scope; it is invalid without such a query.
+  state-level multi-Library scope; it is therefore absent in the query-free
+  slice.
 
 Every result-affecting committed value is therefore either structural state
 spelled here or typed query state. Presentation-only disclosure, focus, hover,
@@ -541,17 +551,38 @@ identity and version-2 codec. Otherwise the state is `NonProjectable`; the
 transposer never serializes a Browser `selectedOverloadIndex`, metadata token
 alone, display name, or host object key.
 
-#### Portable subject selectors
+The leading Workspace row cannot carry retained Package context and cannot
+request a Package subject. A non-Package navigation row is undecorated: it
+carries only its `navigation` field, with no subject, context, facet, query, or
+Library scope. These rows preserve ordered inventory without inventing a
+structural grammar or Package ancestry for a source that does not have one.
+
+#### Portable subject and context selectors
 
 The `subject` object is a closed tagged union:
 
-| `kind` | Required fields | Forbidden fields | Structural subject |
+| `kind` | Structural subject |
+| --- | --- |
+| `workspace` | The fresh realized Workspace |
+| `package` | The exact Package occurrence owned by this state row |
+
+The optional `context` object is a separate closed tagged union:
+
+| `kind` | Required fields | Forbidden fields | Retained path |
 | --- | --- | --- | --- |
-| `root` | none | `library`, `type`, member selector | Realized coordinate Root |
-| `allLibraries` | none | `library`, `type`, member selector | Explicit aggregate Library |
-| `library` | `library` | `type`, member selector | One acquired Library |
-| `type` | `library`, `type` | member selector | One exact Type |
-| `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | One exact Member |
+| `package` | none | `library`, `type`, member selector | Exact Package occurrence |
+| `allLibraries` | none | `library`, `type`, member selector | Package plus aggregate Library |
+| `library` | `library` | `type`, member selector | Package plus one acquired Library |
+| `type` | `library`, `type` | member selector | Package, Library, and exact Type |
+| `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | Package, Library, Type, and exact Member |
+
+The active subject and retained context are independent. When the active
+subject is Workspace, any valid retained context may be present. When the
+active subject is Package, retained context is required and the subject is the
+Package node in that path. When the active subject is absent, retained context
+may contain only the Package node. Type-inventory Library context is not a
+separate portable field; Navigation derives it from the retained path and
+current realized facts.
 
 `library` is one closed `PortableLibraryIdentity`:
 
@@ -616,10 +647,15 @@ descriptors and applies these rules before restoration may commit:
 | Subject request | Facet requirement | Query requirement |
 | --- | --- | --- |
 | Absent | `facet` and `queries` absent | Initial subject and facet recommendation |
-| Root | Known applicable Root facet, or absent for recommendation | Every referenced query declares Root input |
-| All Libraries or one Library | Known applicable Library facet, or absent for recommendation | Every referenced query declares the matching aggregate or exact-Library input |
-| Type | Known applicable Type facet, or absent for recommendation | Every referenced query declares Type input for the exact Library and Type |
-| Member | Known applicable Member facet, or absent for recommendation | Every referenced query declares Member input for the exact Member |
+| Workspace | Known applicable Workspace facet, or absent for recommendation | Every referenced query declares Workspace input |
+| Package | Known applicable Package facet, or absent for recommendation | Every referenced query declares Package input for the exact occurrence |
+
+Retained Library, Type, or Member context does not change the active
+subject's structural kind. A Workspace facet remains Workspace-scoped when the
+same state retains Member context, and a Package facet remains Package-scoped
+when the retained path reaches a descendant. A query owner may consume that
+retained path only through its declared version-2 inputs; Workspace
+Definitions never promotes retained context into a different active subject.
 
 When `facet` is present, exact Registry resolution occurs against the resolved
 subject. `Unknown` and `Inapplicable` are invalid portable combinations.
@@ -2058,7 +2094,19 @@ Definition records and product demos (this slice):
   addresses, and compact target descriptors remain associated in that one
   resource-free result; constructing a live Workspace from the plan uses the
   ordinary `InspectionWorkspace(WorkspacePlan)` API.
-  `ResolvedWorkspaceContext.Input` retains its exact context in that plan;
+  `ResolvedWorkspaceContext.Input` retains its exact context in that plan.
+  `PrepareScenario` additionally dispatches same-version graphs without
+  constructing a Workspace: workspace-free and direct-Package-focused
+  version-1 graphs retain the existing resolution, workspace-backed
+  no-navigation or focused non-Package version-1 graphs return
+  `LegacyCompatibilityRequired`, and schema-version-2 graphs return the
+  exact validated `CommittedScenarioDefinitionSet`;
+- schema-version-2 `CommittedNavigationDefinition` and
+  `CommittedViewDefinition` records implement the required nullable focus,
+  leading Workspace row, ordered per-tab state, Workspace/Package subject
+  requests, and independent retained Package/Library/Type/Member context.
+  Non-Package rows remain undecorated, nonempty query references fail until
+  #6971, and packet-format-1 projection returns `NonProjectable`;
 - `ProductDemoSourceBinding` is the Workspace-owned target-free static
   method-group binding. It validates exactly one matching scenario record,
   resolves that exact scenario, and enforces `ProductDemoSections`; the
@@ -2081,6 +2129,31 @@ Definition records and product demos (this slice):
 - `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind` and
   `InspectionDefinitionTests.Parse_RejectsCrossKindRecordAndCoordinateFields`
   gate portable round-trip and record-kind separation.
+  `InspectionDefinitionV2Tests.JsonRoundTrip_PreservesEveryVersion2RecordKind`,
+  `JsonRoundTrip_WorkspaceSubjectRetainsMemberContext`,
+  `JsonRoundTrip_WorkspaceSubjectCanHaveNoActiveOccurrence`,
+  `PrepareScenario_PackageSubjectForExactTab_IsVersion2`, and
+  `JsonRoundTrip_SameTabCanRetainDistinctTypeContexts` gate the four
+  schema-version-2 demo states and record round-trip.
+  `PrepareScenario_RejectsMissingAndReorderedStates`,
+  `Constructors_RejectInvalidFocusAndWorkspaceRowContext`,
+  `Constructors_RejectInvalidSubjectContextAncestry`,
+  `PrepareScenario_RejectsDecoratedNonPackageRows`,
+  `PrepareScenario_RejectsMixedVersionsAndQueryReferences`,
+  `PrepareScenario_RejectsInvalidContextBeforeVersionDispatch`,
+  `PrepareScenario_LegacyCompatibilityRejectsDuplicateTabIds`,
+  `PrepareScenario_WorkspaceBackedVersion1WithoutNavigationUsesCompatibility`,
+  `PrepareScenario_WorkspaceFreeVersion1KeepsExistingPath`,
+  `PrepareScenario_ValidatesReachedCatalogVersions`,
+  `PrepareScenario_RetainsBaseAndOverlayCatalogs`,
+  `Parse_RejectsUnknownAndDuplicateNestedVersion2Properties`,
+  `Parse_RequiresNullableFocusAndCanonicalPortableIdentity`,
+  `Version2ProjectionToPacketFormat1_IsNonProjectable`,
+  `Version1PacketProjectionRejectsMixedSchemaVersions`, and
+  `PrepareScenario_FocusedNonPackageVersion1ReturnsCompatibilityHandoff`
+  gate the query-free composition boundaries while
+  `Json_SchemaVersion1SpellingRemainsUnchanged` preserves the version-1
+  writer contract.
   `ProductDemoSourceBindingTests` gates source shape, exactly-once source
   invocation per resolve, exact scenario resolution, section admission, and
   visible failures.
