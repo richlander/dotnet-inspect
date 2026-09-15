@@ -1176,8 +1176,9 @@ Inspect Web invokes the same semantic operation while its existing
 or transport resources may back both hosts; semantic association and lifetime
 authority remain explicit in each composition.
 
-The Browser/Wasm interop adapter serializes the same complete envelope through
-its assembly-local generated facade. It does not transport the declaration-row
+The Browser/Wasm interop adapter losslessly projects every field of the same
+complete envelope into its assembly-local generated wire records. The adapter
+does not recompute semantic content or transport the declaration-row
 `ApiSurface` execution companion, because this slice adopts only Library
 Overview counts and facets; Browser Type/member navigation keeps its separately
 owned package-wide projection.

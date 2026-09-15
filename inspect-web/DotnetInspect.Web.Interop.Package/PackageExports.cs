@@ -77,17 +77,18 @@ public static partial class PackageExports
         string targetFramework,
         string assemblyId)
     {
-        InspectionEnvelope<ExactLibraryApiInspectionResult> inspection =
-            await LibraryApiAsync(
-                packageId,
-                version,
-                targetFramework,
-                assemblyId);
+        BrowserExactLibraryApiInspection inspection =
+            BrowserPackageWireProjection.Project(
+                await LibraryApiAsync(
+                    packageId,
+                    version,
+                    targetFramework,
+                    assemblyId));
         return JsonSerializer.Serialize(
             inspection,
             BrowserPackageJsonContext
                 .Default
-                .ExactLibraryApiInspectionEnvelope);
+                .BrowserExactLibraryApiInspection);
     }
 
     static async Task<InspectionEnvelope<ExactLibraryApiInspectionResult>>

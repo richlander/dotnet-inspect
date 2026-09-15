@@ -554,10 +554,9 @@ import type {
   BrowserPackageDependencyGroup,
   BrowserPackagePruningResult,
   BrowserPackageSurface,
+  BrowserExactLibraryApiInspection,
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
-  ExactLibraryApiInspectionResult,
-  InspectionEnvelope,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   BrowserMemberDeclaration,
@@ -1001,7 +1000,7 @@ const initialState = {
   typeMetadataKey: "",
   typeMetadataGeneration: 0,
   libraryApiInspections:
-    new Map<string, InspectionEnvelope<ExactLibraryApiInspectionResult | null>>(),
+    new Map<string, BrowserExactLibraryApiInspection>(),
   libraryApiLoads: new Set<string>(),
   libraryApiErrors: new Map<string, string>(),
   packageDependencies: null,
@@ -1139,7 +1138,7 @@ interface StateOverrides {
   typeSource: SourceResultState;
   typeMetadata: BrowserTypeMetadata | null;
   libraryApiInspections:
-    Map<string, InspectionEnvelope<ExactLibraryApiInspectionResult | null>>;
+    Map<string, BrowserExactLibraryApiInspection>;
   libraryApiLoads: Set<string>;
   libraryApiErrors: Map<string, string>;
   packageDependencies: BrowserPackageDependencies | null;

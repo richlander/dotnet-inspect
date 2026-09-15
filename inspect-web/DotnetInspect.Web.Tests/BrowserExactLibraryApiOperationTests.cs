@@ -21,13 +21,13 @@ public sealed class BrowserExactLibraryApiOperationTests
         (BrowserPackage package, PackageCompileAsset first,
             PackageCompileAsset second) = await RegisterAsync();
 
-        InspectionEnvelope<ExactLibraryApiInspectionResult> inspection = Read(
+        BrowserExactLibraryApiInspection inspection = Read(
             await PackageExports.QueryLibraryApi(
                 package.PackageId,
                 package.Version,
                 Framework,
                 first.Id));
-        InspectionEnvelope<ExactLibraryApiInspectionResult> neighbor = Read(
+        BrowserExactLibraryApiInspection neighbor = Read(
             await PackageExports.QueryLibraryApi(
                 package.PackageId,
                 package.Version,
@@ -35,7 +35,7 @@ public sealed class BrowserExactLibraryApiOperationTests
                 second.Id));
 
         Assert.Equal(
-            ExactLibraryApiInspectionOutcome.Available,
+            BrowserExactLibraryApiInspectionOutcome.Available,
             inspection.Content.Outcome);
         Assert.Equal(first.Id, inspection.Content.Asset?.Id);
         Assert.Equal(first.Path, inspection.Content.Asset?.Path);
@@ -54,7 +54,9 @@ public sealed class BrowserExactLibraryApiOperationTests
         Assert.NotEqual(
             Guid.Empty,
             inspection.Content.Assembly?.ModuleVersionId);
-        Assert.IsType<InspectionShare.Available>(inspection.Share);
+        Assert.Equal(
+            BrowserInspectionShareKind.Available,
+            inspection.Share.Kind);
         Assert.NotEqual(
             inspection.Content.Asset?.Id,
             neighbor.Content.Asset?.Id);
@@ -68,7 +70,7 @@ public sealed class BrowserExactLibraryApiOperationTests
     {
         (BrowserPackage package, _, _) = await RegisterAsync();
 
-        InspectionEnvelope<ExactLibraryApiInspectionResult> inspection = Read(
+        BrowserExactLibraryApiInspection inspection = Read(
             await PackageExports.QueryLibraryApi(
                 package.PackageId,
                 package.Version,
@@ -76,7 +78,7 @@ public sealed class BrowserExactLibraryApiOperationTests
                 "compile:ref/net11.0/Missing.dll"));
 
         Assert.Equal(
-            ExactLibraryApiInspectionOutcome.NotFound,
+            BrowserExactLibraryApiInspectionOutcome.NotFound,
             inspection.Content.Outcome);
         Assert.Null(inspection.Content.Inventory);
         Assert.Null(inspection.Content.Assembly);
@@ -84,16 +86,18 @@ public sealed class BrowserExactLibraryApiOperationTests
             inspection.Diagnostics,
             diagnostic =>
                 diagnostic.Code == "exact-library-api.not-found");
-        Assert.IsType<InspectionShare.Available>(inspection.Share);
+        Assert.Equal(
+            BrowserInspectionShareKind.Available,
+            inspection.Share.Kind);
     }
 
-    static InspectionEnvelope<ExactLibraryApiInspectionResult> Read(
+    static BrowserExactLibraryApiInspection Read(
         string json) =>
         JsonSerializer.Deserialize(
             json,
             BrowserPackageJsonContext
                 .Default
-                .ExactLibraryApiInspectionEnvelope)!;
+                .BrowserExactLibraryApiInspection)!;
 
     static async Task<(
         BrowserPackage Package,

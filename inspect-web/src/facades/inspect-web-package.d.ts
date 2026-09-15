@@ -1,7 +1,10 @@
-export type ApiSurfaceProjectionLimit = number;
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
+export type BrowserExactLibraryApiAssetKind = number;
+export type BrowserExactLibraryApiInspectionFailureKind = number;
+export type BrowserExactLibraryApiInspectionOutcome = number;
+export type BrowserExactLibraryApiProjectionLimit = number;
 export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
 export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
 export type BrowserPackageChangesCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
@@ -23,40 +26,6 @@ export type BrowserPackageQueryMatchCreditKind = "Granted" | "NotActive" | numbe
 export type BrowserPackageQueryOperationFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | "Assembly" | number;
 export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" | number;
-export type ExactLibraryApiInspectionFailureKind = number;
-export type ExactLibraryApiInspectionOutcome = number;
-export type InspectionDiagnosticSeverity = number;
-export type PackageCompileAssetKind = number;
-export interface ApiFacetDescriptor {
-    readonly id: string;
-    readonly singularLabel: string;
-    readonly pluralLabel: string;
-    readonly weight: number;
-    readonly count: number;
-    readonly isDefault: boolean;
-}
-export interface ApiNamespaceDescriptor {
-    readonly name: string;
-    readonly count: number;
-}
-export interface ApiSurfaceProjectionTruncation {
-    readonly limit: ApiSurfaceProjectionLimit;
-    readonly bound: number;
-    readonly projectedParticipants: number;
-    readonly omittedParticipants: number;
-    readonly projectedTypes: number;
-    readonly projectedMembers: number;
-    readonly projectedInspectionFailures: number;
-    readonly projectedTypeForwarders: number;
-    readonly inspectedMetadataRows: number;
-    readonly projectedRetainedTextCharacters: number;
-}
-export interface AssemblyReferenceIdentity {
-    readonly name: string;
-    readonly version: string | null;
-    readonly culture: string | null;
-    readonly publicKeyToken: string | null;
-}
 export interface BrowserAccessibilityDescriptor {
     readonly id: string;
     readonly label: string;
@@ -99,6 +68,86 @@ export interface BrowserDependencyCoordinateCandidate {
 export interface BrowserDependencyCoordinateMatch {
     readonly outcome: BrowserDependencyCoordinateMatchOutcome;
     readonly candidateKey: string | null;
+}
+export interface BrowserExactLibraryApiAssemblyIdentity {
+    readonly identity: BrowserExactLibraryApiAssemblyReferenceIdentity;
+    readonly moduleVersionId: string;
+}
+export interface BrowserExactLibraryApiAssemblyReferenceIdentity {
+    readonly name: string;
+    readonly version: string | null;
+    readonly culture: string | null;
+    readonly publicKeyToken: string | null;
+}
+export interface BrowserExactLibraryApiAsset {
+    readonly id: string;
+    readonly path: string;
+    readonly assemblyName: string;
+    readonly targetFramework: string;
+    readonly kind: BrowserExactLibraryApiAssetKind;
+}
+export interface BrowserExactLibraryApiFacet {
+    readonly id: string;
+    readonly singularLabel: string;
+    readonly pluralLabel: string;
+    readonly weight: number;
+    readonly count: number;
+    readonly isDefault: boolean;
+}
+export interface BrowserExactLibraryApiInspection {
+    readonly content: BrowserExactLibraryApiInspectionResult;
+    readonly share: BrowserInspectionShare;
+    readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+export interface BrowserExactLibraryApiInspectionFailure {
+    readonly kind: BrowserExactLibraryApiInspectionFailureKind;
+    readonly detail: string;
+    readonly subjectAssembly: BrowserExactLibraryApiAssemblyReferenceIdentity | null;
+}
+export interface BrowserExactLibraryApiInspectionResult {
+    readonly outcome: BrowserExactLibraryApiInspectionOutcome;
+    readonly packageId: string;
+    readonly packageVersion: string;
+    readonly requestedTargetFramework: string;
+    readonly requestedLibrary: string;
+    readonly source: BrowserExactLibraryApiSourceCoordinate | null;
+    readonly asset: BrowserExactLibraryApiAsset | null;
+    readonly assembly: BrowserExactLibraryApiAssemblyIdentity | null;
+    readonly inventory: BrowserExactLibraryApiInventory | null;
+    readonly truncation: BrowserExactLibraryApiProjectionTruncation | null;
+    readonly failures: ReadonlyArray<BrowserExactLibraryApiInspectionFailure>;
+    readonly isComplete: boolean;
+    readonly isAvailable: boolean;
+}
+export interface BrowserExactLibraryApiInventory {
+    readonly publicTypeCount: number;
+    readonly publicMemberCount: number;
+    readonly publicMethodCount: number;
+    readonly publicPropertyCount: number;
+    readonly typeKinds: ReadonlyArray<BrowserExactLibraryApiFacet>;
+    readonly namespaces: ReadonlyArray<BrowserExactLibraryApiNamespace>;
+}
+export interface BrowserExactLibraryApiNamespace {
+    readonly name: string;
+    readonly count: number;
+}
+export interface BrowserExactLibraryApiProjectionTruncation {
+    readonly limit: BrowserExactLibraryApiProjectionLimit;
+    readonly bound: number;
+    readonly projectedParticipants: number;
+    readonly omittedParticipants: number;
+    readonly projectedTypes: number;
+    readonly projectedMembers: number;
+    readonly projectedInspectionFailures: number;
+    readonly projectedTypeForwarders: number;
+    readonly inspectedMetadataRows: number;
+    readonly projectedRetainedTextCharacters: number;
+}
+export interface BrowserExactLibraryApiSourceCoordinate {
+    readonly packageId: string;
+    readonly packageVersion: string;
+    readonly producer: string;
+    readonly framework: string | null;
 }
 export interface BrowserExceptionSurface {
     readonly type: string;
@@ -665,66 +714,6 @@ export interface BrowserWorkspacePackageOccurrenceView {
     readonly occurrences: ReadonlyArray<BrowserWorkspacePackageOccurrence>;
     readonly superseded: boolean;
 }
-export interface ExactLibraryApiAssemblyIdentity {
-    readonly identity: AssemblyReferenceIdentity;
-    readonly moduleVersionId: string;
-}
-export interface ExactLibraryApiAsset {
-    readonly id: string;
-    readonly path: string;
-    readonly assemblyName: string;
-    readonly targetFramework: string;
-    readonly kind: PackageCompileAssetKind;
-}
-export interface ExactLibraryApiInspectionFailure {
-    readonly kind: ExactLibraryApiInspectionFailureKind;
-    readonly detail: string;
-    readonly subjectAssembly: AssemblyReferenceIdentity | null;
-}
-export interface ExactLibraryApiInspectionResult {
-    readonly outcome: ExactLibraryApiInspectionOutcome;
-    readonly packageId: string;
-    readonly packageVersion: string;
-    readonly requestedTargetFramework: string;
-    readonly requestedLibrary: string;
-    readonly source: ExactLibraryApiSourceCoordinate | null;
-    readonly asset: ExactLibraryApiAsset | null;
-    readonly assembly: ExactLibraryApiAssemblyIdentity | null;
-    readonly inventory: ExactLibraryApiInventory | null;
-    readonly truncation: ApiSurfaceProjectionTruncation | null;
-    readonly failures: ReadonlyArray<ExactLibraryApiInspectionFailure>;
-    readonly isComplete: boolean;
-    readonly isAvailable: boolean;
-}
-export interface ExactLibraryApiInventory {
-    readonly publicTypeCount: number;
-    readonly publicMemberCount: number;
-    readonly publicMethodCount: number;
-    readonly publicPropertyCount: number;
-    readonly typeKinds: ReadonlyArray<ApiFacetDescriptor>;
-    readonly namespaces: ReadonlyArray<ApiNamespaceDescriptor>;
-}
-export interface ExactLibraryApiSourceCoordinate {
-    readonly packageId: string;
-    readonly packageVersion: string;
-    readonly producer: string;
-    readonly framework: string | null;
-}
-export interface InspectionDiagnostic {
-    readonly code: string;
-    readonly severity: InspectionDiagnosticSeverity;
-    readonly summary: string;
-    readonly correspondence: string | null;
-}
-export interface InspectionEnvelope<T0> {
-    readonly content: T0;
-    readonly share: InspectionShare;
-    readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
-}
-export interface InspectionShare {
-    readonly fullUrl: string | null;
-    readonly packet: string | null;
-}
 export type BrowserAssemblyReferenceResult = BrowserAssemblyReferenceList | string | null;
 export interface JsExportRuntime {
     readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
@@ -750,7 +739,7 @@ export declare function matchPackageDependencyCoordinate(packageId: string, decl
 export declare function openPackageAssemblyQueryResult(rootRequest: string): Promise<BrowserPackageSurface>;
 export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void>;
-export declare function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<InspectionEnvelope<ExactLibraryApiInspectionResult | null>>;
+export declare function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserExactLibraryApiInspection>;
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
