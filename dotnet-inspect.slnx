@@ -131,9 +131,11 @@
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Installed/DotnetInspector.PlatformHouse.Installed.csproj" />
+    <Project Path="src/DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Formats/DotnetInspector.Platforms.Formats.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Installed/DotnetInspector.Platforms.Installed.csproj" />
+    <Project Path="src/DotnetInspector.Platforms.Packages/DotnetInspector.Platforms.Packages.csproj" />
     <Project Path="src/DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
     <Project Path="src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
@@ -203,6 +205,7 @@
     <Project Path="tests/DotnetInspector.Networking.Tests/DotnetInspector.Networking.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Packages.Tests/DotnetInspector.Packages.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PlatformHouse.Installed.Tests/DotnetInspector.PlatformHouse.Installed.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.PlatformHouse.Packages.Tests/DotnetInspector.PlatformHouse.Packages.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PlatformHouse.Tests/DotnetInspector.PlatformHouse.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Platforms.Formats.Tests/DotnetInspector.Platforms.Formats.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Platforms.Tests/DotnetInspector.Platforms.Tests.csproj" />

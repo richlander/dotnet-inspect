@@ -541,7 +541,8 @@ public partial class CommandExecutionTests
 
     private static void WriteMalformedAdjacencyAssembly(
         string path,
-        bool malformedAssemblyReference)
+        bool malformedAssemblyReference,
+        bool referenceFromPublicSurface = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -573,6 +574,12 @@ public partial class CommandExecutionTests
                 token,
                 default,
                 default);
+        TypeReferenceHandle healthyBase = referenceFromPublicSurface
+            ? metadata.AddTypeReference(
+                target,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base"))
+            : default;
         if (!malformedAssemblyReference)
         {
             metadata.AddExportedType(
@@ -594,7 +601,7 @@ public partial class CommandExecutionTests
             TypeAttributes.Public,
             metadata.GetOrAddString("N"),
             metadata.GetOrAddString("Healthy"),
-            default,
+            healthyBase,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
@@ -6883,10 +6890,12 @@ public partial class CommandExecutionTests
                 Path.Combine(tempDir, "new.dll");
             WriteMalformedAdjacencyAssembly(
                 oldPath,
-                malformedAssemblyReference: true);
+                malformedAssemblyReference: true,
+                referenceFromPublicSurface: true);
             WriteMalformedAdjacencyAssembly(
                 newPath,
-                malformedAssemblyReference: true);
+                malformedAssemblyReference: true,
+                referenceFromPublicSurface: true);
             string range = $"{oldPath}..{newPath}";
 
             var markdown = await RunAppAsync(
@@ -6909,12 +6918,12 @@ public partial class CommandExecutionTests
                 markdown.Output,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "invalid AssemblyRef row",
+                "public-key token must contain exactly 8 bytes",
                 markdown.Output,
                 StringComparison.Ordinal);
             Assert.Equal(1, json.Exit);
             Assert.Contains(
-                "invalid AssemblyRef row",
+                "public-key token must contain exactly 8 bytes",
                 json.Output,
                 StringComparison.Ordinal);
 

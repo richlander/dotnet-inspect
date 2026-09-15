@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>PlatformHouse adapter for authorized package-backed Platform sources</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
+    <ProjectReference Include="../DotnetInspector.Platforms.Packages/DotnetInspector.Platforms.Packages.csproj" />
+  </ItemGroup>
+
+</Project>
