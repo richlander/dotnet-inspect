@@ -24,7 +24,7 @@ The operator explicitly approved this bounded cross-owner replacement:
 - the Ecosystems API owns product curation: the initial platform composition
   contains Platform, ASP.NET Core, and Microsoft.Extensions; #6763 subsequently
   approved separate all-known construction, now including Aspire, AI, and
-  Azure, and #7001 adds construction from an explicit ordered ecosystem
+  Azure, and Blazor, and #7001 adds construction from an explicit ordered ecosystem
   selection;
 - callers explicitly choose raw or curated construction according to their
   operation;
@@ -179,7 +179,7 @@ resource-free `WorkspacePlan`. The caller explicitly constructs
 is not a shared live Workspace and confers no special registration,
 acquisition, traversal, persistence, or lifetime semantics.
 
-The separate all-known plan factory includes Aspire, AI, and Azure, as required
+The separate all-known plan factory includes Aspire, AI, Azure, and Blazor, as required
 by [Subject Relations](subject-relations-workflows.md#broad-discovery-by-default).
 The focused handoff owns validation and construction for the two presets and
 explicit selected-set plans. None is a compatibility catalog of earlier
@@ -547,7 +547,7 @@ The following are required future outcome-level scenarios:
 | Scenario | Required observation |
 | --- | --- |
 | Construct directly through the Workspace API | The registration set is empty; no catalog lookup, acquisition, or analysis occurs |
-| Construct through the Ecosystems factories | The platform variant contains Platform, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire, AI, and Azure. Neither performs registration-triggered acquisition or analysis. |
+| Construct through the Ecosystems factories | The platform variant contains Platform, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire, AI, Azure, and Blazor. Neither performs registration-triggered acquisition or analysis. |
 | Construct through selected ecosystems | The plan contains exactly the requested registrations in caller order. Find still searches only concrete content presented to the Workspace and does not expand package-prefix arms. |
 | Remove one or all curated registrations, then navigate, open another subject, save, and restore | The exact registration set survives; the current curated composition does not reappear |
 | Change the curated manifest in a later product build | Later curated construction uses the new complete manifest; existing and restored Workspaces retain their exact registrations |
