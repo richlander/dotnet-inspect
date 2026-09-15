@@ -59,55 +59,55 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await fixture.ResolvePopulationAsync(
                 operation,
                 packageIds);
-        var observer = new RecordingObserver();
+        var sink = new RecordingSink();
 
-        InspectionEnvelope<PackageAssemblySemanticFindResult> envelope =
+        InspectionEnvelope<PackageAssemblySemanticFindDocument> envelope =
             await PackageAssemblySemanticFindInspection.ExecuteAsync(
                 Request(population),
                 operation,
                 fixture.PayloadAcquisition,
-                observer,
+                sink,
                 TestContext.Current.CancellationToken);
 
-        PackageAssemblySemanticFindResult result = envelope.Content;
+        PackageAssemblySemanticFindDocument document = envelope.Content;
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
-        Assert.Equal(5, result.CandidateCount);
-        Assert.Equal(1, result.MatchedCandidateCount);
-        Assert.Equal(2, result.OccurrenceCount);
-        Assert.Equal(4, result.SemanticMissCount);
-        Assert.Equal(0, result.NotApplicableCount);
-        Assert.Equal(0, result.FailureCount);
-        Assert.True(result.Completion.IsRequestedPopulationComplete);
-        Assert.True(result.Completion.AllCandidatesCompleted);
-        Assert.False(result.Completion.HasFailures);
-        Assert.True(result.Completion.IsSemanticEvaluationComplete);
+        Assert.Equal(5, document.CandidateCount);
+        Assert.Equal(1, document.MatchedCandidateCount);
+        Assert.Equal(2, document.OccurrenceCount);
+        Assert.Equal(4, document.SemanticMissCount);
+        Assert.Equal(0, document.NotApplicableCount);
+        Assert.Equal(0, document.FailureCount);
+        Assert.True(document.Completion.IsRequestedPopulationComplete);
+        Assert.True(document.Completion.AllCandidatesCompleted);
+        Assert.False(document.Completion.HasFailures);
+        Assert.True(document.Completion.IsSemanticEvaluationComplete);
         Assert.Equal(
             PackageAcquisitionPopulationCompletionKind.ExactCoordinates,
-            result.Completion.Population);
+            document.Completion.Population);
         Assert.Equal(
-            result.CandidateOutcomes,
-            observer.Outcomes);
+            document.CandidateOutcomes,
+            sink.Outcomes);
         Assert.All(
-            result.Occurrences,
-            occurrence =>
+            document.Results,
+            result =>
             {
-                Assert.Equal(1, occurrence.CandidateOrdinal);
+                Assert.Equal(1, result.CandidateOrdinal);
                 Assert.Equal(
                     population.Candidates[0].Correspondence,
-                    occurrence.Correspondence);
+                    result.Correspondence);
                 Assert.Equal(
                     "lib/net11.0/Contoso.Match.dll",
-                    occurrence.SelectedAsset.Asset.Path.ToString());
+                    result.SelectedAsset.Asset.Path.ToString());
             });
         Assert.Equal(
             Assert.IsType<
                 PackageAssemblySemanticFindCandidateOutcome.Matched>(
-                result.CandidateOutcomes[0])
+                document.CandidateOutcomes[0])
             .Evaluation.Evidence.Occurrences,
-            result.Occurrences.Select(occurrence => occurrence.Evidence));
+            document.Results.Select(result => result.Evidence));
         Assert.All(
-            result.CandidateOutcomes,
+            document.CandidateOutcomes,
             outcome =>
             {
                 PackageAssemblyEvaluationSubject subject =
@@ -201,7 +201,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 literal),
             budget);
 
-        PackageAssemblySemanticFindResult result =
+        PackageAssemblySemanticFindDocument document =
             (await PackageAssemblySemanticFindInspection.ExecuteAsync(
                 request,
                 operation,
@@ -212,14 +212,14 @@ public sealed class PackageAssemblySemanticFindQueryTests
         JsonElement expected = root.GetProperty("expected");
         JsonElement[] expectedCandidates =
             [.. expected.GetProperty("candidates").EnumerateArray()];
-        Assert.Equal(expectedCandidates.Length, result.CandidateCount);
+        Assert.Equal(expectedCandidates.Length, document.CandidateCount);
         for (int index = 0;
              index < expectedCandidates.Length;
              index++)
         {
             JsonElement candidate = expectedCandidates[index];
             PackageAssemblySemanticFindCandidateOutcome outcome =
-                result.CandidateOutcomes[index];
+                document.CandidateOutcomes[index];
             Assert.Equal(
                 candidate.GetProperty("package").GetString(),
                 outcome.Coordinate.PackageId);
@@ -236,40 +236,40 @@ public sealed class PackageAssemblySemanticFindQueryTests
 
         JsonElement[] expectedMatches =
             [.. expected.GetProperty("matches").EnumerateArray()];
-        Assert.Equal(1, result.MatchedCandidateCount);
-        Assert.Equal(4, result.SemanticMissCount);
-        Assert.Equal(expectedMatches.Length, result.OccurrenceCount);
-        Assert.True(result.Completion.IsRequestedPopulationComplete);
-        Assert.True(result.Completion.IsSemanticEvaluationComplete);
+        Assert.Equal(1, document.MatchedCandidateCount);
+        Assert.Equal(4, document.SemanticMissCount);
+        Assert.Equal(expectedMatches.Length, document.OccurrenceCount);
+        Assert.True(document.Completion.IsRequestedPopulationComplete);
+        Assert.True(document.Completion.IsSemanticEvaluationComplete);
         for (int index = 0;
              index < expectedMatches.Length;
              index++)
         {
             JsonElement match = expectedMatches[index];
-            PackageAssemblySemanticFindOccurrence occurrence =
-                result.Occurrences[index];
+            PackageAssemblySemanticFindResult result =
+                document.Results[index];
             Assert.Equal(
                 match.GetProperty("package").GetString(),
-                occurrence.Coordinate.PackageId);
+                result.Coordinate.PackageId);
             Assert.Equal(
                 match.GetProperty("version").GetString(),
-                occurrence.Coordinate.Version);
+                result.Coordinate.Version);
             Assert.Equal(
                 match.GetProperty("assembly").GetString(),
-                occurrence.SelectedAsset.Asset.AssemblyName.ToString());
+                result.SelectedAsset.Asset.AssemblyName.ToString());
             Assert.Equal(
                 Convert.ToInt32(
                     match.GetProperty("method").GetString(),
                     16),
-                occurrence.Evidence.Address.MethodDefinitionToken);
+                result.Evidence.Address.MethodDefinitionToken);
             Assert.Equal(
                 Convert.ToInt32(
                     match.GetProperty("offset").GetString()![3..],
                     16),
-                occurrence.Evidence.Address.ILOffset);
+                result.Evidence.Address.ILOffset);
             Assert.Equal(
                 match.GetProperty("literal").GetString(),
-                occurrence.Evidence.LiteralText.ToString());
+                result.Evidence.LiteralText.ToString());
         }
     }
 
@@ -300,18 +300,18 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await fixture.ResolvePopulationAsync(
                 operation,
                 packageIds);
-        var observer = new RecordingObserver();
+        var sink = new RecordingSink();
 
-        PackageAssemblySemanticFindResult result =
+        PackageAssemblySemanticFindDocument document =
             (await PackageAssemblySemanticFindInspection.ExecuteAsync(
                 Request(population),
                 operation,
                 fixture.PayloadAcquisition,
-                observer,
+                sink,
                 TestContext.Current.CancellationToken)).Content;
 
         Assert.Collection(
-            result.CandidateOutcomes,
+            document.CandidateOutcomes,
             outcome => Assert.IsType<
                 PackageAssemblySemanticFindCandidateOutcome.Matched>(
                 outcome),
@@ -353,21 +353,21 @@ public sealed class PackageAssemblySemanticFindQueryTests
             });
         Assert.Equal(
             Enumerable.Range(1, 5),
-            result.CandidateOutcomes.Select(
+            document.CandidateOutcomes.Select(
                 outcome => outcome.CandidateOrdinal));
         Assert.Equal(
-            result.CandidateOutcomes,
-            observer.Outcomes);
-        Assert.Equal(5, result.CandidateCount);
-        Assert.Equal(1, result.MatchedCandidateCount);
-        Assert.Equal(2, result.OccurrenceCount);
-        Assert.Equal(1, result.SemanticMissCount);
-        Assert.Equal(1, result.NotApplicableCount);
-        Assert.Equal(2, result.FailureCount);
-        Assert.True(result.Completion.IsRequestedPopulationComplete);
-        Assert.True(result.Completion.AllCandidatesCompleted);
-        Assert.True(result.Completion.HasFailures);
-        Assert.False(result.Completion.IsSemanticEvaluationComplete);
+            document.CandidateOutcomes,
+            sink.Outcomes);
+        Assert.Equal(5, document.CandidateCount);
+        Assert.Equal(1, document.MatchedCandidateCount);
+        Assert.Equal(2, document.OccurrenceCount);
+        Assert.Equal(1, document.SemanticMissCount);
+        Assert.Equal(1, document.NotApplicableCount);
+        Assert.Equal(2, document.FailureCount);
+        Assert.True(document.Completion.IsRequestedPopulationComplete);
+        Assert.True(document.Completion.AllCandidatesCompleted);
+        Assert.True(document.Completion.HasFailures);
+        Assert.False(document.Completion.IsSemanticEvaluationComplete);
         Assert.Equal(1, fixture.Client.PackageRequests);
     }
 
@@ -401,24 +401,24 @@ public sealed class PackageAssemblySemanticFindQueryTests
             ],
             PackageAcquisitionPopulationCompletionKind.SourceFailed);
 
-        PackageAssemblySemanticFindResult result =
+        PackageAssemblySemanticFindDocument document =
             (await PackageAssemblySemanticFindInspection.ExecuteAsync(
                 Request(population),
                 operation,
                 fixture.PayloadAcquisition,
                 TestContext.Current.CancellationToken)).Content;
 
-        Assert.Same(population, result.Population);
-        Assert.Single(result.Population.Failures);
-        Assert.Equal(1, result.CandidateCount);
-        Assert.True(result.Completion.AllCandidatesCompleted);
+        Assert.Same(population, document.Population);
+        Assert.Single(document.Population.Failures);
+        Assert.Equal(1, document.CandidateCount);
+        Assert.True(document.Completion.AllCandidatesCompleted);
         Assert.False(
-            result.Completion.IsRequestedPopulationComplete);
-        Assert.False(result.Completion.HasFailures);
-        Assert.True(result.Completion.IsSemanticEvaluationComplete);
+            document.Completion.IsRequestedPopulationComplete);
+        Assert.False(document.Completion.HasFailures);
+        Assert.True(document.Completion.IsSemanticEvaluationComplete);
         Assert.Equal(
             PackageAcquisitionPopulationCompletionKind.SourceFailed,
-            result.Completion.Population);
+            document.Completion.Population);
     }
 
     [Fact]
@@ -434,7 +434,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await fixture.ResolvePopulationAsync(
                 operation,
                 ["Contoso.Cancelled"]);
-        var observer = new RecordingObserver();
+        var sink = new RecordingSink();
         cancellation.Cancel();
 
         OperationCanceledException failure =
@@ -444,11 +444,11 @@ public sealed class PackageAssemblySemanticFindQueryTests
                         Request(population),
                         operation,
                         fixture.PayloadAcquisition,
-                        observer,
+                        sink,
                         cancellation.Token));
 
         Assert.Equal(cancellation.Token, failure.CancellationToken);
-        Assert.Empty(observer.Outcomes);
+        Assert.Empty(sink.Outcomes);
         Assert.Throws<ObjectDisposedException>(
             operation.ThrowIfExpired);
         Assert.Equal(0, fixture.Client.PackageRequests);
@@ -550,14 +550,14 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await fixture.ResolvePopulationAsync(
                 operation,
                 ["Contoso.Cancelled"]);
-        var observer = new RecordingObserver();
+        var sink = new RecordingSink();
 
-        Task<InspectionEnvelope<PackageAssemblySemanticFindResult>>
+        Task<InspectionEnvelope<PackageAssemblySemanticFindDocument>>
             pending = PackageAssemblySemanticFindInspection.ExecuteAsync(
                 Request(population),
                 operation,
                 fixture.PayloadAcquisition,
-                observer,
+                sink,
                 cancellation.Token).AsTask();
         await fixture.Client.PackageStarted.Task.WaitAsync(
             TestContext.Current.CancellationToken);
@@ -565,7 +565,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             async () => await pending);
-        Assert.Empty(observer.Outcomes);
+        Assert.Empty(sink.Outcomes);
         Assert.Throws<ObjectDisposedException>(
             operation.ThrowIfExpired);
     }
@@ -589,8 +589,8 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await fixture.ResolvePopulationAsync(
                 operation,
                 ["Contoso.First", "Contoso.Second"]);
-        var observer =
-            new CallerCancellingObserver(cancellation);
+        var sink =
+            new CallerCancellingSink(cancellation);
 
         OperationCanceledException failure =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -599,22 +599,22 @@ public sealed class PackageAssemblySemanticFindQueryTests
                     Request(population),
                     operation,
                     fixture.PayloadAcquisition,
-                    observer,
+                    sink,
                     cancellation.Token));
 
         Assert.Equal(cancellation.Token, failure.CancellationToken);
         Assert.Equal(42, failure.Data["fixture"]);
-        Assert.Single(observer.Outcomes);
+        Assert.Single(sink.Outcomes);
         Assert.Equal(
             "contoso.first",
-            observer.Outcomes[0].Coordinate.PackageId);
+            sink.Outcomes[0].Coordinate.PackageId);
         Assert.Throws<ObjectDisposedException>(
             operation.ThrowIfExpired);
         Assert.Equal(0, fixture.Client.PackageRequests);
     }
 
     [Fact]
-    public async Task LinkedObserverCancellationPreservesCallerIdentity()
+    public async Task LinkedSinkCancellationPreservesCallerIdentity()
     {
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
@@ -629,8 +629,8 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await fixture.ResolvePopulationAsync(
                 operation,
                 ["Contoso.First"]);
-        var observer =
-            new LinkedCallerCancellingObserver(cancellation);
+        var sink =
+            new LinkedCallerCancellingSink(cancellation);
 
         OperationCanceledException failure =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -639,18 +639,18 @@ public sealed class PackageAssemblySemanticFindQueryTests
                     Request(population),
                     operation,
                     fixture.PayloadAcquisition,
-                    observer,
+                    sink,
                     cancellation.Token));
 
         Assert.Equal(cancellation.Token, failure.CancellationToken);
         Assert.Equal(42, failure.Data["fixture"]);
-        Assert.Single(observer.Outcomes);
+        Assert.Single(sink.Outcomes);
         Assert.Throws<ObjectDisposedException>(
             operation.ThrowIfExpired);
     }
 
     [Fact]
-    public async Task LinkedObserverCancellationPreservesTimeoutClassification()
+    public async Task LinkedSinkCancellationPreservesTimeoutClassification()
     {
         await using var fixture = new SemanticFindSourceFixture();
         await fixture.CacheAssemblyAsync(
@@ -673,7 +673,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                     .MaximumRetainedImageBytes,
                 PackageAssemblyEvaluationBudget.Default.SemanticBudget,
                 timeout));
-        var observer = new LinkedWaitingObserver();
+        var sink = new LinkedWaitingSink();
 
         NuGetOperationTimeoutException failure =
             await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
@@ -682,17 +682,17 @@ public sealed class PackageAssemblySemanticFindQueryTests
                     Request(population, budget),
                     operation,
                     fixture.PayloadAcquisition,
-                    observer,
+                    sink,
                     TestContext.Current.CancellationToken));
 
         Assert.Equal(42, failure.Data["fixture"]);
-        Assert.Single(observer.Outcomes);
+        Assert.Single(sink.Outcomes);
         Assert.Throws<ObjectDisposedException>(
             operation.ThrowIfExpired);
     }
 
     [Fact]
-    public async Task IndependentObserverCancellationKeepsItsOwnIdentity()
+    public async Task IndependentSinkCancellationKeepsItsOwnIdentity()
     {
         await using var fixture = new SemanticFindSourceFixture();
         await fixture.CacheAssemblyAsync(
@@ -705,7 +705,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await fixture.ResolvePopulationAsync(
                 operation,
                 ["Contoso.First"]);
-        var observer = new IndependentCancellingObserver();
+        var sink = new IndependentCancellingSink();
 
         OperationCanceledException failure =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -714,12 +714,12 @@ public sealed class PackageAssemblySemanticFindQueryTests
                     Request(population),
                     operation,
                     fixture.PayloadAcquisition,
-                    observer,
+                    sink,
                     TestContext.Current.CancellationToken));
 
-        Assert.Equal(observer.CancellationToken, failure.CancellationToken);
+        Assert.Equal(sink.CancellationToken, failure.CancellationToken);
         Assert.Equal(42, failure.Data["fixture"]);
-        Assert.Single(observer.Outcomes);
+        Assert.Single(sink.Outcomes);
         Assert.Throws<ObjectDisposedException>(
             operation.ThrowIfExpired);
     }
@@ -800,7 +800,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     [Fact]
-    public void ResultClosureRetainsNoLiveInspectionOrSourceResources()
+    public void DocumentClosureRetainsNoLiveInspectionOrSourceResources()
     {
         Type[] forbidden =
         [
@@ -813,9 +813,9 @@ public sealed class PackageAssemblySemanticFindQueryTests
         ];
         Type[] resultTypes =
         [
-            typeof(PackageAssemblySemanticFindResult),
+            typeof(PackageAssemblySemanticFindDocument),
             typeof(PackageAssemblySemanticFindCompletion),
-            typeof(PackageAssemblySemanticFindOccurrence),
+            typeof(PackageAssemblySemanticFindResult),
             typeof(PackageAssemblySemanticFindCandidateOutcome),
             .. typeof(PackageAssemblySemanticFindCandidateOutcome)
                 .GetNestedTypes(BindingFlags.Public),
@@ -907,14 +907,14 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 "Unknown semantic Find candidate outcome."),
         };
 
-    private sealed class RecordingObserver(
+    private sealed class RecordingSink(
         Action<PackageAssemblySemanticFindCandidateOutcome>? observed = null)
-        : IPackageAssemblySemanticFindObserver
+        : IPackageAssemblySemanticFindNonterminalSink
     {
         internal List<PackageAssemblySemanticFindCandidateOutcome> Outcomes
             { get; } = [];
 
-        public ValueTask ObserveAsync(
+        public ValueTask ReportAsync(
             PackageAssemblySemanticFindCandidateOutcome outcome,
             CancellationToken cancellationToken)
         {
@@ -925,14 +925,14 @@ public sealed class PackageAssemblySemanticFindQueryTests
         }
     }
 
-    private sealed class CallerCancellingObserver(
+    private sealed class CallerCancellingSink(
         CancellationTokenSource cancellation)
-        : IPackageAssemblySemanticFindObserver
+        : IPackageAssemblySemanticFindNonterminalSink
     {
         internal List<PackageAssemblySemanticFindCandidateOutcome> Outcomes
             { get; } = [];
 
-        public ValueTask ObserveAsync(
+        public ValueTask ReportAsync(
             PackageAssemblySemanticFindCandidateOutcome outcome,
             CancellationToken cancellationToken)
         {
@@ -945,14 +945,14 @@ public sealed class PackageAssemblySemanticFindQueryTests
         }
     }
 
-    private sealed class LinkedCallerCancellingObserver(
+    private sealed class LinkedCallerCancellingSink(
         CancellationTokenSource cancellation)
-        : IPackageAssemblySemanticFindObserver
+        : IPackageAssemblySemanticFindNonterminalSink
     {
         internal List<PackageAssemblySemanticFindCandidateOutcome> Outcomes
             { get; } = [];
 
-        public ValueTask ObserveAsync(
+        public ValueTask ReportAsync(
             PackageAssemblySemanticFindCandidateOutcome outcome,
             CancellationToken cancellationToken)
         {
@@ -968,13 +968,13 @@ public sealed class PackageAssemblySemanticFindQueryTests
         }
     }
 
-    private sealed class LinkedWaitingObserver
-        : IPackageAssemblySemanticFindObserver
+    private sealed class LinkedWaitingSink
+        : IPackageAssemblySemanticFindNonterminalSink
     {
         internal List<PackageAssemblySemanticFindCandidateOutcome> Outcomes
             { get; } = [];
 
-        public async ValueTask ObserveAsync(
+        public async ValueTask ReportAsync(
             PackageAssemblySemanticFindCandidateOutcome outcome,
             CancellationToken cancellationToken)
         {
@@ -996,8 +996,8 @@ public sealed class PackageAssemblySemanticFindQueryTests
         }
     }
 
-    private sealed class IndependentCancellingObserver
-        : IPackageAssemblySemanticFindObserver
+    private sealed class IndependentCancellingSink
+        : IPackageAssemblySemanticFindNonterminalSink
     {
         private readonly CancellationTokenSource _cancellation = new();
 
@@ -1007,7 +1007,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
         internal List<PackageAssemblySemanticFindCandidateOutcome> Outcomes
             { get; } = [];
 
-        public ValueTask ObserveAsync(
+        public ValueTask ReportAsync(
             PackageAssemblySemanticFindCandidateOutcome outcome,
             CancellationToken cancellationToken)
         {
