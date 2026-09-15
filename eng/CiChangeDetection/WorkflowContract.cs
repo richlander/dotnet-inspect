@@ -33,6 +33,19 @@ internal static partial class WorkflowContract
         "inspect-web-published-api",
     ];
 
+    internal static readonly string[] TestShards =
+    [
+        "cli-a-c",
+        "cli-d-i",
+        "cli-ma",
+        "cli-mem",
+        "cli-q-z",
+        "cli-rest",
+        "contracts",
+        "analysis",
+        "host-policy",
+    ];
+
     internal static WorkflowContractResult Load(
         string repository,
         string workflowText,
@@ -64,6 +77,7 @@ internal static partial class WorkflowContract
         ValidateWorkflowTriggers(root);
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
         ValidateAggregateStructuralCheck(jobs);
+        ValidateTestShardMatrix(jobs);
         ValidateConsumerStepContracts(jobs);
         YamlMappingNode changes = GetRequiredMapping(jobs, "changes", "jobs");
         RequireAbsent(changes, "if", "jobs.changes");
@@ -113,6 +127,75 @@ internal static partial class WorkflowContract
         return new WorkflowContractResult(
             provenanceRunSha256,
             provenancePin);
+    }
+
+    private static void ValidateTestShardMatrix(YamlMappingNode jobs)
+    {
+        YamlMappingNode test = GetRequiredMapping(jobs, "test", "jobs");
+        YamlMappingNode strategy = GetRequiredMapping(
+            test,
+            "strategy",
+            "jobs.test");
+        RequireExactKeys(
+            strategy,
+            ["fail-fast", "matrix"],
+            "jobs.test.strategy");
+        RequireScalarValue(
+            strategy,
+            "fail-fast",
+            "false",
+            "jobs.test.strategy");
+
+        YamlMappingNode matrix = GetRequiredMapping(
+            strategy,
+            "matrix",
+            "jobs.test.strategy");
+        RequireExactKeys(matrix, ["include"], "jobs.test.strategy.matrix");
+        YamlSequenceNode include = GetRequiredSequence(
+            matrix,
+            "include",
+            "jobs.test.strategy.matrix");
+        if (include.Children.Count != TestShards.Length)
+        {
+            throw new InvalidOperationException(
+                $"jobs.test must define exactly {TestShards.Length} shards.");
+        }
+
+        var actual = new HashSet<string>(StringComparer.Ordinal);
+        foreach (YamlNode entryNode in include.Children)
+        {
+            YamlMappingNode entry = RequireMapping(
+                entryNode,
+                "jobs.test.strategy.matrix.include entry");
+            RequireExactKeys(
+                entry,
+                ["os", "rid", "shard"],
+                "jobs.test.strategy.matrix.include entry");
+            RequireScalarValue(
+                entry,
+                "os",
+                "ubuntu-24.04",
+                "jobs.test.strategy.matrix.include entry");
+            RequireScalarValue(
+                entry,
+                "rid",
+                "linux-x64",
+                "jobs.test.strategy.matrix.include entry");
+            string shard = RequireScalar(
+                entry.Children[new YamlScalarNode("shard")],
+                "jobs.test.strategy.matrix.include entry.shard");
+            if (!actual.Add(shard))
+            {
+                throw new InvalidOperationException(
+                    $"jobs.test contains duplicate shard '{shard}'.");
+            }
+        }
+
+        if (!actual.SetEquals(TestShards))
+        {
+            throw new InvalidOperationException(
+                "jobs.test shard names do not match the approved partition.");
+        }
     }
 
     private static void ValidateInspectWebTopology(YamlMappingNode jobs)
@@ -185,7 +268,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             buildSteps[0],
             "working-directory",
-            "prototypes/inspect-web",
+            "inspect-web",
             "jobs.inspect-web-browser build step");
         RequireScalarValue(
             buildSteps[0],
@@ -201,7 +284,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             testSteps[0],
             "working-directory",
-            "prototypes/inspect-web",
+            "inspect-web",
             "jobs.inspect-web-browser test step");
         RequireScalarValue(
             testSteps[0],
@@ -326,7 +409,12 @@ internal static partial class WorkflowContract
 
         RequireExactKeys(
             verifierBuildSteps[0],
-            ["name", "run"],
+            ["name", "if", "run"],
+            "jobs.test package-manifest corpus verifier build step");
+        RequireScalarValue(
+            verifierBuildSteps[0],
+            "if",
+            "matrix.shard == 'host-policy'",
             "jobs.test package-manifest corpus verifier build step");
         RequireScalarValue(
             verifierBuildSteps[0],

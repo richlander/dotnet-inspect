@@ -253,7 +253,7 @@ public sealed class InspectionGraphPackageBoundaryTests
     }
 
     [Fact]
-    public void Create_RejectsLoadedContextThatOmitsAParticipant()
+    public async Task Create_RejectsLoadedContextThatOmitsAParticipant()
     {
         RealizedMemberCoordinate.Package package =
             Package("sample.package", "feed-a");
@@ -261,11 +261,12 @@ public sealed class InspectionGraphPackageBoundaryTests
             PackageMember(package, "Sample.First");
         WorkspaceContextMember second =
             PackageMember(package, "Sample.Second");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [first.Participant, second.Participant]);
         var loaded = new WorkspaceContextLoadOutcome.Loaded(
+            workspace.Identity,
             group,
             [first],
             [],

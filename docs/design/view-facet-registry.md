@@ -5,10 +5,11 @@ facets. It gives navigation, portable-definition owners, and other hosts one
 stable identity and descriptor space without turning a browser label, CLI
 section name, or command flag into a contract.
 
-The initial inspection-lens catalog is implemented in
-`DotnetInspector.Queries`. The [Workspace and Package
-cutover](#workspace-and-package-cutover) contract is planned, not implemented
-or issued by this document change.
+The inspection-lens catalog, the [Workspace and Package
+cutover](#workspace-and-package-cutover), and the
+[Compare facet extension](#compare-facet-extension) are implemented in
+`DotnetInspector.Queries`. The Compare Browser wire projection is implemented
+in `DotnetInspect.Web.Interop.Analysis`.
 Adjacent Navigation, workspace-definition, and host consumers remain separate
 work.
 
@@ -122,7 +123,7 @@ A view-facet ID is an ordinal, case-sensitive ASCII string:
 <subject>.<name>
 ```
 
-After Workspace/Package cutover, `<subject>` is exactly `workspace`, `package`,
+`<subject>` is exactly `workspace`, `package`,
 `library`, `type`, or `member`. `<name>` is one or more lower-case ASCII
 alphanumeric words separated by `-`, begins with a letter, and ends with a
 letter or digit. The target grammar is:
@@ -131,10 +132,8 @@ letter or digit. The target grammar is:
 \A(workspace|package|library|type|member)\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*\z
 ```
 
-Until that cutover, the pre-issuance implementation grammar additionally
-admits `root`. Its current catalog remains internally consistent under that
-baseline grammar. The cutover removes the prefix and its three entries
-together.
+The pre-issuance implementation grammar additionally admitted `root`. The
+cutover removed that prefix and its three entries together.
 
 The `\A` and `\z` anchors require an absolute full-string match under .NET
 regular-expression semantics; in particular, a terminal line feed is not
@@ -205,10 +204,9 @@ boundaries as inert product-owned data.
 Sparse values allow additive insertion. Registration order, enum ordinal, ID,
 and localized title are not tie-breakers.
 
-Complete-catalog order after Workspace/Package adoption is Workspace, Package,
+Complete-catalog order is Workspace, Package,
 Library, Type, Member, then descriptor `Order`. The current implementation
-baseline instead has legacy Root, Library, Type, and Member kinds. Kind-scoped
-and target-aware discovery use descriptor `Order`.
+uses that order. Kind-scoped and target-aware discovery use descriptor `Order`.
 
 `Role` is optional semantic metadata for an adjacent product policy. The
 registry owns which descriptor carries a role; it does not define how
@@ -278,10 +276,10 @@ fallbacks.
 Resolution never selects a neighbor, default, or replacement. Adjacent owners
 consume the exact result.
 
-## Current implementation baseline
+## Pre-cutover implementation baseline
 
-The first implementation contains these inspection-lens descriptors. This is
-the pre-issuance baseline before Workspace/Package adoption:
+The first implementation contained these inspection-lens descriptors. This
+was the pre-issuance baseline before Workspace/Package adoption:
 
 | ID | Title | Summary | Kind | Order | Role |
 | -- | ----- | ------- | ---- | ----: | ---- |
@@ -302,17 +300,151 @@ the pre-issuance baseline before Workspace/Package adoption:
 | `member.source` | Source | Source or decompiled code for the active Member. | Member | 400 | — |
 | `member.annotated-source` | Annotated source | Source for the active Member with product analysis annotations. | Member | 500 | — |
 
-In that baseline, the two `root.package-*` facets apply only to a
-package-capable Root. `root.overview` applies to supported non-package Roots
-and is inapplicable to a package-capable Root. Applicability comes from typed
+In that baseline, the two `root.package-*` facets applied only to a
+package-capable Root. `root.overview` applied to supported non-package Roots
+and was inapplicable to a package-capable Root. Applicability came from typed
 root facts, never ID parsing or coordinate spelling.
 
 Distinct IDs may share presentation: Library Metadata and Type Metadata, Type
 and Member Source, and Root and Member Overview remain separate facets.
 
-These entries have no external compatibility obligation. Their implemented
-purposes and the current manifest remain exact baseline evidence until the
-consumer-paired cutover replaces them.
+These entries had no external compatibility obligation and were replaced by
+the consumer-paired cutover.
+
+## Integrations inspector consolidation
+
+The Browser's [Integrations surface](inspect-web-surface-composition.md#library-integrations)
+now places detected integrations and opportunities in two tabs under
+`library.integrations`. The published `library.opportunities` descriptor remains
+registered as a tombstone: exact applicable resolution returns `Retired` and
+there is no execution binding. Both descriptors retain their issued identities,
+structural kinds, and purpose statements. The compatibility manifest is
+unchanged; Browser tab selection does not mint or alias a Registry ID.
+
+## Compare facet extension
+
+Issue [#6494](https://github.com/richlander/dotnet-inspect/issues/6494)
+defines the Registry-owned facet vocabulary required by the Browser Compare
+experience in
+[Inspect Web Compare Experience](inspect-web-compare-experience.md), under the
+end-to-end tracker
+[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+
+The extension adds three subject-scoped descriptors:
+
+| ID | Title | Summary and stable purpose | Kind | Order | Role |
+| --- | --- | --- | --- | ---: | --- |
+| `library.compare` | Compare | Diff and clone results organized by Type for the active Library. | Library | 600 | — |
+| `type.compare` | Compare | Diff and clone results organized by Member for the active Type. | Type | 400 | — |
+| `member.compare` | Compare | Detailed diff and clone results for the active Member. | Member | 600 | — |
+
+The descriptors are additive to either the current pre-issuance Root catalog
+or the Workspace/Package replacement catalog below. Their orders append
+Compare after the existing facets without renumbering or changing another
+facet's relative position. None carries a semantic role, so this extension
+does not change Navigation recommendation or fallback policy.
+
+The shared title is presentation, not identity. Exact lookup, persistence, and
+activation use the complete subject-prefixed ID. The Registry does not resolve
+`Compare`, infer the subject from the active UI, or treat `library.compare`,
+`type.compare`, and `member.compare` as aliases. Diff and Clone are
+Compare-owned modes and do not mint `*.diff` or `*.clone` facets.
+
+### Compare applicability and availability
+
+Each descriptor is structurally applicable only to its declared Library, Type,
+or Member kind. Active registration is sequenced after
+[#5518](https://github.com/richlander/dotnet-inspect/issues/5518) replaces the
+coordinate-rooted identity family: every applicable descendant then carries
+one exact retained Package occurrence and Workspace transitively. The Registry
+does not infer that ancestry from display text or accept a coordinate-only
+substitute. A later non-Package structural grammar must make a separate
+Compare applicability decision rather than inheriting these registrations.
+
+Once the active registration and its consumer-paired execution binding ship,
+every structurally applicable exact subject is `Available`. Compare has no
+additional target-aware availability probe. It does not consume a separately
+cached Package capability fact that could be exchanged between equal
+coordinates or Workspace occurrences.
+
+A missing Diff baseline, a package with no predecessor, a Member with no
+eligible Clone seed body, a successful empty result, incomplete Clone
+coverage, or an unavailable immersive destination does not make the Compare
+facet unavailable. Those are mode- or result-level states rendered inside the
+available Compare frame. Switching Diff or Clone therefore does not
+re-resolve, remove, or replace the active facet.
+
+Exact resolution includes these representative outcomes:
+
+| Request and target | Exact result |
+| --- | --- |
+| `library.compare` on an exact Package-bound Library | `Available`, Library Compare descriptor |
+| `type.compare` on an exact Package-bound Type | `Available`, Type Compare descriptor |
+| `member.compare` on an exact Package-bound Member | `Available`, Member Compare descriptor |
+| `library.compare` on a Type | `Inapplicable`, Library Compare descriptor |
+| `compare`, `library.diff`, `library.clone`, `member.diff`, or `member.clone` | `Unknown`, no descriptor |
+
+### Compare delivery and evidence
+
+The first and currently approved production consumer is Inspect Web in the
+Browser/Wasm host. The explicit single-host scope and interactive DOM rendering
+strategy are recorded by Inspect Web Compare Experience. This extension adds
+entries to the existing host-neutral Registry; it does not define a CLI
+Compare renderer or broaden the approved experience beyond that Browser
+consumer.
+
+The private execution bindings are the host-neutral dispatch identities
+`LibraryCompare`, `TypeCompare`, and `MemberCompare`. They select the
+subject-scoped Compare entry contract only. They do not encode Diff or Clone,
+execute a mode query, or reference Browser implementation types. They remain
+internal to the Registry's owning layer.
+
+`CompareFacetEntryExecution` implements
+[#6519](https://github.com/richlander/dotnet-inspect/issues/6519)'s public
+host-neutral execution handoff. It accepts one exact applied, unavailable, or
+failed Navigation activation, verifies that its descriptor is the exact
+product-Registry descriptor, consumes the matching private target, and returns
+a closed Library, Type, or Member entry result. Every result retains the exact
+subject, lens, Workspace, and retained Package occurrence. It neither selects
+nor executes Diff or Clone.
+
+`BrowserCompareEntryWireProjection` is the first bounded Browser adapter. It
+consumes only that public result and lowers its public descriptor, subject, and
+closed result state into the Analysis facade's transport-safe records. It does
+not read the private binding or maintain a parallel facet-ID-to-renderer table.
+Interactive DOM rendering and mode execution remain later Compare stages.
+Other hosts likewise cannot inspect the private bindings or reconstruct a mode
+from the descriptor title.
+
+This contract is stage 2 of Compare Experience's nine-stage production
+adoption path. Atomic descendant-subject plus exact-lens activation follows in
+[#6490](https://github.com/richlander/dotnet-inspect/issues/6490). Runtime
+registrations require the exact occurrence-bound subject identity from #5518
+and the Registry's Workspace/Package grammar from
+[#5509](https://github.com/richlander/dotnet-inspect/issues/5509). Those
+prerequisites, the public executor, active registrations, compatibility
+manifest entries, and first Browser adapter are now implemented together.
+
+Adoption is gated in Release by:
+
+- `ViewFacetRegistryTests.CompareInventory_MatchesContract`, covering the three
+  exact IDs, common title, summaries, kinds, append-only orders, absent roles,
+  exact private execution targets, and structural applicability;
+- `ViewFacetRegistryTests.CompareLookup_PreservesFacetAndModeBoundaries`,
+  covering exact available and cross-subject outcomes plus unknown label and
+  `*.diff`/`*.clone` requests;
+- `CompareFacetEntryExecutionTests.Execution_DispatchesEveryCompareTargetAndRetainsExactAncestry`
+  and its neighboring outcome tests, covering private-target consumption,
+  subject-specific public entries, exact ancestry, closed unavailability and
+  failure evidence, and rejection of non-Compare activations; and
+- `BrowserCompareEntryProjectionTests.Projection_PreservesTypedEntryAndClosedResultStates`,
+  covering Browser lowering and source-generated JSON for the public handoff.
+
+The existing complete-catalog, registration/binding, static discovery,
+target-discovery, exact-resolution, and compatibility gates remain applicable.
+Issue #5518's exact-ancestry gates establish that equal portable coordinates
+cannot alias the applicable subject; the Compare Registry tests do not
+manufacture or duplicate that identity evidence.
 
 ## Workspace and Package cutover
 
@@ -346,11 +478,13 @@ does not choose a subject or a default lens. Availability still consumes
 explicit producer facts: an empty Workspace or empty dependency result is not
 unavailable merely because it has no rows.
 
-Library, Type, and Member facets retain their current IDs, kinds, purposes,
-order, and bindings. The cutover removes `root.package-overview`,
+The pre-existing Library, Type, and Member facets retain their current IDs,
+kinds, purposes, order, and bindings. The cutover removes
+`root.package-overview`,
 `root.package-dependencies`, and `root.overview` from registrations, execution
 bindings, and the pre-issuance manifest, then adds the three descriptors above.
-The resulting first supported catalog still has 16 entries.
+The cutover alone preserves the 16-entry cardinality. When composed with the
+Compare extension, the catalog has 19 entries.
 
 The removed IDs do not become aliases, tombstones, or fallback inputs. They
 were never externally issued. After cutover they fail the canonical ID grammar
@@ -511,17 +645,14 @@ restoration own stateful interactions.
 
 ## Implementation status
 
-The immutable registry, pre-issuance 16-facet catalog, private execution
+The immutable registry, Workspace/Package 16-facet catalog, private execution
 bindings, typed applicability and availability inputs, exact resolution
-outcomes, and current baseline manifest are implemented by
+outcomes, and first compatibility baseline are implemented by
 `ViewFacetRegistry.cs`, `InspectionViewFacetCatalog.cs`, and
 `eng/view-facet-compatibility.json`.
 
-Workspace/Package grammar, the three replacement descriptors, removal of all
-three Root descriptors and bindings, and establishment of the resulting
-manifest as the first compatibility baseline are not implemented here. The
-current four-kind runtime and 16 pre-issuance manifest entries remain unchanged
-until the consumer-paired adoption above.
+The three Compare descriptors, bindings, availability facts, and focused gates
+are not implemented.
 
 The initial contract is enforced by
 `ViewFacetRegistryTests.Catalog_IsCompleteUniqueAndDeterministicallyOrdered`,
@@ -531,13 +662,13 @@ The initial contract is enforced by
 `ViewFacetRegistryTests.StaticDiscovery_DoesNotExecuteOrAcquire`,
 `ViewFacetRegistryTests.TargetDiscovery_PreservesOrderAndFailureEvidence`,
 `ViewFacetRegistryTests.Lookup_DistinguishesEveryOutcome`,
-`ViewFacetRegistryTests.RootApplicability_PartitionsPackageAndNonPackageFacets`,
-and
-`ViewFacetRegistryTests.InitialInspectionLensInventory_MatchesContract`.
+`ViewFacetRegistryTests.WorkspacePackageApplicability_PartitionsFacets`,
+`ViewFacetRegistryTests.WorkspacePackageInventory_MatchesContract`, and
+`ViewFacetRegistryTests.WorkspacePackageCutover_PreservesExactLookupOutcomes`.
 
 Current transitional surfaces are:
 
-- `prototypes/inspect-web/src/data.ts`, which owns browser arrays and local
+- `inspect-web/src/data.ts`, which owns browser arrays and local
   tokens;
 - `ProductDemoSections`, which admits product demo section display names; and
 - CLI section descriptor names and `SelectResolver` aliases, which remain

@@ -1,7 +1,9 @@
+using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using DotnetInspector.Core;
+using ILInspector.Metadata;
+using UntrustedDocuments;
 
 namespace DotnetInspector.Queries.Definitions;
 
@@ -12,8 +14,6 @@ namespace DotnetInspector.Queries.Definitions;
 /// </summary>
 public static class InspectionDefinitionJson
 {
-    public const int CurrentSchemaVersion = 1;
-
     /// <summary>Maximum UTF-8 JSON bytes for one standalone definition file.</summary>
     public const int MaxUtf8ByteLength = 1_048_576;
 
@@ -86,13 +86,18 @@ public static class InspectionDefinitionJson
         ArgumentNullException.ThrowIfNull(record);
         EnsureWithinPortableLimits(record);
         EnsureWellFormedUtf16(record);
-        var dto = ToDto(record);
         string json;
         try
         {
-            json = JsonSerializer.Serialize(
-                dto,
-                InspectionDefinitionJsonContext.Default.InspectionDefinitionDto);
+            json = record is CommittedNavigationDefinition navigation
+                ? JsonSerializer.Serialize(
+                    ToCommittedNavigationDto(navigation),
+                    InspectionDefinitionJsonContext.Default
+                        .CommittedNavigationDefinitionDto)
+                : JsonSerializer.Serialize(
+                    ToDto(record),
+                    InspectionDefinitionJsonContext.Default
+                        .InspectionDefinitionDto);
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
@@ -206,6 +211,26 @@ public static class InspectionDefinitionJson
                 foreach (var tab in navigation.Tabs)
                     EnsureTabUtf16(tab);
                 break;
+            case CommittedNavigationDefinition navigation:
+                EnsureUtf16(navigation.Id, "id");
+                EnsureUtf16(navigation.Focus, "focus");
+                foreach (var tab in navigation.Tabs)
+                    EnsureTabUtf16(tab);
+                break;
+            case CommittedViewDefinition view:
+                EnsureUtf16(view.Id, "id");
+                foreach (CommittedViewStateDefinition state in view.States)
+                {
+                    EnsureUtf16(state.Navigation, "state.navigation");
+                    EnsureUtf16(state.Facet, "state.facet");
+                    foreach (string query in state.Queries)
+                        EnsureUtf16(query, "state.queries");
+                    foreach (PortableLibraryIdentity library in state.Libraries)
+                        EnsureLibraryUtf16(library);
+                    if (state.Context is { } context)
+                        EnsureContextUtf16(context);
+                }
+                break;
             case ScenarioDefinition scenario:
                 EnsureUtf16(scenario.Id, "id");
                 EnsureUtf16(scenario.Title, "title");
@@ -291,6 +316,42 @@ public static class InspectionDefinitionJson
         }
     }
 
+    private static void EnsureContextUtf16(
+        PortableRetainedSubjectContext context)
+    {
+        switch (context)
+        {
+            case PortableRetainedSubjectContext.Library library:
+                EnsureLibraryUtf16(library.LibraryIdentity);
+                break;
+            case PortableRetainedSubjectContext.Type type:
+                EnsureLibraryUtf16(type.LibraryIdentity);
+                EnsureTypeUtf16(type.TypeIdentity);
+                break;
+            case PortableRetainedSubjectContext.Member member:
+                EnsureLibraryUtf16(member.LibraryIdentity);
+                EnsureTypeUtf16(member.TypeIdentity);
+                EnsureUtf16(member.MemberAnchor, "context.memberAnchor");
+                EnsureUtf16(member.MemberSignature, "context.memberSignature");
+                break;
+        }
+    }
+
+    private static void EnsureLibraryUtf16(PortableLibraryIdentity library)
+    {
+        EnsureUtf16(library.Name, "library.name");
+        EnsureUtf16(library.Version, "library.version");
+        EnsureUtf16(library.Culture, "library.culture");
+        EnsureUtf16(library.PublicKeyToken, "library.publicKeyToken");
+    }
+
+    private static void EnsureTypeUtf16(MetadataTypeDefinitionName type)
+    {
+        EnsureUtf16(type.Namespace, "type.namespace");
+        foreach (string segment in type.Segments)
+            EnsureUtf16(segment, "type.segments");
+    }
+
     private static void EnsureUtf16(string? value, string fieldName)
     {
         if (value is null)
@@ -317,6 +378,8 @@ public static class InspectionDefinitionJson
                 + workspace.Contexts.Sum(context => context.Members.Count),
             NavigationDefinition navigation =>
                 navigation.Tabs.Count(tab => tab.Coordinate is not null),
+            CommittedNavigationDefinition navigation =>
+                navigation.Tabs.Count(tab => tab.Coordinate is not null),
             _ => 0,
         };
 
@@ -337,7 +400,20 @@ public static class InspectionDefinitionJson
         if (root.ValueKind != JsonValueKind.Object)
             throw new InspectionDefinitionException("Definition JSON must be a single object.");
 
-        ValidateRecordShape(root);
+        if (!root.TryGetProperty("schemaVersion", out JsonElement schemaVersion)
+            || schemaVersion.ValueKind != JsonValueKind.Number
+            || !schemaVersion.TryGetInt32(out int version))
+        {
+            throw new InspectionDefinitionException(
+                "Definition record requires integer schemaVersion.");
+        }
+        if (!InspectionDefinitionSchema.IsSupported(version))
+        {
+            throw new InspectionDefinitionException(
+                $"Unsupported definition schema version {version}.");
+        }
+
+        ValidateRecordShape(root, version);
 
         InspectionDefinitionDto dto;
         try
@@ -355,27 +431,37 @@ public static class InspectionDefinitionJson
         return record;
     }
 
-    private static void ValidateRecordShape(JsonElement root)
+    private static void ValidateRecordShape(JsonElement root, int schemaVersion)
     {
         if (!TryGetExactString(root, "kind", out var kind))
             throw new InspectionDefinitionException("Definition record requires kind.");
 
-        HashSet<string> allowed = kind switch
+        HashSet<string> allowed = (schemaVersion, kind) switch
         {
-            "catalog" => ["schemaVersion", "kind", "id", "groups"],
-            "workspace" => ["schemaVersion", "kind", "id", "title", "description", "contexts", "groups"],
-            "query" => ["schemaVersion", "kind", "id", "queryId"],
-            "view" =>
+            (_, "catalog") => ["schemaVersion", "kind", "id", "groups"],
+            (_, "workspace") =>
+                ["schemaVersion", "kind", "id", "title", "description", "contexts", "groups"],
+            (InspectionDefinitionSchema.Version1, "query") =>
+                ["schemaVersion", "kind", "id", "queryId"],
+            (InspectionDefinitionSchema.Version1, "view") =>
             [
                 "schemaVersion", "kind", "id", "lens", "type", "memberAnchor", "memberSignature",
                 "memberKey", "section", "library", "libraries",
             ],
-            "navigation" => ["schemaVersion", "kind", "id", "tabs", "focus"],
-            "scenario" =>
+            (InspectionDefinitionSchema.Version1, "navigation") =>
+                ["schemaVersion", "kind", "id", "tabs", "focus"],
+            (InspectionDefinitionSchema.Version2, "view") =>
+                ["schemaVersion", "kind", "id", "states"],
+            (InspectionDefinitionSchema.Version2, "navigation") =>
+                ["schemaVersion", "kind", "id", "tabs", "focus"],
+            (_, "scenario") =>
             [
                 "schemaVersion", "kind", "id", "title", "description", "workspace", "context",
                 "input", "query", "view", "navigation",
             ],
+            (InspectionDefinitionSchema.Version2, "query") =>
+                throw new InspectionDefinitionException(
+                    "Schema-version-2 query records require query-owner codecs from #6971."),
             _ => throw new InspectionDefinitionException($"Unknown definition kind '{kind}'."),
         };
 
@@ -387,6 +473,174 @@ public static class InspectionDefinitionJson
             ValidateContexts(contexts);
         if (root.TryGetProperty("tabs", out var tabs))
             ValidateTabs(tabs);
+        if (root.TryGetProperty("states", out var states))
+            ValidateCommittedStates(states);
+        if (schemaVersion == InspectionDefinitionSchema.Version2
+            && kind == "navigation")
+        {
+            if (!root.TryGetProperty("focus", out JsonElement focus)
+                || focus.ValueKind is not JsonValueKind.String
+                    and not JsonValueKind.Null)
+            {
+                throw new InspectionDefinitionException(
+                    "Schema-version-2 navigation requires string or null focus.");
+            }
+        }
+    }
+
+    private static void ValidateCommittedStates(JsonElement states)
+    {
+        if (states.ValueKind != JsonValueKind.Array)
+            throw new InspectionDefinitionException("states must be an array.");
+
+        foreach (JsonElement state in states.EnumerateArray())
+        {
+            if (state.ValueKind != JsonValueKind.Object)
+            {
+                throw new InspectionDefinitionException(
+                    "Committed view state entry must be an object.");
+            }
+
+            RejectUnknownProperties(
+                state,
+                ["navigation", "subject", "context", "facet", "queries", "libraries"],
+                "Committed view state");
+            if (!state.TryGetProperty(
+                    "navigation",
+                    out JsonElement navigation)
+                || navigation.ValueKind is not JsonValueKind.String
+                    and not JsonValueKind.Null)
+            {
+                throw new InspectionDefinitionException(
+                    "Committed view state requires string or null navigation.");
+            }
+            if (state.TryGetProperty("subject", out JsonElement subject))
+                ValidateSubject(subject);
+            if (state.TryGetProperty("context", out JsonElement context))
+                ValidateRetainedContext(context);
+            if (state.TryGetProperty("queries", out JsonElement queries)
+                && queries.ValueKind != JsonValueKind.Array)
+            {
+                throw new InspectionDefinitionException(
+                    "Committed view state queries must be an array.");
+            }
+            if (state.TryGetProperty("libraries", out JsonElement libraries))
+                ValidateLibraries(libraries);
+        }
+    }
+
+    private static void ValidateSubject(JsonElement subject)
+    {
+        if (subject.ValueKind != JsonValueKind.Object)
+        {
+            throw new InspectionDefinitionException(
+                "Committed subject must be an object.");
+        }
+        if (!TryGetExactString(subject, "kind", out string kind))
+            throw new InspectionDefinitionException("Committed subject requires kind.");
+        if (kind is not "workspace" and not "package")
+        {
+            throw new InspectionDefinitionException(
+                $"Unknown committed subject kind '{kind}'.");
+        }
+
+        RejectUnknownProperties(subject, ["kind"], "Committed subject");
+    }
+
+    private static void ValidateRetainedContext(JsonElement context)
+    {
+        if (context.ValueKind != JsonValueKind.Object)
+        {
+            throw new InspectionDefinitionException(
+                "Retained context must be an object.");
+        }
+        if (!TryGetExactString(context, "kind", out string kind))
+            throw new InspectionDefinitionException("Retained context requires kind.");
+
+        HashSet<string> allowed = kind switch
+        {
+            "package" or "allLibraries" => ["kind"],
+            "library" => ["kind", "library"],
+            "type" => ["kind", "library", "type"],
+            "member" =>
+                ["kind", "library", "type", "memberAnchor", "memberSignature"],
+            _ => throw new InspectionDefinitionException(
+                $"Unknown retained context kind '{kind}'."),
+        };
+        RejectUnknownProperties(context, allowed, "Retained context");
+
+        if (context.TryGetProperty("library", out JsonElement library))
+            ValidateLibrary(library);
+        if (context.TryGetProperty("type", out JsonElement type))
+            ValidateType(type);
+    }
+
+    private static void ValidateLibraries(JsonElement libraries)
+    {
+        if (libraries.ValueKind != JsonValueKind.Array)
+        {
+            throw new InspectionDefinitionException(
+                "Committed Library scope must be an array.");
+        }
+        foreach (JsonElement library in libraries.EnumerateArray())
+            ValidateLibrary(library);
+    }
+
+    private static void ValidateLibrary(JsonElement library)
+    {
+        if (library.ValueKind != JsonValueKind.Object)
+        {
+            throw new InspectionDefinitionException(
+                "Portable Library identity must be an object.");
+        }
+        RejectUnknownProperties(
+            library,
+            ["name", "version", "culture", "publicKeyToken"],
+            "Portable Library identity");
+        foreach (string required in
+            new[] { "name", "version", "culture", "publicKeyToken" })
+        {
+            if (!library.TryGetProperty(required, out JsonElement value))
+            {
+                throw new InspectionDefinitionException(
+                    $"Portable Library identity requires {required}.");
+            }
+            if (required is "culture" or "publicKeyToken")
+            {
+                if (value.ValueKind is not JsonValueKind.String
+                    and not JsonValueKind.Null)
+                {
+                    throw new InspectionDefinitionException(
+                        $"Portable Library identity {required} must be string or null.");
+                }
+            }
+            else if (value.ValueKind != JsonValueKind.String)
+            {
+                throw new InspectionDefinitionException(
+                    $"Portable Library identity {required} must be a string.");
+            }
+        }
+    }
+
+    private static void ValidateType(JsonElement type)
+    {
+        if (type.ValueKind != JsonValueKind.Object)
+        {
+            throw new InspectionDefinitionException(
+                "Portable Type identity must be an object.");
+        }
+        RejectUnknownProperties(
+            type,
+            ["namespace", "segments"],
+            "Portable Type identity");
+        if (!type.TryGetProperty("namespace", out JsonElement @namespace)
+            || @namespace.ValueKind != JsonValueKind.String
+            || !type.TryGetProperty("segments", out JsonElement segments)
+            || segments.ValueKind != JsonValueKind.Array)
+        {
+            throw new InspectionDefinitionException(
+                "Portable Type identity requires string namespace and array segments.");
+        }
     }
 
     private static void ValidateGroups(JsonElement groups, string path)
@@ -538,10 +792,10 @@ public static class InspectionDefinitionJson
 
     internal static InspectionDefinitionRecord FromDto(InspectionDefinitionDto dto)
     {
-        if (dto.SchemaVersion != CurrentSchemaVersion)
+        if (!InspectionDefinitionSchema.IsSupported(dto.SchemaVersion))
         {
             throw new InspectionDefinitionException(
-                $"Unsupported definition schema version {dto.SchemaVersion}; expected {CurrentSchemaVersion}.");
+                $"Unsupported definition schema version {dto.SchemaVersion}.");
         }
 
         if (string.IsNullOrEmpty(dto.Kind))
@@ -554,14 +808,21 @@ public static class InspectionDefinitionJson
         var coordinateCount = 0;
         try
         {
-            return kind switch
+            return (dto.SchemaVersion, kind) switch
             {
-                "catalog" => CreateCatalog(dto, ref coordinateCount),
-                "workspace" => CreateWorkspace(dto, ref coordinateCount),
-                "query" => CreateQuery(dto),
-                "view" => CreateView(dto),
-                "navigation" => CreateNavigation(dto, ref coordinateCount),
-                "scenario" => CreateScenario(dto),
+                (_, "catalog") => CreateCatalog(dto, ref coordinateCount),
+                (_, "workspace") => CreateWorkspace(dto, ref coordinateCount),
+                (InspectionDefinitionSchema.Version1, "query") =>
+                    CreateQuery(dto),
+                (InspectionDefinitionSchema.Version1, "view") =>
+                    CreateView(dto),
+                (InspectionDefinitionSchema.Version1, "navigation") =>
+                    CreateNavigation(dto, ref coordinateCount),
+                (InspectionDefinitionSchema.Version2, "view") =>
+                    CreateCommittedView(dto),
+                (InspectionDefinitionSchema.Version2, "navigation") =>
+                    CreateCommittedNavigation(dto, ref coordinateCount),
+                (_, "scenario") => CreateScenario(dto),
                 _ => throw new InspectionDefinitionException($"Unknown definition kind '{dto.Kind}'."),
             };
         }
@@ -595,7 +856,8 @@ public static class InspectionDefinitionJson
             input: true,
             query: true,
             view: true,
-            navigation: true);
+            navigation: true,
+            states: true);
         return new CatalogDefinition(
             dto.SchemaVersion,
             dto.Id!,
@@ -623,7 +885,8 @@ public static class InspectionDefinitionJson
             input: true,
             query: true,
             view: true,
-            navigation: true);
+            navigation: true,
+            states: true);
         return new WorkspaceDefinition(
             dto.SchemaVersion,
             dto.Id!,
@@ -657,7 +920,8 @@ public static class InspectionDefinitionJson
             input: true,
             query: true,
             view: true,
-            navigation: true);
+            navigation: true,
+            states: true);
         return new QueryDefinition(dto.SchemaVersion, dto.Id!, dto.QueryId);
     }
 
@@ -678,7 +942,8 @@ public static class InspectionDefinitionJson
             input: true,
             query: true,
             view: true,
-            navigation: true);
+            navigation: true,
+            states: true);
         if (dto.Library is null && dto.Libraries is { Count: < 2 })
         {
             throw new InspectionDefinitionException(
@@ -721,7 +986,8 @@ public static class InspectionDefinitionJson
             input: true,
             query: true,
             view: true,
-            navigation: true);
+            navigation: true,
+            states: true);
         return new NavigationDefinition(
             dto.SchemaVersion,
             dto.Id!,
@@ -746,7 +1012,8 @@ public static class InspectionDefinitionJson
             library: true,
             libraries: true,
             tabs: true,
-            focus: true);
+            focus: true,
+            states: true);
         return new ScenarioDefinition(
             dto.SchemaVersion,
             dto.Id!,
@@ -758,6 +1025,73 @@ public static class InspectionDefinitionJson
             dto.Query,
             dto.View,
             dto.Navigation);
+    }
+
+    private static CommittedNavigationDefinition CreateCommittedNavigation(
+        InspectionDefinitionDto dto,
+        ref int coordinateCount)
+    {
+        RejectForeignRecordFields(
+            dto,
+            "navigation",
+            title: true,
+            description: true,
+            groups: true,
+            contexts: true,
+            queryId: true,
+            lens: true,
+            type: true,
+            memberAnchor: true,
+            memberSignature: true,
+            memberKey: true,
+            section: true,
+            library: true,
+            libraries: true,
+            workspace: true,
+            context: true,
+            input: true,
+            query: true,
+            view: true,
+            navigation: true,
+            states: true);
+        return new CommittedNavigationDefinition(
+            dto.SchemaVersion,
+            dto.Id!,
+            MapTabs(dto.Tabs, ref coordinateCount),
+            dto.Focus);
+    }
+
+    private static CommittedViewDefinition CreateCommittedView(
+        InspectionDefinitionDto dto)
+    {
+        RejectForeignRecordFields(
+            dto,
+            "view",
+            title: true,
+            description: true,
+            groups: true,
+            contexts: true,
+            queryId: true,
+            lens: true,
+            type: true,
+            memberAnchor: true,
+            memberSignature: true,
+            memberKey: true,
+            section: true,
+            library: true,
+            libraries: true,
+            tabs: true,
+            focus: true,
+            workspace: true,
+            context: true,
+            input: true,
+            query: true,
+            view: true,
+            navigation: true);
+        return new CommittedViewDefinition(
+            dto.SchemaVersion,
+            dto.Id!,
+            MapCommittedStates(dto.States));
     }
 
     private static void RejectForeignRecordFields(
@@ -783,7 +1117,8 @@ public static class InspectionDefinitionJson
         bool input = false,
         bool query = false,
         bool view = false,
-        bool navigation = false)
+        bool navigation = false,
+        bool states = false)
     {
         void Check(bool reject, string name, object? value)
         {
@@ -815,6 +1150,7 @@ public static class InspectionDefinitionJson
         Check(query, "query", dto.Query);
         Check(view, "view", dto.View);
         Check(navigation, "navigation", dto.Navigation);
+        Check(states, "states", dto.States);
     }
 
     internal static InspectionDefinitionDto ToDto(InspectionDefinitionRecord record) =>
@@ -866,6 +1202,21 @@ public static class InspectionDefinitionJson
                 Tabs = navigation.Tabs.Select(ToTabDto).ToList(),
                 Focus = navigation.Focus,
             },
+            CommittedNavigationDefinition navigation => new InspectionDefinitionDto
+            {
+                SchemaVersion = navigation.SchemaVersion,
+                Kind = "navigation",
+                Id = navigation.Id,
+                Tabs = navigation.Tabs.Select(ToTabDto).ToList(),
+                Focus = navigation.Focus,
+            },
+            CommittedViewDefinition view => new InspectionDefinitionDto
+            {
+                SchemaVersion = view.SchemaVersion,
+                Kind = "view",
+                Id = view.Id,
+                States = view.States.Select(ToCommittedStateDto).ToList(),
+            },
             ScenarioDefinition scenario => new InspectionDefinitionDto
             {
                 SchemaVersion = scenario.SchemaVersion,
@@ -881,6 +1232,242 @@ public static class InspectionDefinitionJson
                 Navigation = scenario.Navigation,
             },
             _ => throw new InspectionDefinitionException($"Unsupported record type {record.GetType().Name}."),
+        };
+
+    private static IReadOnlyList<CommittedViewStateDefinition>
+        MapCommittedStates(List<CommittedViewStateDto>? states)
+    {
+        if (states is null || states.Count == 0)
+        {
+            throw new InspectionDefinitionException(
+                "Committed view requires at least one state.");
+        }
+
+        var mapped = new List<CommittedViewStateDefinition>(states.Count);
+        foreach (CommittedViewStateDto? state in states)
+        {
+            if (state is null)
+            {
+                throw new InspectionDefinitionException(
+                    "Committed view state entry must not be null.");
+            }
+
+            mapped.Add(new CommittedViewStateDefinition(
+                state.Navigation,
+                MapSubject(state.Subject),
+                MapRetainedContext(state.Context),
+                state.Facet,
+                state.Queries,
+                MapLibraries(state.Libraries)));
+        }
+
+        return mapped;
+    }
+
+    private static PortableSubjectRequest? MapSubject(
+        PortableSubjectRequestDto? subject)
+    {
+        if (subject is null)
+            return null;
+
+        return subject.Kind switch
+        {
+            "workspace" => new PortableSubjectRequest.Workspace(),
+            "package" => new PortableSubjectRequest.Package(),
+            _ => throw new InspectionDefinitionException(
+                $"Unknown committed subject kind '{subject.Kind}'."),
+        };
+    }
+
+    private static PortableRetainedSubjectContext? MapRetainedContext(
+        PortableRetainedSubjectContextDto? context)
+    {
+        if (context is null)
+            return null;
+
+        return context.Kind switch
+        {
+            "package" => new PortableRetainedSubjectContext.Package(),
+            "allLibraries" => new PortableRetainedSubjectContext.AllLibraries(),
+            "library" => new PortableRetainedSubjectContext.Library(
+                MapRequiredLibrary(context.Library)),
+            "type" => new PortableRetainedSubjectContext.Type(
+                MapRequiredLibrary(context.Library),
+                MapRequiredType(context.Type)),
+            "member" => new PortableRetainedSubjectContext.Member(
+                MapRequiredLibrary(context.Library),
+                MapRequiredType(context.Type),
+                context.MemberAnchor,
+                context.MemberSignature),
+            _ => throw new InspectionDefinitionException(
+                $"Unknown retained context kind '{context.Kind}'."),
+        };
+    }
+
+    private static IReadOnlyList<PortableLibraryIdentity> MapLibraries(
+        List<PortableLibraryIdentityDto>? libraries)
+    {
+        if (libraries is null || libraries.Count == 0)
+            return Array.Empty<PortableLibraryIdentity>();
+
+        var mapped = new List<PortableLibraryIdentity>(libraries.Count);
+        foreach (PortableLibraryIdentityDto? library in libraries)
+        {
+            if (library is null)
+            {
+                throw new InspectionDefinitionException(
+                    "Portable Library identity entry must not be null.");
+            }
+            mapped.Add(MapLibrary(library));
+        }
+
+        return mapped;
+    }
+
+    private static PortableLibraryIdentity MapRequiredLibrary(
+        PortableLibraryIdentityDto? library) =>
+        library is null
+            ? throw new InspectionDefinitionException(
+                "Retained context requires library.")
+            : MapLibrary(library);
+
+    private static PortableLibraryIdentity MapLibrary(
+        PortableLibraryIdentityDto library) =>
+        new(
+            library.Name
+                ?? throw new InspectionDefinitionException(
+                    "Portable Library identity requires name."),
+            library.Version
+                ?? throw new InspectionDefinitionException(
+                    "Portable Library identity requires version."),
+            library.Culture,
+            library.PublicKeyToken);
+
+    private static MetadataTypeDefinitionName MapRequiredType(
+        PortableTypeDefinitionNameDto? type)
+    {
+        if (type is null)
+        {
+            throw new InspectionDefinitionException(
+                "Retained context requires type.");
+        }
+        if (type.Namespace is null || type.Segments is null)
+        {
+            throw new InspectionDefinitionException(
+                "Portable Type identity requires namespace and segments.");
+        }
+        if (type.Segments.Any(segment => segment is null))
+        {
+            throw new InspectionDefinitionException(
+                "Portable Type identity segments must not contain null.");
+        }
+
+        MetadataTypeDefinitionNameResult result =
+            MetadataTypeDefinitionName.Create(
+                type.Namespace,
+                type.Segments.ToImmutableArray()!);
+        return result switch
+        {
+            MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+            MetadataTypeDefinitionNameResult.Rejected rejected =>
+                throw new InspectionDefinitionException(
+                    $"Invalid portable Type identity: {rejected.Rejection.Kind}."),
+            _ => throw new InspectionDefinitionException(
+                "Unexpected portable Type identity result."),
+        };
+    }
+
+    private static CommittedViewStateDto ToCommittedStateDto(
+        CommittedViewStateDefinition state) =>
+        new()
+        {
+            Navigation = state.Navigation,
+            Subject = state.Subject is null ? null : ToSubjectDto(state.Subject),
+            Context = state.Context is null ? null : ToContextDto(state.Context),
+            Facet = state.Facet,
+            Queries = state.Queries.Count == 0
+                ? null
+                : state.Queries.ToList(),
+            Libraries = state.Libraries.Count == 0
+                ? null
+                : state.Libraries.Select(ToLibraryDto).ToList(),
+        };
+
+    private static CommittedNavigationDefinitionDto ToCommittedNavigationDto(
+        CommittedNavigationDefinition navigation) =>
+        new()
+        {
+            SchemaVersion = navigation.SchemaVersion,
+            Kind = "navigation",
+            Id = navigation.Id,
+            Tabs = navigation.Tabs.Select(ToTabDto).ToList(),
+            Focus = navigation.Focus,
+        };
+
+    private static PortableSubjectRequestDto ToSubjectDto(
+        PortableSubjectRequest subject) =>
+        new()
+        {
+            Kind = subject.Kind switch
+            {
+                PortableSubjectRequestKind.Workspace => "workspace",
+                PortableSubjectRequestKind.Package => "package",
+                _ => throw new InspectionDefinitionException(
+                    $"Unsupported portable subject kind {subject.Kind}."),
+            },
+        };
+
+    private static PortableRetainedSubjectContextDto ToContextDto(
+        PortableRetainedSubjectContext context) =>
+        context switch
+        {
+            PortableRetainedSubjectContext.Package => new()
+            {
+                Kind = "package",
+            },
+            PortableRetainedSubjectContext.AllLibraries => new()
+            {
+                Kind = "allLibraries",
+            },
+            PortableRetainedSubjectContext.Library library => new()
+            {
+                Kind = "library",
+                Library = ToLibraryDto(library.LibraryIdentity),
+            },
+            PortableRetainedSubjectContext.Type type => new()
+            {
+                Kind = "type",
+                Library = ToLibraryDto(type.LibraryIdentity),
+                Type = ToTypeDto(type.TypeIdentity),
+            },
+            PortableRetainedSubjectContext.Member member => new()
+            {
+                Kind = "member",
+                Library = ToLibraryDto(member.LibraryIdentity),
+                Type = ToTypeDto(member.TypeIdentity),
+                MemberAnchor = member.MemberAnchor,
+                MemberSignature = member.MemberSignature,
+            },
+            _ => throw new InspectionDefinitionException(
+                $"Unsupported retained context type {context.GetType().Name}."),
+        };
+
+    private static PortableLibraryIdentityDto ToLibraryDto(
+        PortableLibraryIdentity library) =>
+        new()
+        {
+            Name = library.Name,
+            Version = library.Version,
+            Culture = library.Culture,
+            PublicKeyToken = library.PublicKeyToken,
+        };
+
+    private static PortableTypeDefinitionNameDto ToTypeDto(
+        MetadataTypeDefinitionName type) =>
+        new()
+        {
+            Namespace = type.Namespace,
+            Segments = type.Segments.ToList(),
         };
 
     private static List<CatalogGroupDefinition> MapGroups(
@@ -1328,6 +1915,76 @@ internal sealed class InspectionDefinitionDto
     public string? View { get; set; }
 
     public string? Navigation { get; set; }
+
+    public List<CommittedViewStateDto>? States { get; set; }
+}
+
+internal sealed class CommittedNavigationDefinitionDto
+{
+    public int SchemaVersion { get; set; }
+
+    public string? Kind { get; set; }
+
+    public string? Id { get; set; }
+
+    public List<NavigationTabDto>? Tabs { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Focus { get; set; }
+}
+
+internal sealed class CommittedViewStateDto
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Navigation { get; set; }
+
+    public PortableSubjectRequestDto? Subject { get; set; }
+
+    public PortableRetainedSubjectContextDto? Context { get; set; }
+
+    public string? Facet { get; set; }
+
+    public List<string>? Queries { get; set; }
+
+    public List<PortableLibraryIdentityDto>? Libraries { get; set; }
+}
+
+internal sealed class PortableSubjectRequestDto
+{
+    public string? Kind { get; set; }
+}
+
+internal sealed class PortableRetainedSubjectContextDto
+{
+    public string? Kind { get; set; }
+
+    public PortableLibraryIdentityDto? Library { get; set; }
+
+    public PortableTypeDefinitionNameDto? Type { get; set; }
+
+    public string? MemberAnchor { get; set; }
+
+    public string? MemberSignature { get; set; }
+}
+
+internal sealed class PortableLibraryIdentityDto
+{
+    public string? Name { get; set; }
+
+    public string? Version { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Culture { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? PublicKeyToken { get; set; }
+}
+
+internal sealed class PortableTypeDefinitionNameDto
+{
+    public string? Namespace { get; set; }
+
+    public List<string>? Segments { get; set; }
 }
 
 internal sealed class CatalogGroupDto
@@ -1403,4 +2060,5 @@ internal sealed class MemberCoordinateDto
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     AllowDuplicateProperties = false)]
 [JsonSerializable(typeof(InspectionDefinitionDto))]
+[JsonSerializable(typeof(CommittedNavigationDefinitionDto))]
 internal sealed partial class InspectionDefinitionJsonContext : JsonSerializerContext;

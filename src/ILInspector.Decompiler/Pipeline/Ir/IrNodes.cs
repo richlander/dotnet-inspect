@@ -646,8 +646,8 @@ public sealed class IrFunction : IrNode
     /// Mirrors <c>CSharpPrinter.ReferencesLocalIncludingSharedNestedScopes</c>: it
     /// descends through shared-scope nested functions (which reuse the enclosing pool)
     /// but not through ones that own their own locals or stack slots, whose indices are
-    /// a separate pool — reusing the printer's <c>NeedsNestedLambdaScope</c> /
-    /// <c>NeedsNestedLocalFunctionScope</c> discriminators so the two never diverge.
+    /// a separate pool. The IR-owned <c>NeedsIsolatedLocalScope</c> discriminator
+    /// is shared with the printer so the two never diverge.
     /// </summary>
     static bool LocalSlotReferencedInScope(IrNode node, int index)
         => LocalSlotReferencesInScope(node, index).Any();
@@ -661,9 +661,9 @@ public sealed class IrFunction : IrNode
     /// </summary>
     internal static IEnumerable<IrNode> LocalSlotReferencesInScope(IrNode node, int index)
     {
-        if (node is Lambda ownScopeLambda && CSharpPrinter.NeedsNestedLambdaScope(ownScopeLambda))
+        if (node is Lambda { NeedsIsolatedLocalScope: true })
             yield break;
-        if (node is LocalFunctionStatement ownScopeLocalFunction && CSharpPrinter.NeedsNestedLocalFunctionScope(ownScopeLocalFunction))
+        if (node is LocalFunctionStatement { NeedsIsolatedLocalScope: true })
             yield break;
         if (NodeBindsLocalSlot(node, index))
             yield return node;
@@ -760,15 +760,26 @@ public sealed class IrFunction : IrNode
     public bool IsDestructor { get; set; }
 
     /// <summary>
-    /// True when the defining module opts into the updated C# memory-safety
-    /// rules — it carries a module-level
-    /// <c>System.Runtime.CompilerServices.MemorySafetyRulesAttribute</c>. Under
-    /// those rules the member <c>unsafe</c> modifier no longer introduces a body
-    /// unsafe context, so the printer must wrap each unsafe operation in an
-    /// explicit, minimally scoped <c>unsafe { }</c> block. Legacy modules (no
-    /// attribute) keep relying on the member modifier and render no blocks.
+    /// The defining module's normalized C# memory-safety language mode. A mode
+    /// is available only for recognized Legacy and Updated rules; rendering and
+    /// compiler replay must refuse an unavailable decision rather than treating
+    /// it as Legacy.
     /// </summary>
-    public bool UsesUpdatedMemorySafetyRules { get; set; }
+    public MemorySafetyModeDecision MemorySafetyMode { get; set; }
+        = MemorySafetyModeDecision.Legacy;
+
+    /// <summary>
+    /// Compatibility view used by mode-sensitive lowering after
+    /// <see cref="MemorySafetyMode"/> has been admitted. Setting the property in
+    /// synthetic tests selects an explicit Legacy or Updated mode.
+    /// </summary>
+    public bool UsesUpdatedMemorySafetyRules
+    {
+        get => MemorySafetyMode.UsesUpdatedRules;
+        set => MemorySafetyMode = value
+            ? MemorySafetyModeDecision.Updated
+            : MemorySafetyModeDecision.Legacy;
+    }
 
     /// <summary>
     /// True when the method body's locals are not zero-initialized — the
@@ -3552,6 +3563,8 @@ public sealed class Lambda : IrExpression
     }
 
     public TypeRef DelegateType { get; }
+    internal bool NeedsIsolatedLocalScope => !Locals.IsEmpty
+        || Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
     public ImmutableArray<Parameter> Parameters { get; }
     /// <summary>
     /// Ref-kind evidence for explicitly typed lambda parameters. Empty when no
@@ -3696,6 +3709,8 @@ public sealed class LocalFunctionStatement : IrNode
 
     public string Name { get; }
     public TypeRef ReturnType { get; }
+    internal bool NeedsIsolatedLocalScope => !Locals.IsEmpty
+        || Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
     public ImmutableArray<Parameter> Parameters { get; }
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; }
     public bool IsStatic { get; }

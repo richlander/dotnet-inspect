@@ -266,7 +266,7 @@ public sealed class CloneCandidatePresentationTests
         internal static async ValueTask<Fixture> CreateAsync()
         {
             InspectionWorkspace workspace =
-                InspectionWorkspace.CreateAsynchronous();
+                new InspectionWorkspace();
             WorkspaceScopeSnapshot snapshot =
                 Assert.IsType<WorkspaceScopeReadResult.Available>(
                     await workspace.GetScopeSnapshotAsync())

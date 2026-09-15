@@ -14,6 +14,7 @@ namespace ILInspector.Decompiler.Tests;
 /// claim - apply the fix, recompile, and the diagnostic must be gone - so a
 /// green suite verifies the <c>fix:</c> line, not merely its wording.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
 [Collection(FidelityGateCollection.Name)]
 public class AnnotatedCompileBackFailureTests

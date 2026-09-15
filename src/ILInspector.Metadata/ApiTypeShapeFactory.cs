@@ -32,6 +32,10 @@ internal static class ApiTypeShapeFactory
             GenericTypeNode generic
                 when generic.DefinitionAssemblyIdentity is { } assembly =>
                 FromGeneric(generic, assembly, depth),
+            GenericParameterNode parameter =>
+                ApiTypeShape.GenericParameter(
+                    parameter.Index,
+                    parameter.IsMethodParameter),
             SZArrayTypeNode array =>
                 FromElement(
                     array.ElementType,

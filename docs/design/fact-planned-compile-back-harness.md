@@ -900,6 +900,86 @@ Examples:
     reason: requested type artifact did not include required generic constraint
 ```
 
+### Native corpus evidence and scheduled cutover comparison
+
+**Owner:** ReturnToSender / DecompilerHarness, within this reporting contract.
+**Focused issue:** steps 5-6 of the eight-step adoption and
+legacy-retirement tracker
+[#6199](https://github.com/richlander/dotnet-inspect/issues/6199); the original
+paired cutover evidence was developed under
+[#6472](https://github.com/richlander/dotnet-inspect/issues/6472).
+
+Routine corpus fidelity must measure a target population selected without
+executing or consulting legacy compile-back. For each assembly and positive
+cap, the corpus-owned stable method hash and full stable member key choose
+exactly that many non-synthesized targets. Selection completes before an oracle
+runs. Because one snapshot contains one complete member ledger, an independently
+selected RTS invocation accepts at most one distinct positive cap; cap
+comparisons use separate invocations.
+
+Native RTS evaluates every selected target first with its compile-back floor
+disabled. The routine `rts-native` oracle ends there: native status is the
+fidelity result, no legacy reference is executed, and no paired cutover metrics
+are emitted. The scheduled `rts-cutover` oracle evaluates legacy compile-back
+after every native assembly has completed, using the same assembly path, type,
+method, overload, and signature only as reference evidence. A legacy outcome
+cannot admit a target, replace an RTS result, refine its status, or hide a
+missing result. Missing native output remains `ContextFail`. An expected native
+assembly-context failure (I/O, invalid metadata, access, or
+compilation-reference selection) produces a distinct `ContextFail` row for
+every selected target in that assembly and does not prevent the remaining
+native assemblies or, for `rts-cutover`, the later legacy-reference phase from
+running. Unexpected failures still abort the run.
+
+The retained `rts-cutover` text report enumerates every native/legacy status
+pair and marks every exact or availability loss. Its quality diff card remains
+the bounded aggregate projection: it carries provenance, inputs, caps,
+availability, losses, gains, same-status counts, and floor use without
+duplicating the member ledger already present in the snapshot and text
+artifact.
+
+The typed snapshot records the repository revision and source state captured
+when the harness was built, Roslyn compiler identity, runtime and platform
+identity, corpus profile, caps, input paths and module MVIDs. An assembly that
+cannot supply the exact requested non-synthesized target cap fails the run.
+Aggregate cutover evidence records selected methods; native and legacy
+available/unavailable counts; exact and availability losses; the corresponding
+gains; same-status rows; and the number of compile-back-floor applications,
+which must remain zero. An available result is `Exact`,
+`OpcodeDiff`, or `OperandDiff`; `NotFull`, `FidelityUnavailable`,
+`RecompileFail`, and `ContextFail` remain distinct unavailable outcomes.
+
+`rts-parity` remains a separate transition mode whose population is deliberately
+selected from legacy-useful results. It continues to guard known regressions but
+cannot satisfy independent native coverage. Historically, the first
+`rts-cutover` slice was opt-in and belonged only in the on-demand Deep Inspect
+census lane; later it became both the real-world baseline oracle and the general
+default while the transition was measured. The current corpus contract
+separates those concerns: `rts-native` is the routine default, while the
+baseline-gated real-world sensor explicitly uses `rts-cutover` in the daily and
+manually dispatched census lane. Standalone fidelity, explicitly pinned legacy
+corpus consumers, and legacy reconstruction remain separate #6199 migration
+and retirement work.
+
+The Release gates
+`DeterministicIndependentReturnToSenderTargets_SelectsExactCapBeforeAnyOracle`,
+`DeterministicIndependentReturnToSenderTargets_FailsWhenExactCapIsUnavailable`,
+`SelectThenEvaluateNativeFirst_CompletesEveryPhaseAcrossAssemblies`,
+`AlignReturnToSenderResults_ReportsUnavailableTarget`,
+`IndependentReturnToSender_ContextFailureRetainsEverySelectedTarget`,
+`Harness_DefaultCorpusFidelityOracle_UsesNativeWithoutLegacyComparison`,
+`Harness_NativeCorpusFidelityAliases_UseNativeWithoutLegacyComparison`,
+`SummarizeReturnToSenderCutover_SeparatesExactAndAvailabilityChanges`,
+`ReturnToSenderCutover_RealFixtureRetainsEveryNativePairWithoutFloor`,
+`ReturnToSenderCutoverReport_RendersEveryStatusPairAndLoss`,
+`QualityDiffCard_ReturnToSenderCutoverDisclosesIdentityAndAllMetrics`,
+`Compare_ReturnToSenderCutover_RejectsDifferentModuleIdentity`, and
+`Compare_ReturnToSenderCutover_GatesLossesAndCompileBackFloor` cover stable
+independent selection, status-pair aggregation, missing-result preservation,
+no-floor execution, snapshot serialization, report disclosure, input identity,
+and same-sample loss regression. The broad pinned-corpus snapshot is retained
+as Deep Inspect evidence rather than added to PR CI.
+
 ### Member comparison query consumption
 
 **Owner:** ReturnToSender / DecompilerHarness.

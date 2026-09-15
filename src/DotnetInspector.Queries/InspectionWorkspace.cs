@@ -1020,17 +1020,21 @@ public sealed class AssemblyContextGroup : IDisposable
 sealed record AssemblyContextGroupReleaseResult(Exception? Failure);
 
 /// <summary>
-/// Terminal release result for one group admitted by an asynchronous workspace.
+/// Terminal release result for one group admitted by a workspace.
 /// </summary>
 public abstract class InspectionWorkspaceGroupCloseResult
 {
     internal InspectionWorkspaceGroupCloseResult(
-        int registrationIndex)
+        int registrationIndex,
+        bool succeeded)
     {
         RegistrationIndex = registrationIndex;
+        Succeeded = succeeded;
     }
 
     public int RegistrationIndex { get; }
+
+    public bool Succeeded { get; }
 }
 
 /// <summary>
@@ -1042,12 +1046,10 @@ public sealed class InspectionWorkspaceDirectGroupCloseResult
     internal InspectionWorkspaceDirectGroupCloseResult(
         int registrationIndex,
         Exception? failure)
-        : base(registrationIndex)
+        : base(registrationIndex, failure is null)
     {
         Failure = failure;
     }
-
-    public bool Succeeded => Failure is null;
 
     public Exception? Failure { get; }
 }
@@ -1060,8 +1062,9 @@ public sealed class InspectionWorkspaceCoordinatedGroupCloseResult<TResult>
 {
     internal InspectionWorkspaceCoordinatedGroupCloseResult(
         int registrationIndex,
-        TResult result)
-        : base(registrationIndex)
+        TResult result,
+        bool succeeded)
+        : base(registrationIndex, succeeded)
     {
         Result = result;
     }
@@ -1103,7 +1106,7 @@ internal sealed class WorkspaceCoordinatedAdmissionGate
 }
 
 /// <summary>
-/// Immutable terminal report produced by an asynchronous workspace close.
+/// Immutable terminal report produced by awaited workspace close.
 /// </summary>
 public sealed class InspectionWorkspaceCloseReport
 {
@@ -1129,13 +1132,16 @@ public sealed class InspectionWorkspaceCloseReport
     {
         get;
     }
+
+    public bool Succeeded =>
+        ArtifactSessionCleanupFailures.IsEmpty
+        && Groups.All(group => group.Succeeded);
 }
 
 /// <summary>
 /// Shared owner for one or more assembly context groups.
 /// </summary>
 public sealed partial class InspectionWorkspace :
-    IDisposable,
     IAsyncDisposable
 {
     readonly object _gate = new();
@@ -1143,34 +1149,33 @@ public sealed partial class InspectionWorkspace :
     readonly List<WorkspaceGroupAdmission> _admissions = [];
     readonly List<WorkspaceArtifactSessionRegistration>
         _artifactSessions = [];
-    readonly InspectionWorkspaceLifetimeMode _lifetimeMode;
     readonly TaskCompletionSource<
-        WorkspaceClosePlan>? _closeStart;
-    readonly Task<InspectionWorkspaceCloseReport>? _closeTask;
+        WorkspaceClosePlan> _closeStart;
+    readonly Task<InspectionWorkspaceCloseReport> _closeTask;
     InspectionWorkspaceCloseReport? _closeReport;
     InspectionWorkspaceState _state;
     int _nextRegistrationIndex;
 
     public InspectionWorkspace()
+        : this(WorkspacePlan.Empty)
     {
-        _lifetimeMode = InspectionWorkspaceLifetimeMode.Synchronous;
     }
 
-    InspectionWorkspace(
-        InspectionWorkspaceLifetimeMode lifetimeMode)
+    /// <summary>Creates a Workspace with one complete inert registration set and awaited disposal.</summary>
+    public InspectionWorkspace(ImmutableArray<WorkspaceRegistration> registrations)
+        : this(new WorkspacePlan(registrations))
     {
-        _lifetimeMode = lifetimeMode;
+    }
+
+    /// <summary>Creates an independent live Workspace retaining the complete supplied plan.</summary>
+    public InspectionWorkspace(WorkspacePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        _registrationRevision = new(_identity, plan);
         _closeStart = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         _closeTask = CloseCoreAsync(_closeStart.Task);
     }
-
-    /// <summary>
-    /// Creates a workspace whose terminal lifetime is observed through
-    /// <see cref="CloseAsync"/>.
-    /// </summary>
-    public static InspectionWorkspace CreateAsynchronous() =>
-        new(InspectionWorkspaceLifetimeMode.Asynchronous);
 
     /// <summary>
     /// Gets the terminal report after asynchronous close completes.
@@ -1221,20 +1226,16 @@ public sealed partial class InspectionWorkspace :
             AssemblyAcquisitionRegistration,
             AssemblyImageReferenceLease>? retainedReferenceLeases = null)
     {
-        WorkspaceGroupAdmission? admission = null;
+        WorkspaceGroupAdmission admission;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(
                 _state != InspectionWorkspaceState.Open,
                 this);
-            if (_lifetimeMode
-                == InspectionWorkspaceLifetimeMode.Asynchronous)
-            {
-                admission = new WorkspaceGroupAdmission(
-                    _nextRegistrationIndex++,
-                    coordinatedParticipation: null);
-                _admissions.Add(admission);
-            }
+            admission = new WorkspaceGroupAdmission(
+                _nextRegistrationIndex++,
+                coordinatedParticipation: null);
+            _admissions.Add(admission);
         }
 
         AssemblyContextGroup group;
@@ -1244,24 +1245,19 @@ public sealed partial class InspectionWorkspace :
                 participants,
                 options,
                 RemoveGroup,
-                captureReleaseFailuresByDefault:
-                    _lifetimeMode
-                    == InspectionWorkspaceLifetimeMode.Asynchronous,
+                captureReleaseFailuresByDefault: true,
                 retainedSnapshots: retainedSnapshots,
                 retainedReferenceLeases: retainedReferenceLeases);
         }
         catch
         {
-            admission?.Complete(registration: null);
+            admission.Complete(registration: null);
             throw;
         }
 
-        WorkspaceGroupRegistration? registration =
-            admission is null
-                ? null
-                : new WorkspaceGroupRegistration(
-                    admission.RegistrationIndex,
-                    group);
+        var registration = new WorkspaceGroupRegistration(
+            admission.RegistrationIndex,
+            group);
         bool published;
         bool artifactOwnershipConflict;
         lock (_gate)
@@ -1277,7 +1273,7 @@ public sealed partial class InspectionWorkspace :
             if (published)
             {
                 _groups.Add(group);
-                admission?.Complete(registration);
+                admission.Complete(registration);
             }
         }
 
@@ -1287,16 +1283,11 @@ public sealed partial class InspectionWorkspace :
         if (artifactOwnershipConflict)
         {
             group.Dispose();
-            admission?.Complete(registration: null);
+            admission.Complete(registration: null);
             throw new InvalidOperationException(
                 "A group projected from a transferred artifact session cannot be admitted later.");
         }
-        admission?.Complete(registration);
-        if (_lifetimeMode
-            == InspectionWorkspaceLifetimeMode.Synchronous)
-        {
-            group.Dispose();
-        }
+        admission.Complete(registration);
 
         throw new ObjectDisposedException(nameof(InspectionWorkspace));
     }
@@ -1324,13 +1315,6 @@ public sealed partial class InspectionWorkspace :
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(queryLease);
         ArgumentNullException.ThrowIfNull(dependentGroups);
-        if (_lifetimeMode
-            != InspectionWorkspaceLifetimeMode.Asynchronous)
-        {
-            throw new InvalidOperationException(
-                "Artifact sessions require a workspace created by CreateAsynchronous.");
-        }
-
         ImmutableArray<AssemblyContextGroup> groups =
             [.. dependentGroups];
         if (groups.IsDefaultOrEmpty
@@ -1413,63 +1397,11 @@ public sealed partial class InspectionWorkspace :
         }
     }
 
-    public void Dispose()
-    {
-        if (_lifetimeMode
-            == InspectionWorkspaceLifetimeMode.Asynchronous)
-        {
-            throw new InvalidOperationException(
-                "An asynchronous inspection workspace must be closed with CloseAsync or DisposeAsync.");
-        }
-
-        List<AssemblyContextGroup> groups;
-        lock (_gate)
-        {
-            if (_state != InspectionWorkspaceState.Open)
-                return;
-            _state = InspectionWorkspaceState.Closing;
-            groups = [.. _groups];
-            foreach (AssemblyContextGroup group in groups)
-            {
-                group.CloseAdmissionFromWorkspace(
-                    captureFailure: false);
-            }
-
-            _groups.Clear();
-        }
-
-        List<Exception>? failures = null;
-        foreach (AssemblyContextGroup group in groups)
-        {
-            try
-            {
-                group.Dispose();
-            }
-            catch (Exception ex)
-            {
-                (failures ??= []).Add(ex);
-            }
-        }
-
-        lock (_gate)
-            _state = InspectionWorkspaceState.Closed;
-
-        if (failures is not null)
-            throw new AggregateException(failures);
-    }
-
     /// <summary>
-    /// Closes an asynchronous workspace and returns its shared terminal report.
+    /// Closes the workspace and returns its shared terminal report.
     /// </summary>
     public Task<InspectionWorkspaceCloseReport> CloseAsync()
     {
-        if (_lifetimeMode
-            != InspectionWorkspaceLifetimeMode.Asynchronous)
-        {
-            throw new InvalidOperationException(
-                "CloseAsync requires a workspace created by CreateAsynchronous.");
-        }
-
         WorkspaceClosePlan plan = default;
         bool startClose = false;
         lock (_gate)
@@ -1482,8 +1414,12 @@ public sealed partial class InspectionWorkspace :
                     admission.CloseWorkspaceAdmission();
                 plan = new WorkspaceClosePlan(
                     admissions,
-                    [.. _artifactSessions]);
+                    [.. _artifactSessions],
+                    _declarationLocator);
                 _state = InspectionWorkspaceState.Closing;
+                _declarationObserver = null;
+                _declarationPopulation = null;
+                _declarationContexts.Clear();
                 foreach (AssemblyContextGroup group in _groups)
                 {
                     group.CloseAdmissionFromWorkspace(
@@ -1497,22 +1433,12 @@ public sealed partial class InspectionWorkspace :
         }
 
         if (startClose)
-            _closeStart!.SetResult(plan);
+            _closeStart.SetResult(plan);
 
-        return _closeTask!;
+        return _closeTask;
     }
 
-    public ValueTask DisposeAsync()
-    {
-        if (_lifetimeMode
-            == InspectionWorkspaceLifetimeMode.Asynchronous)
-        {
-            return new ValueTask(CloseAsync());
-        }
-
-        Dispose();
-        return ValueTask.CompletedTask;
-    }
+    public ValueTask DisposeAsync() => new(CloseAsync());
 
     void RemoveGroup(AssemblyContextGroup group)
     {
@@ -1525,12 +1451,6 @@ public sealed partial class InspectionWorkspace :
             ImmutableArray<IWorkspaceCoordinatedGroupParticipation>
                 participations)
     {
-        if (_lifetimeMode
-            != InspectionWorkspaceLifetimeMode.Asynchronous)
-        {
-            throw new InvalidOperationException(
-                "Coordinated package-role completion requires a workspace created by CreateAsynchronous.");
-        }
         if (participations.IsDefaultOrEmpty
             || participations.Any(
                 static participation => participation is null))
@@ -1634,6 +1554,8 @@ public sealed partial class InspectionWorkspace :
     {
         WorkspaceClosePlan plan =
             await start.ConfigureAwait(false);
+        Task<Exception?> locatorClose = plan.DeclarationLocator?.CloseAsync()
+            ?? Task.FromResult<Exception?>(null);
         Task<ImmutableArray<Exception>> rootClose = CloseArtifactRootsAsync();
         var completionTasks =
             new Task<InspectionWorkspaceGroupCloseResult?>[
@@ -1694,6 +1616,13 @@ public sealed partial class InspectionWorkspace :
                 reportGroups.Add(result);
         }
 
+        Exception? locatorFailure = await locatorClose.ConfigureAwait(false);
+        if (locatorFailure is not null)
+        {
+            groupCloseFailure = groupCloseFailure is null
+                ? locatorFailure
+                : new AggregateException(groupCloseFailure, locatorFailure);
+        }
         var report = new InspectionWorkspaceCloseReport(
             reportGroups.ToImmutable(),
             artifactCleanupFailures.ToImmutable());
@@ -1780,7 +1709,8 @@ public sealed partial class InspectionWorkspace :
     readonly record struct WorkspaceClosePlan(
         ImmutableArray<WorkspaceGroupAdmission> GroupAdmissions,
         ImmutableArray<WorkspaceArtifactSessionRegistration>
-            ArtifactSessions);
+            ArtifactSessions,
+        WorkspaceDeclarationLocator? DeclarationLocator);
 
     internal sealed class WorkspaceCoordinatedGroupAdmission
     {
@@ -2077,12 +2007,6 @@ public sealed partial class InspectionWorkspace :
         AssemblyContextGroup Group,
         IWorkspaceCoordinatedGroupParticipation?
             CoordinatedParticipation = null);
-
-    enum InspectionWorkspaceLifetimeMode
-    {
-        Synchronous,
-        Asynchronous
-    }
 
     enum InspectionWorkspaceState
     {

@@ -1,4 +1,5 @@
 using System.Reflection.PortableExecutable;
+using Inspector.Resources;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -13,7 +14,16 @@ namespace ILInspector.Metadata;
 /// per-facet producers, not a god-object. The method-body seam is a sibling session opened over
 /// the same image.
 /// </summary>
-public sealed class AssemblyInspectionSession : IDisposable
+/// <remarks>
+/// Every session carries one synchronous terminal obligation. A session
+/// created by <c>Open</c> owns its image; a session created by
+/// <see cref="Borrow(PdbContext)"/> owns only its session borrow and leaves the
+/// lender's image open.
+/// </remarks>
+[ResourceOwnership]
+public sealed class AssemblyInspectionSession :
+    IDisposable,
+    IResourceSnapshotSource<AssemblyInspectionSession>
 {
     readonly AssemblyImage _image;
     readonly Lazy<MetadataTypeDeclarationProbe.Index>
@@ -76,6 +86,25 @@ public sealed class AssemblyInspectionSession : IDisposable
     public static AssemblyInspectionSession Borrow(PdbContext context)
         => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// The callback begins only while this session and any lender backing it
+    /// remain alive.
+    /// </remarks>
+    public TResult Snapshot<TState, TResult>(
+        TState state,
+        ResourceSnapshotCallback<
+            AssemblyInspectionSession,
+            TState,
+            TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        _image.EnsureAlive();
+        return callback(
+            new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(this),
+            state);
+    }
+
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata
     {
@@ -131,12 +160,31 @@ public sealed class AssemblyInspectionSession : IDisposable
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll,
         bool typesOnly) =>
+        ApiSurface(
+            source,
+            catalog,
+            bindingPolicy,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly);
+
+    /// <summary>
+    /// Projects one explicit API scope with resolution-aware generic
+    /// constraints.
+    /// </summary>
+    public ApiSurface ApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false) =>
         ApiSurfaceExtractor.Extract(
             _image.PEReader,
             source,
             catalog,
             bindingPolicy,
-            includeAll,
+            scope,
             typesOnly);
 
     /// <summary>
@@ -179,6 +227,16 @@ public sealed class AssemblyInspectionSession : IDisposable
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false)
         => ApiSurfaceExtractor.ExtractBounded(_image.PEReader, scope, bounds, typesOnly);
+
+    /// <summary>Projects bounded API facts with resolution-aware generic constraints.</summary>
+    public ApiSurfaceExtractionResult BoundedApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds)
+        => ApiSurfaceExtractor.ExtractBounded(
+            _image.PEReader, source, catalog, bindingPolicy, scope, bounds);
 
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
@@ -426,6 +484,16 @@ public sealed class AssemblyInspectionSession : IDisposable
     {
         _image.EnsureAlive();
         return _declarationIndex.Value.Probe(name);
+    }
+
+    /// <summary>
+    /// Copies structured declaration and visibility evidence from this image
+    /// without reopening its source. The result survives session disposal.
+    /// </summary>
+    public AssemblyTypeDeclarationInventoryOutcome TypeDeclarations()
+    {
+        _image.EnsureAlive();
+        return AssemblyTypeDeclarationInventoryReader.Read(_image.PEReader);
     }
 
     /// <summary>

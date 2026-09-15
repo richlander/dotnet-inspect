@@ -56,6 +56,7 @@ public sealed class PackageRootAcquisitionTests
         // The issued request is the binding's own, so a consumer that started
         // from an explicit coordinate holds a reacquirable handle immediately.
         Assert.Equal(binding.CreateReacquisitionRequest(), acquired.Request);
+        Assert.Equal(Framework, acquired.Request.CompileTargetFramework);
         Assert.Equal(Framework, acquired.Request.SelectionTargetFramework);
     }
 
@@ -142,6 +143,140 @@ public sealed class PackageRootAcquisitionTests
     }
 
     [Fact]
+    public async Task PortableConfiguredProducer_ReacquiresWithoutChangingContentKey()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.Create(
+                Private,
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
+        PackageProducerIdentity producer = source.Source.Producer;
+        string contentProducerKey = NuGetCache.GetSourceKey(Private.Url);
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            contentProducerKey,
+            new MemoryStream(LibraryPackage()),
+            TestContext.Current.CancellationToken);
+        using var http = new HttpClient(new FailingHandler());
+        PackageRootReacquisitionRequest request = RequestForProducer(
+            producer.PortableKey,
+            Framework,
+            null,
+            Framework,
+            null);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                request.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                Options(
+                    http,
+                    store,
+                    new UniformPackageSourceAuthorization([Private])),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(request, acquired.Request);
+        Assert.Equal(
+            producer.PortableKey,
+            acquired.Binding.Coordinate.Producer);
+        Assert.Equal(
+            contentProducerKey,
+            acquired.Binding.Root.ProducerKey);
+        Assert.Equal(
+            contentProducerKey,
+            acquired.Payload.ProducerKey);
+        Assert.True(
+            acquired.Binding.Root.ReferencesContent(
+                acquired.Payload.Content));
+    }
+
+    [Fact]
+    public async Task PortableProducer_StillRequiresDestinationAuthorization()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.Create(
+                Private,
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
+        PackageRootReacquisitionRequest request = RequestForProducer(
+            source.Source.Producer.PortableKey,
+            Framework,
+            null,
+            Framework,
+            null);
+        using var http = new HttpClient(new FailingHandler());
+
+        var failed = Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+            await PackageRootAcquisition.AcquireAsync(
+                request,
+                Options(http, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
+            failed.Kind);
+    }
+
+    [Fact]
+    public async Task CurrentNuGetProducerKey_ReacquiresWithoutRewritingRequest()
+    {
+        string contentProducerKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+        IPackageStore store = await CachedStoreAsync(LibraryPackage());
+        using var http = new HttpClient(new FailingHandler());
+        PackageRootReacquisitionRequest request = RequestForProducer(
+            PackageProducerIdentity.NuGetOrg.Key,
+            Framework,
+            null,
+            Framework,
+            null);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                request,
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(request, acquired.Request);
+        Assert.Equal(
+            PackageProducerIdentity.NuGetOrg.Key,
+            acquired.Binding.Coordinate.Producer);
+        Assert.Equal(contentProducerKey, acquired.Binding.Root.ProducerKey);
+    }
+
+    [Fact]
+    public void PortableProducerAuthorization_PreservesEquivalentAuthoritiesInOrder()
+    {
+        PackageSource[] sources =
+        [
+            new("first", Private.Url),
+            new("second", Private.Url),
+        ];
+        PackageProducerIdentity producer =
+            PackageSourceClientFactory.GetProducerIdentity(sources[0]);
+
+        PackageRootProducerAuthorization.MatchResult match =
+            PackageRootProducerAuthorization.Match(
+                sources,
+                producer.PortableKey);
+
+        Assert.False(match.Ambiguous);
+        Assert.Equal(
+            ["first", "second"],
+            match.Candidates.Select(
+                candidate => candidate.Source.Name));
+        Assert.All(
+            match.Candidates,
+            candidate => Assert.Equal(
+                producer,
+                candidate.Producer));
+    }
+
+    [Fact]
     public async Task ExactRequest_SeparatesAcquisitionAndSelectionTargets()
     {
         using var http = new HttpClient(new FailingHandler());
@@ -209,7 +344,7 @@ public sealed class PackageRootAcquisitionTests
         string token = acquired.Request.Encode();
 
         await using (InspectionWorkspace candidate =
-            InspectionWorkspace.CreateAsynchronous())
+            new InspectionWorkspace())
         {
             using SparsePackageAssemblyRealization realization =
                 await ProjectAsync(candidate, acquired.Binding);
@@ -233,7 +368,7 @@ public sealed class PackageRootAcquisitionTests
                     TestContext.Current.CancellationToken));
 
         await using InspectionWorkspace reopened =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         using SparsePackageAssemblyRealization second =
             await ProjectAsync(reopened, replacement.Binding);
         Assert.Equal(AssemblyName, Named(second));
@@ -311,6 +446,18 @@ public sealed class PackageRootAcquisitionTests
                 Request(Framework, "win-x64", Framework, "win-x64"),
                 Request(Framework, null, "netstandard2.0", null),
                 Request(Framework, "win-x64", "netstandard2.0", "win-x64"),
+                Request(
+                    Framework,
+                    null,
+                    "net6.0",
+                    null,
+                    compileTargetFramework: Framework),
+                Request(
+                    Framework,
+                    null,
+                    Framework,
+                    null,
+                    usesCompatibleImplementationSelection: true),
                 Request(null, null, "netstandard2.0", null),
                 Request(null, null, null, null),
             })
@@ -334,6 +481,46 @@ public sealed class PackageRootAcquisitionTests
             Assert.Equal(token, decoded.Encode());
         }
 
+        string legacyToken = LegacyToken(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            Framework,
+            null);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                legacyToken,
+                out PackageRootReacquisitionRequest? legacy));
+        Assert.Equal(Framework, legacy.CompileTargetFramework);
+        Assert.Equal(Framework, legacy.SelectionTargetFramework);
+        Assert.False(legacy.UsesCompatibleImplementationSelection);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            legacy.Encode(),
+            StringComparison.Ordinal);
+
+        string previousToken = VersionedToken(
+            "pkgroot2",
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            Framework,
+            "net6.0",
+            null);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                previousToken,
+                out PackageRootReacquisitionRequest? previous));
+        Assert.True(previous.UsesCompatibleImplementationSelection);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            previous.Encode(),
+            StringComparison.Ordinal);
+
         // Distinct requests do not share a token.
         Assert.NotEqual(
             Request(Framework, null, Framework, null).Encode(),
@@ -356,11 +543,31 @@ public sealed class PackageRootAcquisitionTests
                 valid[8..],
                 string.Join('.', valid.Split('.')[..^1]),
                 valid + ".",
-                Token("A!", "1.0.0", "nuget.org", null, null, null, null),
-                Token("AAAAA", "1.0.0", "nuget.org", null, null, null, null),
-                Token("__4", "1.0.0", "nuget.org", null, null, null, null),
-                Token(null, Version, "nuget.org", null, null, null, null),
-                Token(PackageId, Version, null, null, null, null, null),
+                Token("A!", "1.0.0", "nuget.org", null, null, null, null, null, "exact"),
+                Token("AAAAA", "1.0.0", "nuget.org", null, null, null, null, null, "exact"),
+                Token("__4", "1.0.0", "nuget.org", null, null, null, null, null, "exact"),
+                Token(null, Version, "nuget.org", null, null, null, null, null, "exact"),
+                Token(PackageId, Version, null, null, null, null, null, null, "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nfp-1." + new string('a', 63),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nfp-1." + new string('A', 64),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "exact"),
                 Token(
                     "not a package id",
                     Version,
@@ -368,7 +575,9 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     null,
                     null,
-                    null),
+                    null,
+                    null,
+                    "exact"),
                 Token(
                     PackageId,
                     Version,
@@ -376,7 +585,9 @@ public sealed class PackageRootAcquisitionTests
                     "net11.0",
                     "WIN-X64",
                     "net11.0",
-                    "win-x64"),
+                    "net11.0",
+                    "win-x64",
+                    "exact"),
                 // Canonical facts spelled non-canonically: refused rather
                 // than normalized, so one request has exactly one token.
                 Token(
@@ -386,7 +597,9 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     null,
                     ".NETStandard,Version=v2.0",
-                    null),
+                    ".NETStandard,Version=v2.0",
+                    null,
+                    "exact"),
                 Token(
                     PackageId,
                     Version,
@@ -394,7 +607,29 @@ public sealed class PackageRootAcquisitionTests
                     "net11.0",
                     "win-x64",
                     "net11.0",
-                    "WIN-X64"),
+                    "net11.0",
+                    "WIN-X64",
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    "net11.0",
+                    null,
+                    null,
+                    "net11.0",
+                    null,
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    "net11.0",
+                    null,
+                    "net11.0",
+                    null,
+                    null,
+                    "exact"),
                 Token(
                     new string('a', 600),
                     new string('1', 600),
@@ -402,7 +637,19 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     null,
                     null,
-                    null),
+                    null,
+                    null,
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    Framework,
+                    null,
+                    "other"),
             })
         {
             Assert.False(
@@ -430,6 +677,7 @@ public sealed class PackageRootAcquisitionTests
             NuGetCache.GetSourceKey(NuGetOrg.Url),
             Framework,
             acquisitionRuntimeIdentifier,
+            Framework,
             Framework,
             selectionRuntimeIdentifier);
 
@@ -512,13 +760,32 @@ public sealed class PackageRootAcquisitionTests
         string? acquisitionFramework,
         string? acquisitionRuntimeIdentifier,
         string? selectionTargetFramework,
-        string? selectionRuntimeIdentifier)
+        string? selectionRuntimeIdentifier,
+        string? compileTargetFramework = null,
+        bool usesCompatibleImplementationSelection = false)
+        => RequestForProducer(
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            acquisitionFramework,
+            acquisitionRuntimeIdentifier,
+            selectionTargetFramework,
+            selectionRuntimeIdentifier,
+            compileTargetFramework,
+            usesCompatibleImplementationSelection);
+
+    static PackageRootReacquisitionRequest RequestForProducer(
+        string producer,
+        string? acquisitionFramework,
+        string? acquisitionRuntimeIdentifier,
+        string? selectionTargetFramework,
+        string? selectionRuntimeIdentifier,
+        string? compileTargetFramework = null,
+        bool usesCompatibleImplementationSelection = false)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
                 PackageId,
                 Version,
-                NuGetCache.GetSourceKey(NuGetOrg.Url),
+                producer,
                 acquisitionFramework,
                 acquisitionRuntimeIdentifier,
                 out RealizedMemberCoordinate.Package? coordinate,
@@ -527,14 +794,41 @@ public sealed class PackageRootAcquisitionTests
         return new PackageRootReacquisitionRequest(
             PackageArtifactRootRequest.Create(
                 coordinate,
+                compileTargetFramework ?? selectionTargetFramework,
                 selectionTargetFramework,
-                selectionRuntimeIdentifier));
+                selectionRuntimeIdentifier,
+                usesCompatibleImplementationSelection));
     }
 
     static string Token(params string?[] fields)
+        => VersionedToken(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            fields);
+
+    static string VersionedToken(
+        string prefix,
+        params string?[] fields)
     {
-        var builder = new StringBuilder(
-            PackageRootReacquisitionRequest.TokenPrefix);
+        var builder = new StringBuilder(prefix);
+        foreach (string? field in fields)
+        {
+            builder.Append('.');
+            if (string.IsNullOrEmpty(field))
+                continue;
+
+            builder.Append(
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(field))
+                    .TrimEnd('=')
+                    .Replace('+', '-')
+                    .Replace('/', '_'));
+        }
+
+        return builder.ToString();
+    }
+
+    static string LegacyToken(params string?[] fields)
+    {
+        var builder = new StringBuilder("pkgroot1");
         foreach (string? field in fields)
         {
             builder.Append('.');

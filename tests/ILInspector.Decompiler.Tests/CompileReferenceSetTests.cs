@@ -293,7 +293,14 @@ public sealed class CompileReferenceSetTests
             Assert.Same(digest.Value, image.ContentDigest);
             Assert.Same(image.InventoryId, image.ContentDigest.Artifact);
             Assert.Same(fixture.Session.Generation, image.ContentDigest.Generation);
-            using Stream retained = fixture.Session.GetContentReference(image.InventoryId, fixture.Lease).OpenRead();
+            ArtifactContentReference reference =
+                fixture.Session.GetContentReference(
+                    image.InventoryId,
+                    fixture.Lease);
+            using Stream retained =
+                fixture.Session.OpenRead(
+                    reference,
+                    fixture.Lease);
             using var copy = new MemoryStream();
             retained.CopyTo(copy);
             Assert.Equal(copy.ToArray(), image.Snapshot.Content);

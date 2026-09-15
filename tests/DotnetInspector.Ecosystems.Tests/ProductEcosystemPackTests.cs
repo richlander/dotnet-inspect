@@ -11,7 +11,7 @@ public sealed class ProductEcosystemPackTests
     public void AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding()
     {
         Assert.Equal(
-            [false, false, false, true],
+            [false, false, false, true, false, false, false],
             EcosystemPackCatalog.Discover().Select(pack => pack.HasScanner));
         var selected = Assert.IsType<EcosystemScannerSelectionResult.Known>(
             EcosystemPackCatalog.SelectScanner(EcosystemPackIds.Aspire));
@@ -22,6 +22,9 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.Platform,
                 EcosystemPackIds.MicrosoftExtensions,
                 EcosystemPackIds.AspNetCore,
+                EcosystemPackIds.AI,
+                EcosystemPackIds.Azure,
+                EcosystemPackIds.Blazor,
             },
             id => Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
                 EcosystemPackCatalog.SelectScanner(id)));
@@ -67,7 +70,25 @@ public sealed class ProductEcosystemPackTests
                 400,
                 PackageSetIds.Aspire,
                 ProductDemoIds.AspirePostgresCallGraph,
-                ProductDemoIds.AspireRedisCallGraph));
+                ProductDemoIds.AspireRedisCallGraph),
+            ai => AssertPack(
+                ai,
+                EcosystemPackIds.AI,
+                "AI",
+                500,
+                packageSet: null),
+            azure => AssertPack(
+                azure,
+                EcosystemPackIds.Azure,
+                "Azure",
+                600,
+                packageSet: null),
+            blazor => AssertPack(
+                blazor,
+                EcosystemPackIds.Blazor,
+                "Blazor",
+                700,
+                packageSet: null));
     }
 
     [Fact]
@@ -116,7 +137,7 @@ public sealed class ProductEcosystemPackTests
     }
 
     [Fact]
-    public void ShippedRetrievalKnowledgeMatchesLiteralPolicy()
+    public void ShippedNamespaceAndRegisteredPackageKnowledgeMatchesLiteralPolicy()
     {
         Assert.Collection(
             EcosystemPackCatalog.Discover(),
@@ -136,7 +157,51 @@ public sealed class ProductEcosystemPackTests
                     "Microsoft.AspNetCore.OpenApi",
                     "Microsoft.AspNetCore.Authentication.JwtBearer",
                 ]),
-            aspire => AssertKnowledge(aspire, ["Aspire"], ["Aspire.Hosting"]));
+            aspire => AssertKnowledge(aspire, ["Aspire"], ["Aspire.Hosting"]),
+            ai => AssertKnowledge(
+                ai,
+                [
+                    "Microsoft.Extensions.AI",
+                    "Microsoft.Extensions.VectorData",
+                    "Microsoft.Agents.AI",
+                    "ModelContextProtocol",
+                ],
+                [
+                    "Microsoft.Extensions.AI",
+                    "Microsoft.Extensions.AI.Abstractions",
+                    "Microsoft.Extensions.VectorData.Abstractions",
+                    "Microsoft.Agents.AI",
+                    "ModelContextProtocol",
+                ]),
+            azure => AssertKnowledge(
+                azure,
+                [
+                    "Azure",
+                    "Microsoft.Extensions.Azure",
+                ],
+                [
+                    "Microsoft.Extensions.Azure",
+                    "Azure.AI.OpenAI",
+                    "Microsoft.Azure.SignalR",
+                    "Aspire.Azure.AI.OpenAI",
+                    "Aspire.Hosting.Azure.SignalR",
+                    "Azure.Identity",
+                    "Azure.Security.KeyVault.Secrets",
+                    "Azure.Storage.Blobs",
+                    "Azure.Messaging.ServiceBus",
+                ]),
+            blazor => AssertKnowledge(
+                blazor,
+                [
+                    "Microsoft.AspNetCore.Components",
+                    "Microsoft.Authentication.WebAssembly",
+                ],
+                [
+                    "Microsoft.AspNetCore.Components.WebAssembly",
+                    "Microsoft.AspNetCore.Components.WebView.Maui",
+                    "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter",
+                    "Microsoft.Authentication.WebAssembly.Msal",
+                ]));
 
         static void AssertKnowledge(
             EcosystemPackDescriptor pack,
@@ -165,7 +230,10 @@ public sealed class ProductEcosystemPackTests
             aspNetCore => Assert.Empty(aspNetCore.ToolPackages),
             aspire => Assert.Equal(
                 new PackageCoordinate("Aspire.Cli"),
-                Assert.Single(aspire.ToolPackages)));
+                Assert.Single(aspire.ToolPackages)),
+            ai => Assert.Empty(ai.ToolPackages),
+            azure => Assert.Empty(azure.ToolPackages),
+            blazor => Assert.Empty(blazor.ToolPackages));
     }
 
     [Fact]
@@ -173,14 +241,14 @@ public sealed class ProductEcosystemPackTests
     {
         var expected = new[]
         {
-            (100, ProductDemoIds.StjSerializer, EcosystemPackIds.Platform, "System.Text.Json", "Browse a real package API"),
-            (200, ProductDemoIds.ExtensionsCallGraph, EcosystemPackIds.MicrosoftExtensions, "Cross-package call graph", "Trace calls across three packages"),
-            (300, ProductDemoIds.StjSerializeCallGraph, EcosystemPackIds.Platform, "Serialize call graph", "Dense package-local STJ graph"),
+            (100, ProductDemoIds.StjSerializer, EcosystemPackIds.Platform, "System.Text.Json", "Browse the Runtime Platform API"),
+            (200, ProductDemoIds.ExtensionsCallGraph, EcosystemPackIds.MicrosoftExtensions, "Cross-library call graph", "Trace calls across three Platform libraries"),
+            (300, ProductDemoIds.StjSerializeCallGraph, EcosystemPackIds.Platform, "Serialize call graph", "Trace the Runtime STJ implementation"),
             (400, ProductDemoIds.ConfigBindCallGraph, EcosystemPackIds.MicrosoftExtensions, "Configuration Bind", "Recursive binder call graph"),
             (500, ProductDemoIds.OptionsAddCallGraph, EcosystemPackIds.MicrosoftExtensions, "Options hub", "Inbound fan-in at AddOptions"),
             (600, ProductDemoIds.DiTryAddCallGraph, EcosystemPackIds.MicrosoftExtensions, "DI TryAdd hub", "Keyed/scoped Try* fan-in"),
             (700, ProductDemoIds.HttpAddHttpClientCallGraph, EcosystemPackIds.MicrosoftExtensions, "AddHttpClient", "HttpClient factory registration"),
-            (800, ProductDemoIds.StjGetDecimalCallGraph, EcosystemPackIds.Platform, "JsonElement.GetDecimal", "STJ number parse path"),
+            (800, ProductDemoIds.StjGetDecimalCallGraph, EcosystemPackIds.Platform, "JsonElement.GetDecimal", "Trace the Runtime number parse path"),
             (900, ProductDemoIds.AspirePostgresCallGraph, EcosystemPackIds.Aspire, "Aspire AddPostgres", "PostgreSQL resource registration graph"),
             (1000, ProductDemoIds.AspireRedisCallGraph, EcosystemPackIds.Aspire, "Aspire AddRedis", "Redis resource registration graph"),
         };
@@ -204,55 +272,68 @@ public sealed class ProductEcosystemPackTests
         ResolvedScenario stj = Select(ProductDemoIds.StjSerializer);
         Assert.Equal("System.Text.Json.JsonSerializer", stj.View!.Type);
         Assert.Equal(ProductDemoSections.Methods, stj.View.Section);
-        AssertPackageAndNavigation(
+        AssertPlatformAndNavigation(
             stj,
+            "runtime",
             "System.Text.Json",
-            "10.0.0",
+            "10.0.12",
             "net10.0");
         ProductDemoRunPlan stjPlan = ProductDemoRunPlan.Create(stj);
         Assert.Same(stj.SelectedContext, stjPlan.Context);
         Assert.Same(stj.Navigation!.FocusTab, stjPlan.Focus);
         Assert.Null(stjPlan.Member);
 
-        AssertCallGraph(
+        AssertPlatformCallGraph(
             ProductDemoIds.ExtensionsCallGraph,
+            "aspnetcore",
             "Microsoft.Extensions.DependencyInjection.Abstractions",
             "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
             "74b6b4b321",
             "TryAddEnumerable",
-            expectedMemberCount: 3);
-        AssertCallGraph(
+            expectedAssemblies:
+            [
+                "Microsoft.Extensions.DependencyInjection.Abstractions",
+                "Microsoft.Extensions.Logging",
+                "Microsoft.Extensions.Http",
+            ]);
+        AssertPlatformCallGraph(
             ProductDemoIds.StjSerializeCallGraph,
+            "runtime",
             "System.Text.Json",
             "System.Text.Json.JsonSerializer",
             "1dc14dd1fb",
             "Serialize");
-        AssertCallGraph(
+        AssertPlatformCallGraph(
             ProductDemoIds.ConfigBindCallGraph,
+            "aspnetcore",
             "Microsoft.Extensions.Configuration.Binder",
             "Microsoft.Extensions.Configuration.ConfigurationBinder",
             "a6a6257f65",
             "Bind");
-        AssertCallGraph(
+        AssertPlatformCallGraph(
             ProductDemoIds.OptionsAddCallGraph,
+            "aspnetcore",
             "Microsoft.Extensions.Options",
             "Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions",
             "1e6bfaf2ae",
             "AddOptions");
-        AssertCallGraph(
+        AssertPlatformCallGraph(
             ProductDemoIds.DiTryAddCallGraph,
+            "aspnetcore",
             "Microsoft.Extensions.DependencyInjection.Abstractions",
             "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
             "6ce164c602",
             "TryAdd");
-        AssertCallGraph(
+        AssertPlatformCallGraph(
             ProductDemoIds.HttpAddHttpClientCallGraph,
+            "aspnetcore",
             "Microsoft.Extensions.Http",
             "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
             "5c44566d15",
             "AddHttpClient");
-        AssertCallGraph(
+        AssertPlatformCallGraph(
             ProductDemoIds.StjGetDecimalCallGraph,
+            "runtime",
             "System.Text.Json",
             "System.Text.Json.JsonElement",
             "cfd9980a6c",
@@ -351,6 +432,40 @@ public sealed class ProductEcosystemPackTests
         Assert.Equal(anchor, plan.Member.Anchor);
     }
 
+    private static void AssertPlatformCallGraph(
+        string scenarioId,
+        string family,
+        string assembly,
+        string type,
+        string anchor,
+        string memberName,
+        string platformVersion = "10.0.12",
+        string framework = "net10.0",
+        IReadOnlyList<string>? expectedAssemblies = null)
+    {
+        ResolvedScenario scenario = Select(scenarioId);
+        AssertPlatformAndNavigation(
+            scenario,
+            family,
+            assembly,
+            platformVersion,
+            framework,
+            expectedAssemblies);
+        Assert.Equal(type, scenario.View!.Type);
+        Assert.Equal(anchor, scenario.View.MemberAnchor);
+        Assert.Equal($"method:{memberName}", scenario.View.MemberKey);
+        Assert.Equal(ProductDemoSections.CallGraph, scenario.View.Section);
+        Assert.Null(scenario.View.MemberSignature);
+        ProductDemoRunPlan plan = ProductDemoRunPlan.Create(scenario);
+        Assert.Same(scenario.SelectedContext, plan.Context);
+        Assert.Same(scenario.Navigation!.FocusTab, plan.Focus);
+        Assert.Equal(scenario.View.Type, plan.TypeName);
+        Assert.Equal(ProductDemoSections.CallGraph, plan.Section);
+        Assert.Equal(memberName, plan.Member!.Name);
+        Assert.Equal("method", plan.Member.Kind);
+        Assert.Equal(anchor, plan.Member.Anchor);
+    }
+
     private static void AssertAspireDemo(
         string scenarioId,
         string packageId,
@@ -401,6 +516,44 @@ public sealed class ProductEcosystemPackTests
         Assert.Equal(packageId, focus.PackageId);
         Assert.Equal(packageVersion, focus.Version);
         Assert.Equal(framework, focus.Framework);
+    }
+
+    private static void AssertPlatformAndNavigation(
+        ResolvedScenario scenario,
+        string family,
+        string assembly,
+        string platformVersion,
+        string framework,
+        IReadOnlyList<string>? expectedAssemblies = null)
+    {
+        Assert.True(scenario.CreatesAssemblyContextGroup);
+        string[] assemblies =
+            [.. expectedAssemblies ?? [assembly]];
+        WorkspaceMemberCoordinate.PlatformMember[] members =
+        [
+            .. scenario.SelectedContext!.Members.Select(member =>
+                Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+                    member)),
+        ];
+        Assert.Equal(assemblies.Length, members.Length);
+        Assert.Equal(assemblies, members.Select(member => member.Assembly));
+        Assert.All(
+            members,
+            member =>
+            {
+                Assert.Equal(family, member.Family);
+                Assert.Equal(platformVersion, member.Version);
+                Assert.Equal(framework, member.Framework);
+            });
+
+        Assert.NotNull(scenario.Navigation);
+        Assert.Equal(assemblies.Length, scenario.Navigation!.Tabs.Count);
+        Assert.Equal(0, scenario.Navigation.FocusIndex);
+        WorkspaceMemberCoordinate.PlatformMember focus =
+            Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+                scenario.Navigation.FocusTab.Coordinate);
+        Assert.Equal(members[0], focus);
+        Assert.Equal(assembly, focus.Assembly);
     }
 
     private static WorkspaceMemberCoordinate.PackageMember Package(

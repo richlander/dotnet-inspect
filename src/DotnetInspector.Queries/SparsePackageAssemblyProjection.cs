@@ -404,13 +404,6 @@ public sealed partial class InspectionWorkspace
         ArgumentNullException.ThrowIfNull(selectedAsset);
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
-        if (_lifetimeMode
-            != InspectionWorkspaceLifetimeMode.Asynchronous)
-        {
-            throw new InvalidOperationException(
-                "Sparse package assembly projection requires a workspace created by CreateAsynchronous.");
-        }
-
         cancellationToken.ThrowIfCancellationRequested();
         IPackageContent content = package.Root.Content;
         if (!ReferenceEquals(
@@ -507,6 +500,8 @@ public sealed partial class InspectionWorkspace
                     contribution.Descriptor.Identity,
                     queryLease);
             ResolvedAssemblyReference assembly = SparseAssembly(
+                session,
+                queryLease,
                 reference,
                 package,
                 selectedAsset,
@@ -629,6 +624,8 @@ public sealed partial class InspectionWorkspace
     }
 
     ResolvedAssemblyReference SparseAssembly(
+        ArtifactSetSession session,
+        ArtifactQueryLease queryLease,
         ArtifactContentReference reference,
         PackageRootBinding package,
         PackageCompileAsset selectedAsset,
@@ -648,7 +645,7 @@ public sealed partial class InspectionWorkspace
             return ResolvedAssemblyReference.CreateFromArtifactProjection(
                 reference.Registration,
                 projected.Value,
-                reference.OpenRead,
+                () => session.OpenRead(reference, queryLease),
                 provenance);
         }
 
@@ -658,7 +655,7 @@ public sealed partial class InspectionWorkspace
         ResolvedAssemblyReference carrier = ResolvedAssemblyReference
             .CreateFromArtifactWithFallbackIdentity(
                 reference.Registration,
-                reference.OpenRead,
+                () => session.OpenRead(reference, queryLease),
                 new AssemblyReferenceIdentity(
                     SparseRejectionCarrierName,
                     Version: null,

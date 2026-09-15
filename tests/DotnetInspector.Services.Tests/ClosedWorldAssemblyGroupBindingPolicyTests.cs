@@ -63,10 +63,34 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
         Assert.Equal(0, peer.SourceOpens);
     }
 
+    [Fact]
+    public void CreateClosedWorld_DesignatedCompositionUsesCanonicalRetainedOccurrence()
+    {
+        var root = Named("Root");
+        var candidate = new RetainedImage(
+            FixtureCatalog.ServicesRouteLearningConsumer.AssemblyPath(),
+            AssemblyResolutionProvenance.Designated(
+                "closed-world designated composition"));
+        var select = new Policy(_ =>
+            AssemblyBindingSelection.Found(candidate.Source));
+        var policy = SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
+            [(root, select), (candidate.Retained, select)]);
+
+        var selected = Selected(
+            policy,
+            Request(
+                candidate.Source.Identity,
+                AssemblyBindingOrigin.FromAssembly(root)));
+
+        Assert.Same(candidate.Retained, selected.Assembly);
+        Assert.Equal(0, candidate.SourceOpens);
+    }
+
     [Theory]
     [InlineData("selected")]
     [InlineData("ambiguous")]
     [InlineData("shadow")]
+    [InlineData("composition")]
     public void CreateClosedWorld_UsesRetainedImagesForEveryCandidateArm(string arm)
     {
         var root = Named("Root");
@@ -76,7 +100,11 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
         {
             "selected" => AssemblyBindingSelection.Found(first.Source),
             "ambiguous" => AssemblyBindingSelection.Multiple([first.Source, second.Source]),
-            "shadow" => AssemblyBindingSelection.Found(first.Source, [second.Source]),
+            "shadow" => AssemblyBindingCandidateDomain.Create(
+                [first.Source, second.Source]).Finalize([first.Source]),
+            "composition" => AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [first.Source, second.Source])),
             _ => throw new ArgumentOutOfRangeException(nameof(arm)),
         });
         var policy = SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
@@ -84,7 +112,15 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
         AssemblyBindingSelection selection = policy.Select(
             Request(Skewed(first.Source.Identity), AssemblyBindingOrigin.FromAssembly(root))).Selection;
 
-        if (arm == "ambiguous")
+        if (arm == "composition")
+        {
+            var required = Assert.IsType<
+                AssemblyBindingSelection.CompositionRequired>(selection);
+            Assert.Equal(
+                [first.Retained, second.Retained],
+                required.Domain.Candidates);
+        }
+        else if (arm == "ambiguous")
         {
             Assert.Equal([first.Retained, second.Retained],
                 Assert.IsType<AssemblyBindingSelection.Ambiguous>(selection).Assemblies);
@@ -106,6 +142,7 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
     [InlineData("selected")]
     [InlineData("ambiguous")]
     [InlineData("shadow")]
+    [InlineData("composition")]
     public void CreateClosedWorld_RejectsEveryOutsideCandidateArmWithoutOpening(string arm)
     {
         var root = Named("Root");
@@ -122,7 +159,10 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
         {
             "selected" => AssemblyBindingSelection.Found(outside),
             "ambiguous" => AssemblyBindingSelection.Multiple([root, outside]),
-            "shadow" => AssemblyBindingSelection.Found(root, [outside]),
+            "shadow" => AssemblyBindingCandidateDomain.Create(
+                [root, outside]).Finalize([root]),
+            "composition" => AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create([root, outside])),
             _ => throw new ArgumentOutOfRangeException(nameof(arm)),
         });
         var policy = SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld([(root, select)]);
@@ -254,7 +294,9 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
 
     sealed class RetainedImage
     {
-        internal RetainedImage(string fixture)
+        internal RetainedImage(
+            string fixture,
+            AssemblyResolutionProvenance? provenance = null)
         {
             byte[] bytes = File.ReadAllBytes(fixture);
             using var pe = new PEReader(new MemoryStream(bytes, writable: false));
@@ -265,7 +307,9 @@ public sealed class ClosedWorldAssemblyGroupBindingPolicyTests
                     SourceOpens++;
                     throw new InvalidOperationException("Selection must use the canonical retained image.");
                 },
-                AssemblyResolutionProvenance.Local("closed-world retained gate"));
+                provenance
+                    ?? AssemblyResolutionProvenance.Local(
+                        "closed-world retained gate"));
             var snapshot = Assert.IsType<AssemblyImageSnapshotResult.Ready>(
                 AssemblyImageSnapshot.FromRetainedContent(Source, [.. bytes])).Snapshot;
             Retained = snapshot.RetainAssemblyReference(Source);

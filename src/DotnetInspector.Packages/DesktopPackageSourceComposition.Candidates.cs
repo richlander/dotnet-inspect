@@ -13,63 +13,62 @@ public sealed partial class DesktopPackageSourceComposition
         PackageSourceCoordinate coordinate,
         NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null) =>
+        PackageSourceSettlementCompatibility.Run(
+            _sourceLease,
+            generation => ResolvePinnedCandidateCore(
+                generation, coordinate, sourceOptions, cancellationToken, operationContext));
+
+    private PackageAcquisitionCandidateResult ResolvePinnedCandidateCore(
+        PackageSourceSettlementGeneration generation,
+        PackageSourceCoordinate coordinate,
+        NuGetSourceOptions? sourceOptions,
+        CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null)
     {
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
         ArgumentNullException.ThrowIfNull(coordinate);
         cancellationToken = operationContext?.ResolveInvocationToken(
             cancellationToken) ?? cancellationToken;
         var failures = new List<PackageAuthorityFailure>();
         try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            operationContext?.ThrowIfExpired();
-            IReadOnlyList<PackageSource> sources = ResolveEligibleSources(
+            PackageSourceAuthorization authorization =
+                AuthorizeSourcesForCore(
                 coordinate.PackageId,
                 sourceOptions,
-                failures);
-            var authorities = new List<ConfiguredPackageAuthority>();
-            var seen = new HashSet<ConfiguredPackageAuthority>(
-                ReferenceEqualityComparer.Instance);
-            foreach (PackageSource source in sources)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                operationContext?.ThrowIfExpired();
-                if (TryGetEligibleAuthority(source, failures) is { } authority
-                    && seen.Add(authority.Authority))
+                () =>
                 {
-                    authorities.Add(authority.Authority);
-                }
-            }
-            operationContext?.ThrowIfExpired();
-
-            PackageAcquisitionCandidate? candidate = authorities.Count == 0
-                ? null
-                : _sourceLease.CreatePinnedCandidate(
-                    coordinate,
-                    authorities);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    operationContext?.ThrowIfExpired();
+                },
+                failures);
+            PackageAcquisitionCandidate? candidate =
+                authorization.Authorities.Count == 0
+                    ? null
+                    : generation.CreatePinnedCandidate(
+                        coordinate,
+                        authorization.Authorities);
             return new PackageAcquisitionCandidateResult(
                 candidate is null
                     ? PackageAcquisitionCandidateResultState.Denied
                     : PackageAcquisitionCandidateResultState.Resolved,
                 candidate,
-                failures);
+                authorization.Failures);
         }
         catch (NuGetOperationTimeoutException)
         {
-            failures.Add(new PackageAuthorityFailure(
-                InertString.Empty,
-                PackageAuthorityFailureKind.Timeout,
-                "The package candidate operation deadline expired before authorization completed.")
-            {
-                Timeout = operationContext is null
-                    ? null
-                    : new(
-                        PackageSourceTimeoutKind.Operation,
-                        operationContext.OperationTimeout),
-            });
+            failures.Add(
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Timeout,
+                    "The package candidate operation deadline expired before authorization completed.")
+                {
+                    Timeout = operationContext is null
+                        ? null
+                        : new(
+                            PackageSourceTimeoutKind.Operation,
+                            operationContext.OperationTimeout),
+                });
             return new PackageAcquisitionCandidateResult(
                 PackageAcquisitionCandidateResultState.Incomplete,
                 candidate: null,

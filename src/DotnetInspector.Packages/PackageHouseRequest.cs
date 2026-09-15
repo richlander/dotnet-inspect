@@ -100,6 +100,13 @@ public sealed class PackageHouseOperation
                 timeout,
                 "A PackageHouse timeout must be finite and positive.");
         }
+        if (timeout > NuGetOperationContext.MaximumTimeout)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                timeout,
+                $"A PackageHouse timeout cannot exceed {NuGetOperationContext.MaximumTimeout}.");
+        }
     }
 }
 
@@ -120,6 +127,32 @@ public abstract class PackageHouseDemand
         }
 
         public PackageSourceCoordinate Coordinate { get; }
+    }
+
+    /// <summary>
+    /// One exact candidate issued by the supplied operation's root generation.
+    /// </summary>
+    public sealed class Candidate : PackageHouseDemand
+    {
+        public Candidate(PackageAcquisitionCandidate value)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            Value = value;
+        }
+
+        public PackageAcquisitionCandidate Value { get; }
+    }
+
+    /// <summary>One unresolved package version-selection request.</summary>
+    public sealed class Selecting : PackageHouseDemand
+    {
+        public Selecting(PackageVersionSelectionRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            Request = request;
+        }
+
+        public PackageVersionSelectionRequest Request { get; }
     }
 }
 

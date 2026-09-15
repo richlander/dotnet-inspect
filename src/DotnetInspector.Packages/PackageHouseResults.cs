@@ -5,45 +5,69 @@ using NuGetFetch;
 
 namespace DotnetInspector.Packages;
 
-/// <summary>Opaque identity associating one terminal PackageHouse result.</summary>
-public sealed class PackageHouseSettlementIdentity
-{
-    internal PackageHouseSettlementIdentity()
-    {
-    }
-
-    public override string ToString() => nameof(PackageHouseSettlementIdentity);
-}
-
 /// <summary>
 /// Package-owned evidence binding one policy-issued platform-supply receipt to
 /// the exact House request, package coordinate, and platform target.
 /// </summary>
 public sealed class PackageHousePruningReceipt
 {
+    /// <summary>
+    /// Evaluates the exact demand coordinate against one target-bound platform
+    /// inventory and retains the resulting correspondence.
+    /// </summary>
+    public static PackageHousePruningReceipt Evaluate(
+        PackageHouseRequest request,
+        PlatformPruneInventory inventory)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(inventory);
+        PackageSourceCoordinate coordinate =
+            RequireCoordinate(request);
+        PackageHouseTargetContext target =
+            request.TargetContext
+            ?? throw new ArgumentException(
+                "Pruning requires an exact PackageHouse target context.",
+                nameof(request));
+        if (target.Mode != PackageHouseTargetSelectionMode.Exact)
+        {
+            throw new ArgumentException(
+                "Pruning requires an exact PackageHouse target context.",
+                nameof(request));
+        }
+
+        return new(
+            request,
+            PlatformPrunePolicy.Evaluate(
+                inventory,
+                new PackageCoordinate(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    target.RequestedFramework,
+                    target.RuntimeIdentifier)));
+    }
+
     internal PackageHousePruningReceipt(
         PackageHouseRequest request,
-        PlatformFamilyTarget target,
         PlatformSupplyReceipt policy)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(policy);
-        if (request.Demand is not PackageHouseDemand.Exact exact)
+        PackageSourceCoordinate coordinate =
+            RequireCoordinate(request);
+        if (request.TargetContext
+                is not
+                {
+                    Mode: PackageHouseTargetSelectionMode.Exact,
+                    PlatformTarget: { } target,
+                })
         {
             throw new ArgumentException(
-                "This PackageHouse contract floor prunes only exact package demands.",
+                "A pruning receipt requires the request's exact platform correspondence.",
                 nameof(request));
-        }
-        if (request.TargetContext?.PlatformTarget != target)
-        {
-            throw new ArgumentException(
-                "A pruning receipt must use the request's exact platform correspondence.",
-                nameof(target));
         }
         if (!PolicyCoordinateMatches(
                 policy.Coordinate,
-                exact.Coordinate,
+                coordinate,
                 request.TargetContext)
             || !policy.Inventory.TargetFramework.Equals(
                 target.TargetFramework.ToString(),
@@ -74,20 +98,32 @@ public sealed class PackageHousePruningReceipt
         }
 
         Request = request;
-        Coordinate = exact.Coordinate;
-        Target = target;
         Policy = policy;
     }
 
     public PackageHouseRequest Request { get; }
 
-    public PackageSourceCoordinate Coordinate { get; }
+    public PackageSourceCoordinate Coordinate =>
+        RequireCoordinate(Request);
 
-    public PlatformFamilyTarget Target { get; }
+    public PlatformFamilyTarget Target =>
+        Request.TargetContext!.PlatformTarget!;
 
     public PlatformSupplyReceipt Policy { get; }
 
     public PlatformSupply Supply => Policy.Supply;
+
+    private static PackageSourceCoordinate RequireCoordinate(
+        PackageHouseRequest request) =>
+        request.Demand switch
+        {
+            PackageHouseDemand.Exact exact => exact.Coordinate,
+            PackageHouseDemand.Candidate candidate =>
+                candidate.Value.Coordinate,
+            _ => throw new ArgumentException(
+                "Pruning requires an exact or candidate-bound package demand.",
+                nameof(request)),
+        };
 
     private static bool PolicyCoordinateMatches(
         PackageCoordinate policy,
@@ -134,17 +170,19 @@ public sealed class PackageHouseDecisionReceipt
         PackageHouseDecision decision,
         PackageSourceCoordinate? coordinate,
         PackageAcquisitionCandidate? candidate,
-        PackageHousePruningReceipt? pruning)
+        PackageHousePruningReceipt? pruning,
+        PackageVersionResolutionReceipt? versionResolution)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!Enum.IsDefined(decision))
             throw new ArgumentOutOfRangeException(nameof(decision));
-        if (coordinate is not null)
-        {
-            PackageHouseContractValidation.RequireCoordinateMatchesDemand(
-                request.Demand,
-                coordinate);
-        }
+        PackageHouseContractValidation.RequireVersionResolutionMatchesDemand(
+            request.Demand,
+            decision,
+            coordinate,
+            candidate,
+            pruning,
+            versionResolution);
         if (candidate is not null
             && candidate.Coordinate != coordinate)
         {
@@ -191,6 +229,7 @@ public sealed class PackageHouseDecisionReceipt
         Coordinate = coordinate;
         Candidate = candidate;
         Pruning = pruning;
+        VersionResolution = versionResolution;
     }
 
     public PackageHouseRequest Request { get; }
@@ -203,6 +242,8 @@ public sealed class PackageHouseDecisionReceipt
 
     public PackageHousePruningReceipt? Pruning { get; }
 
+    public PackageVersionResolutionReceipt? VersionResolution { get; }
+
     internal static PackageHouseDecisionReceipt RetainPackage(
         PackageHouseRequest request,
         PackageSourceCoordinate coordinate,
@@ -213,7 +254,19 @@ public sealed class PackageHouseDecisionReceipt
             PackageHouseDecision.RetainPackage,
             coordinate,
             candidate,
-            pruning);
+            pruning,
+            versionResolution: null);
+
+    internal static PackageHouseDecisionReceipt RetainSelectedPackage(
+        PackageHouseRequest request,
+        PackageVersionResolutionReceipt.Resolved versionResolution) =>
+        new(
+            request,
+            PackageHouseDecision.RetainPackage,
+            versionResolution.Coordinate,
+            versionResolution.Candidate,
+            pruning: null,
+            versionResolution: versionResolution);
 
     internal static PackageHouseDecisionReceipt DelegateToPlatform(
         PackageHouseRequest request,
@@ -225,19 +278,22 @@ public sealed class PackageHouseDecisionReceipt
             PackageHouseDecision.DelegateToPlatform,
             coordinate,
             candidate,
-            pruning);
+            pruning,
+            versionResolution: null);
 
     internal static PackageHouseDecisionReceipt Stop(
         PackageHouseRequest request,
         PackageSourceCoordinate? coordinate = null,
         PackageAcquisitionCandidate? candidate = null,
-        PackageHousePruningReceipt? pruning = null) =>
+        PackageHousePruningReceipt? pruning = null,
+        PackageVersionResolutionReceipt? versionResolution = null) =>
         new(
             request,
             PackageHouseDecision.Stop,
             coordinate,
             candidate,
-            pruning);
+            pruning,
+            versionResolution);
 }
 
 /// <summary>
@@ -248,14 +304,12 @@ public sealed class PackageHouseAcquisitionReceipt
 {
     internal PackageHouseAcquisitionReceipt(
         PackageHouseDecisionReceipt decision,
-        PackageAcquisitionCandidate candidate,
         ConfiguredPackageAuthority authority,
         PackageSourceResultIdentity source,
         PackagePayloadOrigin origin,
         PackageContentGenerationIdentity generation)
     {
         ArgumentNullException.ThrowIfNull(decision);
-        ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(generation);
@@ -269,12 +323,12 @@ public sealed class PackageHouseAcquisitionReceipt
                 nameof(decision));
         }
         if (decision.Decision != PackageHouseDecision.RetainPackage
-            || !ReferenceEquals(decision.Candidate, candidate)
+            || decision.Candidate is not { } candidate
             || decision.Coordinate != candidate.Coordinate)
         {
             throw new ArgumentException(
                 "Acquisition requires the decision's exact retained candidate.",
-                nameof(candidate));
+                nameof(decision));
         }
         if (!candidate.Authorities.Any(evidence =>
                 ReferenceEquals(evidence.Authority, authority)))
@@ -291,7 +345,6 @@ public sealed class PackageHouseAcquisitionReceipt
         }
 
         Decision = decision;
-        Candidate = candidate;
         Authority = authority;
         Source = source;
         Origin = origin;
@@ -300,7 +353,7 @@ public sealed class PackageHouseAcquisitionReceipt
 
     public PackageHouseDecisionReceipt Decision { get; }
 
-    public PackageAcquisitionCandidate Candidate { get; }
+    public PackageAcquisitionCandidate Candidate => Decision.Candidate!;
 
     public ConfiguredPackageAuthority Authority { get; }
 
@@ -314,12 +367,104 @@ public sealed class PackageHouseAcquisitionReceipt
 }
 
 /// <summary>
-/// Resource-free evidence binding one existing package-owner asset-selection
-/// outcome to the exact acquisition and request that produced it.
+/// Resource-free package-to-library evidence retaining the complete
+/// acquisition and selector-issued correspondence.
 /// </summary>
-public abstract class PackageHouseAssetSelectionReceipt
+public abstract class PackageHouseLibraryHandoff
 {
-    private PackageHouseAssetSelectionReceipt(
+    private PackageHouseLibraryHandoff(
+        PackageHouseAcquisitionReceipt acquisition)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        Acquisition = acquisition;
+    }
+
+    public PackageHouseAcquisitionReceipt Acquisition { get; }
+
+    public PackageHouseDecisionReceipt Decision => Acquisition.Decision;
+
+    public PackageSourceCoordinate Coordinate => Decision.Coordinate!;
+
+    public PackageHouseTargetContext? TargetContext =>
+        Decision.Request.TargetContext;
+
+    public sealed class Compile : PackageHouseLibraryHandoff
+    {
+        internal Compile(
+            PackageHouseAcquisitionReceipt acquisition,
+            PackageCompileAssetSelectionReceipt receipt,
+            PackageCompileAsset asset,
+            PackageCompileAsset? implementationAsset)
+            : base(acquisition)
+        {
+            ArgumentNullException.ThrowIfNull(receipt);
+            ArgumentNullException.ThrowIfNull(asset);
+            PackageHouseRealizationCorrespondence.RequireCompile(
+                acquisition,
+                receipt);
+            if (!receipt.Selection.Assets.Any(candidate =>
+                    ReferenceEquals(candidate, asset))
+                || !ReferenceEquals(
+                    receipt.Selection.FindImplementationAsset(asset),
+                    implementationAsset))
+            {
+                throw new ArgumentException(
+                    "A compile handoff must use one exact selected asset and its paired implementation asset.",
+                    nameof(asset));
+            }
+
+            Receipt = receipt;
+            Asset = asset;
+            ImplementationAsset = implementationAsset;
+        }
+
+        public PackageCompileAssetSelectionReceipt Receipt { get; }
+
+        public PackageCompileAsset Asset { get; }
+
+        public PackageCompileAsset? ImplementationAsset { get; }
+    }
+
+    public sealed class Runtime : PackageHouseLibraryHandoff
+    {
+        internal Runtime(
+            PackageHouseAcquisitionReceipt acquisition,
+            PackageAssetSelectionReceipt receipt,
+            PackageAssetEntry asset)
+            : base(acquisition)
+        {
+            ArgumentNullException.ThrowIfNull(receipt);
+            ArgumentNullException.ThrowIfNull(asset);
+            PackageHouseRealizationCorrespondence.RequireRuntime(
+                acquisition,
+                receipt);
+            if (receipt.Selection
+                    is not PackageAssetSelection.Selected selected
+                || !selected.Universe.Assets.Any(candidate =>
+                    ReferenceEquals(candidate, asset)))
+            {
+                throw new ArgumentException(
+                    "A runtime handoff must use one exact selected asset.",
+                    nameof(asset));
+            }
+
+            Receipt = receipt;
+            Asset = asset;
+        }
+
+        public PackageAssetSelectionReceipt Receipt { get; }
+
+        public PackageAssetEntry Asset { get; }
+    }
+}
+
+/// <summary>
+/// Resource-free evidence binding one existing package-owner asset-selection
+/// outcome and any library handoffs to the exact acquisition and request.
+/// </summary>
+public abstract class PackageHouseRealizationReceipt
+{
+    private PackageHouseRealizationReceipt(
         PackageHouseAcquisitionReceipt acquisition)
     {
         ArgumentNullException.ThrowIfNull(acquisition);
@@ -327,7 +472,7 @@ public abstract class PackageHouseAssetSelectionReceipt
             != PackageHouseOperationProfile.Realize)
         {
             throw new ArgumentException(
-                "Only a Realize operation can produce asset-selection evidence.",
+                "Only a Realize operation can produce realization evidence.",
                 nameof(acquisition));
         }
 
@@ -336,7 +481,12 @@ public abstract class PackageHouseAssetSelectionReceipt
 
     public PackageHouseAcquisitionReceipt Acquisition { get; }
 
-    public sealed class Compile : PackageHouseAssetSelectionReceipt
+    internal abstract PackageHouseRealizationCompletion Completion { get; }
+
+    public abstract ImmutableArray<PackageHouseLibraryHandoff>
+        LibraryHandoffs { get; }
+
+    public sealed class Compile : PackageHouseRealizationReceipt
     {
         internal Compile(
             PackageHouseAcquisitionReceipt acquisition,
@@ -344,47 +494,51 @@ public abstract class PackageHouseAssetSelectionReceipt
             : base(acquisition)
         {
             ArgumentNullException.ThrowIfNull(receipt);
-            if (acquisition.Decision.Request.AssetSelection
-                != PackageHouseAssetSelectionKind.Compile)
-            {
-                throw new ArgumentException(
-                    "A compile selection requires a compile realization request.",
-                    nameof(acquisition));
-            }
+            PackageHouseRealizationCorrespondence.RequireCompile(
+                acquisition,
+                receipt);
             PackageHouseRequest request = acquisition.Decision.Request;
-            if (!ReferenceEquals(
-                    receipt.Generation,
-                    acquisition.Generation)
-                || !receipt.PackageId.Equals(
-                    acquisition.Decision.Coordinate!.PackageId,
-                    StringComparison.OrdinalIgnoreCase)
-                || !RequestMatches(
-                    request.TargetContext,
-                    receipt.RequestedTargetFramework,
-                    receipt.RequestedRuntimeIdentifier))
-            {
-                throw new ArgumentException(
-                    "The compile selection receipt must describe the acquired generation and exact House selection request.",
-                    nameof(receipt));
-            }
-            if (receipt.Selection.Status
-                    == PackageCompileAssetSelectionStatus.Selected
-                && !receipt.Selection.IsSelected)
-            {
-                throw new ArgumentException(
-                    "A selected compile outcome must carry its selected assets and default asset.",
-                    nameof(receipt));
-            }
 
             Receipt = receipt;
+            Completion = receipt.Selection.Status switch
+            {
+                PackageCompileAssetSelectionStatus.Selected
+                    or PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                    PackageHouseRealizationCompletion.Settled,
+                PackageCompileAssetSelectionStatus.NoCompileAssets
+                    or PackageCompileAssetSelectionStatus
+                        .NoMatchingTargetFramework =>
+                    PackageHouseRealizationCompletion.NoMatch,
+                _ => PackageHouseRealizationCompletion.Rejected,
+            };
+            LibraryHandoffs =
+                request.LibraryHandoff
+                    == PackageHouseLibraryHandoffMode.SelectedLibraries
+                && receipt.Selection.IsSelected
+                    ? [
+                        .. receipt.Selection.Assets.Select(asset =>
+                            new PackageHouseLibraryHandoff.Compile(
+                                acquisition,
+                                receipt,
+                                asset,
+                                receipt.Selection
+                                    .FindImplementationAsset(asset))),
+                    ]
+                    : [];
         }
 
         public PackageCompileAssetSelectionReceipt Receipt { get; }
 
         public PackageCompileAssetSelection Selection => Receipt.Selection;
+
+        internal override PackageHouseRealizationCompletion Completion
+            { get; }
+
+        public override ImmutableArray<PackageHouseLibraryHandoff>
+            LibraryHandoffs { get; }
     }
 
-    public sealed class Runtime : PackageHouseAssetSelectionReceipt
+    public sealed class Runtime : PackageHouseRealizationReceipt
     {
         internal Runtime(
             PackageHouseAcquisitionReceipt acquisition,
@@ -392,32 +546,113 @@ public abstract class PackageHouseAssetSelectionReceipt
             : base(acquisition)
         {
             ArgumentNullException.ThrowIfNull(receipt);
-            if (acquisition.Decision.Request.AssetSelection
-                != PackageHouseAssetSelectionKind.Runtime)
-            {
-                throw new ArgumentException(
-                    "A runtime selection requires a runtime realization request.",
-                    nameof(acquisition));
-            }
-            if (!ReferenceEquals(
-                    receipt.Generation,
-                    acquisition.Generation)
-                || !RequestMatches(
-                    acquisition.Decision.Request.TargetContext,
-                    receipt.RequestedTargetFramework,
-                    receipt.RequestedRuntimeIdentifier))
-            {
-                throw new ArgumentException(
-                    "The runtime selection receipt must describe the acquired generation and exact House selection request.",
-                    nameof(receipt));
-            }
+            PackageHouseRealizationCorrespondence.RequireRuntime(
+                acquisition,
+                receipt);
 
             Receipt = receipt;
+            Completion = receipt.Selection switch
+            {
+                PackageAssetSelection.Selected =>
+                    PackageHouseRealizationCompletion.Settled,
+                PackageAssetSelection.NoMatch =>
+                    PackageHouseRealizationCompletion.NoMatch,
+                PackageAssetSelection.Ambiguous =>
+                    PackageHouseRealizationCompletion.Ambiguous,
+                _ => PackageHouseRealizationCompletion.Rejected,
+            };
+            LibraryHandoffs =
+                acquisition.Decision.Request.LibraryHandoff
+                    == PackageHouseLibraryHandoffMode.SelectedLibraries
+                && receipt.Selection
+                    is PackageAssetSelection.Selected selected
+                    ? [
+                        .. selected.Universe.Assets.Select(asset =>
+                            new PackageHouseLibraryHandoff.Runtime(
+                                acquisition,
+                                receipt,
+                                asset)),
+                    ]
+                    : [];
         }
 
         public PackageAssetSelectionReceipt Receipt { get; }
 
         public PackageAssetSelection Selection => Receipt.Selection;
+
+        internal override PackageHouseRealizationCompletion Completion
+            { get; }
+
+        public override ImmutableArray<PackageHouseLibraryHandoff>
+            LibraryHandoffs { get; }
+    }
+}
+
+internal static class PackageHouseRealizationCorrespondence
+{
+    internal static void RequireCompile(
+        PackageHouseAcquisitionReceipt acquisition,
+        PackageCompileAssetSelectionReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        ArgumentNullException.ThrowIfNull(receipt);
+        if (acquisition.Decision.Request.AssetSelection
+            != PackageHouseAssetSelectionKind.Compile)
+        {
+            throw new ArgumentException(
+                "A compile selection requires a compile realization request.",
+                nameof(acquisition));
+        }
+        if (!ReferenceEquals(
+                receipt.Generation,
+                acquisition.Generation)
+            || !receipt.PackageId.Equals(
+                acquisition.Decision.Coordinate!.PackageId,
+                StringComparison.OrdinalIgnoreCase)
+            || !RequestMatches(
+                acquisition.Decision.Request.TargetContext,
+                receipt.RequestedTargetFramework,
+                receipt.RequestedRuntimeIdentifier))
+        {
+            throw new ArgumentException(
+                "The compile selection receipt must describe the acquired generation and exact House selection request.",
+                nameof(receipt));
+        }
+        if (receipt.Selection.Status
+                == PackageCompileAssetSelectionStatus.Selected
+            && !receipt.Selection.IsSelected)
+        {
+            throw new ArgumentException(
+                "A selected compile outcome must carry its selected assets and default asset.",
+                nameof(receipt));
+        }
+    }
+
+    internal static void RequireRuntime(
+        PackageHouseAcquisitionReceipt acquisition,
+        PackageAssetSelectionReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        ArgumentNullException.ThrowIfNull(receipt);
+        if (acquisition.Decision.Request.AssetSelection
+            != PackageHouseAssetSelectionKind.Runtime)
+        {
+            throw new ArgumentException(
+                "A runtime selection requires a runtime realization request.",
+                nameof(acquisition));
+        }
+        if (!ReferenceEquals(
+                receipt.Generation,
+                acquisition.Generation)
+            || !RequestMatches(
+                acquisition.Decision.Request.TargetContext,
+                receipt.RequestedTargetFramework,
+                receipt.RequestedRuntimeIdentifier))
+        {
+            throw new ArgumentException(
+                "The runtime selection receipt must describe the acquired generation and exact House selection request.",
+                nameof(receipt));
+        }
     }
 
     private static bool RequestMatches(
@@ -441,168 +676,6 @@ public abstract class PackageHouseAssetSelectionReceipt
                 target?.RuntimeIdentifier,
                 runtimeIdentifier,
                 StringComparison.Ordinal);
-    }
-}
-
-/// <summary>Opaque identity for one library handoff occurrence.</summary>
-public sealed class PackageHouseLibraryHandoffIdentity
-{
-    internal PackageHouseLibraryHandoffIdentity()
-    {
-    }
-
-    public override string ToString() =>
-        nameof(PackageHouseLibraryHandoffIdentity);
-}
-
-/// <summary>
-/// Resource-free package-to-library evidence retaining the complete
-/// acquisition and selection chain.
-/// </summary>
-public abstract class PackageHouseLibraryHandoff
-{
-    private PackageHouseLibraryHandoff(
-        PackageHouseAssetSelectionReceipt selection)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        Identity = new PackageHouseLibraryHandoffIdentity();
-        Selection = selection;
-    }
-
-    public PackageHouseLibraryHandoffIdentity Identity { get; }
-
-    public PackageHouseAssetSelectionReceipt Selection { get; }
-
-    public PackageHouseAcquisitionReceipt Acquisition =>
-        Selection.Acquisition;
-
-    public PackageHouseDecisionReceipt Decision => Acquisition.Decision;
-
-    public PackageSourceCoordinate Coordinate => Decision.Coordinate!;
-
-    public PackageHouseTargetContext? TargetContext =>
-        Decision.Request.TargetContext;
-
-    public sealed class Compile : PackageHouseLibraryHandoff
-    {
-        internal Compile(
-            PackageHouseAssetSelectionReceipt.Compile selection,
-            PackageCompileAsset asset,
-            PackageCompileAsset? implementationAsset)
-            : base(selection)
-        {
-            ArgumentNullException.ThrowIfNull(asset);
-            Asset = asset;
-            ImplementationAsset = implementationAsset;
-        }
-
-        public PackageCompileAsset Asset { get; }
-
-        public PackageCompileAsset? ImplementationAsset { get; }
-    }
-
-    public sealed class Runtime : PackageHouseLibraryHandoff
-    {
-        internal Runtime(
-            PackageHouseAssetSelectionReceipt.Runtime selection,
-            PackageAssetEntry asset)
-            : base(selection)
-        {
-            ArgumentNullException.ThrowIfNull(asset);
-            Asset = asset;
-        }
-
-        public PackageAssetEntry Asset { get; }
-    }
-}
-
-/// <summary>One package materialization plus typed asset-selection evidence.</summary>
-public sealed class PackageHouseRealizationReceipt
-{
-    internal PackageHouseRealizationReceipt(
-        PackageHouseAssetSelectionReceipt selection)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        Selection = selection;
-        Completion = GetCompletion(selection);
-        LibraryHandoffs = CreateLibraryHandoffs(selection);
-    }
-
-    public PackageHouseAssetSelectionReceipt Selection { get; }
-
-    public PackageHouseAcquisitionReceipt Acquisition =>
-        Selection.Acquisition;
-
-    internal PackageHouseRealizationCompletion Completion { get; }
-
-    public ImmutableArray<PackageHouseLibraryHandoff> LibraryHandoffs { get; }
-
-    private static PackageHouseRealizationCompletion GetCompletion(
-        PackageHouseAssetSelectionReceipt selection) =>
-        selection switch
-        {
-            PackageHouseAssetSelectionReceipt.Compile
-                {
-                    Selection.Status:
-                        PackageCompileAssetSelectionStatus.Selected
-                        or PackageCompileAssetSelectionStatus.EmptyCompileGroup,
-                } => PackageHouseRealizationCompletion.Settled,
-            PackageHouseAssetSelectionReceipt.Compile
-                {
-                    Selection.Status:
-                        PackageCompileAssetSelectionStatus.NoCompileAssets
-                        or PackageCompileAssetSelectionStatus
-                            .NoMatchingTargetFramework,
-                } => PackageHouseRealizationCompletion.NoMatch,
-            PackageHouseAssetSelectionReceipt.Compile =>
-                PackageHouseRealizationCompletion.Rejected,
-            PackageHouseAssetSelectionReceipt.Runtime
-                {
-                    Selection: PackageAssetSelection.Selected,
-                } => PackageHouseRealizationCompletion.Settled,
-            PackageHouseAssetSelectionReceipt.Runtime
-                {
-                    Selection: PackageAssetSelection.NoMatch,
-                } => PackageHouseRealizationCompletion.NoMatch,
-            PackageHouseAssetSelectionReceipt.Runtime
-                {
-                    Selection: PackageAssetSelection.Ambiguous,
-                } => PackageHouseRealizationCompletion.Ambiguous,
-            PackageHouseAssetSelectionReceipt.Runtime =>
-                PackageHouseRealizationCompletion.Rejected,
-            _ => throw new ArgumentOutOfRangeException(nameof(selection)),
-        };
-
-    private static ImmutableArray<PackageHouseLibraryHandoff>
-        CreateLibraryHandoffs(PackageHouseAssetSelectionReceipt selection)
-    {
-        if (selection.Acquisition.Decision.Request.LibraryHandoff
-            == PackageHouseLibraryHandoffMode.PackageOnly)
-        {
-            return [];
-        }
-
-        return selection switch
-        {
-            PackageHouseAssetSelectionReceipt.Compile compile
-                when compile.Selection.IsSelected =>
-            [
-                .. compile.Selection.Assets.Select(asset =>
-                    new PackageHouseLibraryHandoff.Compile(
-                        compile,
-                        asset,
-                        compile.Selection.FindImplementationAsset(asset))),
-            ],
-            PackageHouseAssetSelectionReceipt.Runtime
-                {
-                    Selection: PackageAssetSelection.Selected selected,
-                } runtime =>
-            [
-                .. selected.Universe.Assets.Select(asset =>
-                    new PackageHouseLibraryHandoff.Runtime(runtime, asset)),
-            ],
-            _ => [],
-        };
     }
 }
 
@@ -765,7 +838,6 @@ public sealed class PackageHouseEvidence
         }
 
         Request = request;
-        Identity = new PackageHouseSettlementIdentity();
         Decision = decision;
         Acquisition = acquisition;
         Realization = realization;
@@ -834,8 +906,6 @@ public sealed class PackageHouseEvidence
 
     public PackageHouseRequest Request { get; }
 
-    public PackageHouseSettlementIdentity Identity { get; }
-
     public PackageHouseDecisionReceipt? Decision { get; }
 
     public PackageHouseAcquisitionReceipt? Acquisition { get; }
@@ -864,7 +934,7 @@ public sealed class PlatformDelegation
         if (decision.Decision != PackageHouseDecision.DelegateToPlatform
             || decision.Coordinate is null
             || decision.Pruning is not
-                { Supply.DelegatesToPlatform: true } pruning)
+                { Supply.DelegatesToPlatform: true })
         {
             throw new ArgumentException(
                 "Platform delegation requires one complete PackageHouse pruning decision.",
@@ -872,15 +942,13 @@ public sealed class PlatformDelegation
         }
 
         Decision = decision;
-        Coordinate = decision.Coordinate;
-        Pruning = pruning;
     }
 
     public PackageHouseDecisionReceipt Decision { get; }
 
-    public PackageSourceCoordinate Coordinate { get; }
+    public PackageSourceCoordinate Coordinate => Decision.Coordinate!;
 
-    public PackageHousePruningReceipt Pruning { get; }
+    public PackageHousePruningReceipt Pruning => Decision.Pruning!;
 
     public PlatformFamilyTarget Target => Pruning.Target;
 
@@ -976,6 +1044,10 @@ public abstract class PackageHouseResult
             : base(evidence)
         {
             RequireNoCompletedRealization(evidence, nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.NotFound>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -991,6 +1063,10 @@ public abstract class PackageHouseResult
                 evidence,
                 PackageHouseRealizationCompletion.NoMatch,
                 nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.NoMatch>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1006,6 +1082,10 @@ public abstract class PackageHouseResult
                 evidence,
                 PackageHouseRealizationCompletion.Ambiguous,
                 nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.Ambiguous>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1021,6 +1101,10 @@ public abstract class PackageHouseResult
                 evidence,
                 PackageHouseRealizationCompletion.Rejected,
                 nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.Rejected>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1035,6 +1119,10 @@ public abstract class PackageHouseResult
             : base(evidence)
         {
             RequireNoCompletedRealization(evidence, nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.Unavailable>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1049,6 +1137,10 @@ public abstract class PackageHouseResult
             : base(evidence)
         {
             RequireNoCompletedRealization(evidence, nameof(evidence));
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.Incomplete>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1067,6 +1159,10 @@ public abstract class PackageHouseResult
                     "A completed asset-selection outcome requires its corresponding House terminal result unless operation timeout takes precedence.",
                     nameof(evidence));
             }
+            RequireVersionResolutionOutcome<
+                PackageVersionResolutionReceipt.Failed>(
+                    evidence,
+                    nameof(evidence));
             Reason = PackageHouseContractValidation.RequireReason(reason);
         }
 
@@ -1098,22 +1194,128 @@ public abstract class PackageHouseResult
                 parameterName);
         }
     }
+
+    private static void RequireVersionResolutionOutcome<TReceipt>(
+        PackageHouseEvidence evidence,
+        string parameterName)
+        where TReceipt : PackageVersionResolutionReceipt
+    {
+        if (evidence.Request.Demand
+                is not PackageHouseDemand.Selecting)
+        {
+            return;
+        }
+
+        PackageVersionResolutionReceipt? resolution =
+            evidence.Decision?.VersionResolution;
+        if (typeof(TReceipt)
+                == typeof(PackageVersionResolutionReceipt.Failed)
+            && evidence.HasOperationTimeout)
+        {
+            return;
+        }
+        if (resolution is null)
+        {
+            throw new ArgumentException(
+                "A selecting package result must retain its version-resolution receipt.",
+                parameterName);
+        }
+        if (resolution
+                is not PackageVersionResolutionReceipt.Resolved
+            && resolution is not TReceipt)
+        {
+            throw new ArgumentException(
+                "The PackageHouse terminal result must preserve the version-resolution terminal outcome.",
+                parameterName);
+        }
+    }
 }
 
 internal static class PackageHouseContractValidation
 {
-    internal static void RequireCoordinateMatchesDemand(
+    internal static void RequireVersionResolutionMatchesDemand(
         PackageHouseDemand demand,
-        PackageSourceCoordinate coordinate)
+        PackageHouseDecision decision,
+        PackageSourceCoordinate? coordinate,
+        PackageAcquisitionCandidate? candidate,
+        PackageHousePruningReceipt? pruning,
+        PackageVersionResolutionReceipt? versionResolution)
     {
         ArgumentNullException.ThrowIfNull(demand);
-        ArgumentNullException.ThrowIfNull(coordinate);
-        if (demand is not PackageHouseDemand.Exact exact
-            || exact.Coordinate != coordinate)
+        switch (demand)
         {
-            throw new ArgumentException(
-                "The settled coordinate must be the exact package demand.",
-                nameof(coordinate));
+            case PackageHouseDemand.Exact exact:
+                if (versionResolution is not null
+                    || coordinate is not null
+                        && exact.Coordinate != coordinate)
+                {
+                    throw new ArgumentException(
+                        "An exact package demand accepts only its exact coordinate and no version-selection receipt.",
+                        nameof(coordinate));
+                }
+                return;
+
+            case PackageHouseDemand.Candidate candidateDemand:
+                if (versionResolution is not null
+                    || coordinate is not null
+                        && candidateDemand.Value.Coordinate != coordinate
+                    || (decision == PackageHouseDecision.Stop
+                        ? candidate is not null
+                        : !ReferenceEquals(
+                            candidateDemand.Value,
+                            candidate)))
+                {
+                    throw new ArgumentException(
+                        "A candidate package demand accepts only its exact candidate and coordinate with no version-selection receipt.",
+                        nameof(candidate));
+                }
+                return;
+
+            case PackageHouseDemand.Selecting selecting:
+                if (versionResolution is null
+                    || !ReferenceEquals(
+                        selecting.Request,
+                        versionResolution.Request))
+                {
+                    throw new ArgumentException(
+                        "A selecting package demand requires the resolution receipt for its exact request.",
+                        nameof(versionResolution));
+                }
+
+                if (versionResolution
+                    is PackageVersionResolutionReceipt.Resolved resolved)
+                {
+                    if (coordinate != resolved.Coordinate
+                        || !ReferenceEquals(
+                            candidate,
+                            resolved.Candidate))
+                    {
+                        throw new ArgumentException(
+                            "A selected package decision must retain the resolution receipt's exact coordinate and candidate.",
+                            nameof(versionResolution));
+                    }
+                    if (pruning is not null)
+                    {
+                        throw new ArgumentException(
+                            "Selecting-demand pruning is not part of this PackageHouse contract slice.",
+                            nameof(pruning));
+                    }
+                    return;
+                }
+
+                if (decision != PackageHouseDecision.Stop
+                    || coordinate is not null
+                    || candidate is not null
+                    || pruning is not null)
+                {
+                    throw new ArgumentException(
+                        "A non-success version resolution can only stop package settlement without an exact coordinate.",
+                        nameof(versionResolution));
+                }
+                return;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(demand));
         }
     }
 

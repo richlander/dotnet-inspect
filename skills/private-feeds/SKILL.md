@@ -32,10 +32,12 @@ Use a source-only config when a credential provider supplies authentication:
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget --nugetconfig ./NuGet.Config
-dnx dotnet-inspect -y -- package search Widget --nugetconfig ./NuGet.Config
 dnx dotnet-inspect -y -- package MyCompany.Widget --versions-with-feed \
   --nugetconfig ./NuGet.Config
 ```
+
+`package query` currently uses NuGet.org only; it rejects private-feed source
+overrides rather than silently querying the wrong authority.
 
 Version discovery combines all eligible sources and chooses the highest
 semantic version; source order is not precedence. Pin `Package@Version` when
@@ -105,9 +107,14 @@ accept a range or `--at`.
 
 ### Inspect APIs and timelines from a folder feed
 
-Online API commands support exact pins and explicitly addressed ranges:
+Online API commands support omitted/latest and wildcard selection, exact pins,
+and explicitly addressed ranges:
 
 ```bash
+dnx dotnet-inspect -y -- type MyCompany.Widget --package MyCompany.Widget \
+  --source ./feed
+dnx dotnet-inspect -y -- type MyCompany.Widget \
+  --package 'MyCompany.Widget@1.*' --source ./feed
 dnx dotnet-inspect -y -- type MyCompany.Widget --package MyCompany.Widget@1.2.3 \
   --source ./feed
 dnx dotnet-inspect -y -- type MyCompany.Widget \
@@ -115,6 +122,10 @@ dnx dotnet-inspect -y -- type MyCompany.Widget \
 dnx dotnet-inspect -y -- timeline --package MyCompany.Widget@1.0.0..2.0.0 \
   --type MyCompany.Widget --type-presence --at first --at last --source ./feed
 ```
+
+Omitted and `@latest` API selection chooses the highest stable listed version.
+Wildcards use the package selection contract's case-insensitive prefix
+semantics and may select a prerelease.
 
 Ranges require complete fresh discovery and acquire only from sources that
 reported each selected coordinate. A timeline retains one vector for all its
@@ -130,8 +141,8 @@ exact-package replay, without depending on temporary extraction paths.
 
 Exact API pins and range probes use the same local authority caches and HTTP
 temporary storage as package inspection. HTTP payloads are downloaded anew in
-each invocation. API floating/wildcard selection, multi-package and dependency
-commands, and offline extraction remain on their existing paths.
+each invocation. Multi-package and dependency commands, and offline extraction
+remain on their existing paths.
 
 ### Restrict package ids to feeds
 

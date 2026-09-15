@@ -95,14 +95,14 @@ capabilities or content of the active Workspace.
 The Navigation Presentation-owned Subject and Inspector region shares row one
 with those shell controls. `Share`, `Settings`, `Keyboard help`, and contextual
 working-surface actions are not children of that region or items in either
-SlideStrip.
+adaptive navigation group.
 
 The shell exposes one stable Application menu control separately from the
 Subject and Inspector region. [Inspect Web Surface
 Composition](inspect-web-surface-composition.md) owns its page-level placement,
-its relationship to overflowing content, and the responsive allocation that
-keeps it outside the subject and inspector region. The control's interaction
-identity and menu inventory do not change with viewport width.
+its relationship to constrained content, and the responsive allocation that
+keeps it outside the adaptive subject and inspector groups. The control's
+interaction identity and menu inventory do not change with viewport width.
 
 Search is an input-like control in row one that opens Spotlight. It is
 not editable in place and does not become a dominant centered command control.
@@ -323,15 +323,12 @@ typing, paste, drag and drop of text, autofill where applicable, and input
 method composition. Pasting a package coordinate updates results immediately;
 it is not dependent on keyboard events that paste does not emit.
 
-Spotlight's package action is one-shot Workspace composition. Selecting an
-external package constructs a fresh unnamed Workspace with one explicit
-package Root in addition to the default ecosystem registrations, publishes and
-activates it, and makes that package active in the subject strip. Existing
-Workspaces remain available in the Workspace subject. Selecting a loaded
-coordinate, Library, Type, or Member instead performs ordinary Navigation
-within the active Workspace. Spotlight exposes no **Add to current Workspace**
-gesture; multi-package and multi-ecosystem composition remains on the Workspace
-editor.
+Spotlight's
+[destination-activation
+owner](inspect-web-spotlight-destination-activation.md) supplies each exact
+result's effect and settled product outcome. Shell Interaction retains only
+Spotlight opening, dismissal, focus, keyboard, and modal behavior; it does not
+classify Workspace coverage or reconstruct activation from the selected row.
 
 [Package-row removal](inspect-web-package-removal.md) owns the trailing close
 control for open and recent NuGet package rows in Home and modal Spotlight.

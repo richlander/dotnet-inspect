@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using DotnetInspector.Core;
 using InertText;
 using NuGetFetch;
 
@@ -109,6 +108,42 @@ public sealed class AcquiredPackageSourcePayload
         IPackageContent content,
         string producerKey,
         PackagePayloadOrigin origin)
+        : this(
+            coordinate,
+            content,
+            producerKey,
+            producer: null,
+            legacyProducerKey: null,
+            origin,
+            retainProducer: false)
+    {
+    }
+
+    internal AcquiredPackageSourcePayload(
+        PackageSourceCoordinate coordinate,
+        IPackageContent content,
+        string producerKey,
+        PackageProducerIdentity producer,
+        PackagePayloadOrigin origin)
+        : this(
+            coordinate,
+            content,
+            producerKey,
+            producer ?? throw new ArgumentNullException(nameof(producer)),
+            legacyProducerKey: null,
+            origin,
+            retainProducer: true)
+    {
+    }
+
+    private AcquiredPackageSourcePayload(
+        PackageSourceCoordinate coordinate,
+        IPackageContent content,
+        string producerKey,
+        PackageProducerIdentity? producer,
+        string? legacyProducerKey,
+        PackagePayloadOrigin origin,
+        bool retainProducer)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(content);
@@ -123,6 +158,10 @@ public sealed class AcquiredPackageSourcePayload
         Coordinate = coordinate;
         Content = content;
         ProducerKey = producerKey;
+        Producer = retainProducer
+            ? producer
+            : null;
+        LegacyProducerKey = legacyProducerKey;
         Origin = origin;
     }
 
@@ -132,7 +171,33 @@ public sealed class AcquiredPackageSourcePayload
 
     public string ProducerKey { get; }
 
+    /// <summary>
+    /// Gets the Package Source-issued producer identity when the acquisition
+    /// path retained that evidence.
+    /// </summary>
+    public PackageProducerIdentity? Producer { get; }
+
+    /// <summary>
+    /// Gets the legacy cache-producer spelling retained for exact coordinate
+    /// compatibility, when one was used by the configured authority.
+    /// </summary>
+    public string? LegacyProducerKey { get; }
+
     public PackagePayloadOrigin Origin { get; }
+
+    internal AcquiredPackageSourcePayload WithLegacyProducerKey(
+        string legacyProducerKey)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(legacyProducerKey);
+        return new AcquiredPackageSourcePayload(
+            Coordinate,
+            Content,
+            ProducerKey,
+            Producer,
+            legacyProducerKey,
+            Origin,
+            retainProducer: Producer is not null);
+    }
 
     /// <summary>
     /// Gets a durable digest for this exact admitted retained-content
@@ -256,9 +321,18 @@ public static class PackagePayloadAcquisition
         NuGetOperationContext? operationContext = null)
     {
         ArgumentNullException.ThrowIfNull(configuredSourceIdentity);
+        string configuredSource = configuredSourceIdentity.Value;
+        if (!source.Source.MatchesCompatibilitySourceIdentity(
+                configuredSource))
+        {
+            throw new ArgumentException(
+                "The configured source identity does not identify the runtime source compatibility identity.",
+                nameof(configuredSourceIdentity));
+        }
         return AcquireTypedAsync(
             source,
-            NuGetCache.GetSourceKey(configuredSourceIdentity.Value),
+            source.Source.Producer,
+            NuGetCache.GetSourceKey(configuredSource),
             coordinate,
             store,
             log,
@@ -278,6 +352,7 @@ public static class PackagePayloadAcquisition
         IPackagePayloadTransferPolicy? transferPolicy = null) =>
         AcquireTypedAsync(
             source,
+            source.Source.Producer,
             source.Source.Producer.Key,
             coordinate,
             authorityStore,
@@ -289,8 +364,25 @@ public static class PackagePayloadAcquisition
             probeCache: false,
             admissionCancellationToken: operation.OperationToken);
 
+    internal static ValueTask<AcquiredPackageSourcePayload?> TryGetCachedAsync(
+        PackageSourceCoordinate coordinate,
+        string producerKey,
+        IPackageStore store,
+        PackagePayloadLimits? limits,
+        Action<string>? log,
+        CancellationToken cancellationToken) =>
+        TryGetCachedAsync(
+            coordinate,
+            producer: null,
+            producerKey,
+            store,
+            limits,
+            log,
+            cancellationToken);
+
     internal static async ValueTask<AcquiredPackageSourcePayload?> TryGetCachedAsync(
         PackageSourceCoordinate coordinate,
+        PackageProducerIdentity? producer,
         string producerKey,
         IPackageStore store,
         PackagePayloadLimits? limits,
@@ -319,8 +411,18 @@ public static class PackagePayloadAcquisition
                 continue;
             }
 
-            return new AcquiredPackageSourcePayload(
-                coordinate, cached, producerKey, PackagePayloadOrigin.Cache);
+            return producer is null
+                ? new AcquiredPackageSourcePayload(
+                    coordinate,
+                    cached,
+                    producerKey,
+                    PackagePayloadOrigin.Cache)
+                : new AcquiredPackageSourcePayload(
+                    coordinate,
+                    cached,
+                    producerKey,
+                    producer,
+                    PackagePayloadOrigin.Cache);
         }
 
         return null;
@@ -328,6 +430,7 @@ public static class PackagePayloadAcquisition
 
     private static async Task<PackageSourcePayloadResult> AcquireTypedAsync(
         IPackageSourceClient source,
+        PackageProducerIdentity producer,
         string producerKey,
         PackageSourceCoordinate coordinate,
         IPackageStore store,
@@ -340,6 +443,7 @@ public static class PackagePayloadAcquisition
         CancellationToken admissionCancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(producer);
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(store);
         cancellationToken = operationContext?.ResolveInvocationToken(
@@ -351,7 +455,13 @@ public static class PackagePayloadAcquisition
         if (probeCache)
         {
             AcquiredPackageSourcePayload? cached = await TryGetCachedAsync(
-                coordinate, producerKey, store, limits, log, cancellationToken)
+                coordinate,
+                producer,
+                producerKey,
+                store,
+                limits,
+                log,
+                cancellationToken)
                 .ConfigureAwait(false);
             operationContext?.ThrowIfExpired();
             if (cached is not null)
@@ -416,6 +526,7 @@ public static class PackagePayloadAcquisition
                         coordinate,
                         content,
                         producerKey,
+                        producer,
                         origin))
                 : new PackageSourcePayloadResult.Unavailable(
                     $"Content for package '{coordinate.PackageId}' version "

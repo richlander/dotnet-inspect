@@ -7,7 +7,7 @@ public sealed partial class WorkspaceScopeTests
     [Fact]
     public async Task AddPreservesExistingOrderAndAppendsOneDistinctBatch()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot initial = await Add(workspace, Binding("First.Package"), Binding("Second.Package"));
         int duplicateReads = 0;
         WorkspaceScopeSnapshot? preparing = null;
@@ -40,6 +40,60 @@ public sealed partial class WorkspaceScopeTests
         Assert.Same(added.Snapshot, await Current(workspace));
     }
 
+    [Fact]
+    public async Task GuardedAddRequiresExactPublicationBase()
+    {
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot initial = await Current(workspace);
+        WorkspaceScopeSnapshot? preparing = null;
+        WorkspaceScopeOperationResult.Rejected? rejected = null;
+        PackageRootBinding pending = Binding("Pending.Package", onOpen: () =>
+        {
+            preparing = Current(workspace).GetAwaiter().GetResult();
+            rejected = Assert.IsType<WorkspaceScopeOperationResult.Rejected>(
+                workspace.AddPackagesAsync(
+                    initial.Revision,
+                    initial.PublicationBase,
+                    [Binding("Blocked.Package")],
+                    Deadline,
+                    TestContext.Current.CancellationToken)
+                .AsTask().GetAwaiter().GetResult());
+        });
+
+        WorkspaceScopeSnapshot current = Committed(
+            await workspace.ReplaceScopeAsync(
+                initial.Revision,
+                [pending],
+                Deadline,
+                TestContext.Current.CancellationToken)).Snapshot;
+
+        Assert.NotNull(preparing);
+        Assert.NotNull(rejected);
+        Assert.Same(initial.Revision, preparing.Revision);
+        Assert.NotSame(initial.PublicationBase, preparing.PublicationBase);
+        Assert.Equal(
+            WorkspaceScopeRejection.PublicationBaseMismatch,
+            rejected.Reason);
+        Assert.Same(preparing, rejected.Snapshot);
+        Assert.Equal(["Pending.Package"], Names(current));
+    }
+
+    [Fact]
+    public async Task ExactPackageOccurrenceLookupUsesBindingCorrespondence()
+    {
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
+        PackageRootBinding binding = Binding("Exact.Package");
+        WorkspaceScopeSnapshot current = await Add(workspace, binding);
+
+        WorkspacePackageOccurrenceDescriptor match =
+            Assert.IsType<WorkspacePackageOccurrenceDescriptor>(
+                current.FindPackageOccurrence(binding));
+        Assert.Same(current.Packages[0], match);
+        Assert.Null(
+            current.FindPackageOccurrence(
+                Binding("Different.Package")));
+    }
+
     [Theory]
     [InlineData("ready", false)]
     [InlineData("ready", true)]
@@ -49,7 +103,7 @@ public sealed partial class WorkspaceScopeTests
     [InlineData("failed", true)]
     public async Task EmptyOrDuplicateOnlyAddHasNoPhysicalEffect(string status, bool empty)
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot current = await Add(workspace, Binding("Same.Package"));
         if (status != "ready")
             current = await NonReady(workspace, current, 0, status == "failed");
@@ -70,9 +124,10 @@ public sealed partial class WorkspaceScopeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task AddReducesExactCorrespondenceBeforeLogicalCapacityAndPreparation()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot initial = await Add(workspace,
             [.. Enumerable.Range(0, 63).Select(index => Binding($"Package.{index}", entry: "README.md"))]);
         int duplicateReads = 0;
@@ -100,7 +155,7 @@ public sealed partial class WorkspaceScopeTests
     [Fact]
     public async Task LaterAddFailureDoesNotPublishSuccessfulPrefix()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot prior = await Add(workspace, Binding("Prior.Package"));
         var failure = Assert.IsType<WorkspaceScopeOperationResult.Failed>(
             await workspace.AddPackagesAsync(prior.Revision,
@@ -119,7 +174,7 @@ public sealed partial class WorkspaceScopeTests
     [Fact]
     public async Task RemoveRetainsOtherOccurrencesAndDoesNotWaitForAnAdmittedQuery()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot prior = await Add(workspace,
             Binding("First.Package"), Binding("Removed.Package"), Binding("Last.Package"));
         WorkspacePackageOccurrenceDescriptor target = prior.Packages[1];
@@ -163,7 +218,7 @@ public sealed partial class WorkspaceScopeTests
     [InlineData("failed")]
     public async Task RemovingTheLastOccurrenceCommitsAnEmptyClosedRevision(string status)
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot prior = await Add(workspace, Binding("Last.Package"));
         if (status != "ready")
             prior = await NonReady(workspace, prior, 0, status == "failed");
@@ -182,7 +237,7 @@ public sealed partial class WorkspaceScopeTests
     [InlineData(true)]
     public async Task IncrementalEditsRefuseNonReadySurvivorsBeforePreparingMaterial(bool failed)
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot ready = await Add(workspace, Binding("NonReady.Package"), Binding("Ready.Package"));
         WorkspaceScopeSnapshot prior = await NonReady(workspace, ready, 0, failed);
         int reads = 0;
@@ -209,7 +264,7 @@ public sealed partial class WorkspaceScopeTests
     [Fact]
     public async Task OrdinaryAddAndRemoveAreBusyWithoutSupersedingPreparation()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot prior = await Add(workspace, Binding("Prior.Package"));
         int busyReads = 0;
         PackageRootBinding package = Binding("Added.Package", onOpen: () =>
@@ -240,6 +295,7 @@ public sealed partial class WorkspaceScopeTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(false, "stale", WorkspaceScopeRejection.RevisionMismatch)]
     [InlineData(false, "foreign", WorkspaceScopeRejection.ForeignWorkspace)]
     [InlineData(false, "malformed", WorkspaceScopeRejection.Malformed)]
@@ -255,8 +311,8 @@ public sealed partial class WorkspaceScopeTests
     public async Task IncrementalValidationPrecedesBusy(
         bool remove, string invalid, WorkspaceScopeRejection reason)
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
-        await using InspectionWorkspace foreign = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
+        await using InspectionWorkspace foreign = new InspectionWorkspace();
         WorkspaceScopeSnapshot old = await Add(workspace, Binding("Prior.Package"), Binding("Retired.Package"));
         WorkspacePackageOccurrenceIdentity retired = old.Packages[1].Occurrence.Identity;
         WorkspaceScopeSnapshot prior = Committed(await workspace.RemovePackageOccurrenceAsync(
@@ -312,7 +368,7 @@ public sealed partial class WorkspaceScopeTests
     [InlineData("late", true)]
     public async Task AddSupersessionPreservesFirstObservedStop(string stop, bool clear)
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var time = new ScopeTimeProvider();
         workspace.ConfigureArtifactRootAdmission(new(), time);
         WorkspaceScopeSnapshot initial = await Add(workspace, Binding("Prior.Package"));
@@ -367,7 +423,7 @@ public sealed partial class WorkspaceScopeTests
     [InlineData("deadline")]
     public async Task AddCancellationOrExpiryLeavesThePriorRevisionCurrent(string cause)
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var time = new ScopeTimeProvider();
         workspace.ConfigureArtifactRootAdmission(new(), time);
         WorkspaceScopeSnapshot prior = await Add(workspace, Binding("Prior.Package"));
@@ -394,7 +450,7 @@ public sealed partial class WorkspaceScopeTests
     [Fact]
     public async Task RemoveHonorsCancellationBeforeAdmissionAndCannotBeRetractedAfterCommit()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot prior = await Add(workspace, Binding("Prior.Package"));
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
@@ -413,7 +469,7 @@ public sealed partial class WorkspaceScopeTests
     [Fact]
     public async Task PhysicalMovementDuringAddRefusesTheStaleCandidateAndRefreshesAllCurrentPackages()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot prior = await Add(workspace, Binding("Prior.Package"), Binding("Other.Package"));
         PackageRootBinding package = Binding("Added.Package", onOpen: () =>
             ArtifactAvailable(workspace.RetireArtifactRootAsync(
@@ -437,7 +493,7 @@ public sealed partial class WorkspaceScopeTests
     [Fact]
     public async Task IncrementalOperationsRespectRuntimeUnavailabilityBeforeInvalidRequests()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot prior = await Add(workspace, Binding("Prior.Package"));
         await workspace.DisposeAsync();
         var add = Assert.IsType<WorkspaceScopeOperationResult.Unavailable>(

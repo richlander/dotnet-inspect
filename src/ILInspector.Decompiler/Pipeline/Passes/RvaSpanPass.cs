@@ -178,18 +178,20 @@ public sealed class RvaSpanPass : IIrPass
     /// </summary>
     internal static List<IrExpression>? DecodeElements(IrFunction function, TypeRef element, byte[] data, int? elementCount = null)
     {
-        if (element.Kind != TypeRefKind.Definition)
-            return null;
-
         if (PrimitiveElementWidth(element) is { } primitiveWidth)
             return DecodePrimitiveElements(element, data, primitiveWidth, elementCount);
 
-        if (function.TypeShapes.GetValueOrDefault(element) != TypeShape.Enum || elementCount is not { } count)
+        if (!CoercionRendering.IsEnum(element, function.TypeShapes) || elementCount is not { } count)
             return null;
         var enumWidth = InferredEnumWidth(data.Length, count);
         if (enumWidth is null or > 4)
             return null;
-        return DecodeEnumElements(element, data, enumWidth.Value, count, function.EnumMembers.GetValueOrDefault(element));
+        return DecodeEnumElements(
+            element,
+            data,
+            enumWidth.Value,
+            count,
+            function.EnumMembers.GetValueOrDefault(CoercionRendering.NamedDefinition(element)));
     }
 
     static int? PrimitiveElementWidth(TypeRef element)

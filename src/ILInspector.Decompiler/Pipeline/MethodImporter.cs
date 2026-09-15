@@ -166,33 +166,14 @@ public static class MethodImporter
             MethodClassificationScanner.ClassifyAsyncMethod(
                 reader,
                 method);
-        string methodName = reader.GetString(method.Name);
-        MetadataFactState compilerGenerated =
-            FactState(
-                MethodDefinitionFacts.HasCompilerGeneratedAttribute(
-                    reader,
-                    method.GetCustomAttributes()));
-        MetadataFactState declaringTypeCompilerGenerated =
-            FactState(
-                MethodDefinitionFacts.HasCompilerGeneratedAttribute(
-                    reader,
-                    typeDef.GetCustomAttributes()));
-        // Names only bound implementation-role discovery. The Metadata
-        // relationship index remains the sole authority for the exact role.
-        bool needsClassicOwnerEvidence =
-            asyncClassification is not null
-            || methodName is "MoveNext" or "SetStateMachine"
-            || typeDef.GetMethodImplementations().Count > 0
-                && source.IsMethodImplementationBody(methodHandle);
 
         return new ImportedMethod(
             declaringType,
-            methodName,
+            reader.GetString(method.Name),
             signature,
             methodBody,
-            CompilerGenerated: compilerGenerated,
-            DeclaringTypeCompilerGenerated:
-                declaringTypeCompilerGenerated,
+            CompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
+            DeclaringTypeCompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes())),
             IsRuntimeAsync: FactState(
                 asyncClassification == MethodClassification.RuntimeAsync),
             MetadataToken: MetadataTokens.GetToken(methodHandle),
@@ -200,7 +181,7 @@ public static class MethodImporter
         {
             DeclaringTypeParameters = ParameterConstraints(reader, typeDef.GetGenericParameters(), scope),
             ClassicAsyncRequest =
-                needsClassicOwnerEvidence
+                asyncClassification is not null
                     ? source.AdaptClassicAsyncRequest(
                         methodHandle,
                         asyncClassification)

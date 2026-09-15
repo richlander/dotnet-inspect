@@ -23,7 +23,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     // exact comparison, with an unselected decoy participant on each side that must never be
     // opened or projected.
     [Fact]
-    public void Execute_SameImageAcrossDistinctGroups_IsExactAndIgnoresDecoyParticipants()
+    public async Task Execute_SameImageAcrossDistinctGroups_IsExactAndIgnoresDecoyParticipants()
     {
         byte[] bytes = File.ReadAllBytes(SelfPath);
         AssemblyReferenceIdentity identity = IdentityOf(bytes);
@@ -58,7 +58,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
             "decoy-after",
             policy);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         // The decoy comes first in one group and second in the other, so selection cannot be
         // relying on participant position within the group.
         using AssemblyContextGroup beforeGroup =
@@ -95,10 +95,10 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     // additive classification, exercising the actual product comparison rather than a
     // success-shaped stand-in.
     [Fact]
-    public void Execute_RealVersionPair_RetainsMetadataOwnedBreakingAndAdditiveClassification()
+    public async Task Execute_RealVersionPair_RetainsMetadataOwnedBreakingAndAdditiveClassification()
     {
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup beforeGroup = SinglePathGroup(
             workspace,
             FixtureCatalog.DiffV1.AssemblyPath(),
@@ -159,12 +159,12 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
 
     // A valid empty public API is a completed comparison, not an unavailable one.
     [Fact]
-    public void Execute_ValidEmptyPublicApi_IsCompleteAndExact()
+    public async Task Execute_ValidEmptyPublicApi_IsCompleteAndExact()
     {
         byte[] bytes = BuildTypedApiSurfaceImage(typeCount: 0);
         AssemblyReferenceIdentity identity = IdentityOf(bytes);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextParticipant beforeParticipant = Participant(
             identity,
             bytes,
@@ -204,7 +204,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void Execute_RejectedEndpoint_RetainsTheOppositeEndpointWithoutComparison(
+    public async Task Execute_RejectedEndpoint_RetainsTheOppositeEndpointWithoutComparison(
         bool rejectBefore)
     {
         byte[] bytes = File.ReadAllBytes(SelfPath);
@@ -222,7 +222,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
             openedCallback: null,
             "rejected",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup beforeGroup = workspace.CreateAssemblyContextGroup(
             [rejectBefore ? rejected : healthy]);
         using AssemblyContextGroup afterGroup = workspace.CreateAssemblyContextGroup(
@@ -258,7 +258,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void Execute_RowLevelInspectionFailure_SuppressesComparisonButRetainsFactsAndDiagnostics(
+    public async Task Execute_RowLevelInspectionFailure_SuppressesComparisonButRetainsFactsAndDiagnostics(
         bool failBefore)
     {
         byte[] partialImage = AssemblyContextApiSurfaceQueryTests.BuildPartialSurfaceImage();
@@ -277,7 +277,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
             openedCallback: null,
             "healthy",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup beforeGroup =
             workspace.CreateAssemblyContextGroup(
                 [failBefore ? partialParticipant : healthyParticipant]);
@@ -316,7 +316,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void Execute_DegradedSignature_SuppressesComparisonButRetainsEndpointEvidence(
+    public async Task Execute_DegradedSignature_SuppressesComparisonButRetainsEndpointEvidence(
         bool degradeBefore)
     {
         var signature = new BlobBuilder();
@@ -335,7 +335,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
             IdentityOf(degradedImage), degradedImage, null, "degraded", policy);
         AssemblyContextParticipant healthyParticipant = Participant(
             IdentityOf(healthyImage), healthyImage, null, "healthy", policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup beforeGroup = workspace.CreateAssemblyContextGroup(
             [degradeBefore ? degradedParticipant : healthyParticipant]);
         using AssemblyContextGroup afterGroup = workspace.CreateAssemblyContextGroup(
@@ -372,7 +372,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     // small enough endpoint complete even though the paired endpoint on the other side overflowed
     // it, proving the budget is never shared or halved across the pair.
     [Fact]
-    public void Execute_TightBudget_OmitsOverflowingEndpointButRetainsItsSubjectIdentity()
+    public async Task Execute_TightBudget_OmitsOverflowingEndpointButRetainsItsSubjectIdentity()
     {
         byte[] overflowBytes = BuildTypedApiSurfaceImage(typeCount: 2, assemblyName: "Overflow");
         byte[] fittingBytes = BuildTypedApiSurfaceImage(typeCount: 1, assemblyName: "Fitting");
@@ -389,7 +389,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
             openedCallback: null,
             "fitting",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup beforeGroup =
             workspace.CreateAssemblyContextGroup([beforeParticipant]);
         using AssemblyContextGroup afterGroup =
@@ -427,7 +427,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     // matches each image's own type count admits both sides, rather than the pair sharing one
     // combined budget.
     [Fact]
-    public void Execute_ExactPerEndpointLimits_AdmitBothEndpointsIndependently()
+    public async Task Execute_ExactPerEndpointLimits_AdmitBothEndpointsIndependently()
     {
         const int typeCount = 3;
         byte[] bytes = BuildTypedApiSurfaceImage(typeCount, assemblyName: "ExactBudget");
@@ -445,7 +445,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
             openedCallback: null,
             "exact-after",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup beforeGroup =
             workspace.CreateAssemblyContextGroup([beforeParticipant]);
         using AssemblyContextGroup afterGroup =
@@ -474,10 +474,11 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     // The requested scope applies identically to both endpoints: an include-all request reaches
     // each side's non-public types, and the result reports the scope it was asked for.
     [Fact]
-    public void Execute_RetainsTheRequestedScopeForBothEndpoints()
+    [Trait("Speed", "Slow")]
+    public async Task Execute_RetainsTheRequestedScopeForBothEndpoints()
     {
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup beforeGroup = SinglePathGroup(
             workspace, SelfPath, "scope-before", policy);
         using AssemblyContextGroup afterGroup = SinglePathGroup(
@@ -504,10 +505,10 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     }
 
     [Fact]
-    public void Execute_ThrowsForNullArguments()
+    public async Task Execute_ThrowsForNullArguments()
     {
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SinglePathGroup(
             workspace, SelfPath, "null-args", policy);
         AssemblyContextParticipant participant = Assert.Single(group.Participants);
@@ -530,10 +531,10 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     }
 
     [Fact]
-    public void Execute_ThrowsForUndefinedScope()
+    public async Task Execute_ThrowsForUndefinedScope()
     {
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SinglePathGroup(
             workspace, SelfPath, "undefined-scope", policy);
         AssemblyContextParticipant participant = Assert.Single(group.Participants);
@@ -549,10 +550,10 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     }
 
     [Fact]
-    public void Execute_ThrowsWhenAParticipantIsNotAMemberOfItsGroup()
+    public async Task Execute_ThrowsWhenAParticipantIsNotAMemberOfItsGroup()
     {
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup groupA = SinglePathGroup(
             workspace, SelfPath, "membership-a", policy);
         using AssemblyContextGroup groupB = SinglePathGroup(
@@ -579,7 +580,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     }
 
     [Fact]
-    public void Definition_UsesTheDeclaredNameAndNetworkFreeCostThroughTheRegistry()
+    public async Task Definition_UsesTheDeclaredNameAndNetworkFreeCostThroughTheRegistry()
     {
         Assert.Equal(
             "Assembly context API comparison",
@@ -589,7 +590,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
             AssemblyContextApiComparisonQuery.Definition.Cost);
 
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SinglePathGroup(
             workspace, SelfPath, "registry", policy);
         AssemblyContextParticipant participant = Assert.Single(group.Participants);

@@ -1,6 +1,17 @@
 using System.Collections.ObjectModel;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Definitions;
+
+/// <summary>Supported inspection-definition schema identities.</summary>
+public static class InspectionDefinitionSchema
+{
+    public const int Version1 = 1;
+    public const int Version2 = 2;
+
+    internal static bool IsSupported(int value) =>
+        value is Version1 or Version2;
+}
 
 /// <summary>
 /// Discriminator for a portable inspection definition record.
@@ -22,12 +33,12 @@ public abstract record InspectionDefinitionRecord
 {
     private protected InspectionDefinitionRecord(int schemaVersion, string id)
     {
-        if (schemaVersion != InspectionDefinitionJson.CurrentSchemaVersion)
+        if (!InspectionDefinitionSchema.IsSupported(schemaVersion))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                $"Unsupported definition schema version {schemaVersion}; expected {InspectionDefinitionJson.CurrentSchemaVersion}.");
+                $"Unsupported definition schema version {schemaVersion}.");
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
@@ -176,6 +187,14 @@ public sealed record QueryDefinition : InspectionDefinitionRecord
     public QueryDefinition(int schemaVersion, string id, string? queryId = null)
         : base(schemaVersion, id)
     {
+        if (schemaVersion != InspectionDefinitionSchema.Version1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(schemaVersion),
+                schemaVersion,
+                "QueryDefinition is the schema-version-1 query record.");
+        }
+
         QueryId = DefinitionText.NormalizeOptional(queryId, nameof(queryId));
     }
 
@@ -201,6 +220,14 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         IReadOnlyList<string>? libraries = null)
         : base(schemaVersion, id)
     {
+        if (schemaVersion != InspectionDefinitionSchema.Version1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(schemaVersion),
+                schemaVersion,
+                "ViewDefinition is the schema-version-1 flat view record.");
+        }
+
         lens = DefinitionText.NormalizeOptional(lens, nameof(lens));
         type = DefinitionText.NormalizeOptional(type, nameof(type));
         memberAnchor = DefinitionText.NormalizeOptional(memberAnchor, nameof(memberAnchor));
@@ -308,6 +335,14 @@ public sealed record NavigationDefinition : InspectionDefinitionRecord
         string focus)
         : base(schemaVersion, id)
     {
+        if (schemaVersion != InspectionDefinitionSchema.Version1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(schemaVersion),
+                schemaVersion,
+                "NavigationDefinition is the schema-version-1 navigation record.");
+        }
+
         ArgumentException.ThrowIfNullOrWhiteSpace(focus);
         ArgumentNullException.ThrowIfNull(tabs);
 
@@ -421,6 +456,32 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
                 nameof(context));
         }
 
+        if (schemaVersion == InspectionDefinitionSchema.Version2)
+        {
+            if (hasWorkspace)
+            {
+                if (query is not null)
+                {
+                    throw new ArgumentException(
+                        "A coordinate-backed schema-version-2 scenario carries queries through committed view states.",
+                        nameof(query));
+                }
+
+                if ((view is null) != (navigation is null))
+                {
+                    throw new ArgumentException(
+                        "A coordinate-backed schema-version-2 scenario references view and navigation together or omits both.",
+                        nameof(view));
+                }
+            }
+            else if (view is not null || navigation is not null)
+            {
+                throw new ArgumentException(
+                    "A workspace-free schema-version-2 scenario cannot reference view or navigation.",
+                    nameof(view));
+            }
+        }
+
         Title = title;
         Description = description;
         Workspace = workspace;
@@ -448,6 +509,522 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
     public string? View { get; }
 
     public string? Navigation { get; }
+}
+
+/// <summary>
+/// Schema-version-2 navigation: ordered tabs and a required nullable focus.
+/// Null focus selects the committed Workspace row.
+/// </summary>
+public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
+{
+    public CommittedNavigationDefinition(
+        int schemaVersion,
+        string id,
+        IReadOnlyList<NavigationTabDefinition> tabs,
+        string? focus)
+        : base(schemaVersion, id)
+    {
+        if (schemaVersion != InspectionDefinitionSchema.Version2)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(schemaVersion),
+                schemaVersion,
+                "CommittedNavigationDefinition requires schema version 2.");
+        }
+
+        ArgumentNullException.ThrowIfNull(tabs);
+        Tabs = DefinitionCollections.Freeze(tabs);
+        if (Tabs.Count == 0)
+        {
+            throw new ArgumentException(
+                "A committed navigation record requires at least one tab.",
+                nameof(tabs));
+        }
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (NavigationTabDefinition tab in Tabs)
+        {
+            if (!ids.Add(tab.Id))
+            {
+                throw new ArgumentException(
+                    $"Duplicate navigation tab id '{tab.Id}'.",
+                    nameof(tabs));
+            }
+        }
+
+        Focus = DefinitionText.NormalizeOptional(focus, nameof(focus));
+        if (Focus is not null)
+        {
+            NavigationTabDefinition? focused =
+                Tabs.FirstOrDefault(tab => tab.Id == Focus);
+            if (focused is null)
+            {
+                throw new ArgumentException(
+                    $"Navigation focus '{Focus}' does not match a tab id.",
+                    nameof(focus));
+            }
+            if (focused.Coordinate
+                is not DefinitionMemberCoordinate.PackageCoordinate)
+            {
+                throw new ArgumentException(
+                    "Schema-version-2 focus must identify a direct Package-coordinate tab.",
+                    nameof(focus));
+            }
+        }
+    }
+
+    public override InspectionDefinitionKind Kind =>
+        InspectionDefinitionKind.Navigation;
+
+    public IReadOnlyList<NavigationTabDefinition> Tabs { get; }
+
+    public string? Focus { get; }
+}
+
+/// <summary>
+/// Schema-version-2 committed view state: one Workspace row plus one row for
+/// every navigation tab in exact navigation order.
+/// </summary>
+public sealed record CommittedViewDefinition : InspectionDefinitionRecord
+{
+    public CommittedViewDefinition(
+        int schemaVersion,
+        string id,
+        IReadOnlyList<CommittedViewStateDefinition> states)
+        : base(schemaVersion, id)
+    {
+        if (schemaVersion != InspectionDefinitionSchema.Version2)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(schemaVersion),
+                schemaVersion,
+                "CommittedViewDefinition requires schema version 2.");
+        }
+
+        ArgumentNullException.ThrowIfNull(states);
+        States = DefinitionCollections.Freeze(states);
+        if (States.Count == 0)
+        {
+            throw new ArgumentException(
+                "A committed view requires its leading Workspace state.",
+                nameof(states));
+        }
+        if (States[0].Navigation is not null)
+        {
+            throw new ArgumentException(
+                "The first committed view state must be the null-navigation Workspace row.",
+                nameof(states));
+        }
+
+        var navigationIds = new HashSet<string>(StringComparer.Ordinal);
+        for (int index = 1; index < States.Count; index++)
+        {
+            string? navigation = States[index].Navigation;
+            if (navigation is null)
+            {
+                throw new ArgumentException(
+                    "Only the leading committed view state may have null navigation.",
+                    nameof(states));
+            }
+            if (!navigationIds.Add(navigation))
+            {
+                throw new ArgumentException(
+                    $"Duplicate committed view navigation id '{navigation}'.",
+                    nameof(states));
+            }
+        }
+    }
+
+    public override InspectionDefinitionKind Kind =>
+        InspectionDefinitionKind.View;
+
+    public IReadOnlyList<CommittedViewStateDefinition> States { get; }
+}
+
+/// <summary>One query-free schema-version-2 committed state.</summary>
+public sealed record CommittedViewStateDefinition
+{
+    public CommittedViewStateDefinition(
+        string? navigation,
+        PortableSubjectRequest? subject = null,
+        PortableRetainedSubjectContext? context = null,
+        string? facet = null,
+        IReadOnlyList<string>? queries = null,
+        IReadOnlyList<PortableLibraryIdentity>? libraries = null)
+    {
+        Navigation = DefinitionText.NormalizeOptional(
+            navigation,
+            nameof(navigation));
+        Facet = DefinitionText.NormalizeOptional(facet, nameof(facet));
+        Queries = FreezeOrderedStrings(queries, nameof(queries));
+        Libraries = FreezeOrderedLibraries(libraries);
+
+        if (Facet is not null && subject is null)
+        {
+            throw new ArgumentException(
+                "An exact committed facet requires an explicit subject.",
+                nameof(facet));
+        }
+        if (Queries.Count != 0 && Facet is null)
+        {
+            throw new ArgumentException(
+                "Committed query references require an exact facet.",
+                nameof(queries));
+        }
+        if (Libraries.Count != 0 && Queries.Count == 0)
+        {
+            throw new ArgumentException(
+                "Committed Library scope requires a query reference.",
+                nameof(libraries));
+        }
+        if (subject is null && context?.Kind
+            is not null and not PortableRetainedSubjectContextKind.Package)
+        {
+            throw new ArgumentException(
+                "A subject-less committed state may retain only Package context.",
+                nameof(context));
+        }
+        if (subject is PortableSubjectRequest.Package && context is null)
+        {
+            throw new ArgumentException(
+                "A Package subject requires its retained Package context.",
+                nameof(context));
+        }
+
+        Subject = subject;
+        Context = context;
+    }
+
+    public string? Navigation { get; }
+
+    public PortableSubjectRequest? Subject { get; }
+
+    public PortableRetainedSubjectContext? Context { get; }
+
+    public string? Facet { get; }
+
+    public IReadOnlyList<string> Queries { get; }
+
+    public IReadOnlyList<PortableLibraryIdentity> Libraries { get; }
+
+    private static IReadOnlyList<string> FreezeOrderedStrings(
+        IReadOnlyList<string>? values,
+        string paramName)
+    {
+        IReadOnlyList<string> frozen = DefinitionCollections.Freeze(values);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        string? previous = null;
+        foreach (string value in frozen)
+        {
+            DefinitionText.Require(value, paramName);
+            if (!seen.Add(value)
+                || previous is not null
+                    && string.CompareOrdinal(previous, value) >= 0)
+            {
+                throw new ArgumentException(
+                    $"{paramName} must contain unique values in ascending ordinal order.",
+                    paramName);
+            }
+
+            previous = value;
+        }
+
+        return frozen;
+    }
+
+    private static IReadOnlyList<PortableLibraryIdentity> FreezeOrderedLibraries(
+        IReadOnlyList<PortableLibraryIdentity>? values)
+    {
+        IReadOnlyList<PortableLibraryIdentity> frozen =
+            DefinitionCollections.Freeze(values);
+        for (int index = 1; index < frozen.Count; index++)
+        {
+            if (PortableLibraryIdentityComparer.Instance.Compare(
+                    frozen[index - 1],
+                    frozen[index]) >= 0)
+            {
+                throw new ArgumentException(
+                    "libraries must contain unique identities in canonical order.",
+                    nameof(values));
+            }
+        }
+
+        return frozen;
+    }
+}
+
+/// <summary>A closed portable active-subject request for schema version 2.</summary>
+public abstract record PortableSubjectRequest
+{
+    private protected PortableSubjectRequest()
+    {
+    }
+
+    public abstract PortableSubjectRequestKind Kind { get; }
+
+    public sealed record Workspace : PortableSubjectRequest
+    {
+        public override PortableSubjectRequestKind Kind =>
+            PortableSubjectRequestKind.Workspace;
+    }
+
+    public sealed record Package : PortableSubjectRequest
+    {
+        public override PortableSubjectRequestKind Kind =>
+            PortableSubjectRequestKind.Package;
+    }
+}
+
+public enum PortableSubjectRequestKind
+{
+    Workspace,
+    Package,
+}
+
+/// <summary>
+/// Portable retained descendant context beneath a state row's Package
+/// coordinate.
+/// </summary>
+public abstract record PortableRetainedSubjectContext
+{
+    private protected PortableRetainedSubjectContext()
+    {
+    }
+
+    public abstract PortableRetainedSubjectContextKind Kind { get; }
+
+    public sealed record Package : PortableRetainedSubjectContext
+    {
+        public override PortableRetainedSubjectContextKind Kind =>
+            PortableRetainedSubjectContextKind.Package;
+    }
+
+    public sealed record AllLibraries : PortableRetainedSubjectContext
+    {
+        public override PortableRetainedSubjectContextKind Kind =>
+            PortableRetainedSubjectContextKind.AllLibraries;
+    }
+
+    public sealed record Library(
+        PortableLibraryIdentity LibraryIdentity)
+        : PortableRetainedSubjectContext
+    {
+        public PortableLibraryIdentity LibraryIdentity { get; } =
+            LibraryIdentity
+            ?? throw new ArgumentNullException(nameof(LibraryIdentity));
+
+        public override PortableRetainedSubjectContextKind Kind =>
+            PortableRetainedSubjectContextKind.Library;
+    }
+
+    public sealed record Type(
+        PortableLibraryIdentity LibraryIdentity,
+        MetadataTypeDefinitionName TypeIdentity)
+        : PortableRetainedSubjectContext
+    {
+        public PortableLibraryIdentity LibraryIdentity { get; } =
+            LibraryIdentity
+            ?? throw new ArgumentNullException(nameof(LibraryIdentity));
+
+        public MetadataTypeDefinitionName TypeIdentity { get; } =
+            TypeIdentity
+            ?? throw new ArgumentNullException(nameof(TypeIdentity));
+
+        public override PortableRetainedSubjectContextKind Kind =>
+            PortableRetainedSubjectContextKind.Type;
+    }
+
+    public sealed record Member : PortableRetainedSubjectContext
+    {
+        public Member(
+            PortableLibraryIdentity libraryIdentity,
+            MetadataTypeDefinitionName typeIdentity,
+            string? memberAnchor = null,
+            string? memberSignature = null)
+        {
+            LibraryIdentity =
+                libraryIdentity
+                ?? throw new ArgumentNullException(nameof(libraryIdentity));
+            TypeIdentity =
+                typeIdentity
+                ?? throw new ArgumentNullException(nameof(typeIdentity));
+            memberAnchor = DefinitionText.NormalizeOptional(
+                memberAnchor,
+                nameof(memberAnchor));
+            memberSignature = DefinitionText.NormalizeOptional(
+                memberSignature,
+                nameof(memberSignature));
+            if ((memberAnchor is null) == (memberSignature is null))
+            {
+                throw new ArgumentException(
+                    "A retained Member requires exactly one of memberAnchor or memberSignature.",
+                    nameof(memberAnchor));
+            }
+            if (memberAnchor is not null
+                && (memberAnchor.Length != 10
+                    || memberAnchor.Any(character =>
+                        character is not (>= '0' and <= '9')
+                            and not (>= 'a' and <= 'f'))))
+            {
+                throw new ArgumentException(
+                    "memberAnchor must contain exactly 10 lowercase hexadecimal digits.",
+                    nameof(memberAnchor));
+            }
+
+            MemberAnchor = memberAnchor;
+            MemberSignature = memberSignature;
+        }
+
+        public PortableLibraryIdentity LibraryIdentity { get; }
+
+        public MetadataTypeDefinitionName TypeIdentity { get; }
+
+        public string? MemberAnchor { get; }
+
+        public string? MemberSignature { get; }
+
+        public override PortableRetainedSubjectContextKind Kind =>
+            PortableRetainedSubjectContextKind.Member;
+    }
+}
+
+public enum PortableRetainedSubjectContextKind
+{
+    Package,
+    AllLibraries,
+    Library,
+    Type,
+    Member,
+}
+
+/// <summary>Portable ECMA assembly-definition identity.</summary>
+public sealed record PortableLibraryIdentity
+{
+    public PortableLibraryIdentity(
+        string name,
+        string version,
+        string? culture,
+        string? publicKeyToken)
+    {
+        Name = DefinitionText.Require(name, nameof(name));
+        Version = RequireCanonicalVersion(version);
+        if (culture is not null
+            && (string.IsNullOrWhiteSpace(culture)
+                || culture.Equals("neutral", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException(
+                "culture must be null for neutral culture or a nonblank metadata culture.",
+                nameof(culture));
+        }
+        if (publicKeyToken is not null
+            && (publicKeyToken.Length != 16
+                || publicKeyToken.Any(character =>
+                    character is not (>= '0' and <= '9')
+                        and not (>= 'a' and <= 'f'))))
+        {
+            throw new ArgumentException(
+                "publicKeyToken must be null or exactly 16 lowercase hexadecimal digits.",
+                nameof(publicKeyToken));
+        }
+
+        Culture = culture;
+        PublicKeyToken = publicKeyToken;
+    }
+
+    public string Name { get; }
+
+    public string Version { get; }
+
+    public string? Culture { get; }
+
+    public string? PublicKeyToken { get; }
+
+    private static string RequireCanonicalVersion(string value)
+    {
+        DefinitionText.Require(value, nameof(value));
+        string[] components = value.Split('.');
+        if (components.Length != 4)
+        {
+            throw new ArgumentException(
+                "version must contain exactly four unsigned 16-bit decimal components.",
+                nameof(value));
+        }
+
+        foreach (string component in components)
+        {
+            if (component.Length == 0
+                || component.Length > 1 && component[0] == '0'
+                || component.Any(character =>
+                    character is not (>= '0' and <= '9'))
+                || !ushort.TryParse(
+                    component,
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out _))
+            {
+                throw new ArgumentException(
+                    "version must contain exactly four canonical unsigned 16-bit decimal components.",
+                    nameof(value));
+            }
+        }
+
+        return value;
+    }
+}
+
+file sealed class PortableLibraryIdentityComparer
+    : IComparer<PortableLibraryIdentity>
+{
+    public static PortableLibraryIdentityComparer Instance { get; } = new();
+
+    public int Compare(PortableLibraryIdentity? x, PortableLibraryIdentity? y)
+    {
+        if (ReferenceEquals(x, y))
+            return 0;
+        if (x is null)
+            return -1;
+        if (y is null)
+            return 1;
+
+        int result = string.CompareOrdinal(x.Name, y.Name);
+        if (result != 0)
+            return result;
+        result = CompareVersion(x.Version, y.Version);
+        if (result != 0)
+            return result;
+        result = CompareNullable(x.Culture, y.Culture);
+        return result != 0
+            ? result
+            : CompareNullable(x.PublicKeyToken, y.PublicKeyToken);
+    }
+
+    private static int CompareVersion(string x, string y)
+    {
+        ReadOnlySpan<char> left = x;
+        ReadOnlySpan<char> right = y;
+        for (int component = 0; component < 4; component++)
+        {
+            int leftSeparator = left.IndexOf('.');
+            int rightSeparator = right.IndexOf('.');
+            ReadOnlySpan<char> leftPart =
+                leftSeparator < 0 ? left : left[..leftSeparator];
+            ReadOnlySpan<char> rightPart =
+                rightSeparator < 0 ? right : right[..rightSeparator];
+            int result =
+                ushort.Parse(leftPart).CompareTo(ushort.Parse(rightPart));
+            if (result != 0)
+                return result;
+            left = leftSeparator < 0 ? [] : left[(leftSeparator + 1)..];
+            right = rightSeparator < 0 ? [] : right[(rightSeparator + 1)..];
+        }
+
+        return 0;
+    }
+
+    private static int CompareNullable(string? x, string? y) =>
+        x is null
+            ? y is null ? 0 : -1
+            : y is null ? 1 : string.CompareOrdinal(x, y);
 }
 
 /// <summary>One acquisition coordinate in definition JSON.</summary>

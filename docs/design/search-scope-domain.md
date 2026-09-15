@@ -29,12 +29,10 @@ new version-resolution policy or CLI adoption.
 ## Basis and consumers
 
 The design follows immutable request values and separate interpretation, as
-demonstrated by the repository's `RowSelectionPlan` and `RowSelectionExecutor`.
-`NuGetGalleryDiscoveryRequest` is supporting evidence for bounded inert source
-intent; its Gallery-specific provider, order, and response-capacity semantics
-do not transfer here. The current `ScopeResolver` supplies the search default,
-direct-package precedence, and first-occurrence oracle. Its loose flags and
-presence parameters are deliberately not the new declaration.
+demonstrated by the repository's `RowSelectionPlan`, `RowSelectionExecutor`,
+and bounded `PackagePrefixRequest`. The current `ScopeResolver` supplies the
+search default, direct-package precedence, and first-occurrence oracle. Its
+loose flags and presence parameters are deliberately not the new declaration.
 
 `PackageExtractor` and its existing `AssemblySetResolverTests` supply the
 package-reference and explicit-archive compatibility oracle. The package
@@ -181,11 +179,16 @@ production, and host adoption remain outside this prerequisite.
 ## Search interpretation
 
 Normalization retains the original declaration alongside immutable output:
-ordered framework selections, ordered package sources, and ordered
-other selectors. Other selectors are prefixes, libraries, platform libraries,
-projects, and directories; their exact values and relative order pass through.
+the Search Scope owner's broad-versus-explicit candidate intent, ordered
+framework selections, ordered package sources, and ordered other selectors.
+Other selectors are prefixes, libraries, platform libraries, projects, and
+directories; their exact values and relative order pass through.
 
-- Only a declaration with zero selectors activates the implicit platform group.
+- Only a declaration with zero selectors produces `Broad` candidate intent and
+  activates the implicit platform group.
+- Every declaration containing a selector produces `Explicit` candidate intent,
+  including empty package groups and unrealized prefixes. The intent does not
+  claim that any candidate was realized or examined.
 - An explicit platform-group selector contributes the same frameworks but
   remains distinguishable from implicit activation.
 - The group contributes `Runtime`, `AspNetCore`, `NetStandard`, in that order,
@@ -233,6 +236,7 @@ var normalized = SearchSourceNormalizer.Normalize(intent);
 // request.Declaration and broader.Declaration are the same prefix
 // request.MaxPackages == 5; broader.MaxPackages == 250
 // intent.Selectors.Count == 1
+// normalized.CandidateIntent == SearchCandidateIntent.Explicit
 // normalized.UsesImplicitPlatform == false
 // normalized.Frameworks.Count == 0
 // normalized.Packages.Count == 0
@@ -240,8 +244,9 @@ var normalized = SearchSourceNormalizer.Normalize(intent);
 ```
 
 The neighboring empty declaration is still empty after inspection.
-Normalizing it selects the three platform frameworks. Appending an empty
-package group instead selects none: zero concrete packages are not zero intent.
+Normalizing it produces `Broad` candidate intent and selects the three platform
+frameworks. Appending an empty package group instead produces `Explicit` intent
+and selects none: zero concrete packages are not zero intent.
 
 Package-reference and archive intent can likewise be inspected without
 acquisition:
@@ -276,7 +281,7 @@ executable, run in Release in normal CI. Its public-consumer gates cover:
 | --- | --- |
 | `SourceIntentTests` | Empty inspection, each typed variant, intrinsic rejection, independent snapshot/append, immutable collections, and package-owner validation |
 | `PackagePrefixRequestTests` | Declaration-only construction/inspection, independent consumer policies on one declaration, equivalent text-based/composed requests, malformed prefix/bound rejection, separator and maximum-length boundaries |
-| `SearchSourceNormalizerTests` | Complete finite platform/group truth table, every direct source, stable package precedence/deduplication, retained prefix declaration and distinct consumer requests, and empty-group non-fallback |
+| `SearchSourceNormalizerTests` | Broad-versus-explicit candidate intent, complete finite platform/group truth table, every direct source, stable package precedence/deduplication, retained prefix declaration and distinct consumer requests, and empty-group non-fallback |
 | `PackageSourceIntentTests` | Reference/archive inspection, owner-issued parsing and version acceptance, original spelling, mixed-source ordering and equality, and explicit-source non-fallback |
 
 The tests use product construction and normalization, not replacement

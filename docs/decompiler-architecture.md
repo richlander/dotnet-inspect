@@ -186,7 +186,7 @@ rewrites; the harness consumes them through stage dumps.
 | `DotnetInspector.Queries` | Source queries compose acquired source and decompiled fallback; `BodyShapesQuery` delegates exact syntax-kind searches to `BodyShapeSearch`. |
 | `ILInspector.Research` | `ResearchViews` joins producer-owned facts with printed C#/IL provenance and constructs annotated-source output. Decompiler owns the portable document types, not the complete cross-domain operation. |
 | CLI | `MemberCodeProvider`, queries, and section/output adapters expose source, IL, annotated views, and comparisons. Some direct import/printer composition remains in the host. |
-| Browser | `prototypes/inspect-web/engine.SourceExports` consumes Queries/Research and exports portable source documents rather than mutable IR. |
+| Browser | `inspect-web/DotnetInspect.Web.Interop.Source` consumes Queries/Research and exports portable source documents rather than mutable IR. |
 | Tests and harnesses | Exercise product import, passes, printing, body production, and comparison; add independent compiler/oracle observations. |
 
 C# and annotated-source text are language artifacts with exact coordinates, so
@@ -204,13 +204,21 @@ its different questions separate.
 
 | Location | Role |
 | --- | --- |
-| [`tests/ILInspector.Decompiler.Tests`](../tests/ILInspector.Decompiler.Tests) | Executable xUnit suite: importer, IR, passes, proof atoms, printer, annotation/document contracts, body production, and harness regression tests. |
+| [`tests/ILInspector.Decompiler.Tests`](../tests/ILInspector.Decompiler.Tests) | Product-owned executable xUnit suite: importer, IR, passes, proof atoms, printer, annotation/document contracts, and body production. Existing linked harness sources and regressions are migration debt, not placement precedent. |
+| [`tests/DecompilerHarness.Tests`](../tests/DecompilerHarness.Tests) | Harness-owned executable xUnit suite: ReturnToSender, compile-back, corpus, and other harness orchestration contracts. It consumes `tools/DecompilerHarness`, which in turn consumes product libraries. |
 | [`fixtures/decompiler`](../fixtures/decompiler) | Independently compiled inputs where compiler features, module attributes, assembly identity, or cross-assembly relationships matter. |
 | [`tests/DotnetInspector.FixtureInfrastructure`](../tests/DotnetInspector.FixtureInfrastructure) | `FixtureCatalog` registration and resolution shared by tests and harnesses. |
 | [`tools/DecompilerHarness`](../tools/DecompilerHarness) | Single-method diagnostics, compile-back, generated-fixture catalog, source oracles, and corpus measurements. |
 | [`tools/RoundTripCompilation`](../tools/RoundTripCompilation) | Tools-side compilation and comparison support used by harness/tests. |
 | [`tools/HarnessReportProtocol`](../tools/HarnessReportProtocol), [`tools/HarnessReportDiff`](../tools/HarnessReportDiff) | Stored typed reports and goal-aware before/after report comparison. |
 | Adjacent suites | Metadata/Analysis/IL round-trip owner tests; Queries, CLI, and browser-engine tests for their integration boundaries. |
+
+New ReturnToSender and harness behavior belongs in `tools/DecompilerHarness`;
+its focused tests belong in `tests/DecompilerHarness.Tests`. The harness may
+depend on product libraries and exercise their public contracts, but product
+projects and product-owned test suites do not acquire harness-only behavior.
+Existing harness tests can move to that boundary incrementally rather than
+making a feature change carry an unrelated suite migration.
 
 The decompiler test project links selected harness source files so xUnit gates
 exercise the same measurement implementation. It also builds the harness

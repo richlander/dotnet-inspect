@@ -1,4 +1,4 @@
-using DotnetInspector.Core;
+using DotnetInspector.Cache;
 using NuGetFetch;
 
 namespace DotnetInspector.Packages;
@@ -90,13 +90,11 @@ public sealed class AuthorityScopedFileSystemPackageStore : IPackageStore
 
         if (!any)
         {
-            InfoTracker.RecordCacheMiss();
             CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
         }
 
         void RecordHit(string category)
         {
-            InfoTracker.RecordCacheHit();
             CacheTelemetry.Record(category, cacheKey, CacheAccessResult.Hit);
         }
 
@@ -156,7 +154,7 @@ public sealed class AuthorityScopedFileSystemPackageStore : IPackageStore
             if (!create && !NuGetCache.TryGetPackageContentCachePath(out _))
                 return null;
             return Path.Combine(
-                CoreCache.GetCategoryPath(NuGetCache.AuthorityPackageContentCategory),
+                PersistentCache.GetCategoryPath(NuGetCache.AuthorityPackageContentCategory),
                 packageName, version, key);
         }
 

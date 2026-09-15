@@ -30,7 +30,7 @@ public sealed class IrInvariantsHostContractTests
     const string EnvironmentVariable = "DOTNET_INSPECT_IR_INVARIANTS";
 
     /// <summary>The one host allowed to decline validation, relative to the repo root.</summary>
-    const string ShippedToolEntryPoint = "src/dotnet-inspect/Program.cs";
+    const string ShippedToolEntryPoint = "src/DotnetInspect.Cli/Program.cs";
 
     /// <summary>
     /// Everything a host outside this assembly can reach. Instance members are
@@ -290,6 +290,7 @@ public sealed class IrInvariantsHostContractTests
     /// </para>
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OnlyTheShippedToolEntryPointDeclinesValidation()
     {
         var sites = FindOptOutSites().OrderBy(static s => s, StringComparer.Ordinal).ToArray();

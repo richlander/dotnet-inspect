@@ -21,8 +21,7 @@ public sealed class ClassicAsyncStageApplicationTests
         using var source = OpenFixture();
         IrFunction function = ImportRole(
             source,
-            StateMachineMethodRole.MoveNext,
-            ClassicAsyncHostRole.Execution);
+            StateMachineMethodRole.MoveNext);
 
         AssertStageSnapshotPreserved(function);
     }
@@ -33,8 +32,7 @@ public sealed class ClassicAsyncStageApplicationTests
         using var source = OpenFixture();
         IrFunction function = ImportRole(
             source,
-            StateMachineMethodRole.SetStateMachine,
-            ClassicAsyncHostRole.Support);
+            StateMachineMethodRole.SetStateMachine);
 
         AssertStageSnapshotPreserved(function);
     }
@@ -45,18 +43,13 @@ public sealed class ClassicAsyncStageApplicationTests
     public void ExplicitMethodImplRole_PreservesImportedStageSnapshot(
         StateMachineMethodRole role)
     {
-        ClassicAsyncHostRole expectedHostRole =
-            role == StateMachineMethodRole.MoveNext
-                ? ClassicAsyncHostRole.Execution
-                : ClassicAsyncHostRole.Support;
         using var source = MetadataSource.Open(
             typeof(MetadataStateMachineFixtures).Assembly.Location);
         IrFunction function = ImportRole(
             source,
             typeof(MetadataStateMachineFixtures).FullName!,
             nameof(MetadataStateMachineFixtures.ExplicitAsync),
-            role,
-            expectedHostRole);
+            role);
 
         Assert.NotEqual(role.ToString(), function.Name);
         AssertStageSnapshotPreserved(function);
@@ -86,14 +79,9 @@ public sealed class ClassicAsyncStageApplicationTests
                 StateMachineMethodRole.MoveNext));
         IrFunction function = Assert.IsType<IrFunction>(
             IrImporter.Import(source, moveNext.Method.Handle));
-        var filtered = Assert.IsType<
-            ClassicAsyncRequestAdapterResult.Filtered>(
-                function.ClassicAsyncRequest);
+        Assert.Null(function.ClassicAsyncRequest);
         Assert.Equal(
-            ClassicAsyncHostRole.Execution,
-            filtered.Evidence.HostRole);
-        Assert.Equal(
-            ClassicAsyncStageApplicationKind.NoOpinion,
+            ClassicAsyncStageApplicationKind.PreserveImportedBody,
             ClassicAsyncStageApplication.Decide(
                 function.ClassicAsyncRequest));
 
@@ -125,11 +113,7 @@ public sealed class ClassicAsyncStageApplicationTests
                 source,
                 FixtureType,
                 FixtureMethod));
-        IrFunction execution = ImportRole(
-            source,
-            StateMachineMethodRole.MoveNext,
-            ClassicAsyncHostRole.Execution);
-        kickoff.ClassicAsyncRequest = execution.ClassicAsyncRequest;
+        kickoff.ClassicAsyncRequest = null;
         var imported = false;
         PassContext context = PassContext.ForImport(
             _ =>
@@ -149,8 +133,7 @@ public sealed class ClassicAsyncStageApplicationTests
         using var source = OpenFixture();
         IrFunction function = ImportRole(
             source,
-            StateMachineMethodRole.MoveNext,
-            ClassicAsyncHostRole.Execution);
+            StateMachineMethodRole.MoveNext);
 
         IrPasses.Run(
             function,
@@ -179,14 +162,9 @@ public sealed class ClassicAsyncStageApplicationTests
                     .FullName!
                     .Replace('+', '.'),
                 "MoveNext"));
-        var filtered = Assert.IsType<
-            ClassicAsyncRequestAdapterResult.Filtered>(
-                function.ClassicAsyncRequest);
+        Assert.Null(function.ClassicAsyncRequest);
         Assert.Equal(
-            ClassicAsyncHostRole.Ordinary,
-            filtered.Evidence.HostRole);
-        Assert.Equal(
-            ClassicAsyncStageApplicationKind.NoOpinion,
+            ClassicAsyncStageApplicationKind.PreserveImportedBody,
             ClassicAsyncStageApplication.Decide(
                 function.ClassicAsyncRequest));
 
@@ -199,21 +177,18 @@ public sealed class ClassicAsyncStageApplicationTests
 
     static IrFunction ImportRole(
         MetadataSource source,
-        StateMachineMethodRole role,
-        ClassicAsyncHostRole expectedHostRole)
+        StateMachineMethodRole role)
         => ImportRole(
             source,
             FixtureType,
             FixtureMethod,
-            role,
-            expectedHostRole);
+            role);
 
     static IrFunction ImportRole(
         MetadataSource source,
         string kickoffType,
         string kickoffMethod,
-        StateMachineMethodRole role,
-        ClassicAsyncHostRole expectedHostRole)
+        StateMachineMethodRole role)
     {
         IrFunction kickoff = Assert.IsType<IrFunction>(
             IrImporter.Import(
@@ -228,13 +203,7 @@ public sealed class ClassicAsyncStageApplicationTests
 
         IrFunction function = Assert.IsType<IrFunction>(
             IrImporter.Import(source, present.Method.Handle));
-        var filtered = Assert.IsType<
-            ClassicAsyncRequestAdapterResult.Filtered>(
-                function.ClassicAsyncRequest);
-        Assert.Equal(expectedHostRole, filtered.Evidence.HostRole);
-        Assert.Equal(
-            present.Method,
-            filtered.Evidence.RequestedMethod);
+        Assert.Null(function.ClassicAsyncRequest);
         Assert.Equal(
             ClassicAsyncStageApplicationKind.PreserveImportedBody,
             ClassicAsyncStageApplication.Decide(

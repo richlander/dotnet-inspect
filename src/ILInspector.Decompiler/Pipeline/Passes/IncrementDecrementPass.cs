@@ -759,7 +759,7 @@ public sealed class IncrementDecrementPass : IIrPass
 
     static bool IsEnumOrPotentialEnum(TypeRef type, IrFunction function)
     {
-        if (function.TypeShapes.TryGetValue(type, out var shape))
+        if (function.TypeShapes.TryGetValue(CoercionRendering.NamedDefinition(type), out var shape))
             return shape == TypeShape.Enum
                 || shape == TypeShape.Unknown && type.DeclaredValueTypeHint == ValueTypeHint.ValueType;
 

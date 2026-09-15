@@ -311,6 +311,13 @@ public static class TypeMatcher
         return Matches(fullName, pattern);
     }
 
+    /// <summary>Applies the type-filter grammar to an owner-issued declaration name.</summary>
+    public static bool MatchesTypeFilter(MetadataTypeDefinitionName name, string pattern)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return MatchesTypeFilter(name.ToMetadataFullName(), pattern);
+    }
+
     /// <summary>
     /// Checks whether a full type name matches any filter in the set.
     /// </summary>

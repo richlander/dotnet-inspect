@@ -246,6 +246,8 @@ descriptor before producer execution. It checks:
 Rejection is a typed planning outcome with guidance. It is not a producer
 inspection, a successful empty result, or a Finding state. Validation must not
 execute the producer merely to decide whether the producer is supported.
+The planning result is a closed owner-issued union: exactly one accepted plan
+or one rejection, each with a non-null payload by construction.
 
 The request owner declares a closed set of rejection reasons covering invalid
 mode, descriptor-unsupported mode, unsupported surface, unsupported target
@@ -397,6 +399,8 @@ The runtime implementation is verified by these named gates:
 - `AnalysisCapability_RejectsTargetRoleCardinalityMismatch`
 - `AnalysisDescriptor_RejectsModeWithoutSatisfiableSurfaceOrProjection`
 - `AnalysisDescriptor_RequiresOneExactCapabilityIdentityPerId`
+- `AnalysisPlanningResults_AreClosedToOwnerIssuedCases`
+- `AnalysisPlanningResults_PayloadsAreNonNullByConstruction`
 - `AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements`
 - `AnalysisPlan_CostIsMaximumOfAnalysisAndTransitiveQueries`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`

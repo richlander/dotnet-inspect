@@ -9,6 +9,6 @@
     <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../src/dotnet-inspect/VersionInfo.cs" Link="VersionInfo.cs" />
+    <Compile Include="../../src/DotnetInspect.Cli/VersionInfo.cs" Link="VersionInfo.cs" />
   </ItemGroup>
 </Project>

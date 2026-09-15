@@ -59,7 +59,8 @@ public sealed record MemberBodyProductionResult(
 public sealed record MemberRenderResult(
     MemberBodyProductionStatus Status,
     string? Text,
-    IReadOnlyList<string> Namespaces)
+    IReadOnlyList<string> Namespaces,
+    DecompilerResult? Failure = null)
 {
     public bool IsComplete => Status == MemberBodyProductionStatus.Complete;
 }
@@ -267,7 +268,9 @@ public static class MemberBodyProducer
                 ctx),
             context,
             printerOptions);
-        return composed.Error is { } error
+        return composed.Failure is { } failure
+            ? failure
+            : composed.Error is { } error
             ? DecompilerResult.Success(
                 $"// {DiagnosticIds.InternalError}: type source unavailable: {error.GetType().Name}: {error.Message}")
             : composed.Text is null
@@ -343,7 +346,9 @@ public static class MemberBodyProducer
                 ctx),
             context,
             printerOptions);
-        return composed.Error is { } error
+        return composed.Failure is { } failure
+            ? failure
+            : composed.Error is { } error
             ? DecompilerResult.Failure(
                 DiagnosticIds.InternalError,
                 $"Type source unavailable: {error.GetType().Name}: {error.Message}")
@@ -642,7 +647,8 @@ public static class MemberBodyProducer
 
     sealed record TypeCompositionResult(
         string? Text,
-        Exception? Error = null);
+        Exception? Error = null,
+        DecompilerResult? Failure = null);
 
     static TypeCompositionResult ComposeCore(
         ApiType type,
@@ -651,9 +657,6 @@ public static class MemberBodyProducer
         Pipeline.MetadataContext? context,
         Pipeline.PrinterOptions? printerOptions)
     {
-        if (type.Kind is "delegate")
-            return new TypeCompositionResult(Text: null);
-
         try
         {
             if (locateType() is not { } definition)
@@ -680,6 +683,10 @@ public static class MemberBodyProducer
                     using var pipelineSource = openPipelineSource(
                         definition,
                         context);
+                    ThrowIfMemorySafetyModeUnavailable(pipelineSource);
+                    if (type.Kind is "delegate")
+                        return new TypeCompositionResult(Text: null);
+
                     var union = TryUnionDeclaration(reader, typeHandle, type);
 
                     var sb = new StringBuilder();
@@ -740,6 +747,13 @@ public static class MemberBodyProducer
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            if (ex is DecompilerProjectionException projection)
+            {
+                return new TypeCompositionResult(
+                    Text: null,
+                    Failure: projection.Result);
+            }
+
             // Degrade honestly: the section renders the reason instead of
             // silently disappearing.
             return new TypeCompositionResult(Text: null, ex);
@@ -755,9 +769,6 @@ public static class MemberBodyProducer
         Pipeline.PrinterOptions? printerOptions,
         MemberRenderAttributeMode attributeMode)
     {
-        if (type.Kind is "delegate")
-            return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
-
         try
         {
             if (locateType() is not { } definition)
@@ -779,6 +790,15 @@ public static class MemberBodyProducer
                 using var pipelineSource = openPipelineSource(
                     definition,
                     context);
+                ThrowIfMemorySafetyModeUnavailable(pipelineSource);
+                if (type.Kind is "delegate")
+                {
+                    return new MemberRenderResult(
+                        MemberBodyProductionStatus.Absent,
+                        Text: null,
+                        []);
+                }
+
                 var union = TryUnionDeclaration(reader, typeHandle, type);
 
                 // The same body/attribute namespaces the whole-type listing
@@ -854,12 +874,6 @@ public static class MemberBodyProducer
                 results.TryAdd(member, result);
         }
 
-        if (type.Kind is "delegate")
-        {
-            FillMissing(absent);
-            return results;
-        }
-
         try
         {
             if (locateType() is not { } definition)
@@ -887,6 +901,13 @@ public static class MemberBodyProducer
                 using var pipelineSource = openPipelineSource(
                     definition,
                     context);
+                ThrowIfMemorySafetyModeUnavailable(pipelineSource);
+                if (type.Kind is "delegate")
+                {
+                    FillMissing(absent);
+                    return results;
+                }
+
                 var union = TryUnionDeclaration(reader, typeHandle, type);
 
                 foreach (var member in type.Members)
@@ -940,10 +961,27 @@ public static class MemberBodyProducer
     }
 
     static MemberRenderResult FailedMemberRender(Exception ex)
-        => new(
-            MemberBodyProductionStatus.Failed,
-            $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
-            []);
+        => ex is DecompilerProjectionException projection
+            ? new(
+                MemberBodyProductionStatus.Failed,
+                DiagnosticComment(projection.Result),
+                [],
+                projection.Result)
+            : new(
+                MemberBodyProductionStatus.Failed,
+                $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
+                []);
+
+    static void ThrowIfMemorySafetyModeUnavailable(
+        Pipeline.MetadataSource source)
+    {
+        if (Pipeline.CSharpPrinter.MemorySafetyModeUnavailableResult(
+                source.MemorySafetyMode)
+            is { } unavailable)
+        {
+            throw new DecompilerProjectionException(unavailable);
+        }
+    }
 
     sealed record UnionDeclarationInfo(
         IReadOnlyList<string> CaseTypes,
@@ -2248,6 +2286,13 @@ public static class MemberBodyProducer
             var result = Pipeline.CSharpPrinter.PrintRaised(
                 function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method),
                 typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
+            if (!result.Succeeded
+                && result.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable))
+            {
+                throw new DecompilerProjectionException(result);
+            }
             foreach (var (field, value) in result.FieldInitializers)
                 initializers.TryAdd(field, value);
         }
@@ -2608,6 +2653,12 @@ public static class MemberBodyProducer
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions,
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
+        if (!result.Succeeded
+            && result.Diagnostics.Any(static diagnostic =>
+                diagnostic.Id == DiagnosticIds.MemorySafetyModeUnavailable))
+        {
+            throw new DecompilerProjectionException(result);
+        }
         if (failOnDiagnostic
             && (!result.Succeeded
             || result.Diagnostics.Any(static diagnostic =>
@@ -2667,6 +2718,12 @@ public static class MemberBodyProducer
 
     static string DiagnosticComment(DecompilerResult result)
         => string.Join("\n", result.Diagnostics.Select(d => $"// {d}"));
+
+    sealed class DecompilerProjectionException(DecompilerResult result)
+        : Exception(DiagnosticComment(result))
+    {
+        public DecompilerResult Result { get; } = result;
+    }
 
     /// <summary>
     /// Shortens qualified type names against the assembly's own metadata

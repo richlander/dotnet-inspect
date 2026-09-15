@@ -1,9 +1,12 @@
 # Classifying test cost
 
-[AGENTS.md](../AGENTS.md#building-and-testing) states the binding rule: tag a
-test `[Trait("Speed", "Slow")]` when its cost comes from exhaustive or
-whole-assembly analysis rather than ordinary unit-test setup. This doc owns
-the threshold, placement convention, and existing consumers.
+[AGENTS.md](../AGENTS.md#building-and-testing) states the binding rule:
+classify every new or materially expanded test as PR-fast or
+`[Trait("Speed", "Slow")]`. Exhaustive and whole-assembly tests are slow by
+policy; otherwise measure suspected slow tests in isolation. A slow
+classification is complete only when daily Deep Inspect or a focused
+pre-merge gate owns the excluded evidence. This doc owns the threshold,
+placement convention, and existing consumers.
 
 ## Why this exists
 
@@ -33,7 +36,7 @@ Tag a test `Speed=Slow` when it does one of the following:
   guess — measure with a real xUnit XML timing report:
 
   ```sh
-  dotnet run --project tests/dotnet-inspect.Tests -c Release -- \
+  dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
     --filter-not-trait "Speed=Slow" --report-xunit \
     --report-xunit-filename fast-tests.xml --results-directory /tmp
   ```
@@ -70,11 +73,20 @@ public void SomeExpensiveTheory(string assemblyName)
 
 ## Existing consumers (no workflow changes needed to add a tag)
 
-- `ci.yml`'s PR-blocking fast leg runs
-  `dotnet run --project tests/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"`
-  — a newly tagged test is automatically excluded.
-- `deep-inspect.yml`'s nightly `dotnet-inspect.Tests` step runs fully
-  unfiltered — a newly tagged test automatically keeps running nightly.
+- `ci.yml`'s PR-blocking fast leg filters `Speed=Slow` from the CLI and
+  Analysis suites. The CLI selection is split across six parallel matrix
+  entries: five select non-overlapping class-name prefix ranges, and the
+  sixth selects their complement. The complement makes the partition
+  exhaustive even when a future test class uses an unexpected identifier.
+  `deep-inspect.yml` runs both suites fully unfiltered, so a newly tagged test
+  automatically keeps running daily.
+- The CSharp text and inspection-query suites use the same PR filter. Deep
+  Inspect's daily platform lane runs both suites fully unfiltered.
+- The offline NuGet suite excludes both `Network=Live` and `Speed=Slow` in PR
+  CI. The daily platform lane retains the offline boundary but does not exclude
+  `Speed=Slow`. The focused repository guard selects the legacy
+  source-identity method directly, so that method remains a pre-merge gate for
+  changed C# paths even though ordinary Linux test runs exclude it.
 - The metadata suite uses the same MTP `--filter-not-trait "Speed=Slow"`
   selection in PR CI and the optional Windows PR workflow. Deep Inspect runs
   its full suite, including the pinned custom-attribute package gate, and
@@ -82,11 +94,21 @@ public void SomeExpensiveTheory(string assemblyName)
 - The decompiler suite uses the same trait, but its native xUnit console
   runner takes a different flag spelling than the CLI suite's Microsoft
   Testing Platform runner: `dotnet run --project
-  tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"`
-  (fast) vs. `-trait "Speed=Slow"` (slow-only). See
+  tests/ILInspector.Decompiler.Tests -c Release -- --gate fast`
+  (`-trait- "Speed=Slow"`) vs. `--gate slow` (`-trait "Speed=Slow"`). The
+  path-gated `decompiler-gates` PR job owns the fast subset and a bounded
+  compile-back receipt; daily Deep Inspect's `--gate no-corpus` run owns every
+  excluded non-corpus test, including broad whole-pipeline sweeps. See
   [`docs/decompiler-correctness-pipeline.md`](decompiler-correctness-pipeline.md)
   for that suite's full `Area`/`Speed` trait combination and its
   `--gate fast`/`--gate slow` equivalents.
+
+  #6889 is the scale reference for this policy: measurement found 247 cases at
+  or above two seconds plus policy-defined corpus, fidelity, compile-back, and
+  whole-assembly suites in the nominal fast preset. Classifying 41 wholly-slow
+  classes and 72 individually-slow methods reduced the local fast path from
+  6,940 tests in 2,300 seconds to 5,445 tests in 159 seconds, with no remaining
+  case at or above the threshold.
 
 Tagging a test is a policy change (when it runs), not a behavior change (what
 it asserts). It requires no `.github/workflows/*.yml` edits.

@@ -8,8 +8,11 @@ by `ILInspector.CSharp`. The opt-in method/field implementation is tracked by
 [#6105](https://github.com/richlander/dotnet-inspect/issues/6105) and consumes
 the layout facts delivered by
 [#6144](https://github.com/richlander/dotnet-inspect/issues/6144).
-Compatibility remains the default. The remaining declaration forms and
-production-host adoption remain pending.
+The selected-member production adoption is tracked by
+[#6713](https://github.com/richlander/dotnet-inspect/issues/6713).
+Compatibility remains the default for broad inventories and older surfaces.
+The remaining declaration forms and broader production-host adoption remain
+pending.
 
 **Claim:** a rendered declaration preserves the supplied caller contract
 under the selected C# language semantics, independently of structural pointer
@@ -68,7 +71,10 @@ silently changes one side's caller obligations.
 The observable result is no safety modifier, `safe`, `unsafe`, or an explicit
 unavailable result identifying the declaration and missing or incompatible
 evidence. This is a C# spelling decision, not another caller-contract resolver.
-The existing typed print outcome and diagnostic mechanisms should carry it.
+Whole-type printing uses its existing atomic outcome. Single-member consumers
+use a CSharp-owned typed declaration outcome that carries either rendered text
+or diagnostic-bearing unavailability; its rendered arm also identifies the
+older-surface compatibility path.
 
 Unsupported, malformed, conflicting, or unavailable module evidence cannot
 authorize model-aware replay. This is deliberately narrower than a compiler's
@@ -182,13 +188,17 @@ form is unavailable. The existing self-name failures remain independent;
 neither failure category exposes partial source. String-returning formatter
 entry points report the same refusal through `NotSupportedException`.
 
-Properties, events, accessors, delegates, enums, and primary-constructor
-syntax remain explicitly unavailable in this opt-in slice. A caller can
-select the supported members or supply the product-selected explicit-field
-and ordinary-constructor shape. The printer does not silently drop an
-unsupported selected member. This slice proves safety-modifier spelling and
-caller-contract preservation, not body reconstruction or general layout
-reconstruction.
+Properties, events, accessors, whole delegate or enum type forms, and
+primary-constructor syntax remain explicitly unavailable in this opt-in slice.
+A standalone selected enum value is narrower: it emits only the
+declaration-contained member name and exact metadata constant after verifying
+that the member carries no caller contract or pointer shape. The enum's special
+`value__` storage slot supplies the underlying type but is not a declarable
+member and does not enter the API surface. A caller can select the supported
+members or supply the product-selected explicit-field and ordinary-constructor
+shape. The printer does not silently drop an unsupported selected member. This
+slice proves safety-modifier spelling and caller-contract preservation, not
+body reconstruction or general layout reconstruction.
 
 Method-like admission requires the Metadata-owned
 `ApiMember.MethodSemantics` fact. A positive `None` permits the ordinary
@@ -251,6 +261,32 @@ The information remains typed through the shared CSharp declaration boundary.
 CSharp owns source-language lowering; Markout remains the presentation
 substrate for views that embed those declarations. Neither CLI nor browser
 code re-derives the modifier from the old Boolean or rendered text.
+
+### Selected-member production adoption
+
+The product display policy for the selected-member declaration surfaces in
+issue #6713 is `UpdatedCallerContracts`. This is an explicit host policy, not a
+deduction from the inspected module's rules. CSharp validates the recognized
+module model and exact member evidence against that selected output language.
+
+The CLI's selected-member Signature section and Inspect Web's selected-member
+declaration panel consume the same typed single-declaration outcome. The
+browser acquires that outcome separately from its inventory projection:
+`BrowserMemberSurface.Signature` remains compatibility spelling for member
+lists, filtering, overload navigation, and identity transport. Both ordinary
+surface members and graph-only implementation members resolve their exact
+typed Metadata declaration before CSharp rendering. Package selections resolve
+through `BrowserPackageWorkspace`; Platform selections resolve through
+`BrowserPlatformWorkspace` and never reinterpret the resident runtime
+pseudo-package as a NuGet package.
+
+An older surface with no module memory-safety facts takes the distinguishable
+compatibility arm. A current surface whose selected declaration is unsupported
+or whose required evidence is unavailable reports the typed CSharp diagnostic
+in place of a declaration. The first production slice supports methods,
+ordinary constructors, and fields; properties, events, accessors, delegates,
+enums, and primary-constructor spelling remain unavailable in the selected
+model-aware view.
 
 The end-to-end tracker is
 [#5226](https://github.com/richlander/dotnet-inspect/pull/5226). Its production

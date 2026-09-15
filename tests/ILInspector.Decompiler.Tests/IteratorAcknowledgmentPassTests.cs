@@ -72,6 +72,7 @@ public class IteratorAcknowledgmentPassTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void StateMachineMoveNext_PreservesStateFieldWrites()
     {
         // #1011 stepper-audit invariant (state-machine scaffolds): the MoveNext body

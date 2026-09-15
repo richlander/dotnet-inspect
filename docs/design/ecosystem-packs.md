@@ -14,7 +14,7 @@ Integration scanner implementation, plus product demos that exercise ordinary
 shipping sections over exact pinned inputs.
 
 The Package Set Registry includes Microsoft.Extensions, ASP.NET Core, and the
-audited 82-package Aspire inventory. The static pack registry, four-pack
+audited 82-package Aspire inventory. The static pack registry, seven-pack
 manifest, ten-demo contribution, Workspace-owned lazy source binding, CLI
 handoff, inspect-web facade handoff, and the corresponding active Release gates
 named below are implemented. The assembly-friend tests, solution
@@ -32,21 +32,52 @@ not shipped behavior. Existing search and full Integration behavior is unchanged
 [Workspace registration and call-graph focal
 length](workspace-registration-and-call-graph-scope.md) records the approved
 target experience for inert ecosystem registration, compact namespace hints,
-core-package starting points, Integration-owned contract knowledge, and
+concrete registered package roots, Integration-owned contract knowledge, and
 Platform as an ecosystem selecting source-owned discovery/acquisition
 bindings. The [retrieval-knowledge contract](#retrieval-hints-and-core-packages)
 under #6028 is implemented by #6037: discovery and exact lookup expose inert
 namespace hints and core-package priorities, covered by the
 [retrieval-knowledge gates](#retrieval-knowledge-gates).
-Executable source contributions retain separate prerequisites under #6012
-and #5728; the metadata does not establish Workspace registration or
-call-graph reachability.
+Catalog reads and Workspace construction remain resource-free. A later bounded
+operation that selects an ecosystem may resolve its concrete core packages and
+follow ordinary package dependencies under the source and graph owners'
+policies; prefixes remain separate discovery populations.
 The
 [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
 owns the explicit projection from one selected pack and the application-owned
-default sequence into lower immutable declarations. This catalog retains
-application identity and contribution authorship; the handoff does not make
-Queries or browser Core depend on this assembly.
+platform or all-known manifest into one resource-free `WorkspacePlan`. Pack
+projection was implemented under #6786; #6791 replaces its live factories with
+two plan factories and leaves live construction explicit at the caller.
+Activation of those plans in the CLI and Browser remains staged. This catalog
+retains application identity and contribution authorship; the handoff does not
+make Queries or browser Core depend on this assembly, and Workspace exposes no
+curated option.
+
+The AI contribution approved in
+[#6234](https://github.com/richlander/dotnet-inspect/issues/6234) is implemented
+as the fifth pack. It contributes current registered package roots and
+namespace starting points
+plus four package-prefix populations to the all-known Workspace plan. It has no
+curated package set, scanner, tool, or demo. Its Microsoft.Extensions package
+families deliberately overlap the existing Microsoft.Extensions pack; neither
+registration claims exclusive ownership or rewrites the other's contributions.
+
+The Azure contribution approved in
+[#6235](https://github.com/richlander/dotnet-inspect/issues/6235) is implemented
+as the sixth pack. Follow-up
+[#7038](https://github.com/richlander/dotnet-inspect/issues/7038) adds
+join-oriented concrete package roots and overlapping discovery prefixes for
+the `Azure.`, `Microsoft.Azure.`, `Microsoft.Extensions.Azure`,
+`Aspire.Azure.`, and `Aspire.Hosting.Azure.` families. It has no curated
+package set, scanner, tool, or demo.
+
+The Blazor contribution approved in
+[#7069](https://github.com/richlander/dotnet-inspect/issues/7069) is implemented
+as the seventh pack. It contributes four join-oriented concrete package roots
+and two overlapping discovery prefixes for the
+`Microsoft.AspNetCore.Components` and
+`Microsoft.Authentication.WebAssembly` families. It has no curated package
+set, scanner, tool, or demo.
 
 Explicit [tool-package references](#tool-package-references) are implemented
 under #6060, beginning with `Aspire.Cli`. They are independent discovery
@@ -77,7 +108,8 @@ Supporting owners:
   owns realization and workspace generations.
 - [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
   owns lower declaration identity, explicit pack correspondence, projection
-  outcomes, and product-default validation.
+  outcomes, curated-manifest validation, and complete curated Workspace
+  construction.
 - [Inspection bundles and demos](../inspection-space.md#inspection-bundles-and-demos)
   owns the bundle and runtime-workspace composition boundary.
 - [Capability-driven section registry spike](capability-section-registry-spike.md)
@@ -115,7 +147,7 @@ build.
 One pack registration may contain:
 
 - stable ecosystem identity and product-owned discovery metadata;
-- compact namespace hints and ordered core-package starting points;
+- compact namespace hints and ordered registered core-package roots;
 - explicit tool-package references;
 - one optional package-set identity;
 - zero or more ordered package-prefix discovery entries; and
@@ -152,9 +184,9 @@ It does not own:
 The lower Workspace projection is not another catalog capability implemented
 by copying descriptor fields at selection time. This owner explicitly pairs a
 pack with one handoff-owned immutable declaration and separately authors the
-ordered product-default identities. The handoff defines projection validation
-and lower shape; this owner decides which shipped packs and contributions are
-paired.
+ordered current platform/all-known Workspace identities. The handoff defines projection,
+construction validation, and lower shape; this owner decides which shipped
+packs and contributions are paired.
 
 The exact claim is:
 
@@ -280,8 +312,8 @@ The intended host-neutral application component is
 Queries/Workspace Definitions and Metadata/Integrations and contains the
 application manifest and concrete pack source. Its only production consumers
 are the `dotnet-inspect` CLI front end and the
-`InspectWeb.Engine.CatalogExports` managed browser facade.
-`InspectWeb.Engine.Core`, the host and sibling export facades, Packages,
+`DotnetInspect.Web.Interop.Catalog` managed browser facade.
+`DotnetInspect.Web.Core`, the host and sibling export facades, Packages,
 Metadata, Queries, Services, Presentation, Vocabulary, and other reusable
 infrastructure do not reference it. Selected owner-issued package, demo, or
 scanner currencies flow from the catalog or two front ends into existing
@@ -329,6 +361,9 @@ ProductEcosystemPacks
   MicrosoftExtensionsPack.Registration
   AspNetCorePack.Registration
   AspirePack.Registration
+  AIPack.Registration
+  AzurePack.Registration
+  BlazorPack.Registration
 ```
 
 The example names are illustrative pack source, not required core types. The
@@ -376,7 +411,8 @@ by its engine rules from taking a dependency on
 The implementation adds one focused project-and-assembly rule,
 `ecosystem-catalog-stays-in-approved-hosts`. Within
 `dotnet-inspect.slnx`, it denies `DotnetInspector.Ecosystems` from every
-production target except `dotnet-inspect`.
+production target except the `DotnetInspect.Cli` project and its
+`dotnet-inspect` assembly.
 
 The dependency-policy solution does not include inspect-web, so it does not
 claim to prove that boundary. The browser owner separately gates
@@ -384,14 +420,14 @@ claim to prove that boundary. The browser owner separately gates
 evaluated direct MSBuild `ProjectReference` items for every inspect-web
 production project. For each project whose declared graph can reach the catalog
 facade, it also reads the Release-built assembly's metadata `AssemblyRef` rows.
-`InspectWeb.Engine.CatalogExports` is the sole permitted project and compiled
+`DotnetInspect.Web.Interop.Catalog` is the sole permitted project and compiled
 assembly reference. The compiled check rejects host source that consumes the
 catalog through the transitive host-to-catalog-facade project graph. Public
 demo identities are runtime-valued properties rather than compile-time
 constants, and the same gate rejects public literal fields before relying on
 the compiled reference: a supported source use therefore cannot erase the
 catalog dependency through constant inlining.
-`InspectWeb.Engine.Core`, the host and sibling export facades, and every other
+`DotnetInspect.Web.Core`, the host and sibling export facades, and every other
 inspect-web production project reject both a declared edge and a compiled
 catalog reference. Test projects and the focused
 `DotnetInspector.Ecosystems.Consumer.Tests` non-friend canary may reference the
@@ -443,10 +479,16 @@ The application manifest follows the repository's static-registry pattern:
   scanner binding to Integration orchestration.
 
 Workspace projection follows the same inert materialization rule. Selecting a
-pack's lower declaration or discovering product defaults returns only retained
-immutable handoff values. It does not resolve a package set, run a prefix
-query, inspect a platform catalog, invoke a scanner, construct a Workspace, or
-acquire content.
+pack's lower declaration returns only retained immutable handoff values. It
+does not resolve a package set, run a prefix query, inspect a platform catalog,
+invoke a scanner, construct a Workspace, or acquire content.
+
+The separate curated-plan API validates the complete authored manifest and
+passes the projected registrations to the public `WorkspacePlan` constructor.
+It adds no acquisition, prefix query, platform inspection or scanner invocation.
+The catalog may reuse that immutable plan; each explicit
+`new InspectionWorkspace(plan)` creates an independent live owner.
+Raw plan construction remains outside this catalog and defaults to empty.
 
 The pattern does not require constructing an ecosystem object at any stage.
 The scanner binding statically roots its method and may materialize one
@@ -574,7 +616,7 @@ Each pack may contribute two independent, immutable ordered sequences:
 | Contribution | Meaning |
 | --- | --- |
 | Namespace roots | A small curated set of distinctive namespace subtrees that may help prioritize retrieval. |
-| Core packages | Package-coordinate starting points in product-authored preference order, not an exhaustive population. |
+| Core packages | Inert concrete package roots in product-authored preference order, not an exhaustive population. |
 
 Both sequences remain attached to the descriptor's exact `EcosystemPackId`.
 Discovery and exact lookup return the same knowledge without selecting or
@@ -613,8 +655,12 @@ authorize a source, or inspect a package to publish this data.
 
 The sequence itself supplies preference order within the pack; there is no
 second numeric priority or catalog-wide ranking. It is not a query-result
-ordering, operation bound, selected population, or instruction to acquire the
-entries. Null entries, invalid coordinates, target/version overrides, and
+ordering, operation bound, or eager acquisition instruction. When a later
+bounded operation selects the ecosystem, these exact package IDs are its
+registered package roots. That consumer supplies version, target, source,
+prerelease, acquisition, and traversal policy, then may follow ordinary package
+dependencies to discover candidate libraries and cross-ecosystem joins.
+Null entries, invalid coordinates, target/version overrides, and
 duplicate package IDs within one pack under ordinal, case-insensitive equality
 (as in the Package Set Registry) are invalid static declarations. The same core
 package may appear in different packs. Discovery preserves the complete
@@ -632,25 +678,30 @@ Two roots and three core packages are a valid contribution, not a truncated
 zip or a declaration that each root belongs to one package. Any actual
 namespace/type correspondence requires evidence outside the catalog.
 
-### Knowledge is not traversal availability
+### Registration is not traversal execution
 
-These additions do not create actions or satisfy the manifest's requirement
-for at least one contributed capability by themselves. Existing action
-selection, missing-capability results, and discovery materialization remain
-unchanged. Hosts must not infer executable traversal from a nonempty hint or
-core sequence, a curated set, or the presence of a pack identity.
+These additions do not create catalog actions or satisfy the application pack
+registry's requirement for at least one contributed capability by themselves.
+Separately, a nonempty core sequence is sufficient to make a projected
+Workspace registration useful. Existing action selection, missing-capability
+results, and discovery materialization remain unchanged. Catalog reads,
+projection, plan construction, and Workspace construction do not resolve or
+acquire a core package. Traversal begins only when an operation selects the
+ecosystem and supplies the required finite policies. Namespace and
+package-prefix matches never substitute for a concrete registered package root.
 
-In particular, `ecosystem.platform` already groups product demos. It can retain
-that identity without pretending that its package-backed demos supply
-platform-source-owned traversal. This slice neither creates a Platform
-package set nor substitutes a `System.*` package prefix for a platform target.
-The catalog can expose the
+Ecosystem grouping and source provenance are orthogonal. `ecosystem.platform`
+groups Runtime Platform demos, while `ecosystem.microsoft-extensions` retains
+the Microsoft.Extensions demos whose exact implementation sources are ASP.NET
+Core Platform libraries. Neither grouping creates a Platform package set,
+changes curated package-set membership, or substitutes a package prefix for a
+Platform target. The catalog can expose the
 [resource-free population declaration](platform-library-population-declaration.md)
 independently; source realization and acquisition remain separate
 prerequisites.
 
 The implementation publishes inert knowledge through the shared
-catalog. The CLI and `InspectWeb.Engine.CatalogExports` are its production
+catalog. The CLI and `DotnetInspect.Web.Interop.Catalog` are its production
 consumers; host metadata and operational adoption stay in #6012 stages 6 and 7.
 This focused contract and its catalog implementation are two
 slices within catalog stage 2, not a replacement roadmap. No existing
@@ -724,7 +775,7 @@ registrations or a proposal for tool-prefix discovery.
 
 The contribution follows the existing static metadata pattern within catalog
 stage 2 of #6012, coordinated by #5728. Its production consumers remain CLI
-and `InspectWeb.Engine.CatalogExports`; visible metadata adoption stays with
+and `DotnetInspect.Web.Interop.Catalog`; visible metadata adoption stays with
 their stages 6 and 7. No installation/execution path, new renderer, or source
 contract is introduced. The [tool-reference gates](#tool-reference-gates)
 enforce this catalog slice; they do not certify future package versions.
@@ -856,7 +907,7 @@ explicit selections.
 ## Host plan
 
 The static manifest is host-neutral application product data directly consumed
-only by the CLI and `InspectWeb.Engine.CatalogExports` front ends. Neither
+only by the CLI and `DotnetInspect.Web.Interop.Catalog` front ends. Neither
 copies the pack list, package-set identity, prefix metadata, or scanner
 availability.
 
@@ -876,7 +927,7 @@ and run plan through the existing type/member section pipeline. Product-facing
 title and summary come from the selected catalog descriptor, not from the
 resolved scenario's portable metadata.
 
-`InspectWeb.Engine.CatalogExports` projects an ecosystem action surface from
+`DotnetInspect.Web.Interop.Catalog` projects an ecosystem action surface from
 the same descriptors through its generated facade. The TypeScript front end
 retains interaction and browser presentation. Browser infrastructure retains
 asynchronous acquisition, budget reservation, workspace replacement, rollback,
@@ -897,7 +948,7 @@ catalog or rediscover the pack.
 
 The implemented
 [JSExport facade partition](inspect-web-jsexport-partitioning.md) designates
-`InspectWeb.Engine.CatalogExports` as the sole managed ecosystem-catalog
+`DotnetInspect.Web.Interop.Catalog` as the sole managed ecosystem-catalog
 consumer and assigns the complete discovery, selection, execution adaptation,
 and facade-local DTO closure to it. Sibling export facades neither consume that
 facade nor reference the catalog. The TypeScript application composes the
@@ -908,9 +959,9 @@ The registry preserves typed data through both host boundaries. This design
 defines no broad report or output format; hosts render focused discovery and
 action metadata through their existing presentation owners.
 
-## Initial packs and staged adoption
+## Shipped packs and staged adoption
 
-The first application adoption describes four packs from already-owned
+The current application catalog describes seven packs from already-owned
 currencies and content:
 
 | Pack identity | Package-set identity | Product demos | Residual capabilities |
@@ -919,6 +970,9 @@ currencies and content:
 | `ecosystem.microsoft-extensions` | `package-set.microsoft-extensions` | `extensions-callgraph`, `config-bind-callgraph`, `options-add-callgraph`, `di-tryadd-callgraph`, `http-addhttpclient-callgraph` | prefix catalog/host adoption remains staged; no scanner contributed yet |
 | `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | prefix catalog/host adoption remains staged; no scanner contributed yet |
 | `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; CLI supports ordinary-result narrowing, not scanner selection; browser selection remains staged; prefix catalog/host adoption remains staged |
+| `ecosystem.ai` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
+| `ecosystem.azure` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
+| `ecosystem.blazor` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
 
 The eight existing demo IDs, metadata, global order, records, pins, and run
 plans remain unchanged. Their global orders are assigned in their current
@@ -926,8 +980,8 @@ product sequence. The two new Aspire demos follow them. The literal
 demo-to-pack mapping is application policy and is not inferred from their
 package coordinates or titles.
 
-The initial retrieval metadata is independently authored alongside those
-capabilities:
+The initial retrieval and registered-package metadata is independently
+authored alongside those capabilities:
 
 | Pack | Namespace roots | Core packages, in preference order |
 | --- | --- | --- |
@@ -935,9 +989,12 @@ capabilities:
 | Microsoft.Extensions | `Microsoft.Extensions` | `Microsoft.Extensions.DependencyInjection.Abstractions`, `Microsoft.Extensions.Configuration.Abstractions`, `Microsoft.Extensions.Logging.Abstractions` |
 | ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore.OpenApi`, `Microsoft.AspNetCore.Authentication.JwtBearer` |
 | Aspire | `Aspire` | `Aspire.Hosting` |
+| AI | `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, `ModelContextProtocol` | `Microsoft.Extensions.AI`, `Microsoft.Extensions.AI.Abstractions`, `Microsoft.Extensions.VectorData.Abstractions`, `Microsoft.Agents.AI`, `ModelContextProtocol` |
+| Azure | `Azure`, `Microsoft.Extensions.Azure` | `Microsoft.Extensions.Azure`, `Azure.AI.OpenAI`, `Microsoft.Azure.SignalR`, `Aspire.Azure.AI.OpenAI`, `Aspire.Hosting.Azure.SignalR`, `Azure.Identity`, `Azure.Security.KeyVault.Secrets`, `Azure.Storage.Blobs`, `Azure.Messaging.ServiceBus` |
+| Blazor | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` | `Microsoft.AspNetCore.Components.WebAssembly`, `Microsoft.AspNetCore.Components.WebView.Maui`, `Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter`, `Microsoft.Authentication.WebAssembly.Msal` |
 
 Aspire additionally contributes `Aspire.Cli` in its separate tool-package
-sequence; the other three packs contribute no tool references.
+sequence; the other six packs contribute no tool references.
 
 Each root is a compact descriptive subtree, not a package correspondence.
 The Extensions entries prioritize foundational DI, configuration, and logging
@@ -945,20 +1002,166 @@ contracts even though the curated set excludes shared-framework-covered
 packages. ASP.NET Core starts with current OpenAPI and bearer-authentication
 add-on APIs rather than obsolete package versions of shared-framework
 fundamentals. Aspire starts with its hosting API. These choices are product
-preferences, not popularity rankings or complete ecosystem inventories.
+preferences, not popularity rankings or complete ecosystem inventories. They
+prioritize useful package-dependency neighborhoods and cross-ecosystem join
+candidates where current evidence supports them.
 Platform deliberately contributes no package coordinate as a substitute for
 its future platform-source-owned discovery/acquisition binding. This metadata
 is not derived from package-set membership or demo records.
 
-The initial Workspace projection is staged under
+### AI contribution evidence
+
+The AI row is grounded in current stable package releases observed on
+2026-09-13, not inferred from product or namespace spelling:
+
+| Layer | Package evidence | Namespace hint | Workspace population prefix |
+| --- | --- | --- | --- |
+| Application AI abstractions and middleware | [`Microsoft.Extensions.AI@10.10.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI/10.10.0), [`Microsoft.Extensions.AI.Abstractions@10.10.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI.Abstractions/10.10.0) | `Microsoft.Extensions.AI` | `Microsoft.Extensions.AI` |
+| Vector-store abstractions | [`Microsoft.Extensions.VectorData.Abstractions@10.10.0`](https://www.nuget.org/packages/Microsoft.Extensions.VectorData.Abstractions/10.10.0) | `Microsoft.Extensions.VectorData` | `Microsoft.Extensions.VectorData` |
+| Agent orchestration | [`Microsoft.Agents.AI@1.21.0`](https://www.nuget.org/packages/Microsoft.Agents.AI/1.21.0) | `Microsoft.Agents.AI` | `Microsoft.Agents.AI` |
+| Model Context Protocol | [`ModelContextProtocol@2.2.0`](https://www.nuget.org/packages/ModelContextProtocol/2.2.0) | `ModelContextProtocol` | `ModelContextProtocol` |
+
+Microsoft's [.NET AI ecosystem
+guide](https://learn.microsoft.com/dotnet/ai/dotnet-ai-ecosystem) identifies
+Microsoft.Extensions.AI, VectorData, Agent Framework, and MCP as distinct
+layers commonly composed by .NET AI applications. The focused
+[Microsoft.Extensions.AI
+guide](https://learn.microsoft.com/dotnet/ai/microsoft-extensions-ai) further
+distinguishes the application package from the abstractions package, so both
+are retained as core registered roots in application-before-library order.
+
+The population values are literal package-ID prefixes. They omit a trailing
+dot so the root packages and their child package families are both included;
+they are not namespace boundaries, package-set membership, exclusive ownership,
+or evidence that every matching future package is useful. In particular,
+`Microsoft.Extensions.AI*` and `Microsoft.Extensions.VectorData*` remain valid
+members of the Microsoft.Extensions ecosystem at the same time. The AI pack
+does not reference `package-set.microsoft-extensions`, because that curated set
+contains many packages outside this focused AI contribution.
+
+### Azure contribution evidence
+
+The Azure row is grounded in Microsoft's current Azure SDK for .NET application
+guidance and package releases observed on 2026-09-14:
+
+| Scenario role | Package evidence | Namespace hint | Workspace population prefix |
+| --- | --- | --- | --- |
+| Client registration through Microsoft.Extensions | [`Microsoft.Extensions.Azure@1.14.1`](https://www.nuget.org/packages/Microsoft.Extensions.Azure/1.14.1) | `Microsoft.Extensions.Azure` | `Microsoft.Extensions.Azure` |
+| Azure-hosted OpenAI client | [`Azure.AI.OpenAI@2.1.0`](https://www.nuget.org/packages/Azure.AI.OpenAI/2.1.0) | `Azure` | `Azure.` |
+| Azure SignalR server integration | [`Microsoft.Azure.SignalR@1.33.1`](https://www.nuget.org/packages/Microsoft.Azure.SignalR/1.33.1) | none added | `Microsoft.Azure.` |
+| Aspire Azure OpenAI client integration | [`Aspire.Azure.AI.OpenAI@13.5.3-preview.1.26425.3`](https://www.nuget.org/packages/Aspire.Azure.AI.OpenAI/13.5.3-preview.1.26425.3) | none added | `Aspire.Azure.` |
+| Aspire Azure SignalR hosting integration | [`Aspire.Hosting.Azure.SignalR@13.5.3`](https://www.nuget.org/packages/Aspire.Hosting.Azure.SignalR/13.5.3) | none added | `Aspire.Hosting.Azure.` |
+| Microsoft Entra authentication | [`Azure.Identity@1.21.0`](https://www.nuget.org/packages/Azure.Identity/1.21.0) | `Azure` | `Azure.` |
+| Key Vault secret client | [`Azure.Security.KeyVault.Secrets@4.11.1`](https://www.nuget.org/packages/Azure.Security.KeyVault.Secrets/4.11.1) | `Azure` | `Azure.` |
+| Blob Storage client | [`Azure.Storage.Blobs@12.29.2`](https://www.nuget.org/packages/Azure.Storage.Blobs/12.29.2) | `Azure` | `Azure.` |
+| Service Bus client | [`Azure.Messaging.ServiceBus@7.20.2`](https://www.nuget.org/packages/Azure.Messaging.ServiceBus/7.20.2) | `Azure` | `Azure.` |
+
+Microsoft's [Azure SDK for .NET
+overview](https://learn.microsoft.com/dotnet/azure/sdk/azure-sdk-for-dotnet)
+identifies authentication followed by a service client as the ordinary
+application path. Its [dependency-injection
+guide](https://learn.microsoft.com/dotnet/azure/sdk/dependency-injection)
+installs `Microsoft.Extensions.Azure` and `Azure.Identity`, then demonstrates
+Key Vault, Blob Storage, and Service Bus clients through one
+`AddAzureClients` composition. The retained service clients preserve that
+recognizable application path.
+
+The connector roots precede those service leaves because their package
+dependency neighborhoods cross existing ecosystem boundaries:
+
+- `Azure.AI.OpenAI@2.1.0` depends on `Azure.Core` and `OpenAI`;
+- `Microsoft.Azure.SignalR@1.33.1` depends on `Azure.Identity` and
+  Microsoft.Extensions HTTP and uses the ASP.NET Core shared framework on
+  `net8.0`;
+- `Aspire.Azure.AI.OpenAI@13.5.3-preview.1.26425.3` composes Aspire OpenAI,
+  Azure OpenAI, Microsoft.Extensions.AI, Microsoft.Extensions.Azure,
+  OpenTelemetry, and hosting abstractions; and
+- `Aspire.Hosting.Azure.SignalR@13.5.3` composes Aspire hosting, Azure
+  provisioning and identity, ASP.NET Core/gRPC, Microsoft.Extensions,
+  OpenTelemetry, and Model Context Protocol packages.
+
+Those dependency edges nominate useful traversal roots; they are not themselves
+evidence of retained IL call edges. Call Graph owns that later analysis and its
+visible completeness.
+
+The five literal prefixes are overlapping discovery scope. `Azure.` covers the
+modern Azure SDK package family. `Microsoft.Azure.` includes current packages
+such as `Microsoft.Azure.SignalR` as well as older packages without asserting
+migration equivalence, modernity, or endorsement. `Microsoft.Extensions.Azure`
+omits a trailing dot so the current root package participates.
+`Aspire.Azure.` and `Aspire.Hosting.Azure.` deliberately overlap the broader
+`Aspire.` registration. Matching is literal rather than segment-aware; prefix
+relevance is not package acquisition, traversal, curated membership, or
+exclusive ownership.
+
+### Blazor contribution evidence
+
+The Blazor row is grounded in Microsoft's current Blazor hosting guidance and
+stable package releases inspected on 2026-09-15:
+
+| Scenario role | Package evidence | Namespace hint | Workspace population prefix |
+| --- | --- | --- | --- |
+| Browser-hosted Blazor | [`Microsoft.AspNetCore.Components.WebAssembly@10.0.12`](https://www.nuget.org/packages/Microsoft.AspNetCore.Components.WebAssembly/10.0.12) | `Microsoft.AspNetCore.Components` | `Microsoft.AspNetCore.Components` |
+| Blazor Hybrid | [`Microsoft.AspNetCore.Components.WebView.Maui@10.0.101`](https://www.nuget.org/packages/Microsoft.AspNetCore.Components.WebView.Maui/10.0.101) | `Microsoft.AspNetCore.Components` | `Microsoft.AspNetCore.Components` |
+| Data-grid integration | [`Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter@10.0.12`](https://www.nuget.org/packages/Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter/10.0.12) | `Microsoft.AspNetCore.Components` | `Microsoft.AspNetCore.Components` |
+| Browser authentication | [`Microsoft.Authentication.WebAssembly.Msal@10.0.12`](https://www.nuget.org/packages/Microsoft.Authentication.WebAssembly.Msal/10.0.12) | `Microsoft.Authentication.WebAssembly` | `Microsoft.Authentication.WebAssembly` |
+
+Microsoft's [Blazor
+overview](https://learn.microsoft.com/aspnet/core/blazor/) defines server,
+WebAssembly, and Hybrid hosting models. The [Blazor Hybrid
+guidance](https://learn.microsoft.com/aspnet/core/blazor/hybrid/) identifies
+.NET MAUI as a host for Razor components, while the [QuickGrid
+guidance](https://learn.microsoft.com/aspnet/core/blazor/components/quickgrid)
+documents the component's data-provider integration surface.
+
+The roots prioritize dependency and assembly-reference neighborhoods that can
+join other ecosystems:
+
+- `Microsoft.AspNetCore.Components.WebAssembly@10.0.12` depends on Components
+  Web, JS interop, configuration, and logging packages and references DI,
+  configuration, logging, HTTP, JSON, and browser interop assemblies;
+- `Microsoft.AspNetCore.Components.WebView.Maui@10.0.101` references
+  `Microsoft.Maui`, `Microsoft.Maui.Controls`, and `Microsoft.Maui.Essentials`
+  alongside Components, JS interop, DI, file-provider, and logging
+  abstractions;
+- `Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter@10.0.12`
+  depends on and references both QuickGrid and Entity Framework Core, plus DI
+  abstractions; and
+- `Microsoft.Authentication.WebAssembly.Msal@10.0.12` depends on Blazor
+  WebAssembly Authentication and references Components, DI, Options, and
+  System.Text.Json.
+
+The WebView.Maui NuGet dependency groups name Components WebView and JS
+interop, while its packaged assembly supplies the MAUI reference edges. A
+future separately registered MAUI population can therefore make that
+assembly-reference join realizable; this contribution does not claim that
+ordinary package traversal alone acquires MAUI.
+
+The two literal prefixes omit a trailing dot so each base package name and its
+child families remain discoverable. The Components prefix deliberately
+overlaps the broader ASP.NET Core prefix and curated package set.
+`Microsoft.AspNetCore.Components.WebView.Maui` may also be a registered root
+of a future MAUI pack. Those overlaps preserve independent product-authored
+entry points; they do not infer exclusive ownership, package equivalence, or
+automatic traversal.
+
+The initial Workspace projection is implemented under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
-application-owned default order is Platform, ASP.NET Core, then
+application-owned platform order is Platform, ASP.NET Core, then
 Microsoft.Extensions, which deliberately differs from ordinary pack discovery
 order. Platform requires a source-owned runtime population declaration;
 ASP.NET Core requires both its source-owned shared-framework population and
-the recorded `Microsoft.AspNetCore.` prefix; Microsoft.Extensions requires the
-recorded `Microsoft.Extensions.` prefix. Retrieval knowledge alone cannot make
-one of those defaults population-complete.
+its concrete registered packages; Microsoft.Extensions contributes concrete
+registered packages. A separate all-known manifest
+uses that order followed by Aspire, AI, Azure, and Blazor. Aspire retains its
+`Aspire.` prefix, concrete package roots, and exact scanner binding; AI retains
+its concrete package roots and four discovery prefixes; Azure retains its nine
+concrete package roots and five discovery prefixes; Blazor retains its four
+concrete package roots and two discovery prefixes. The
+handoff owns completeness and fresh-construction semantics for the two intents
+approved in #6763; this is not a compatibility catalog of earlier manifests.
+Later product builds may change either manifest without changing raw Workspace
+construction or existing expanded registration sets.
 
 | Global order | Scenario ID | Pack |
 | ---: | --- | --- |
@@ -1135,16 +1338,16 @@ The flat product-demo projection preserves current order and appends Aspire:
 ```text
 Demos
 
-System.Text.Json                     Browse a real package API
-Cross-package call graph             Trace calls across three packages
-Serialize call graph                 Dense package-local STJ graph
-Configuration Bind                  Recursive binder call graph
-Options hub                         Inbound fan-in at AddOptions
-DI TryAdd hub                       Keyed/scoped Try* fan-in
-AddHttpClient                       HttpClient factory registration
-JsonElement.GetDecimal              STJ number parse path
-Aspire AddPostgres                  PostgreSQL resource registration graph
-Aspire AddRedis                     Redis resource registration graph
+System.Text.Json                    Browse the Runtime Platform API
+Cross-library call graph            Trace calls across three Platform libraries
+Serialize call graph                Trace the Runtime STJ implementation
+Configuration Bind                 Recursive binder call graph
+Options hub                        Inbound fan-in at AddOptions
+DI TryAdd hub                      Keyed/scoped Try* fan-in
+AddHttpClient                      HttpClient factory registration
+JsonElement.GetDecimal             Trace the Runtime number parse path
+Aspire AddPostgres                 PostgreSQL resource registration graph
+Aspire AddRedis                    Redis resource registration graph
 ```
 
 The grouped ecosystem projection uses the same registrations:
@@ -1163,6 +1366,9 @@ ASP.NET Core
 Aspire
   Add curated packages
   2 demos
+
+AI
+  5 registered core package roots
 ```
 
 Listing either projection constructs no definition records. Selecting
@@ -1184,8 +1390,8 @@ consumer gates.
 | `EcosystemPackRegistryTests.InvalidNamespaceRootsFailBeforePublication`, `InvalidCorePackagesFailBeforePublication`, and `MissingKnowledgeSequencesFailBeforePublication` | Malformed roots, missing sequences, and null, invalid, duplicate, versioned, or target-specific core coordinates fail complete construction visibly, without invoking demo sources. |
 | `EcosystemPackRegistryTests.EmptyKnowledgePreservesCapabilityRequirements` | Empty contributions remain empty; knowledge-only registrations fail the existing capability requirement. |
 | `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Reading knowledge and selecting one capability preserve the selected owner's outcome without invoking neighboring demo/scanner capabilities. |
-| `ProductEcosystemPackTests.ShippedRetrievalKnowledgeMatchesLiteralPolicy` | All four packs retain literal authored roots and core priorities, including Platform's empty core sequence. |
-| `PackageSetRegistryConsumerTests.PublicSurfaceKeepsCoreReferencesSeparateFromCuratedMembership` | An ordinary non-friend consumer reads immutable knowledge through discovery/lookup; Extensions core entries and curated membership remain distinct, and Platform gains no package-set or scanner capability. |
+| `ProductEcosystemPackTests.ShippedNamespaceAndRegisteredPackageKnowledgeMatchesLiteralPolicy` | All seven packs retain literal authored roots and registered package priorities, including Platform's empty core sequence and the AI, Azure, and Blazor join-oriented package roots. |
+| `PackageSetRegistryConsumerTests.PublicSurfaceKeepsCoreReferencesSeparateFromCuratedMembership` | An ordinary non-friend consumer reads immutable knowledge through discovery/lookup; Extensions core entries and curated membership remain distinct, Platform gains no package-set or scanner capability, and AI remains uncurated while overlapping existing Microsoft.Extensions membership. |
 
 ### Tool-reference gates
 
@@ -1226,8 +1432,8 @@ ordinary non-friend consumer.
 | `PackageSetRegistryConsumerTests.PublicSurfaceSupportsEcosystemDiscoveryAndDemoSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, demo factories, scanner implementation, CLI types, package clients, or workspaces. |
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
-| `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
-| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Public product-demo identities contain no literal fields that source access could inline without an assembly reference. Evaluated direct `ProjectReference` items reject catalog edges from every inspect-web production project except `InspectWeb.Engine.CatalogExports`. For each project whose declared graph can reach that facade, Release-built metadata `AssemblyRef` rows reject compiled catalog consumption through transitive availability. |
+| `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by the `DotnetInspect.Cli` project and its `dotnet-inspect` assembly; existing IL rules independently reject the reusable IL-library edges they select. |
+| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Public product-demo identities contain no literal fields that source access could inline without an assembly reference. Evaluated direct `ProjectReference` items reject catalog edges from every inspect-web production project except `DotnetInspect.Web.Interop.Catalog`. For each project whose declared graph can reach that facade, Release-built metadata `AssemblyRef` rows reject compiled catalog consumption through transitive availability. |
 
 Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and
@@ -1247,15 +1453,17 @@ gating the generic registry path's no-lookup behavior.
 ten scenario IDs, pack mapping, metadata, and global order without deriving
 expectations from source records.
 `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
-resolves the transferred eight sources and pins their package coordinates,
-navigation shape, type and member selection, section, and run-plan lowering to
-the donor behavior.
+resolves the transferred eight sources and pins their Runtime or ASP.NET Core
+Platform coordinates, navigation shape, type and member selection, section,
+and run-plan lowering to the donor behavior while retaining their ecosystem
+grouping.
 `ProductEcosystemPackTests.AspireDemoSourcesMatchLiteralPinsAndAnchors` gates
 the two exact package IDs, versions, TFMs, types, member anchors, and Call Graph
 bindings.
 `DemoCommandTests.Cli_EveryCallGraphDemo_Table_EmitsNonEmptyRows` gates
 nonempty ordinary CLI Call Graph execution through the existing section
-pipeline, including both Aspire scenarios.
+pipeline, including multi-library ASP.NET Core Platform caller scope and both
+package-backed Aspire scenarios.
 `DemoCommandTests.ListUsesCatalogDescriptorMetadata` and
 `BrowserProductHomeDemosTests.CatalogProjectionUsesEcosystemDescriptorMetadata`
 prove both hosts use application-catalog title and summary even when the
@@ -1294,14 +1502,19 @@ The owner tracks may advance independently:
    grouped and flattened discovery, exact lookup and selection; and publish the
    four-pack, ten-demo manifest with its focused gates. Do not change current
    package membership, existing demo execution, or search behavior.
-4. Add each remaining contribution slot independently when its owner track lands;
-   no later slot reopens already implemented selection/materialization semantics.
+4. Add each remaining contribution slot or pack independently when its owner
+   track lands. #6234 adds the fifth AI pack and #6235 adds the sixth Azure pack
+   through existing descriptor, retrieval-knowledge, and Workspace-population
+   currencies without a new curated set or host-private path. No later addition
+   reopens already implemented selection/materialization semantics.
 5. Adopt CLI and browser actions through the same implementation slice's
    application-catalog handoff; Integration remains independently adoptable.
 
-The four owner tracks remain separately owned; #5720 records the package-set
-composition decision, while prefix catalog/host adoption and remaining scanner
-adoption stay staged. No
+The six listed owner tracks remain separately owned. The first four are the
+original catalog contribution tracks; Workspace registration and Platform
+population declaration are later composition prerequisites. #5720 records the
+package-set composition decision, while prefix catalog/host adoption and
+remaining scanner adoption stay staged. No
 implementation slice waits for every optional slot: each lands only when its
 owner-issued currency exists and one real application scenario makes that slice
 coherent.

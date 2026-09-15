@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
 using DotnetInspector.Packages;
+using ILInspector.Metadata;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Queries.Definitions;
@@ -127,7 +128,7 @@ public static class WorkspaceSharePacketTransposer
         }
 
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceId,
             contexts);
 
@@ -151,13 +152,13 @@ public static class WorkspaceSharePacketTransposer
         }
 
         var navigation = new NavigationDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             NavigationId,
             navigationTabs,
             $"t{canonical.ActiveTabIndex}");
 
         var view = new ViewDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             ViewId,
             lens: canonical.Lens,
             type: canonical.Type,
@@ -167,7 +168,7 @@ public static class WorkspaceSharePacketTransposer
             libraries: canonical.Libraries);
 
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             ScenarioId,
             workspace: WorkspaceId,
             context: $"g{canonical.SelectedContextIndex}",
@@ -579,6 +580,101 @@ public static class WorkspaceSharePacketTransposer
         }
     }
 
+    public static WorkspaceSharePacketProjectionResult ToPacket(
+        CommittedScenarioDefinitionSet definitions,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(definitions);
+        cancellationToken.ThrowIfCancellationRequested();
+        return NonProjectable(
+            "schemaVersion",
+            "Schema-version-2 definitions cannot project to WorkspaceSharePacket format 1.");
+    }
+
+    public static WorkspaceSharePacketProjectionResult ToPacket(
+        ShareProjectionPlan plan,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ViewFacetId overview = InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Member,
+                ViewFacetRole.MemberOverview)
+            .Id;
+        if (plan.Facet != overview)
+        {
+            return NonProjectable(
+                "plan.facet",
+                $"Packet v1 cannot project member facet '{plan.Facet.Value}'.");
+        }
+        if (plan.Basis.Source.Package is not { } package)
+        {
+            return NonProjectable(
+                "plan.basis.source",
+                "Packet v1 member scenarios require package provenance.");
+        }
+        if (string.IsNullOrWhiteSpace(plan.Basis.Source.Framework))
+        {
+            return NonProjectable(
+                "plan.basis.source.framework",
+                "Packet v1 member scenarios require one resolved target framework.");
+        }
+        if (plan.Basis.Target.TypeDefinition is not { } type)
+        {
+            return NonProjectable(
+                "plan.basis.target.type",
+                "Packet v1 member scenarios require structured metadata type identity.");
+        }
+
+        var coordinate =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                package.PackageId,
+                package.PackageVersion,
+                plan.Basis.Source.Framework);
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            WorkspaceId,
+            [
+                new WorkspaceContextDefinition(
+                    "g0",
+                    framework: plan.Basis.Source.Framework,
+                    members: [coordinate]),
+            ]);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            NavigationId,
+            [
+                new NavigationTabDefinition(
+                    "t0",
+                    coordinate: coordinate),
+            ],
+            "t0");
+        var view = new ViewDefinition(
+            InspectionDefinitionSchema.Version1,
+            ViewId,
+            lens: "api",
+            type: type.ToEscapedFullName(),
+            memberAnchor: plan.Basis.Target.Member.Fingerprint,
+            libraries: [plan.Basis.Source.LibraryKey]);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            ScenarioId,
+            workspace: workspace.Id,
+            context: "g0",
+            view: view.Id,
+            navigation: navigation.Id);
+
+        return ToPacket(
+            new WorkspaceSharePacketDefinitionSet(
+                workspace,
+                navigation,
+                view,
+                scenario),
+            cancellationToken);
+    }
+
     private static WorkspaceSharePacketProjectionResult? ValidateDefinitionSet(
         WorkspaceSharePacketDefinitionSet definitions,
         CancellationToken cancellationToken)
@@ -593,6 +689,13 @@ public static class WorkspaceSharePacketTransposer
         foreach ((InspectionDefinitionRecord record, string path) in records)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (record.SchemaVersion
+                != InspectionDefinitionSchema.Version1)
+            {
+                return InvalidDefinition(
+                    path + ".schemaVersion",
+                    "WorkspaceSharePacket format 1 requires a schema-version-1 definition set.");
+            }
             try
             {
                 _ = InspectionDefinitionJson.Serialize(record);

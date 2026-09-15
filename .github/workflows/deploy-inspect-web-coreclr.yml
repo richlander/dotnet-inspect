@@ -22,14 +22,9 @@ permissions:
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  DOTNET_DAILY_FEED: https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json
   DOTNET_DOTNETUP_DATA_DIR: ${{ github.workspace }}/artifacts/dotnetup-data
   DOTNET_NOLOGO: true
-  DOTNET_NUGET_FEED: https://api.nuget.org/v3/index.json
   DOTNET_ROOT: ${{ github.workspace }}/artifacts/dotnet-coreclr
-  DOTNET_RUNTIME_VERSION: '12.0.0-alpha.1.26454.116'
-  DOTNET_SDK_FEATURE_BAND: '12.0.100-alpha.1'
-  DOTNET_SDK_VERSION: '12.0.100-alpha.1.26454.116'
 
 jobs:
   publish:
@@ -56,10 +51,25 @@ jobs:
           run-id: ${{ inputs.staging_run_id }}
           digest-mismatch: error
 
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
       - name: Install pinned .NET 12 SDK
         shell: bash
         run: |
           set -euo pipefail
+          pin_env="$RUNNER_TEMP/inspect-web-runtime-cohort.env"
+          node inspect-web/scripts/runtime-cohort-pin.ts export \
+            --pin inspect-web/runtime-cohort-pin.json \
+            --output "$pin_env"
+          set -a
+          source "$pin_env"
+          set +a
+          cat "$pin_env" >> "$GITHUB_ENV"
           dotnetup_dir="$RUNNER_TEMP/dotnetup"
           getter_script="$RUNNER_TEMP/get-dotnetup.sh"
           mkdir -p "$dotnetup_dir" "$DOTNET_ROOT" "$DOTNET_DOTNETUP_DATA_DIR"
@@ -75,18 +85,11 @@ jobs:
           echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
           test "$("$DOTNET_ROOT/dotnet" --version)" = "$DOTNET_SDK_VERSION"
 
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: prototypes/inspect-web/package-lock.json
-
       - name: Install browser Wasm workload
         shell: bash
         run: |
           set -euo pipefail
-          dotnet workload install wasm-tools \
+          dotnet workload install "$INSPECT_WEB_RUNTIME_WORKLOAD" \
             --skip-manifest-update \
             --source "$DOTNET_DAILY_FEED" \
             --source "$DOTNET_NUGET_FEED"
@@ -99,21 +102,18 @@ jobs:
 
           test "$(dotnet --version)" = "$DOTNET_SDK_VERSION"
           test "$(dotnet --list-runtimes | awk '$1 == "Microsoft.NETCore.App" { print $2 }')" = "$DOTNET_RUNTIME_VERSION"
-          manifest="$DOTNET_ROOT/sdk-manifests/$DOTNET_SDK_FEATURE_BAND/microsoft.net.workload.mono.toolchain.current/$DOTNET_SDK_VERSION/WorkloadManifest.json"
+          manifest="$DOTNET_ROOT/sdk-manifests/$DOTNET_SDK_FEATURE_BAND/$INSPECT_WEB_RUNTIME_WORKLOAD_MANIFEST/$DOTNET_SDK_VERSION/WorkloadManifest.json"
           jq -e \
             --arg sdk "$DOTNET_SDK_VERSION" \
             --arg runtime "$DOTNET_RUNTIME_VERSION" \
+            --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+            --slurpfile pin inspect-web/runtime-cohort-pin.json \
             '
               . as $manifest
-              | .workloads["wasm-tools"].packs as $packs
+              | $pin[0] as $pin
+              | .workloads[$workload].packs as $packs
               | .version == $sdk
-                and $packs == [
-                  "Microsoft.NET.Runtime.WebAssembly.Sdk.net11",
-                  "Microsoft.NET.Sdk.WebAssembly.Pack.net11",
-                  "Microsoft.NETCore.App.Runtime.Mono.net11.browser-wasm",
-                  "Microsoft.NETCore.App.Runtime.net11.browser-wasm",
-                  "Microsoft.NETCore.App.Runtime.AOT.Cross.net11.browser-wasm"
-                ]
+                and $packs == $pin.workload.packIds
                 and all($packs[]; . as $id | $manifest.packs[$id].version == $runtime)
             ' "$manifest" >/dev/null
 
@@ -124,13 +124,20 @@ jobs:
             Microsoft.NETCore.App.Runtime.AOT.linux-x64.Cross.browser-wasm; do
             test -d "$DOTNET_ROOT/packs/$pack/$DOTNET_RUNTIME_VERSION"
           done
-          test -f "$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$DOTNET_RUNTIME_VERSION.nupkg"
+          webassembly_pack_nupkg="$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$DOTNET_RUNTIME_VERSION.nupkg"
+          test -f "$webassembly_pack_nupkg"
+          vmr_repository=$(unzip -p "$webassembly_pack_nupkg" '*.nuspec' \
+            | sed -n 's/.*<repository[^>]*url="\([^"]*\)"[^>]*>.*/\1/p')
+          vmr_commit=$(unzip -p "$webassembly_pack_nupkg" '*.nuspec' \
+            | sed -n 's/.*<repository[^>]*commit="\([^"]*\)"[^>]*>.*/\1/p')
+          test "$vmr_repository" = "$DOTNET_VMR_REPOSITORY"
+          test "$vmr_commit" = "$DOTNET_VMR_COMMIT"
 
           target_framework=$(dotnet msbuild \
-            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -getProperty:TargetFramework \
             -nologo)
-          test "$target_framework" = "net11.0"
+          test "$target_framework" = "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK"
           runtime_pack="$DOTNET_ROOT/packs/Microsoft.NETCore.App.Runtime.browser-wasm/$DOTNET_RUNTIME_VERSION/runtimes/browser-wasm/native"
           native_wasm_sha256=$(sha256sum "$runtime_pack/dotnet.native.wasm" | awk '{print $1}')
           native_javascript_sha256=$(sha256sum "$runtime_pack/dotnet.native.js" | awk '{print $1}')
@@ -142,13 +149,16 @@ jobs:
             --arg daily_feed "$DOTNET_DAILY_FEED" \
             --arg nuget_feed "$DOTNET_NUGET_FEED" \
             --arg target_framework "$target_framework" \
+            --arg vmr_commit "$vmr_commit" \
+            --arg vmr_repository "$vmr_repository" \
             --arg native_wasm_sha256 "$native_wasm_sha256" \
             --arg native_javascript_sha256 "$native_javascript_sha256" \
+            --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
             '
               . as $manifest
-              | .workloads["wasm-tools"].packs as $packs
+              | .workloads[$workload].packs as $packs
               | {
-                  schema: 1,
+                  schema: 2,
                   sdk: {
                     version: $sdk,
                     featureBand: $feature_band
@@ -157,6 +167,10 @@ jobs:
                     name: "Microsoft.NETCore.App",
                     version: $runtime,
                     implementation: "CoreCLR",
+                    source: {
+                      repository: $vmr_repository,
+                      commit: $vmr_commit
+                    },
                     assets: {
                       nativeWasmSha256: $native_wasm_sha256,
                       nativeJavaScriptSha256: $native_javascript_sha256
@@ -169,7 +183,7 @@ jobs:
                     wasmBuildNative: false
                   },
                   workload: {
-                    id: "wasm-tools",
+                    id: $workload,
                     manifestVersion: .version,
                     sources: [$daily_feed, $nuget_feed],
                     packs: [
@@ -184,10 +198,11 @@ jobs:
             ' "$manifest" > "$cohort_dir/runtime-cohort.json"
 
       - name: Build browser frontend
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         run: |
           npm ci
           npm run build
+          npx playwright install --with-deps firefox
           grep -q '<script type="importmap"></script>' dist/index.html
           grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
 
@@ -222,10 +237,10 @@ jobs:
             </packageSourceMapping>
           </configuration>
           EOF
-          version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
+          version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
-            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output artifacts/inspect-web-coreclr-publish \
             --configfile "$nuget_config" \
@@ -253,15 +268,22 @@ jobs:
           RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
             eng/verify-inspect-web-async-deployment.sh \
               runtime \
-              prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
+              inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
               artifacts/inspect-web-coreclr-publish/wwwroot \
               artifacts/inspect-web-coreclr-publish/async-lowering.json \
               artifacts/inspect-web-runtime-async-receipts
 
-      - name: Publish MSDL managed API
+      - name: Test CoreCLR package operation
+        shell: bash
+        run: |
+          INSPECT_WEB_PACKAGE_ADOPTION_SITE="$GITHUB_WORKSPACE/artifacts/inspect-web-coreclr-publish/wwwroot" \
+            eng/test-inspect-web-package-adoption-gate.sh \
+              --grep 'drives the production opening, join, occurrence, and rejection contracts'
+
+      - name: Publish Inspect Web managed API
         run: >
           dotnet publish
-          prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj
+          inspect-web/msdl-proxy/MsdlProxy.csproj
           -c Release
           --output artifacts/inspect-web-coreclr-publish/api
 
@@ -290,13 +312,13 @@ jobs:
             and .repository_projects == (.repository_projects | sort | unique)
             and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
             and ([.assemblies[].name] == [
-              "InspectWeb.Engine",
-              "InspectWeb.Engine.AnalysisExports",
-              "InspectWeb.Engine.CallGraphExports",
-              "InspectWeb.Engine.CatalogExports",
-              "InspectWeb.Engine.MetadataExports",
-              "InspectWeb.Engine.PackageExports",
-              "InspectWeb.Engine.SourceExports"
+              "DotnetInspect.Web",
+              "DotnetInspect.Web.Interop.Analysis",
+              "DotnetInspect.Web.Interop.CallGraph",
+              "DotnetInspect.Web.Interop.Catalog",
+              "DotnetInspect.Web.Interop.Metadata",
+              "DotnetInspect.Web.Interop.Package",
+              "DotnetInspect.Web.Interop.Source"
             ])
             and ([.assemblies[].module] == [
               "inspect-web-host",
@@ -318,7 +340,7 @@ jobs:
               and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
               and .webcil_assembly == .name
               and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
-              and (.published_webcil_file | test("^InspectWeb\\.Engine(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+              and (.published_webcil_file | test("^DotnetInspect\\.Web(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
               and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
               and .js_export_method_count > 0
               and .async_method_count > 0
@@ -378,53 +400,47 @@ jobs:
           cohort=artifacts/inspect-web-coreclr-publish/runtime-cohort
           test -f "$cohort/dotnet-info.txt"
           test -f "$cohort/workload-list.txt"
-          jq -e '
-            .schema == 1
+          jq -e \
+            --arg sdk "$DOTNET_SDK_VERSION" \
+            --arg feature_band "$DOTNET_SDK_FEATURE_BAND" \
+            --arg runtime "$DOTNET_RUNTIME_VERSION" \
+            --arg repository "$DOTNET_VMR_REPOSITORY" \
+            --arg commit "$DOTNET_VMR_COMMIT" \
+            --arg target_framework "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK" \
+            --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+            --arg daily_feed "$DOTNET_DAILY_FEED" \
+            --arg nuget_feed "$DOTNET_NUGET_FEED" \
+            --slurpfile pin inspect-web/runtime-cohort-pin.json \
+            '
+            .schema == 2
             and .sdk == {
-              version: "12.0.100-alpha.1.26454.116",
-              featureBand: "12.0.100-alpha.1"
+              version: $sdk,
+              featureBand: $feature_band
             }
             and .runtime.name == "Microsoft.NETCore.App"
-            and .runtime.version == "12.0.0-alpha.1.26454.116"
+            and .runtime.version == $runtime
             and .runtime.implementation == "CoreCLR"
+            and .runtime.source == {
+              repository: $repository,
+              commit: $commit
+            }
             and (.runtime.assets.nativeWasmSha256 | test("^[0-9a-f]{64}$"))
             and (.runtime.assets.nativeJavaScriptSha256 | test("^[0-9a-f]{64}$"))
-            and .targetFramework == "net11.0"
+            and .targetFramework == $target_framework
             and .configuration == {
               asyncLowering: "runtime",
               publishReadyToRun: false,
               wasmBuildNative: false
             }
-            and .workload == {
-              id: "wasm-tools",
-              manifestVersion: "12.0.100-alpha.1.26454.116",
-              sources: [
-                "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json",
-                "https://api.nuget.org/v3/index.json"
-              ],
-              packs: [
-                {
-                  id: "Microsoft.NET.Runtime.WebAssembly.Sdk.net11",
-                  version: "12.0.0-alpha.1.26454.116"
-                },
-                {
-                  id: "Microsoft.NET.Sdk.WebAssembly.Pack.net11",
-                  version: "12.0.0-alpha.1.26454.116"
-                },
-                {
-                  id: "Microsoft.NETCore.App.Runtime.Mono.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
-                },
-                {
-                  id: "Microsoft.NETCore.App.Runtime.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
-                },
-                {
-                  id: "Microsoft.NETCore.App.Runtime.AOT.Cross.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
-                }
-              ]
-            }
+            and .workload.id == $workload
+            and .workload.manifestVersion == $sdk
+            and .workload.sources == [$daily_feed, $nuget_feed]
+            and .workload.packs == [
+              $pin[0].workload.packIds[] | {
+                id: .,
+                version: $runtime
+              }
+            ]
           ' "$cohort/runtime-cohort.json" >/dev/null
           test "$(sha256sum "$site"/_framework/dotnet.native.*.wasm | awk '{print $1}')" = \
             "$(jq -r '.runtime.assets.nativeWasmSha256' "$cohort/runtime-cohort.json")"
@@ -473,13 +489,13 @@ jobs:
             and .repository_projects == (.repository_projects | sort | unique)
             and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
             and ([.assemblies[].name] == [
-              "InspectWeb.Engine",
-              "InspectWeb.Engine.AnalysisExports",
-              "InspectWeb.Engine.CallGraphExports",
-              "InspectWeb.Engine.CatalogExports",
-              "InspectWeb.Engine.MetadataExports",
-              "InspectWeb.Engine.PackageExports",
-              "InspectWeb.Engine.SourceExports"
+              "DotnetInspect.Web",
+              "DotnetInspect.Web.Interop.Analysis",
+              "DotnetInspect.Web.Interop.CallGraph",
+              "DotnetInspect.Web.Interop.Catalog",
+              "DotnetInspect.Web.Interop.Metadata",
+              "DotnetInspect.Web.Interop.Package",
+              "DotnetInspect.Web.Interop.Source"
             ])
             and ([.assemblies[].module] == [
               "inspect-web-host",
@@ -501,7 +517,7 @@ jobs:
               and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
               and .webcil_assembly == .name
               and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
-              and (.published_webcil_file | test("^InspectWeb\\.Engine(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+              and (.published_webcil_file | test("^DotnetInspect\\.Web(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
               and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
               and .js_export_method_count > 0
               and .async_method_count > 0
@@ -561,53 +577,47 @@ jobs:
           cohort=artifacts/inspect-web-coreclr-publish/runtime-cohort
           test -f "$cohort/dotnet-info.txt"
           test -f "$cohort/workload-list.txt"
-          jq -e '
-            .schema == 1
+          jq -e \
+            --arg sdk "$DOTNET_SDK_VERSION" \
+            --arg feature_band "$DOTNET_SDK_FEATURE_BAND" \
+            --arg runtime "$DOTNET_RUNTIME_VERSION" \
+            --arg repository "$DOTNET_VMR_REPOSITORY" \
+            --arg commit "$DOTNET_VMR_COMMIT" \
+            --arg target_framework "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK" \
+            --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+            --arg daily_feed "$DOTNET_DAILY_FEED" \
+            --arg nuget_feed "$DOTNET_NUGET_FEED" \
+            --slurpfile pin inspect-web/runtime-cohort-pin.json \
+            '
+            .schema == 2
             and .sdk == {
-              version: "12.0.100-alpha.1.26454.116",
-              featureBand: "12.0.100-alpha.1"
+              version: $sdk,
+              featureBand: $feature_band
             }
             and .runtime.name == "Microsoft.NETCore.App"
-            and .runtime.version == "12.0.0-alpha.1.26454.116"
+            and .runtime.version == $runtime
             and .runtime.implementation == "CoreCLR"
+            and .runtime.source == {
+              repository: $repository,
+              commit: $commit
+            }
             and (.runtime.assets.nativeWasmSha256 | test("^[0-9a-f]{64}$"))
             and (.runtime.assets.nativeJavaScriptSha256 | test("^[0-9a-f]{64}$"))
-            and .targetFramework == "net11.0"
+            and .targetFramework == $target_framework
             and .configuration == {
               asyncLowering: "runtime",
               publishReadyToRun: false,
               wasmBuildNative: false
             }
-            and .workload == {
-              id: "wasm-tools",
-              manifestVersion: "12.0.100-alpha.1.26454.116",
-              sources: [
-                "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json",
-                "https://api.nuget.org/v3/index.json"
-              ],
-              packs: [
-                {
-                  id: "Microsoft.NET.Runtime.WebAssembly.Sdk.net11",
-                  version: "12.0.0-alpha.1.26454.116"
-                },
-                {
-                  id: "Microsoft.NET.Sdk.WebAssembly.Pack.net11",
-                  version: "12.0.0-alpha.1.26454.116"
-                },
-                {
-                  id: "Microsoft.NETCore.App.Runtime.Mono.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
-                },
-                {
-                  id: "Microsoft.NETCore.App.Runtime.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
-                },
-                {
-                  id: "Microsoft.NETCore.App.Runtime.AOT.Cross.net11.browser-wasm",
-                  version: "12.0.0-alpha.1.26454.116"
-                }
-              ]
-            }
+            and .workload.id == $workload
+            and .workload.manifestVersion == $sdk
+            and .workload.sources == [$daily_feed, $nuget_feed]
+            and .workload.packs == [
+              $pin[0].workload.packIds[] | {
+                id: .,
+                version: $runtime
+              }
+            ]
           ' "$cohort/runtime-cohort.json" >/dev/null
           test "$(sha256sum "$site"/_framework/dotnet.native.*.wasm | awk '{print $1}')" = \
             "$(jq -r '.runtime.assets.nativeWasmSha256' "$cohort/runtime-cohort.json")"

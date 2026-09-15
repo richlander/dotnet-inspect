@@ -44,10 +44,17 @@ source location must not be inferred from a project or assembly name. Shared
 compiled specimen types live separately under
 `fixtures/shared/DotnetInspector.Fixtures`.
 
-Existing standalone fixtures are moving from `src/` and `tests/` into the
-top-level tree through owner-scoped slices tracked by
-[#5694](https://github.com/richlander/dotnet-inspect/issues/5694). New fixture
-projects and fixtures moved for other reasons use the target layout now.
+The owner-scoped migration tracked by
+[#5694](https://github.com/richlander/dotnet-inspect/issues/5694) established
+this layout for existing standalone fixtures and test executables. New fixture
+projects and fixtures moved for other reasons use the same layout.
+
+The permanent repository gate is intentionally partial.
+`DotnetInspector.FixtureInfrastructure.Tests` requires every cataloged fixture
+project path to use `fixtures/<owner>/` and requires projects in role-named
+solution folders to use the matching repository root. It does not infer the
+role of every project outside the solution or classify test-local inputs;
+those distinctions remain governed here and in review.
 
 ## Project-boundary rule
 

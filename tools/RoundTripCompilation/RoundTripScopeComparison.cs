@@ -31,7 +31,7 @@ public sealed record RoundTripScopeComparisonResult(
 
 public static class RoundTripScopeComparison
 {
-    public static RoundTripScopeComparisonResult Compare(
+    public static async Task<RoundTripScopeComparisonResult> CompareAsync(
         RoundTripRequest clusterRequest,
         RoundTripCompilationProvenance clusterContext,
         byte[] clusterPe,
@@ -55,8 +55,8 @@ public static class RoundTripScopeComparison
         if (!SameCompilationContext(clusterContext, allContext))
             return Unavailable("scope pair compiler or reference context differs");
 
-        var cluster = RoundTripComparison.Compare(clusterRequest, clusterPe, clusterContext);
-        var all = RoundTripComparison.Compare(allRequest, allPe, allContext);
+        var cluster = await RoundTripComparison.CompareAsync(clusterRequest, clusterPe, clusterContext);
+        var all = await RoundTripComparison.CompareAsync(allRequest, allPe, allContext);
         if (cluster.Status != RoundTripComparisonStatus.Completed
             || all.Status != RoundTripComparisonStatus.Completed)
         {
@@ -76,7 +76,7 @@ public static class RoundTripScopeComparison
             File.WriteAllBytes(allPath, allPe);
             using var clusterSource = DecompilerMetadataSource.OpenWithoutSymbols(clusterPath);
             using var allSource = DecompilerMetadataSource.OpenWithoutSymbols(allPath);
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
             var query = new RoundTripComparisonQuery(workspace, clusterSource, allSource);
             var members = ImmutableArray.CreateBuilder<RoundTripScopeMemberComparison>();
             foreach (var target in clusterRequest.Targets)

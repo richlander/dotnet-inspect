@@ -94,8 +94,6 @@ public sealed partial class InspectionWorkspace
         ArgumentNullException.ThrowIfNull(authority);
         options ??= new PackageAssemblyContextRealizationOptions();
         options.Validate();
-        if (_lifetimeMode != InspectionWorkspaceLifetimeMode.Asynchronous)
-            throw new InvalidOperationException("Root preparation requires an asynchronous Workspace.");
         if (authority.CandidateSet is null
             || packages.IsDefaultOrEmpty || packages.Any(static p => p is null)
             || !FiniteDeadline(authority.Deadline))

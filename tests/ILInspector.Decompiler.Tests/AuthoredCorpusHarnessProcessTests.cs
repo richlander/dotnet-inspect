@@ -6,8 +6,13 @@ using ILInspector.Instructions;
 using ILInspector.Research;
 using System.Diagnostics;
 using System.Reflection;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
+
+using DotnetInspector.Fixtures;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -42,6 +47,7 @@ namespace ILInspector.Decompiler.Tests;
 /// because an earlier round shipped a regression that exited 1 for the wrong reason and
 /// an exit-code-only check read it as correct.</para>
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "Corpus")]
 public partial class AuthoredCorpusHarnessProcessTests
 {
@@ -848,6 +854,98 @@ public partial class AuthoredCorpusHarnessProcessTests
 
         Assert.Equal(0, run.ExitCode);
         Assert.Contains("usage: decompiler-harness", run.Output, StringComparison.Ordinal);
+        Assert.Contains("select rts-native", run.Output, StringComparison.Ordinal);
+        Assert.Contains("(default; aliases:", run.Output, StringComparison.Ordinal);
+        Assert.Contains("or a legacy reference pass", run.Output, StringComparison.Ordinal);
+        Assert.Contains("Use rts-cutover", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Harness_DefaultCorpusFidelityOracle_UsesNativeWithoutLegacyComparison()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"corpus-default-oracle-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string snapshot = Path.Combine(directory, "corpus.json");
+            HarnessRun run = RunHarness(
+                FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+                "--emit-corpus-snapshot",
+                snapshot,
+                "--compile-cap",
+                "0",
+                "--corpus-fidelity-cap",
+                "1",
+                "--corpus-method-cap",
+                "10",
+                "--max-examples",
+                "1");
+
+            Assert.Equal(0, run.ExitCode);
+            var baseline = CorpusSensor.ReadBaselineForTesting(snapshot);
+            var sampled = Assert.Single(
+                baseline.Methods!,
+                method => method.FidelityCheck != "not-sampled");
+            Assert.Equal(CorpusFidelityOracle.ReturnToSenderNative, baseline.FidelityOracle);
+            Assert.Equal(1, baseline.Metrics.Fidelity.CheckedMethods);
+            Assert.Equal(
+                "return-to-sender-native; compile-back-floor=false",
+                sampled.FidelityCapture);
+            Assert.Null(sampled.FidelityReference);
+            Assert.Null(baseline.Metrics.Fidelity.ReturnToSenderCutover);
+            Assert.NotNull(baseline.RunIdentity);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("rts-native")]
+    [InlineData("return-to-sender")]
+    [InlineData("rts")]
+    [InlineData("native-rts")]
+    public void Harness_NativeCorpusFidelityAliases_UseNativeWithoutLegacyComparison(
+        string oracle)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"corpus-native-oracle-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string snapshot = Path.Combine(directory, "corpus.json");
+            HarnessRun run = RunHarness(
+                FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+                "--emit-corpus-snapshot",
+                snapshot,
+                "--compile-cap",
+                "0",
+                "--corpus-fidelity-cap",
+                "1",
+                "--corpus-fidelity-oracle",
+                oracle,
+                "--corpus-method-cap",
+                "10",
+                "--max-examples",
+                "1");
+
+            Assert.Equal(0, run.ExitCode);
+            var baseline = CorpusSensor.ReadBaselineForTesting(snapshot);
+            var sampled = Assert.Single(
+                baseline.Methods!,
+                method => method.FidelityCheck != "not-sampled");
+            Assert.Equal(CorpusFidelityOracle.ReturnToSenderNative, baseline.FidelityOracle);
+            Assert.Null(sampled.FidelityReference);
+            Assert.Null(baseline.Metrics.Fidelity.ReturnToSenderCutover);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -1781,7 +1879,75 @@ public partial class AuthoredCorpusHarnessProcessTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
+    public void AggregatePassReportsRefuseUnavailableMemorySafetyMode()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"aggregate-mode-admission-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string assembly = Path.Combine(directory, "UnsupportedRules.dll");
+            File.WriteAllBytes(
+                assembly,
+                WithMemorySafetyRulesVersion(
+                    File.ReadAllBytes(
+                        FixtureCatalog.DecompilerUnsafeNew.AssemblyPath()),
+                    version: 99));
+            string snapshot = Path.Combine(directory, "corpus.json");
+
+            string[][] commands =
+            [
+                [assembly],
+                [assembly, "--gaps"],
+                [assembly, "--unsupported-nodes", "--json"],
+                [assembly, "--type-check"],
+                [assembly, "--bind-check"],
+                [
+                    assembly,
+                    "--emit-corpus-snapshot",
+                    snapshot,
+                    "--corpus-method-cap",
+                    "1",
+                ],
+            ];
+
+            foreach (string[] command in commands)
+            {
+                HarnessRun run = RunHarness(command);
+
+                Assert.Equal(1, run.ExitCode);
+                Assert.Contains(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    run.Output,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "module memory-safety rules are Unsupported",
+                    run.Output,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "aggregate report was not run",
+                    run.Output,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "next:",
+                    run.Output,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "\"TotalMethods\"",
+                    run.Output,
+                    StringComparison.Ordinal);
+            }
+
+            Assert.False(File.Exists(snapshot));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Harness_SourceCorrespondenceCensusPopulatesPdbSource()
     {
         string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();
@@ -1891,5 +2057,30 @@ public partial class AuthoredCorpusHarnessProcessTests
                 + "`dotnet build tools/DecompilerHarness -c Release`.");
 
         return path;
+    }
+
+    static byte[] WithMemorySafetyRulesVersion(byte[] image, int version)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MemorySafetyRulesObservation observation = Assert.Single(
+            MemorySafetyMetadataIndex.Create(reader)
+                .Rules
+                .Observations);
+        CustomAttribute attribute = reader.GetCustomAttribute(
+            (CustomAttributeHandle)MetadataTokens.EntityHandle(
+                observation.AttributeToken));
+        byte[] original = reader.GetBlobBytes(attribute.Value);
+        int valueOffset = Assert.Single(
+            Enumerable.Range(0, image.Length - original.Length + 1),
+            offset => image
+                .AsSpan(offset, original.Length)
+                .SequenceEqual(original));
+        byte[] rewritten = [.. image];
+        BitConverter.TryWriteBytes(
+            rewritten.AsSpan(valueOffset + 2, sizeof(int)),
+            version);
+        return rewritten;
     }
 }

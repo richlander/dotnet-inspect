@@ -6,7 +6,6 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Research.Tests;
 
-[Collection(AnalysisIndexCacheCollection.Name)]
 public class ILOffsetProjectionProducerTests
 {
     [Fact]

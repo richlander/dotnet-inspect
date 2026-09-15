@@ -14,19 +14,44 @@ This is a design proposal. Implementation has begun: the `package`,
 selected context into exactly one `AssemblyContextGroup` now exist in product
 code. Product code also selects and realizes exact already-acquired package
 content into coordinated surface and implementation roles for Browser package
-workspaces. Schema version 2, packet format 2, complete view binding, and the
-restoration coordinator defined here are not yet implemented.
+workspaces. Browser home demos execute every selected preset through
+`RunHomeDemo`, apply its typed package or Platform activation, and publish the
+ordinary canonical Browser workspace only after the selected result is ready.
+CLI Platform demos use the same `WorkspaceContextLoader` implementation-pack
+realization before lowering the selected images into the ordinary type/member
+section pipeline.
+The query-free schema-version-2 record, strict JSON, same-version composition,
+schema dispatch, and runtime subject/context selector resolution are
+implemented. Query payload codecs, packet format 2, complete view binding, and
+the restoration coordinator defined here are not yet implemented. Issue
+[#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
+complete-restoration implementation; its first retained production consumer is
+Inspect Web activation
+[#7028](https://github.com/richlander/dotnet-inspect/issues/7028).
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
 below is **unverified** until the gates named in
 [Status and gates](#status-and-gates) exist.
 
+The common construction target is the
+[Workspace-Scope-owned `WorkspacePlan`](workspace-scope-and-expansion.md#workspaceplan-construction):
+this document's portable request and that invokable in-process representation
+sit at different altitudes, rather than compete as workspace descriptions.
+Registry scenario resolution now retains both its existing
+`ResolvedWorkspaceContext` values and one exact resource-free `WorkspacePlan`
+lowered from the same ordered package, platform, and embedded contexts.
+The resolved scenario keeps the selected `WorkspaceDefinition` beside that
+plan, while each caller constructs and closes its own fresh
+`InspectionWorkspace`. CLI and Browser adoption remain separate steps in the
+linked five-step construction subplan. This changes neither this owner's wire
+grammar nor its restoration contract.
+
 ## Purpose
 
 The initiative began with three consumers needing a portable workspace
 description and being served by none (the browser workbench described below
-lives in the main tree under `prototypes/inspect-web`; claims about it cite that
+lives in the main tree under `inspect-web`; claims about it cite that
 implementation):
 
 - The browser workbench's home demos were hand-authored base64 URL strings, and
@@ -78,17 +103,22 @@ Adjacent owners remain independent:
 - Query owners define each query ID, payload shape, selector requirements, and
   portable payload codec.
 - [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
-  renders owner-issued state. [Inspect Web Navigation
-  Consumer](inspect-web-navigation-consumer.md) and the retained Inspect Web host
-  own the published Workspace collection, active identity, post-result
-  effect-authority validation, snapshot/history commitment, switching,
-  deletion, and result-authorized focus/announcement ordering.
+  renders owner-issued state.
+  [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) owns
+  post-result effect-authority validation, canonical location and history
+  commitment, atomic Navigation-result installation, focus, announcement,
+  acknowledgement, and abandonment ordering.
+  [Inspect Web Retained Workspace
+  Realization](inspect-web-retained-workspace-realization.md) owns the Browser
+  retained-definition collection, exact active realization association,
+  selection, deletion, and the activation outcome supplied to Navigation
+  Consumer.
 
 This owner composes those contracts without redefining them. In particular, a
 portable packet does not make a browser label canonical, and restoration does
-not choose a browser-history write. The coordinator issues no independent
-epoch or effect authority: it consumes the retained host's current intent
-authority and carries only owner-issued activation and Navigation authority.
+not choose a browser-history write. Restoration issues no independent effect
+authority. Browser host intent, realization-coordinator attempt identity, and
+Navigation effect authority remain separate owner-issued currencies.
 
 ## Decisions
 
@@ -119,12 +149,15 @@ authority and carries only owner-issued activation and Navigation authority.
    format 2.** Version 1 remains an immutable legacy contract. Version 2 uses
    one canonical View Facet Registry ID field, one retained view state per
    open coordinate, and no browser lens, member-section, label, or CLI alias.
-7. **Restoration constructs, publishes, and activates one fresh Workspace.**
-   Ordinary owner APIs populate and validate an unpublished Workspace from one
-   immutable canonical request. Failure, supersession, or `ProjectionFailed`
-   closes that Workspace. A completely prepared projectable or validly
-   non-projectable Workspace may join the retained collection and become active
-   under current host authority; existing published Workspaces remain open.
+7. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
+   Resource-free phases produce one immutable `WorkspacePlan` and complete
+   restoration recipe. The consuming host supplies the fresh Workspace
+   construction authority for that exact plan; ordinary owner APIs populate
+   and validate it. Failure, supersession, or `ProjectionFailed` releases that
+   construction authority. A completely prepared projectable or validly
+   non-projectable Workspace may become the host's active realization under
+   current authority. Retention, candidate cutover, and predecessor drainage
+   remain host and realization-coordinator concerns.
 
 ## The definition schema
 
@@ -189,8 +222,8 @@ it:
 ```
 
 Next, the authoring examples — what a demo author writes. A workspace
-definition subscribes by reference; the System.Text.Json demo needs only
-the platform and one package, so no custom group is involved at all:
+definition names the exact Runtime Platform assembly directly, so the
+System.Text.Json demo needs no package coordinate or custom group:
 
 ```json
 {
@@ -198,14 +231,13 @@ the platform and one package, so no custom group is involved at all:
   "kind": "workspace",
   "id": "stj-serializer-tour",
   "title": "System.Text.Json serializer tour",
-  "description": "JsonSerializer surface with the platform in scope.",
+  "description": "JsonSerializer surface from the Runtime Platform.",
   "contexts": [
     {
       "name": "stj",
-      "subscribe": ":Platform@10.0.10",
       "framework": "net10.0",
       "members": [
-        { "kind": "package", "id": "System.Text.Json", "version": "10.0.0", "framework": "net10.0" }
+        { "kind": "platform", "family": "runtime", "assembly": "System.Text.Json", "version": "10.0.12", "framework": "net10.0" }
       ]
     }
   ]
@@ -231,16 +263,12 @@ Its view and navigation presets are peer authored records:
   "id": "serializer-navigation",
   "tabs": [
     {
-      "id": "platform",
-      "subscribe": ":Platform@10.0.10",
-      "framework": "net10.0"
-    },
-    {
       "id": "stj",
       "coordinate": {
-        "kind": "package",
-        "id": "System.Text.Json",
-        "version": "10.0.0",
+        "kind": "platform",
+        "family": "runtime",
+        "assembly": "System.Text.Json",
+        "version": "10.0.12",
         "framework": "net10.0"
       }
     }
@@ -417,8 +445,8 @@ claim.
 ### Complete committed views
 
 Definition schema version 2 replaces the flat version-1 view with one
-committed state for every entry in the scenario's navigation record. This is
-the long-form shape:
+null-coordinate Workspace state followed by one state for every entry in the
+scenario's navigation record. This is the query-free long-form shape:
 
 ```json
 {
@@ -427,11 +455,18 @@ the long-form shape:
   "id": "serializer-views",
   "states": [
     {
-      "navigation": "platform"
+      "navigation": null,
+      "subject": {
+        "kind": "workspace"
+      },
+      "facet": "workspace.overview"
     },
     {
       "navigation": "stj",
       "subject": {
+        "kind": "workspace"
+      },
+      "context": {
         "kind": "member",
         "library": {
           "name": "System.Text.Json",
@@ -445,32 +480,26 @@ the long-form shape:
         },
         "memberAnchor": "74b6b4b321"
       },
-      "facet": "member.call-graph",
-      "queries": ["member-callers"]
+      "facet": "workspace.overview"
     }
   ]
 }
 ```
 
-A version-2 query record has the common closed envelope
-`schemaVersion`, `kind`, `id`, required `queryId`, and required `payload`.
-`payload` is one JSON object whose complete nested shape belongs to the
-registered query owner. Workspace Definitions dispatches by exact `queryId`
-to that owner's version-2 parser and canonical writer; an unknown ID or
-missing codec fails before any payload field is interpreted. An empty object
-is valid only when that query owner explicitly defines it. This keeps record
-composition and packet transposition common while preventing a generic
-property bag from bypassing query-owned validation. Dispatch is one static
-product registry over inert IDs; packet text never becomes a reflection name,
-dependency-injection key, path, URI, or dynamic provider lookup.
+The version-2 navigation record retains the version-1 ordered tab shape but
+requires a present nullable `focus`. `null` selects the leading Workspace
+state with no active Package occurrence. A non-null focus must equal one exact
+direct Package-coordinate tab ID. Group subscriptions and Platform, embedded,
+project, local, or directory coordinates remain valid dormant inventory but
+cannot be focused in schema version 2.
 
-`states` has exactly one entry for every tab ID in the composed version-2
-navigation record. Entries use navigation order, and `navigation` must equal
-the corresponding tab ID; a missing, duplicated, reordered, unknown, or
-foreign tab reference is an invalid definition set. The active coordinate is
-still `navigation.focus`. It receives no second active flag in the view.
-Inactive entries remain committed state rather than being collapsed into the
-active entry.
+`states` has exactly one leading entry whose required `navigation` value is
+`null`, followed by exactly one entry for every tab ID in navigation order.
+Each non-null `navigation` value must equal the corresponding tab ID. A
+missing, duplicated, reordered, unknown, or foreign tab reference is an
+invalid definition set. Focus receives no second active flag in the view.
+Inactive entries remain committed requested state rather than being collapsed
+into the active entry.
 
 The table retains requested portable state, not one retained Navigation
 session per coordinate. Only `navigation.focus` has an installed Navigation
@@ -482,11 +511,16 @@ not construct another Workspace.
 
 Each state has these fields:
 
-- `navigation` is the exact record-local tab ID whose coordinate owns the
-  state.
-- `subject` is optional. Absence asks Inspection Subject Navigation for its
-  initial-subject recommendation after that coordinate is realized. Presence
-  requests one exact portable structural subject.
+- `navigation` is required and is either `null` for the leading Workspace row
+  or the exact record-local tab ID whose coordinate owns the state.
+- `subject` is optional and is one closed `workspace` or `package` request.
+  Absence asks Inspection Subject Navigation for its initial-subject
+  recommendation. A `package` subject requires retained Package context.
+- `context` is optional retained occurrence context. Its Package ancestry is
+  the owning direct Package-coordinate row. The selector is `package`,
+  `allLibraries`, or one exact Library/Type/Member path. It is independent
+  from the active subject, so a Workspace subject may retain a descendant
+  context. A subject-less state may retain only Package context.
 - `facet` is an optional exact View Facet Registry ID. It is valid only with a
   present subject. Absence requests Navigation's recommendation for that exact
   subject, or accompanies absent `subject` so initial subject and facet are
@@ -498,12 +532,14 @@ Each state has these fields:
   result-affecting filter and every owner-issued body or source-target
   refinement. A query owner supplies the closed payload, canonical
   serializer, and exact selector validation; Workspace Definitions does not
-  reinterpret its fields.
+  reinterpret its fields. The query-free schema-version-2 record slice rejects
+  every nonempty query list until #6971 supplies those owner codecs.
 - `libraries` is an optional unique, canonically ordered list of
   `PortableLibraryIdentity` values used as query scope. It is not the active
   Library subject and does not select one. It requires at least one referenced
   query whose public owner-issued descriptor declares that it consumes
-  state-level multi-Library scope; it is invalid without such a query.
+  state-level multi-Library scope; it is therefore absent in the query-free
+  slice.
 
 Every result-affecting committed value is therefore either structural state
 spelled here or typed query state. Presentation-only disclosure, focus, hover,
@@ -515,17 +551,38 @@ identity and version-2 codec. Otherwise the state is `NonProjectable`; the
 transposer never serializes a Browser `selectedOverloadIndex`, metadata token
 alone, display name, or host object key.
 
-#### Portable subject selectors
+The leading Workspace row cannot carry retained Package context and cannot
+request a Package subject. A non-Package navigation row is undecorated: it
+carries only its `navigation` field, with no subject, context, facet, query, or
+Library scope. These rows preserve ordered inventory without inventing a
+structural grammar or Package ancestry for a source that does not have one.
+
+#### Portable subject and context selectors
 
 The `subject` object is a closed tagged union:
 
-| `kind` | Required fields | Forbidden fields | Structural subject |
+| `kind` | Structural subject |
+| --- | --- |
+| `workspace` | The fresh realized Workspace |
+| `package` | The exact Package occurrence owned by this state row |
+
+The optional `context` object is a separate closed tagged union:
+
+| `kind` | Required fields | Forbidden fields | Retained path |
 | --- | --- | --- | --- |
-| `root` | none | `library`, `type`, member selector | Realized coordinate Root |
-| `allLibraries` | none | `library`, `type`, member selector | Explicit aggregate Library |
-| `library` | `library` | `type`, member selector | One acquired Library |
-| `type` | `library`, `type` | member selector | One exact Type |
-| `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | One exact Member |
+| `package` | none | `library`, `type`, member selector | Exact Package occurrence |
+| `allLibraries` | none | `library`, `type`, member selector | Package plus aggregate Library |
+| `library` | `library` | `type`, member selector | Package plus one acquired Library |
+| `type` | `library`, `type` | member selector | Package, Library, and exact Type |
+| `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | Package, Library, Type, and exact Member |
+
+The active subject and retained context are independent. When the active
+subject is Workspace, any valid retained context may be present. When the
+active subject is Package, retained context is required and the subject is the
+Package node in that path. When the active subject is absent, retained context
+may contain only the Package node. Type-inventory Library context is not a
+separate portable field; Navigation derives it from the retained path and
+current realized facts.
 
 `library` is one closed `PortableLibraryIdentity`:
 
@@ -590,10 +647,15 @@ descriptors and applies these rules before restoration may commit:
 | Subject request | Facet requirement | Query requirement |
 | --- | --- | --- |
 | Absent | `facet` and `queries` absent | Initial subject and facet recommendation |
-| Root | Known applicable Root facet, or absent for recommendation | Every referenced query declares Root input |
-| All Libraries or one Library | Known applicable Library facet, or absent for recommendation | Every referenced query declares the matching aggregate or exact-Library input |
-| Type | Known applicable Type facet, or absent for recommendation | Every referenced query declares Type input for the exact Library and Type |
-| Member | Known applicable Member facet, or absent for recommendation | Every referenced query declares Member input for the exact Member |
+| Workspace | Known applicable Workspace facet, or absent for recommendation | Every referenced query declares Workspace input |
+| Package | Known applicable Package facet, or absent for recommendation | Every referenced query declares Package input for the exact occurrence |
+
+Retained Library, Type, or Member context does not change the active
+subject's structural kind. A Workspace facet remains Workspace-scoped when the
+same state retains Member context, and a Package facet remains Package-scoped
+when the retained path reaches a descendant. A query owner may consume that
+retained path only through its declared version-2 inputs; Workspace
+Definitions never promotes retained context into a different active subject.
 
 When `facet` is present, exact Registry resolution occurs against the resolved
 subject. `Unknown` and `Inapplicable` are invalid portable combinations.
@@ -782,12 +844,12 @@ section; CLI and browser encodings consume that plan rather than parsing the
 member selection independently. **The current schema-version-1 home demos bind
 legacy product section display names** through
 `ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
-Graph` primary bind for multi-package and package-local graph demos, expanded
+Graph` primary bind for multi-source and focused graph demos, expanded
 at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
 `Call Graph` + `Callers`; table/tsv/jsonl select `Callers` when the demo has
 caller scope — MemberCommand re-adds Callers under caller scope, so
 Call Graph-only tabular would silently fall back to a member inventory — and
-select `Call Graph` when it does not, so package-local entry points with empty
+select `Call Graph` when it does not, so single-library entry points with empty
 Callers still emit rows; standalone `--mermaid` keeps `Call Graph`; document
 `--json` fails closed for Call Graph demos until graph sections project into
 that payload.
@@ -799,12 +861,10 @@ mermaid rather than falling through to the type shape tree. The
 [View Facet Registry](view-facet-registry.md) settles minted facet identity;
 schema version 2 and the explicit legacy table below settle versioned migration
 and complete view composition. `ecosystem.platform` is application grouping,
-not workspace-coordinate inference: the current System.Text.Json demos retain
-their exact package pins even when the ecosystem catalog groups them as basic
-Platform demos. Platform-coordinate workspaces remain a product capability but
-the shipped home demos do not adopt them in this slice. Browser run-plan and
-engine execution do admit exact, assembly-scoped Platform coordinates so the
-coordinate migration can occur without fabricating package inputs. A Browser
+not workspace-coordinate inference. The three System.Text.Json demos now
+declare exact, assembly-scoped Runtime Platform coordinates after exact prune
+evidence and the Platform catalog independently establish package subsumption
+and library availability. A Browser
 home-demo context is source-homogeneous; a Platform context uses only the
 supported `runtime` and `aspnetcore` families, one exact Platform version and
 target framework that agrees with the context-wide framework constraint, and
@@ -824,28 +884,62 @@ their exact canonical facet IDs before Registry resolution.
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
-package members as `--caller-package` for the call-graph demo. **inspect-web** loads home-demo metadata and exact scenario IDs from the
+package members as `--caller-package` for the call-graph demo. A Platform demo
+retains every exact family, version, framework, and assembly coordinate through
+`WorkspaceContextLoader`, then materializes the selected implementation images
+for the existing CLI section renderers. The focused image remains the command
+root; additional selected images enter the ordinary member caller-scope path
+through one temporary directory. The CLI does not inspect reference-pack stubs
+as implementation bodies or fabricate package coordinates for Platform
+members.
+
+The CLI common-plan adoption (#6836) constructs the live owner from the exact
+`ResolvedScenario.WorkspacePlan` and loads only the explicitly selected
+context's `ResolvedWorkspaceContext.Input`. That input is the exact immutable
+context retained by the plan, associated by Definitions with its document
+address and descriptor. Hosts need not reconstruct that association or
+rebuild acquisition inputs from display metadata or command options.
+Programmatically authored plans enter the same CLI Platform execution path;
+they do not need synthetic Definitions records. The live owner still has one
+awaited lifetime, and target failures remain the normal loader's visible
+failures. Package demos retain their existing ordinary package-command path.
+This adoption adds no new command syntax and does not complete Browser/Wasm
+plan adoption.
+
+`DemoCommandTests.ExecuteScenario_StjDefinitionAndProgrammaticPlanReturnSameMethods`
+gates equal real System.Text.Json Methods output for a JSON-defined scenario,
+an equivalent programmatic plan, and the shipped demo. Its second-context
+selection leaves an incompatible unselected context inert.
+`ExecutePlatformScenario_PreservesPlanTargetFailures` gates visible framework
+and runtime-identifier failures rather than repairing or dropping plan inputs.
+`ExecuteScenario_CallGraph_ReturnsDeclaredSectionSet` preserves the neighboring
+multi-Platform section pipeline.
+`InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`
+also gates exact context-input association.
+
+**inspect-web** loads home-demo metadata and exact scenario IDs from the
 ecosystem catalog through the browser engine (`ListHomeDemos` /
-`ResolveHomeDemo` / `RunHomeDemo`). The transfer replaced only the
-application-inventory source with flattened descriptors and exact selection;
-Workspace Definitions execution remains unchanged. `RunHomeDemo` accepts both
-type-only `Methods` and member-bound
-`Call Graph` presets: the engine resolves the workspace, focus, section, and
-optional member anchor, opens one aggregate browser workspace, and returns its
-ordinary browsable surfaces plus exact source-owner-issued activation identity.
-Package runs retain package identity; Platform runs retain family, assembly,
-version, and target-framework identity while using the shared Platform
-workspace, API-surface projection, and progressively acquired Call Graph path.
-Mixed package/Platform contexts remain unsupported until a product demo needs
-that composition. The focused
-`BrowserTypeSurface.Api` rows are the browser's ordinary Methods-section
-output; a member-bound run additionally returns the ordinary Call Graph
-projection. The engine rejects other product sections,
-library-scoped views, and runtime-identifier-scoped package workspaces until
-Browser has explicit execution support rather than silently dropping those
-bindings. These properties are gated by
+`RunHomeDemo`; `ResolveHomeDemo` remains a tooling/debug projection).
+Every selected home demo executes through `RunHomeDemo`; the host does not
+construct a share packet, rebuild package coordinates, or lower a Platform
+family to a package ID. `RunHomeDemo` accepts both type-only `Methods` and
+member-bound `Call Graph` presets: the engine resolves the workspace, focus,
+section, and optional member anchor, opens one aggregate browser workspace, and
+returns its ordinary browsable surfaces plus exact source-owner-issued
+activation identity. Package runs retain package identity; Platform runs
+retain family, assembly, version, and target-framework identity while using the
+shared Platform workspace, API-surface projection, and progressively acquired
+Call Graph path. Mixed package/Platform contexts remain unsupported until a
+product demo needs that composition. The focused `BrowserTypeSurface.Api` rows
+are the browser's ordinary Methods-section output; a member-bound run
+additionally returns the ordinary Call Graph projection. The engine rejects
+other product sections, library-scoped views, and runtime-identifier-scoped
+package workspaces until Browser has explicit execution support rather than
+silently dropping those bindings. These properties are gated by
 `ToRunPlan_AllProductHomeDemosHaveSupportedBrowserShape`,
 `StjSerializer_RunPlanOwnsTypeOnlyMethodsSelection`,
+`StjPlatformDemos_JoinExactSupplyAndCatalogEvidence`,
+`ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence`,
 `ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`,
 `ToRunPlan_PlatformCoordinatePreservesSourceNativeFocus`,
 `ToRunPlan_RejectsMixedPackageAndPlatformWorkspace`,
@@ -863,30 +957,47 @@ bindings. These properties are gated by
 `HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`,
 `PlatformHomeDemoRunCore_ProjectsMethodsWithSourceNativeActivation`, and
 `PlatformHomeDemoRunCore_PreservesContextAcrossEquivalentVersionSpellings`.
+CLI multi-Platform execution and caller-scope preservation are gated by
+`Runner_LowersMultiPlatformCallGraphWithCallerScopeSections`,
+`Cli_DemoCallGraph_Table_EmitsCallersRows`, and the all-demo Mermaid and table
+execution gates.
 
-This engine capability does not yet change the home buttons. The current
-TypeScript still restores STJ through a share deep link built from the resolved
-projection and invokes `RunHomeDemo` for Call Graph. The frontend follow-up
-must apply the typed Methods result and then push a canonical shareable
-location; calling the engine without updating location would regress refresh
-and sharing. That follow-up can then delete the host-owned share encoding and
-the residual platform → `Microsoft.NETCore.App` runtime-pack mapping (for
-future platform members) from
-`prototypes/inspect-web/src/product-home-demos.ts`. TypeScript applies the
-current Call Graph result without parsing definition member keys or
-reconstructing package/query inputs. Until that native Platform navigation
-adoption lands, the frontend rejects a Platform activation explicitly; no
-shipped demo emits one yet.
+The Browser host validates the complete typed result before replacing the
+current workspace. Package activation retains the returned coordinates and
+selected context in their declared order. Platform activation requires one
+exact target and one focus Library whose descriptor agrees with both the
+source family and the exact Platform catalog, then enters the ordinary native
+Platform Library path without reacquiring an already returned surface.
+Methods clears member and graph state; Call Graph requires one exact member
+anchor and the returned graph. The host derives the canonical shareable
+location from the resulting ordinary Browser state and publishes the retained
+workspace only after selection and any graph rendering succeed. Failure or
+supersession publishes no partial replacement. These frontend boundaries are
+gated by `product-home-demos.test.ts`,
+`saved-workspace-navigation.test.ts`, the home-demo source contract in
+`spotlight-identity.test.ts`, and the package/Platform Methods and Call Graph
+production-composition cases in `library-hierarchy.spec.ts`.
+
+The System.Text.Json and Microsoft.Extensions migrations are gated by two
+independent exact facts: `PlatformPrunePolicy` reports that each former package
+pin is subsumed, and the same target independently contains each explicitly
+selected implementation library. Package identity is never treated as assembly
+identity. The three System.Text.Json demos use the Runtime Platform target.
+The five Microsoft.Extensions demos remain owned by the Microsoft.Extensions
+ecosystem while their selected libraries use the ASP.NET Core Platform target;
+ecosystem grouping and source provenance are orthogonal. Demos requesting a
+version newer than the selected Platform ceiling remain package-backed. Aspire
+demos remain package-backed because their libraries are not supplied by the
+Platform.
 Browser package scopes now adapt product-selected, product-realized package
 participants into Browser coordinate/asset provenance; Browser still owns Wasm
 transport, cache/deadline/lifetime policy, and its resource-limit values.
 Residual: (1) bind minted facet IDs to replace the display-name allow list;
-(2) realize definitions via `WorkspaceContextLoader` instead of CLI package/
-`--caller-package` encoding; (3) canonical frontend activation of every home
-demo, including share-location projection and deletion of browser-owned packet
-construction; (4) Call Graph / Callers structured JSON projection remains the
-shared member-pipeline gap (Markdown/Mermaid are the faithful graph formats
-today).
+(2) realize package definitions via `WorkspaceContextLoader` instead of CLI
+package/`--caller-package` encoding; (3) Call Graph / Callers structured JSON
+projection remains the shared
+member-pipeline gap
+(Markdown/Mermaid are the faithful graph formats today).
 
 ### Member coordinates
 
@@ -1162,8 +1273,9 @@ The packet separates navigation from binding:
   focused tab, and preserving tabs does not imply relationships across
   independent groups.
 - `v` and the selection keys project the peer view preset. Library scope is
-  encoded for package and platform coordinates alike; the current prototype's
-  `l`-only-for-runtime-pack omission does not survive into v1.
+  encoded for package and platform coordinates alike; the current Inspect Web
+  implementation's `l`-only-for-runtime-pack omission does not survive into
+  v1.
 
 Session → packet totality is a design constraint: every interactively
 reachable v1 session has explicit navigation and context state and must
@@ -1370,8 +1482,8 @@ The lowerer uses this closed, scope-aware table:
 | `lens`, exact Type, no Member | `api` | Type, `type.api` |
 | `lens`, exact Type, no Member | `metadata` | Type, `type.metadata` |
 | `lens`, exact Type, no Member | `source` | Type, `type.source` |
-| package-capable coordinate with no Type or Member | `overview` | Root, `root.package-overview` |
-| package-capable coordinate with no Type or Member | `dependencies` | Root, `root.package-dependencies` |
+| package-capable coordinate with no Type or Member | `overview` | Package, `package.overview` |
+| package-capable coordinate with no Type or Member | `dependencies` | Package, `package.dependencies` |
 | package-capable coordinate with no Type or Member | `integrations` | All Libraries, `library.integrations` |
 | package-capable coordinate with no Type or Member | `opportunities` | All Libraries, `library.opportunities` |
 | package-capable coordinate with no Type or Member | `analysis` | All Libraries, `library.analysis` |
@@ -1478,46 +1590,58 @@ version-1 writer accepts a Registry ID.
 
 ### Complete restoration
 
-Complete restoration constructs and activates an independent Workspace.
-Each Workspace is constructed solely from its own definition; no other
-Workspace or Workspace definition participates.
+Complete restoration lowers one definition to resource-free construction input,
+then prepares an independent host-owned Workspace. Each Workspace is
+constructed solely from its own definition; no other Workspace or Workspace
+definition participates.
 
 This rule applies to saved definitions, share packets, Browser history,
-product demos, external-package Spotlight selection, and CLI canonical replay.
+product demos, Spotlight package selections classified as
+`RestoreExternalPackageWorkspace` by the
+[Spotlight destination-activation
+owner](inspect-web-spotlight-destination-activation.md), and CLI canonical
+replay.
 Selecting a subject already loaded in the active Workspace is ordinary
 Navigation and does not invoke restoration.
 
-Browser history identifies retained Workspaces only within one loaded page
+Browser history may identify retained definitions only within one loaded page
 session. An entry stamped by an earlier page load is an ordinary location, not
-a reference to a deleted Workspace in the current retained collection. After a
-reload, Back and Forward restore such locations into the active Workspace (or
-construct the first Workspace when none exists); they do not consume additional
-retained-Workspace capacity.
+a reference to a retained definition in the current page session. After a
+reload, Back and Forward lower that location through complete restoration; they
+do not revive a prior Workspace realization.
 
 A packet or definition remains inert data and cannot authorize acquisition.
 Restoration consumes the current owner-authorized activation demand required
-by each coordinate realizer and query owner. The coordinator carries that
-demand without widening or reconstructing it; absent, stale, revoked, or
-incompatible authority fails visibly before the affected owner reserves budget
-or acquires content.
+by each coordinate realizer and query owner. Lowering and the later
+host-supplied construction continuation carry that demand without widening or
+reconstructing it; absent, stale, revoked, or incompatible authority fails
+visibly before the affected owner reserves budget or acquires content.
 
 One restoration attempt proceeds in this order:
 
-1. Admit the opaque packet or definition source under the retained host's
-   current intent authority. The exact owner-issued token is the coordinator
-   attempt identity. A newer restoration or explicit host intent supersedes
-   every remaining phase of the older attempt.
+1. Admit the opaque packet or definition source under the consuming host's
+   current intent authority. This host token orders restoration effects; a
+   realization-coordinator attempt identity is issued later when a host begins
+   candidate construction. A newer restoration or explicit host intent
+   supersedes every remaining phase of the older attempt.
 2. Perform bounded format dispatch and strict decode. Format 2 produces one
    closed version-2 composition plan. Format 1 produces one unresolved legacy
    plan and retains its exact canonical packet basis.
-3. Resolve legacy selectors, coordinate-backed identities, Registry IDs, query
-   migrations, Platform/package pruning, and the complete multi-package Root
-   and registration intent. Missing, ambiguous, rejected, or invalid input
-   fails under the same attempt token. Each Root resolves under its own owner
-   contract as part of constructing this one Workspace.
-4. Construct one fresh Workspace. The coordinator is its sole holder until
-   installation. Populate its complete explicit membership and registrations
-   through ordinary Artifact and Scope operations. Every Workspace, Root
+3. Resolve syntax, Registry IDs, query migrations, Platform/package pruning,
+   and complete context, Root, and registration construction intent into one
+   immutable `WorkspacePlan` and restoration recipe. Preserve selectors or
+   identities that require acquired metadata as exact unresolved recipe input.
+   Missing, ambiguous, rejected, or invalid resource-free input fails under the
+   same attempt token. This phase creates no Workspace, Root, Scope, reader,
+   session, or lease.
+4. Ask the consuming host for construction authority over one fresh Workspace
+   created from that exact plan. Inspect Web begins a
+   `WorkspaceRealizationCoordinator` candidate and supplies its
+   `WorkspaceRealizationConstructionLease`; the CLI supplies its sole
+   invocation Workspace lifetime. Populate complete explicit membership and
+   registrations through ordinary Artifact and Scope operations. Resolve and
+   validate metadata-dependent legacy selectors and coordinate-backed
+   identities against that exact acquired realization. Every Workspace, Root
    occurrence, Scope revision, and Navigation identity is issued for that
    Workspace.
 5. Establish the requested retained context, active subject, and lens through
@@ -1530,49 +1654,48 @@ One restoration attempt proceeds in this order:
    A valid definition beyond packet grammar or bounds is `NonProjectable` but
    remains installable; malformed Workspace state or writer failure is
    `ProjectionFailed`.
-7. Return one immutable `CompleteWorkspaceActivation` containing the fresh
-   Workspace, complete snapshot, request basis, projection classification, and
-   owner evidence. The retained host may activate it only while the exact
-   intent and effect authority remain current.
-8. In a retained host, activate through one non-yielding publication that adds
-   the Workspace to the retained collection and points the nullable active
-   identity to it. Any previously active Workspace remains published and open.
-   The CLI instead binds the Workspace as the invocation's sole ephemeral
-   Workspace and closes it when the invocation ends. History, URL, focus, and
-   announcement remain host-owned effects of the same authorized result.
+7. Return one immutable `CompleteWorkspaceActivation` containing the exact
+   prepared Workspace identity, complete snapshot, request basis, projection
+   classification, and owner evidence. The host still owns the live
+   construction authority and may activate only while the exact intent and
+   effect authority remain current.
+8. The consuming host publishes the prepared Workspace according to its own
+   realization lifecycle. Inspect Web uses the candidate and atomic-cutover
+   contract owned by
+   [Inspect Web Retained Workspace
+   Realization](inspect-web-retained-workspace-realization.md); the CLI binds
+   the Workspace as the invocation's sole ephemeral Workspace and closes it
+   when the invocation ends. History, URL, focus, and announcement remain
+   host-owned effects of the same authorized result.
 9. On decode, resolution, construction, Navigation, query, projection,
    cancellation, expiry, or supersession failure, close the unpublished
-   Workspace and leave the retained collection and active identity unchanged.
-   A late completion for a settled token is discarded and cannot activate.
+   Workspace and return the exact failure. A host must not replace its active
+   realization from a failed or late result.
 
-At most one unpublished new Workspace may exist. It is not selectable,
-represented in the published Workspace collection, addressable through ordinary
-host actions, or recorded in history before activation. The Browser host may
-render its construction progress or prepared result in the inert workbench while
-the attempt remains current; that provisional presentation has no active
-Workspace identity and failure restores the prior presentation. A newer attempt
-closes the older attempt's Workspace before beginning another.
+One restoration transaction prepares exactly one unpublished Workspace. It is
+not selectable, addressable through ordinary host actions, or recorded in
+history before activation. A host may render its construction progress or
+prepared result while the attempt remains current, but provisional
+presentation has no active Workspace authority. A newer attempt supersedes the
+older result and the owning realization lifecycle closes or drains its
+resources. Host-level concurrent transaction and aggregate realization bounds
+belong to the consuming host.
 
-The Browser/Wasm host admits at most four published Workspaces. A request for a
-fifth fails visibly before construction and directs the user to delete a
-Workspace first. Published Workspaces remain live until the user deletes them.
-The count aligns with the Browser engine's existing four-scope ceiling, but
-collection membership does not prove that one corresponding engine scope
-remains resident. Exact engine Workspace identity and close-on-deletion need
-their own integration gate before retained-lifecycle adoption is complete.
-Per-Workspace budgets alone do not bound the retained collection, and this
-design makes no process-wide peak-memory safety claim.
+Inspect Web may retain a bounded list of resource-free definitions for
+presentation. Selecting a retained definition performs fresh restoration and
+realization; it never switches back to the Workspace returned by an earlier
+restoration. Selection, deletion, rollback presentation, and predecessor
+settlement are defined by
+[Inspect Web Retained Workspace
+Realization](inspect-web-retained-workspace-realization.md), not by the
+definition format.
 
-The Workspace subject lists the published collection and identifies the active
-Workspace. Selecting another published Workspace changes only the active
-identity and makes its retained Navigation snapshot current; it performs no
-construction. This is manual switching, not automatic health comparison or
-rollback. Deleting an inactive Workspace removes it from the collection and
-closes it. Deleting the active Workspace first selects the next published
-Workspace in collection order, otherwise the previous one, otherwise null,
-then removes and closes the deleted Workspace. Closure and drainage occur
-outside the non-yielding host state change. The active identity is null exactly
-when the published collection is empty.
+Workspace Scope requires no restoration-only participant for this flow.
+Definitions supplies complete ordered Root and registration intent to ordinary
+Scope operations inside the fresh unpublished Workspace. The special
+coordination obligation is therefore the Definitions-owned transaction in
+[#7027](https://github.com/richlander/dotnet-inspect/issues/7027), not an
+uncommitted Scope fragment or a multi-owner commit over the active Workspace.
 
 Failure remains source-identifying throughout the pipeline:
 `InvalidPacket`, `UnsupportedFormat`, `LegacyLoweringFailed`,
@@ -1590,8 +1713,8 @@ CompleteRestorationResult
   Activated
     IntentToken          opaque exact owner-issued token
     RequestBasis         PacketInput | DefinitionInput
-    WorkspaceIdentity    exact fresh installed Workspace
-    Snapshot             complete installed Workspace snapshot
+    WorkspaceIdentity    exact fresh prepared Workspace
+    Snapshot             complete prepared Workspace snapshot
     Projection           Projectable(CanonicalPacket) |
                          NonProjectable(reason)
     NavigationDisposition
@@ -1607,20 +1730,20 @@ CompleteRestorationResult
 `RequestBasis` distinguishes retained packet input from an immutable
 definition request; it never invents packet bytes for a definition. Owner
 evidence follows deterministic plan order, not asynchronous completion order.
-`Activated` is the only arm carrying a new Workspace. `Failed` does not change
-the retained collection or active identity, and `Superseded` produces no
-consumer value.
+`Activated` is the only arm carrying a new Workspace. `Failed` and
+`Superseded` produce no Workspace value and grant no host publication
+authority.
 
 The existing
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
 models the retired in-place participant protocol and is not evidence for this
-fresh-Workspace contract. Before implementation, either retire it or replace
-it with the smallest model needed for current-intent activation and
-superseded-Workspace cleanup. Required integration gates must show that failure
-leaves the retained collection and active identity unchanged, activation
-publishes the exact prepared Workspace once, switching selects an existing
-Workspace without reconstruction, deletion removes and closes only the selected
-Workspace, and supersession closes unpublished Workspaces.
+fresh-Workspace contract. Definition-owned integration gates must show that
+each successful result contains the exact independently prepared Workspace
+once and that every failed or superseded attempt releases its unpublished
+Workspace. Browser retention, fresh reselection, and incumbent preservation are
+modeled separately by
+[Inspect Web Retained Workspace
+Realization](models/inspect-web-retained-workspace-realization/README.md).
 
 ### Files and bundles
 
@@ -1677,11 +1800,11 @@ two persisted contracts are isomorphic.
 - **Packet consolidation.** The `popstate` handler currently re-implements
   restore inline; the loader introduced here should absorb it so every
   restore path is the same code.
-- **Retained-host Workspace collection.** Inspect Web needs one owner for the
-  published Workspace collection, nullable active identity, at most one
-  unpublished new Workspace, exact current-intent activation, manual switching
-  and deletion, prompt close of every non-published Workspace, and a host-level
-  retained-Workspace resource policy.
+- **Retained-host adoption.** Inspect Web has a Browser-specific owner for
+  resource-free retained definitions, exact current-intent activation,
+  selection and deletion, and one active realization. The remaining work is
+  the counted production adoption and legacy registry retirement in
+  [#6757](https://github.com/richlander/dotnet-inspect/issues/6757).
 
 ## Open questions
 
@@ -1725,6 +1848,25 @@ Implementation must add, at minimum:
   `Registry_UnknownPeerReference_FailsVisibly`,
   `Registry_WorkspaceFreeScenario_CreatesNoAssemblyGroup`, and
   `Registry_DoesNotActivateImplicitlyFromRecordCount`;
+- a request-to-plan lowering gate —
+  `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`
+  and
+  `ResolveScenario_EqualDefinitionsRetainExactAssociationAndFreshIdentity`
+  preserve the exact selected definition, ordered package/platform/embedded
+  context intent, raw registration set, reusable plan, and fresh live Workspace
+  identity; `ResolveScenario_DefersTargetValidationToPlanInvocation` keeps
+  acquisition-target validation at ordinary plan invocation, while
+  `Registry_RejectsSubscribeAndFilesystemCoordinates_AndCrossKindPeers`
+  preserves explicit unsupported outcomes;
+- a runtime-selector gate proving one exact fresh Workspace and Scope resolve
+  the focused committed state to one `NavigationInitialization`, retain every
+  inactive direct-Package row as exact resolved input, and preserve
+  non-Package rows only as dormant inventory. The gate must cover
+  occurrence-local Library/Type/Member identity, Package and Workspace active
+  subjects, subject-less Package recommendation, exact facets, missing and
+  ambiguous selectors, incomplete inventory, foreign or superseded
+  occurrences, projected Members whose declaring Type differs from their
+  containing Type, and `allLibraries` over an empty Package;
 - a grammar gate covering recursive catalog paths and composition, plus one
   exact-pin parser exercised through member coordinates, group subscriptions,
   and packet tuples, including rejection of `latest`, ranges, build metadata,
@@ -1888,13 +2030,13 @@ Implementation must add, at minimum:
   projection failure; supersession before installation; late completion; and
   initial failure with no active Workspace. Unauthorized input must reserve,
   acquire, and publish nothing. Every non-install outcome must close the
-  unpublished Workspace, leave the published collection and active identity
-  unchanged, and carry the source-identifying failure evidence. Successful
-  installation must publish the exact prepared Workspace into the collection
-  once, select it as active, preserve the request's packet or definition basis
-  and projection classification, and remain reachable only through current
-  host effect authority. Separate gates must cover switching back without
-  reconstruction and manual deletion with close outside the host state change;
+  unpublished Workspace, return no Workspace value, and carry the
+  source-identifying failure evidence. Successful
+  installation must return the exact prepared Workspace once, preserve the
+  request's packet or definition basis and projection classification, and
+  remain usable only through current host effect authority. Browser gates
+  separately cover retained-definition selection through fresh realization,
+  transactional active deletion, and incumbent preservation;
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
@@ -1934,11 +2076,11 @@ Implementation must add, at minimum:
 The existing
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
 checks the retired in-place participant protocol and is not evidence for fresh
-Workspace activation. The current target remains unverified until focused
-evidence covers current-intent collection publication, unpublished-Workspace
-cleanup after every non-activation outcome, exact prepared-Workspace
-activation, retained switching and deletion, and the adopting host's retained-
-Workspace resource policy.
+Workspace activation. The current definition target remains unverified until
+focused evidence covers current-intent result production,
+unpublished-Workspace cleanup after every non-activation outcome, and exact
+prepared-Workspace transfer. The Browser's retained-definition and active-
+realization claims have their own design and model.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
@@ -1956,8 +2098,36 @@ Definition records and product demos (this slice):
   scenarios by explicit id, and lowers package/platform/embedded coordinates to
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
   expressions and filesystem coordinates are typed failures in this slice).
-  Each resolved context retains its activation-relative
-  `WorkspaceContextAddress` and compact target descriptor;
+  Each resolved scenario also retains the exact raw `WorkspacePlan` built from
+  those ordered contexts. The selected `WorkspaceDefinition`, plan, context
+  addresses, and compact target descriptors remain associated in that one
+  resource-free result; constructing a live Workspace from the plan uses the
+  ordinary `InspectionWorkspace(WorkspacePlan)` API.
+  `ResolvedWorkspaceContext.Input` retains its exact context in that plan.
+  `PrepareScenario` additionally dispatches same-version graphs without
+  constructing a Workspace: workspace-free and direct-Package-focused
+  version-1 graphs retain the existing resolution, workspace-backed
+  no-navigation or focused non-Package version-1 graphs return
+  `LegacyCompatibilityRequired`, and schema-version-2 graphs return the
+  exact validated `CommittedScenarioDefinitionSet`;
+- schema-version-2 `CommittedNavigationDefinition` and
+  `CommittedViewDefinition` records implement the required nullable focus,
+  leading Workspace row, ordered per-tab state, Workspace/Package subject
+  requests, and independent retained Package/Library/Type/Member context.
+  Non-Package rows remain undecorated, nonempty query references fail until
+  #6971, and packet-format-1 projection returns `NonProjectable`;
+- `CommittedScenarioSelectorResolver` consumes one exact fresh Workspace,
+  its exact `WorkspaceScopeSnapshot`, and one
+  `NavigationPackageEvaluation` per direct-Package row. It resolves portable
+  Library identities by `AssemblyReferenceIdentity` equivalence inside that
+  row's exact occurrence, then resolves exact structured Type and Member
+  identities from Navigation's classified inventory. It returns the
+  focus-selected `NavigationInitialization`, retains inactive Package rows as
+  exact resolved inputs, preserves non-Package rows as dormant inventory, and
+  returns a source-associated typed failure without partial state for missing,
+  ambiguous, incomplete, foreign, superseded, or noncontiguous input. It does
+  not construct, publish, activate, or close a Workspace and does not resolve
+  Registry applicability;
 - `ProductDemoSourceBinding` is the Workspace-owned target-free static
   method-group binding. It validates exactly one matching scenario record,
   resolves that exact scenario, and enforces `ProductDemoSections`; the
@@ -1974,9 +2144,47 @@ Definition records and product demos (this slice):
   metadata and **runs** the bound section through `TypeCommand` /
   `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
   including `--mermaid` and fail-closed Call Graph `--json`;
+  Platform demo construction now consumes the retained plan and selected
+  context input directly, retiring the CLI's empty-Workspace plus rebuilt-input
+  recipe under #6836;
 - `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind` and
   `InspectionDefinitionTests.Parse_RejectsCrossKindRecordAndCoordinateFields`
   gate portable round-trip and record-kind separation.
+  `InspectionDefinitionV2Tests.JsonRoundTrip_PreservesEveryVersion2RecordKind`,
+  `JsonRoundTrip_WorkspaceSubjectRetainsMemberContext`,
+  `JsonRoundTrip_WorkspaceSubjectCanHaveNoActiveOccurrence`,
+  `PrepareScenario_PackageSubjectForExactTab_IsVersion2`, and
+  `JsonRoundTrip_SameTabCanRetainDistinctTypeContexts` gate the four
+  schema-version-2 demo states and record round-trip.
+  `PrepareScenario_RejectsMissingAndReorderedStates`,
+  `Constructors_RejectInvalidFocusAndWorkspaceRowContext`,
+  `Constructors_RejectInvalidSubjectContextAncestry`,
+  `PrepareScenario_RejectsDecoratedNonPackageRows`,
+  `PrepareScenario_RejectsMixedVersionsAndQueryReferences`,
+  `PrepareScenario_RejectsInvalidContextBeforeVersionDispatch`,
+  `PrepareScenario_LegacyCompatibilityRejectsDuplicateTabIds`,
+  `PrepareScenario_WorkspaceBackedVersion1WithoutNavigationUsesCompatibility`,
+  `PrepareScenario_WorkspaceFreeVersion1KeepsExistingPath`,
+  `PrepareScenario_ValidatesReachedCatalogVersions`,
+  `PrepareScenario_RetainsBaseAndOverlayCatalogs`,
+  `Parse_RejectsUnknownAndDuplicateNestedVersion2Properties`,
+  `Parse_RequiresNullableFocusAndCanonicalPortableIdentity`,
+  `Version2ProjectionToPacketFormat1_IsNonProjectable`,
+  `Version1PacketProjectionRejectsMixedSchemaVersions`, and
+  `PrepareScenario_FocusedNonPackageVersion1ReturnsCompatibilityHandoff`
+  gate the query-free composition boundaries while
+  `Json_SchemaVersion1SpellingRemainsUnchanged` preserves the version-1
+  writer contract.
+  `CommittedScenarioSelectorResolverTests.Resolve_WorkspaceFocusRetainsExactMemberContextAndDormantRows`,
+  `Resolve_PackageFocusProducesOneActivationAndInactiveExactInput`,
+  `Resolve_SameLibraryIdentityAcrossOccurrencesStaysOccurrenceLocal`,
+  `Resolve_RejectsMissingAmbiguousAndForeignPackageFacts`,
+  `Resolve_SelectorCardinalityFailuresAreTyped`,
+  `Resolve_IncompleteTypeInventoryIsNotReportedAsMissing`,
+  `Resolve_ProjectedMemberCannotEscapeItsExactDeclaringType`, and
+  `Resolve_AllLibrariesRequiresOneLibraryButPackageContextDoesNot` gate
+  runtime selector resolution, exact occurrence association, atomic typed
+  failure, incomplete-inventory disclosure, and contiguous retained paths.
   `ProductDemoSourceBindingTests` gates source shape, exactly-once source
   invocation per resolve, exact scenario resolution, section admission, and
   visible failures.
@@ -2042,6 +2250,25 @@ Definition records and product demos (this slice):
   `MemberShare_RejectsPlatformSource`,
   `MemberShare_RejectsLocalPackage`, and
   `MemberShare_RejectsConflictingModes` gate the production boundary;
+- the package `dependencies` compatibility token lowers to
+  `package.dependencies`; the packet carries the exact package coordinate
+  and framework but no graph results, dependency-group indexes, or Browser
+  runtime state. The public CLI gesture and producer behavior are owned by
+  [CLI Workspace Sharing](cli-workspace-sharing.md). The published Browser
+  restores its package Dependencies lens and lazily computes the graph.
+  Browser capture refuses an explicitly selected dependency group that differs
+  from the active framework because format 1 cannot preserve that override,
+  and canonical Dependencies restoration clears any prior Browser-local group
+  override before rendering. The Browser Share action uses this canonical
+  capture path even though ordinary package-root address-bar state retains its
+  simpler route form. `canonical package dependency views restore the package
+  root lens`,
+  `canonical package views reject contradictory structural selection`,
+  `capture projects package Dependencies through the packet lens`,
+  `capture refuses a non-active package dependency group`, and
+  `Share copies canonical package Dependencies and refuses a non-active group`,
+  and `canonical package Dependencies restoration clears a resident group
+  override` gate the Browser adapter;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;
@@ -2082,9 +2309,13 @@ Definition records and product demos (this slice):
   independent; the selected context bounds cross-package Call Graph expansion.
   Browser-created Call Graph contexts compose only package tabs with the active
   tab's framework and RID; incompatible targets remain separate contexts.
-  Product-run Call Graph demos install their exact executed package order as the
-  selected context, and expanded queries send that complete ordered context to
-  the product engine.
+  Product-run home demos install their exact returned source set and typed
+  focus before publishing. Package demos retain the executed package order as
+  the selected context; expanded Call Graph queries send that complete ordered
+  context to the product engine. Platform demos retain one exact target and
+  enter the native Platform Library/type/member path without reacquiring the
+  returned surface. Methods and Call Graph both publish through the ordinary
+  Browser share projection.
   Exact `:Platform` versions remain exact through initial and lazy acquisition,
   while an absent pin remains floating. Browser activation accepts at most one
   Platform tab and is atomic: an unavailable coordinate, selected library,
@@ -2121,8 +2352,8 @@ Definition records and product demos (this slice):
   Package-root navigation and explicit Share use the ordinary
   Browser route, without stale packet state, until product facet IDs are
   implemented; and
-- **not yet:** the designed View Facet Registry implementation, schema version
-  2, packet format 2, legacy lowering, per-coordinate view/query binding,
+- **not yet:** the designed View Facet Registry implementation, packet format
+  2, legacy lowering, per-coordinate view/query binding,
   complete-restoration coordinator, CLI
   use of the codec/transposer for executable `-W`, or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still

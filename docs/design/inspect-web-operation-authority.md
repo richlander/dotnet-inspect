@@ -5,12 +5,12 @@
 This document defines the main-thread operation-authority component for
 [issue #5092](https://github.com/richlander/dotnet-inspect/issues/5092).
 The component is implemented in
-`prototypes/inspect-web/src/operation-authority.ts` and first adopted by Type
-Source in `prototypes/inspect-web/src/source-inspection.ts`. Operation-ID
+`inspect-web/src/operation-authority.ts` and first adopted by Type
+Source in `inspect-web/src/source-inspection.ts`. Operation-ID
 uniqueness, operation cancellation, stale-publication safety, and quiescence
-are enforced by `prototypes/inspect-web/test/operation-authority.test.ts` and
+are enforced by `inspect-web/test/operation-authority.test.ts` and
 the Type Source adoption cases in
-`prototypes/inspect-web/test/source-inspection.test.ts`.
+`inspect-web/test/source-inspection.test.ts`.
 
 Issue #5672 adds atomic unexpected-terminal publication for the Worker runtime
 consumer in #5636. It remains an operation-authority contract: producer
@@ -775,8 +775,8 @@ Release TypeScript gate below owns those concrete properties.
 ## Required implementation gate
 
 `inspect-web-operation-authority` is the Release TypeScript gate implemented by
-`prototypes/inspect-web/test/operation-authority.test.ts`, with first-consumer
-coverage in `prototypes/inspect-web/test/source-inspection.test.ts`. Both run
+`inspect-web/test/operation-authority.test.ts`, with first-consumer
+coverage in `inspect-web/test/source-inspection.test.ts`. Both run
 under the ordinary inspect-web `npm test` gate and include:
 
 - concurrent and sequential sessions receiving opaque IDs never previously

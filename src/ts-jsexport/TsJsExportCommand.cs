@@ -128,15 +128,9 @@ public static class TsJsExportCommand
                     return 1;
                 }
             }
-            if (searchPaths.Length > 0)
-            {
-                stderr.WriteLine(
-                    "ts-jsexport: --assembly-search-path requires --context.");
-                return 1;
-            }
-
             if (!JsExportSurfaceLoader.TryLoad(
                     assemblyPath,
+                    searchPaths,
                     "ts-jsexport",
                     stderr,
                     out global::ILInspector.JsExportSurface.JsExportSurface?

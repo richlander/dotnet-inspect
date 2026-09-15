@@ -40,6 +40,7 @@ This table identifies authority; it does not define a participant's behavior.
 | Declared-row-set binding, field/column shape projection, logical reductions such as count, and common result binding | L2 `DotnetInspector.Sections` | [Section-row shaping](section-row-shaping.md) |
 | Source-delegation planning, the delegated result contract, completion-evidence binding, and exact upstream Count acceptance | Cross-cutting L1 source-delegation pattern | [Source delegation](source-delegation.md) |
 | CLI aliases, argv lowering, conflicts, and diagnostics | L3 `dotnet-inspect` | [CLI row-selection grammar](cli-row-selection.md) |
+| CLI classification, vocabulary, validation, and lowering for explicit owner-dimensioned work limits | L3 `dotnet-inspect` | [CLI execution bounds](cli-execution-bounds.md) |
 | Source-specific acquisition, pagination, retries, caching, merge, deduplication, and proof construction | Each adopting L1 query or source owner | Pending focused adoptions |
 | Post-selection payload acquisition | L1 query or source-owning component | Pending focused design |
 | Payload projection, printing, export, and rendered-line selection | L3 `dotnet-inspect` | Pending focused design |
@@ -54,7 +55,8 @@ The owners compose in this direction:
 
 ```text
 CLI tokens
--> L3 validates and lowers typed operation intent
+-> L3 independently validates and lowers typed row-selection
+   and execution-bound intent
 -> L2 resolves row-set, predicate, effective-order, selection,
    and reduction identities
 -> typed execution request
@@ -82,6 +84,15 @@ sufficient rows for the owning L2 and semantic components to finish the
 residual request. After acceptance, the
 [source-delegation effect protocol](source-delegation.md#effect-protocol)
 forbids switching result shapes or retrying another strategy.
+
+An explicit execution bound is not source optimization. It authorizes the
+adopting owner to stop one named work dimension and may therefore produce an
+incomplete result by design. The
+[CLI execution-bound grammar](cli-execution-bounds.md) preserves that intent
+separately from semantic selection; the adopting source or query owner defines
+the dimension, stopping behavior, and completion evidence. A source still
+needs the source-delegation proof before it may treat semantic row selection as
+permission to stop work early.
 
 The later source handoff is distinct from row execution. When projection needs
 content for already-selected payload identities, L3 sends a typed
@@ -113,11 +124,14 @@ does not choose which logical rows or values survive.
    L2 contract.
 5. Lock the [L3 CLI grammar and lowering](cli-row-selection.md) against the
    typed operation-intent boundary.
-6. Define payload projection, post-selection acquisition, export, and
+6. Lock the
+   [L3 CLI execution-bound grammar](cli-execution-bounds.md) for commands that
+   expose explicit owner-dimensioned work limits.
+7. Define payload projection, post-selection acquisition, export, and
    rendered-line behavior.
-7. Apply the locked design one subsystem at a time, with each owner changing
+8. Apply the locked design one subsystem at a time, with each owner changing
    its own design, implementation, and gates.
-8. Update shipped skills, help, examples, and completion only after the
+9. Update shipped skills, help, examples, and completion only after the
    user-visible grammar and behavior are complete.
 
 Focused designs may land independently. User-visible behavior must not expose a
@@ -132,6 +146,8 @@ This document does not define:
   or result-binding mechanics;
 - source capabilities, stopping rules, pagination, proof receipts, or
   post-selection acquisition mechanics;
+- execution-bound dimension meaning, defaults, stopping behavior, or
+  completion evidence;
 - payload cardinality, framing, export, or line-selection behavior;
 - Markout APIs or semantic row-selection behavior; or
 - current command-specific behavior or migration evidence.

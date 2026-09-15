@@ -5,7 +5,8 @@ namespace ILInspector.Decompiler.Tests;
 // Adversarial near-miss matrix for ClassicAsyncReconstructionPass (#1290).
 //
 // The pass raises runtime-async=off async kickoffs back to async bodies. Only
-// adapter-issued exact roles grant stage-application authority. Generated
+// an adapter-issued authenticated declared-kickoff request grants
+// stage-application authority. Generated
 // names and builder-field shapes remain recognition hints inside the
 // authenticated declared-kickoff path; they never authorize mutation by
 // themselves.
@@ -27,7 +28,7 @@ public class ClassicAsyncReconstructionPassTests
     // ---- Unauthenticated support-method lookalikes ------------------------
 
     [Fact]
-    public void BuilderShapedMoveNextWithoutOwnerRole_IsPreserved()
+    public void BuilderShapedMoveNextWithoutOwnerRequest_IsPreserved()
     {
         var function = BuildSupportMethod("MoveNext");
 
@@ -37,7 +38,7 @@ public class ClassicAsyncReconstructionPassTests
     }
 
     [Fact]
-    public void BuilderShapedSetStateMachineWithoutOwnerRole_IsPreserved()
+    public void BuilderShapedSetStateMachineWithoutOwnerRequest_IsPreserved()
     {
         var function = BuildSupportMethod("SetStateMachine");
 
@@ -47,7 +48,7 @@ public class ClassicAsyncReconstructionPassTests
     }
 
     [Fact]
-    public void KickoffShapeWithoutOwnerRole_DoesNotEnterSiblingImport()
+    public void KickoffShapeWithoutOwnerRequest_DoesNotEnterSiblingImport()
     {
         var function = BuildKickoff();
 

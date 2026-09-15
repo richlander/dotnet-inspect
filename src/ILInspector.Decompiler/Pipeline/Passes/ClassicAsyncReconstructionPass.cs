@@ -10,11 +10,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// async bodies. The source logic lives in <c>&lt;M&gt;d__N.MoveNext</c>; the public
 /// kickoff only initializes the state machine and returns the builder's task.
 /// <para>
-/// The pass coordinates stage application and acquisition. It preserves exact
-/// execution/support hosts under
-/// <c>docs/design/classic-async-stage-application.md</c>, seeds a kickoff
-/// request from Metadata's authenticated relationship and exact execution
-/// MethodDef, imports that body, and hands the request to
+/// The pass owns acquisition and application only. It preserves every imported
+/// host unless the Decompiler request adapter supplies an authenticated declared
+/// kickoff, then imports the exact execution MethodDef and hands the request to
 /// <see cref="ClassicInverseCore"/>. Every reconstruction decision — and every
 /// proof that licenses one — belongs to the core
 /// (<c>docs/design/classic-async-reconstruction.md</c>). The pass never
@@ -27,27 +25,18 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        ClassicAsyncStageApplicationKind application =
-            ClassicAsyncStageApplication.Decide(
-                function.ClassicAsyncRequest);
-        switch (application)
+        if (ClassicAsyncStageApplication.Decide(
+                function.ClassicAsyncRequest)
+            == ClassicAsyncStageApplicationKind.PreserveImportedBody)
         {
-            case ClassicAsyncStageApplicationKind.PreserveImportedBody:
-            case ClassicAsyncStageApplicationKind.NoOpinion:
-                return;
-
-            case ClassicAsyncStageApplicationKind.EvaluateDeclaredKickoff:
-                break;
-
-            default:
-                throw new InvalidOperationException(
-                    "Unknown classic async stage application.");
+            return;
         }
 
         if (context.ImportMethodBody is null)
             return;
-        var available = (ClassicAsyncRequestAdapterResult.RequestAvailable)
-            function.ClassicAsyncRequest!;
+        var available =
+            (ClassicAsyncRequestAdapterResult.RequestAvailable)
+                function.ClassicAsyncRequest!;
         ClassicAsyncRequestSeed seed = available.Request;
         if (!TryGetKickoff(function, out var kickoff))
             return;

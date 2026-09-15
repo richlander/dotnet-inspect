@@ -7,9 +7,10 @@ This is the Queries-owned target design for
 rank 5 and delivery step 6 of
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706).
 The physical-pair adapter is implemented by `DirectMemberComparisonQuery` and
-consumed by CLI `match --body` (#5967) and Browser Method Body Diff (#5990).
-Workspace forwarding selection, comparison-tool adoption, and broader
-retirement remain separate work.
+consumed by CLI `match --body` (#5967) and the retained Browser method-body
+comparison facade projection from #5990. Its former contextual dialog is
+retired under #6491. Workspace forwarding selection, comparison-tool adoption,
+and broader retirement remain separate work.
 
 `DotnetInspector.Queries` is the single architectural owner. Its optional
 `DotnetInspector.ResearchQueries` companion is the physical dependency boundary

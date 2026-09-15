@@ -69,12 +69,55 @@ developed closely with the user can reveal the actual boundary before code
 makes an accidental behavior expensive to undo. Much of the architecture is
 the act of bounding a contract and making its important properties invariant.
 
-## Start architectures from production hosts
+## Ground product behavior in real assets
 
-Every new architecture, capability, or substrate must name a concrete consumer
-from the start. The consumer may land in a later slice, but the focused
-specification and implementation issue must identify it, and a single overall
-end-to-end tracking issue must link the architecture and consumer work.
+Every feature and significant fix must be motivated by at least one real asset:
+
+- an exact package ID and version published on nuget.org; or
+- a relevant source construct from a real repository, pinned to a commit and
+  path.
+
+Synthetic packages and authored source examples remain useful for boundary
+coverage and seam isolation, but they cannot be the sole motivation for product
+behavior. Before implementation, record the asset in the owning design
+document, including its stable identity or link, the observed shape or
+behavior, the exact product claim it motivates, and the plan for durable test
+evidence. A reviewer concern, hypothetical edge case, or synthetic
+reconstruction does not replace that record.
+
+Promote the motivating asset into repository evidence in most cases:
+
+- Add a nuget.org package and version to the appropriate pinned test population
+  or corpus, exercising it through the normal product acquisition path.
+- Use repository source to form a focused fixture that preserves the relevant
+  source or compiler-produced shape, and retain the source commit and path as
+  provenance. Copy source only when its license permits; otherwise author the
+  smallest fixture that reproduces the observed shape.
+
+The real asset establishes that the need exists; deterministic fixtures,
+neighboring controls, and synthetic boundary cases establish the supported
+contract. When license, size, nondeterminism, or test-environment constraints
+make direct retention impractical, document the reason and preserve a
+reproducible acquisition or observation procedure.
+
+Starting a feature or significant fix without a qualifying real asset and its
+design record requires explicit user/operator approval. Record the approval,
+its scope, and the residual evidence gap in the owning design before
+implementation.
+
+## Plan every feature through production adoption
+
+Every new feature, architecture, capability, or substrate must have a direct
+path to observable use by a production consumer: the CLI or website. The
+consumer may land later, but the focused specification and implementation issue
+must identify it, and a single overall end-to-end tracking issue must link the
+product work to its adoption.
+
+When work is divided into slices or a stacked PR sequence, the overall plan
+must include at least one slice that adopts the feature in a production
+consumer. A plan that ends at a reusable library, protocol, serializer, or
+other host-neutral substrate is incomplete. The adoption slice may be separate,
+but it is part of the feature's plan rather than optional follow-up work.
 
 The tracker must identify each production host, enumerate the concrete adoption
 slices in order, and state the current total step count from the architecture
@@ -95,6 +138,16 @@ host requires explicit user approval before implementation; record the
 approved scope in its specification, implementation issue, and end-to-end
 tracker from the start.
 
+A completed host-neutral operation that hands one detached result to a host
+uses `InspectionEnvelope<TContent>` as the boundary value. `TContent` remains
+the owner-issued Result, Document, or owner-specific Outcome under
+[Host-observable content kinds](design/host-observable-content-kinds.md), while
+every host projection preserves its Content, Share outcome, and diagnostics.
+A `Task` or `Promise` may represent waiting for the operation, but it is not
+the result crossing that completed boundary; internal prerequisites and
+progressive events remain governed by their own contracts. The full boundary
+is owned by [Inspection envelope](design/inspection-envelope.md).
+
 `InertString` illustrates the shared default: its containment contract must
 work for all consumers. `ts-jsexport` is an approved exception: its website-only
 consumer and single-host target were intentional from the beginning. The
@@ -107,6 +160,9 @@ algorithms belong in host-neutral code. When multiple hosts duplicate logic,
 look for a coherent shared concept that would also benefit a future host rather
 than preserving parallel implementations or extracting an abstraction solely
 to remove repeated lines.
+
+[Building shared inspections](building-shared-inspections.md) gives the
+prescriptive implementation path for new CLI commands and website inspectors.
 
 ## Choose rendering strategy deliberately
 
@@ -242,6 +298,12 @@ change the design and implementation. Put `## Demo` above validation in the PR
 body. A good demo shows a real canonical invocation and its output, includes
 before and after for a fix, says what to notice, and exercises a neighboring
 case so the implementation is not fitted only to the showcase.
+
+When work adopts one host-neutral capability in both production hosts, show
+both real call sites: the C# consumer for CLI and the TypeScript consumer for
+Browser/Wasm. Do not use managed implementation code as a proxy for the
+TypeScript boundary. Distinguish the `Task` or `Promise` that represents an
+in-flight operation from realized results or events passed across callbacks.
 
 For a network-accessible inspect-web demo, follow
 [Inspect Web demo hosting](runbooks/inspect-web-demo-hosting.md). A local HTTP

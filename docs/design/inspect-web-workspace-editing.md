@@ -41,19 +41,13 @@ without adding those libraries as explicit editor Roots. Explicit membership
 records what the user composed; realized traversal records what an operation
 needed to inspect.
 
-Spotlight is currently a one-shot Workspace editor. Selecting an external
-package result constructs a ready unnamed Workspace with one explicit package
-Root in addition to the default ecosystem registrations, publishes and
-activates it, and establishes focus there. Selecting a subject already loaded in the active
-Workspace changes focus without rebuilding membership. Repeated unrelated
-package searches therefore create, retain, and activate independent one-package
-Workspaces rather than accumulating packages. Earlier Workspaces remain
-available through the Workspace subject until manually deleted.
-
-Spotlight does not currently expose **Add to current Workspace**. The full
-Workspace editor remains the multi-package composition surface. A future
-explicit shortcut may lower to the same Scope Add operation, but ordinary
-Spotlight activation must not silently change from switching to accumulation.
+Spotlight destination effects are separately owned by
+[Spotlight destination
+activation](inspect-web-spotlight-destination-activation.md). That owner
+replaces this document's former one-shot-Workspace rule with exact
+current-Workspace coverage classification. This does not change editor draft,
+Save, Cancel, or leave-decision semantics. The full Workspace editor remains
+the unrestricted surface for deliberate Package and registration composition.
 
 ## Verbs and surfaces
 
@@ -96,10 +90,13 @@ disguised as saving. Its requested result is the edited definition persisted
 at an explicitly chosen local save destination and the corresponding committed
 Workspace ready for inspection. The editor may announce completion and leave
 editing only after the responsible owners supply that complete outcome.
-Save constructs that committed result as an independent fresh Workspace and
-publishes and activates it; the edited Workspace remains available until the
-user deletes it. Save does not diff the draft against that Workspace or transfer
-Workspace-owned identities and resources between them.
+Save uses raw Workspace construction with one atomic explicit initialization
+from the draft's exact expanded package Roots and registrations. It does not
+consult the Ecosystems-curated constructor. After persistence succeeds, Save
+publishes and activates that independent Workspace; the edited Workspace
+remains available until the user deletes it. Save does not diff the draft
+against that Workspace or transfer Workspace-owned identities and resources
+between them.
 
 The save destination is explicit. A demo title, matching package contents, or
 the fact that a saved definition was opened does not authorize overwriting an

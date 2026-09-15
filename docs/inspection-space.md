@@ -24,6 +24,13 @@ acquisition and output. The `diff` Changes section consumes one API-comparison r
 host-resolved surfaces, retaining Metadata-owned Finding correspondence and
 compatibility classification without coupling the query to endpoint acquisition
 or output.
+
+[Stateless core services](design/stateless-core-services.md) now owns the
+target composition between hosts, Workspace state, reusable services,
+the optional persistent-cache port, and detached terminal results. The detailed
+Workspace sections below remain authoritative for current behavior until their
+focused adoptions land; their retained-realization and in-place mutation contracts
+are scheduled migration conflicts rather than implementations of the target.
 The library CLI and package
 `--all-libraries` now use an ephemeral workspace for focused Integrations
 demand. One binding-consistent assembly context group per binding universe
@@ -80,11 +87,11 @@ same retained participant images. That group retains the workspace's bounded
 image budget; participants rejected by acquisition or the budget remain visible
 as extension and reachability warnings rather than silently shortening the
 search. Other foundations include shared image and inspection session ownership,
-catalog generations, `CoreCache`, typed provenance and resolution currencies,
+catalog generations, `PersistentCache`, typed provenance and resolution currencies,
 and `InertString`; the remaining workspace model describes how those pieces
 will be composed.
 
-Patternless `find --package-prefix` is a package-space query rather than an
+`package query` is a package-space query rather than an
 assembly workspace query. It streams bounded typed match, failure, and
 completion events from source-owned search metadata and exact manifests.
 Search supplies owners and candidate provenance; the manifest supplies authors
@@ -373,10 +380,13 @@ decide whether a query may use their content. Authorization remains a decision
 for the current query plan, not a permanent property of the group.
 
 [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) owns
-the committed logical Package occurrences above those physical contexts,
-closed-by-default selective dependency expansion, revision-bound scope edits,
-and closure completeness. Artifact Acquisition retains realization, admission,
-binding-context publication, query authorization, and physical lifetime.
+the committed logical Package occurrences above those physical contexts and
+the independent inert registration revision. Workspace construction supports
+empty or complete explicit registration initialization and exact-revision
+replacement without realizing those populations or changing Package membership.
+Package edits retain their existing publication and closure contract.
+Artifact Acquisition retains realization, admission, binding-context
+publication, query authorization, and physical lifetime.
 
 Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
@@ -496,44 +506,33 @@ into exception text or a second cleanup taxonomy. Expected cleanup failures are
 data in the report. The report becomes available only after all entries are
 terminal and is the same immutable instance returned by every close call.
 
-Workspace construction selects its lifetime mode before any group admission.
-The existing public construction path creates a synchronous-compatibility
-workspace. It continues to accept the current synchronous direct and
-package-role construction APIs. A coordinated registration in that mode must
-provide a synchronous request-release adapter over the same owner-issued
-completion retained by the package-role session; workspace disposal requests
-that path exactly once and never independently disposes the group.
+Every `InspectionWorkspace` has this complete awaited lifetime. Construction
+is synchronous and does not acquire a population; asynchronous cleanup is
+needed because admitted work and owned resources may still be active. There
+is no construction-time lifetime choice. The parameterless constructor and
+the constructor accepting inert registrations both use the same protocol.
 
-The synchronous compatibility path preserves the existing `IDisposable`
-boundary, not the target complete-report contract. `Dispose()` closes new
-workspace access and requests every direct or coordinated release before
-returning, but it does not block for quiescent completion or return the eventual
-report. Deferred release continues only through the already-owned group
-callback and release-completion state machine; the adapter starts no task or
-background work. Expected synchronous request failures retain the current
-throwing compatibility behavior. New retained or shared hosts instead use an
-explicit asynchronous construction path whose close is awaitable and reports
-every terminal result.
+```csharp
+await using var workspace = new InspectionWorkspace();
+// Construct groups or perform explicit acquisition and inspection.
+```
 
-On an asynchronous workspace, `DisposeAsync` awaits the same close completion
-and exposes its report through the workspace rather than throwing expected
-cleanup failures that could replace a primary exception from an `await using`
-body. On a synchronous-compatibility workspace, `DisposeAsync` performs the
-same release request as `Dispose()` so generic asynchronous disposal remains
-compatible. Callers that need to branch on cleanup use `CloseAsync` and inspect
-its returned report.
+`InspectionWorkspace` implements `IAsyncDisposable`. `DisposeAsync` awaits
+the same close completion and exposes its report through `CloseReport`,
+rather than throwing expected cleanup failures that could replace a primary
+exception from an `await using` body. Callers that need to branch on cleanup
+use `CloseAsync` and inspect its returned report.
 
-Lifetime-mode enforcement is fail-before-mutation. A
-synchronous-compatibility workspace rejects construction that requires an
-awaited admission or lacks a synchronous request-release adapter before that
-construction begins. Calling synchronous `Dispose()` on an asynchronous
-workspace throws `InvalidOperationException` before changing workspace state
-and directs the caller to asynchronous close. The validity of `Dispose()`
-therefore never depends on a race with later registration. Synchronous
-disposal never blocks a thread on a task, starts fire-and-forget cleanup, or
-leaves a half-closed workspace after rejecting the path. Its accepted
-compatibility path records a durable release request before returning; it does
-not launch an unobserved task or transfer progress to a background thread.
+The operator-approved migration retires the Workspace's synchronous
+`IDisposable`/`Dispose` compatibility path and `CreateAsynchronous` factories.
+This is an intentional source and behavior change, not a renamed mode
+selector: all callers now await terminal cleanup, and expected cleanup failures
+belong to the report. Synchronous group construction and the caller-owned
+package-role APIs remain available with their own existing contracts.
+Workspace close does not take over an adjacent owner's release authority.
+CLI and Browser consumers adopt the same lifetime; neither host adds a
+blocking adapter or detached cleanup path. A close initiated inside an active
+callback is joined only after that callback or lease can drain.
 
 The state transitions are short synchronous updates under the workspace gate.
 No gate is held across user or owner callbacks, group release, or an `await`.
@@ -557,16 +556,12 @@ model. The model checks the interaction contract. The Release gates below
 enforce the shipped close mechanics; exact direct-receipt attribution remains
 unverified by a fault-injection implementation gate.
 
-The direct and coordinated workspace-close paths are implemented. The
-parameterless constructor retains synchronous compatibility.
-`CreateAsynchronous()` selects the awaited lifetime before admission,
+The direct and coordinated workspace-close paths are implemented.
 `CloseAsync()` returns one shared `Task<InspectionWorkspaceCloseReport>`,
 `DisposeAsync()` awaits that task, and `CloseReport` exposes the same immutable
 report after completion. Each direct group has one release completion. An
-asynchronous workspace captures that outcome as an
-`InspectionWorkspaceDirectGroupCloseResult`; synchronous compatibility
-continues to throw the same cleanup failure while requesting the same
-group-owned release.
+admitted group's outcome is captured as an
+`InspectionWorkspaceDirectGroupCloseResult`.
 
 The direct implementation is enforced by these Release gates:
 
@@ -582,10 +577,11 @@ The direct implementation is enforced by these Release gates:
 - `WorkspaceClose_ConcurrentCallersShareCompletionAndReportInstance` proves
   repeated and concurrent close calls join one task and receive the same
   immutable report object;
-- `WorkspaceDispose_CompatibilityUsesSharedReleaseAuthority` proves
-  asynchronous `Dispose()` rejection is fail-before-mutation and synchronous
-  compatibility retains its throwing behavior through the group-owned release
-  completion; and
+- `WorkspaceDispose_AwaitsSharedReleaseAuthorityAndRetainsFailures` proves
+  ordinary construction and awaited disposal observe the same group-owned
+  release, retain failures, and expose the shared terminal report;
+- `AwaitUsing_PreservesBodyFailureAndRetainsCleanupReport` preserves the exact
+  body exception while retaining expected cleanup failures in that report; and
 - `WorkspaceClose_BrowserWasmUsesAwaitedProgressWithoutThreadBlocking` proves
   close rejects new work immediately, preserves an already-admitted callback,
   and reaches terminal close through awaited progress without a blocking wait
@@ -600,10 +596,9 @@ Package-role completion remains their sole physical release authority, while
 `InspectionWorkspaceCoordinatedGroupCloseResult<PackageRoleGroupCleanupRecord>`
 retains the exact keyed cleanup record without translating it.
 
-The shareable completion operation requires `CreateAsynchronous()` because its
-construction has awaited admission and it does not provide a synchronous
-request-release adapter. The synchronous caller-owned
-`CreatePackageAssemblyContextRoles` path remains unchanged.
+The shareable completion operation uses the same Workspace lifetime and its
+awaited admission. The synchronous caller-owned
+`CreatePackageAssemblyContextRoles` path retains its existing release authority.
 
 The coordinated composition is enforced by these Release gates:
 
@@ -627,10 +622,10 @@ the implementation of
 
 **Status:** no approved product caller.
 
-The `inspect-web` prototype is the only current multi-operation consumer of
+Inspect Web is the only current multi-operation consumer of
 package roles. Its `BrowserPackageWorkspace` retains a bounded registry of
 complete `BrowserInspectionScope` instances keyed by an exact
-package-coordinate set; the prototype's README owns that retention and eviction
+package-coordinate set; the workspace README owns that retention and eviction
 policy. Each scope owns one `InspectionWorkspace` and one package-role
 realization. The registry returns the already-open scope for a later exact
 request, so the workspace never receives a second independent package-role
@@ -1056,8 +1051,8 @@ snapshot. Its request binds the seed subject, one candidate breadth (`Self`,
 `Everything` plus `SimilarNames`. The normative contract is
 [Structural clone search scope](design/structural-clone-search-scope.md).
 
-Workspace registration lookup is not implemented, so breadth membership is
-supplied rather than inferred: each snapshot entry carries its own
+Registration-derived participant realization is not yet adopted by this query,
+so breadth membership is supplied rather than inferred: each snapshot entry carries its own
 `ContainingLibrary`, `RegisteredEcosystem`, or `Available` membership, and the
 snapshot binds the starting and effective Workspace revisions plus one opaque
 snapshot identity. The constructor rejects a repeated participant, a repeated
@@ -1610,10 +1605,17 @@ A plan-expansion request is a typed orchestration outcome, not absence or an
 empty result. The coordinator advances the owning domain's generation and
 restarts affected work before presentation.
 
-### `CoreCache`
+### `PersistentCache`
 
-`CoreCache` is shared infrastructure for category roots, path-safe hashed keys,
-maintenance, and cache telemetry. It is a mechanism, not a semantic authority.
+`DotnetInspector.Cache.PersistentCache`
+(`src/DotnetInspector.Cache/PersistentCache.cs`) is shared infrastructure for
+category roots, path-safe hashed keys, maintenance, and atomic file
+publication. `DotnetInspector.Cache.CacheTelemetry`
+(`src/DotnetInspector.Cache/CacheTelemetry.cs`) records cache access with
+inert, redacted keys and current request/network context. The project
+dependencies are limited to the platform, `InertText`, and
+`DotnetInspector.Networking`. The cache library supplies mechanisms, not
+semantic authority.
 
 The cache owner for each result must still define:
 
@@ -1683,8 +1685,9 @@ opens, and prove no result derived from S can be published or read under W's
 identity. This repository-wide cutover rule is unverified as a global
 inventory; each adopting cache must name its owning gate. `MDP017` in
 [member inspection planning and Metadata
-projection](design/member-inspection-planning-and-metadata-projection.md) is the
-worked gate for the library effective-catalog format-admission cutover.
+projection](design/member-inspection-planning-and-metadata-projection.md) gates
+metadata-root admission; the library effective-catalog cutover itself is
+unverified and tracked by [#3478](https://github.com/richlander/dotnet-inspect/issues/3478).
 
 ### `InertString`
 

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -56,27 +57,19 @@ public sealed class ResearchAssemblyContext
 /// Memoizes <see cref="ResearchAssemblyContext.Create"/> per <see cref="LibraryBodyIndex"/> instance.
 /// The context's assembly-wide projections are lazy, and sharing the context
 /// ensures each projection is computed at most once for an index when multiple
-/// producers or member queries request it.
+/// producers or member queries request it. The weak association does not extend
+/// the lifetime of the index supplied by its owner.
 /// </summary>
 static class ResearchAssemblyContextCache
 {
-    const int MaxCachedContexts = 8;
-    static readonly object s_lock = new();
-    static readonly Dictionary<LibraryBodyIndex, ResearchAssemblyContext> s_contexts = new();
+    static readonly ConditionalWeakTable<
+        LibraryBodyIndex,
+        ResearchAssemblyContext> s_contexts = new();
 
-    public static ResearchAssemblyContext ForIndex(LibraryBodyIndex index)
-    {
-        lock (s_lock)
-        {
-            if (s_contexts.TryGetValue(index, out var context))
-                return context;
-            if (s_contexts.Count >= MaxCachedContexts)
-                s_contexts.Clear();
-            context = ResearchAssemblyContext.Create(index);
-            s_contexts[index] = context;
-            return context;
-        }
-    }
+    public static ResearchAssemblyContext ForIndex(LibraryBodyIndex index) =>
+        s_contexts.GetValue(
+            index ?? throw new ArgumentNullException(nameof(index)),
+            static owner => ResearchAssemblyContext.Create(owner));
 }
 
 public sealed record ResearchFactContext(

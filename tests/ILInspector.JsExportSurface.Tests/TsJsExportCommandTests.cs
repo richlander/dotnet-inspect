@@ -576,9 +576,10 @@ public sealed class TsJsExportCommandTests
     }
 
     [Fact]
-    public void AssemblySearchPathRequiresContextMode()
+    public void AssemblySearchPathIsSupportedInStandaloneMode()
     {
         var error = new StringWriter();
+        var output = new StringWriter();
 
         int exitCode = TsJsExportCommand.Invoke(
             [
@@ -588,14 +589,15 @@ public sealed class TsJsExportCommandTests
                 "--runtime-module",
                 "./dotnet.js",
             ],
-            new StringWriter(),
+            output,
             error);
 
-        Assert.Equal(1, exitCode);
+        Assert.Equal(0, exitCode);
         Assert.Contains(
-            "--assembly-search-path requires --context",
-            error.ToString(),
+            "identifyAlpha",
+            output.ToString(),
             StringComparison.Ordinal);
+        Assert.Empty(error.ToString());
     }
 
     [Fact]

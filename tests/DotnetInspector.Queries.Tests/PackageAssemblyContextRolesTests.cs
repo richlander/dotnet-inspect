@@ -7,14 +7,14 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class PackageAssemblyContextRolesTests
 {
     [Fact]
-    public void SeparateRoles_PreserveExactSurfaceImplementationCorrespondence()
+    public async Task SeparateRoles_PreserveExactSurfaceImplementationCorrespondence()
     {
         ResolvedAssemblyReference surface = Assembly("Sample", marker: 1);
         ResolvedAssemblyReference implementation =
             Assembly("Sample", marker: 2);
         ResolvedAssemblyReference implementationOnly =
             Assembly("Sample.Helper", marker: 3);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRoles roles =
             workspace.CreatePackageAssemblyContextRoles(
                 [surface],
@@ -38,13 +38,13 @@ public sealed class PackageAssemblyContextRolesTests
     }
 
     [Fact]
-    public void SharedRole_ReusesGroupAndLeavesReferenceOnlySurfaceUnpaired()
+    public async Task SharedRole_ReusesGroupAndLeavesReferenceOnlySurfaceUnpaired()
     {
         ResolvedAssemblyReference library = Assembly("Library", marker: 1);
         ResolvedAssemblyReference referenceOnly =
             Assembly("Reference.Only", marker: 2);
         ResolvedAssemblyReference[] assemblies = [library, referenceOnly];
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRoles roles =
             workspace.CreatePackageAssemblyContextRoles(
                 assemblies,
@@ -64,11 +64,11 @@ public sealed class PackageAssemblyContextRolesTests
     }
 
     [Fact]
-    public void PackageRole_DoesNotSatisfyPlatformScopedReference()
+    public async Task PackageRole_DoesNotSatisfyPlatformScopedReference()
     {
         ResolvedAssemblyReference assembly =
             Assembly("System.Confusable", marker: 1);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRoles roles =
             workspace.CreatePackageAssemblyContextRoles(
                 [assembly],
@@ -106,12 +106,12 @@ public sealed class PackageAssemblyContextRolesTests
     }
 
     [Fact]
-    public void SharedRole_RequiresExactDescriptorsAndOneLimitPolicy()
+    public async Task SharedRole_RequiresExactDescriptorsAndOneLimitPolicy()
     {
         ResolvedAssemblyReference surface = Assembly("Shared", marker: 1);
         ResolvedAssemblyReference equivalent =
             Assembly("Shared", marker: 2);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         ArgumentException descriptors = Assert.Throws<ArgumentException>(
             () => workspace.CreatePackageAssemblyContextRoles(
@@ -147,12 +147,12 @@ public sealed class PackageAssemblyContextRolesTests
     }
 
     [Fact]
-    public void InvalidRoles_CreateNoPartialGroup()
+    public async Task InvalidRoles_CreateNoPartialGroup()
     {
         ResolvedAssemblyReference surface = Assembly("Surface", marker: 1);
         ResolvedAssemblyReference mismatched =
             Assembly("Implementation", marker: 2);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         InvalidOperationException mismatch =
             Assert.Throws<InvalidOperationException>(
@@ -195,12 +195,12 @@ public sealed class PackageAssemblyContextRolesTests
     }
 
     [Fact]
-    public void Dispose_ContinuesAfterBothRoleGroupsFail()
+    public async Task Dispose_ReportsBothRoleFailuresWithoutReplacingPrimaryException()
     {
         ResolvedAssemblyReference surface = Assembly("Dispose", marker: 1);
         ResolvedAssemblyReference implementation =
             Assembly("Dispose", marker: 2);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         PackageAssemblyContextRoles roles =
             workspace.CreatePackageAssemblyContextRoles(
                 [surface],
@@ -211,17 +211,21 @@ public sealed class PackageAssemblyContextRolesTests
         roles.ImplementationGroup!.RegisterOwnedResource(
             new ThrowingResource("implementation disposal failed"));
 
-        AggregateException failure =
-            Assert.Throws<AggregateException>(roles.Dispose);
+        var primary = new InvalidOperationException("role body failed");
+        Action body = () =>
+        {
+            try
+            {
+                throw primary;
+            }
+            finally
+            {
+                roles.Dispose();
+            }
+        };
 
-        IReadOnlyCollection<Exception> failures =
-            failure.Flatten().InnerExceptions;
-        Assert.Contains(
-            failures,
-            ex => ex.Message == "surface disposal failed");
-        Assert.Contains(
-            failures,
-            ex => ex.Message == "implementation disposal failed");
+        InvalidOperationException propagated = Assert.Throws<InvalidOperationException>(body);
+        Assert.Same(primary, propagated);
         Assert.Equal(0, GroupCount(workspace));
         Assert.Throws<ObjectDisposedException>(
             () => roles.SurfaceGroup.UseAssemblyImage(
@@ -231,6 +235,19 @@ public sealed class PackageAssemblyContextRolesTests
             () => roles.ImplementationGroup.UseAssemblyImage(
                 implementation,
                 static image => image.Content.Length));
+
+        InspectionWorkspaceCloseReport report = await workspace.CloseAsync();
+        Assert.Equal(2, report.Groups.Length);
+        Exception[] failures = report.Groups.SelectMany(result =>
+            Assert.IsType<AggregateException>(
+                Assert.IsType<InspectionWorkspaceDirectGroupCloseResult>(result).Failure)
+                .Flatten().InnerExceptions).ToArray();
+        Assert.Contains(
+            failures,
+            ex => ex.Message == "surface disposal failed");
+        Assert.Contains(
+            failures,
+            ex => ex.Message == "implementation disposal failed");
     }
 
     static ResolvedAssemblyReference Assembly(

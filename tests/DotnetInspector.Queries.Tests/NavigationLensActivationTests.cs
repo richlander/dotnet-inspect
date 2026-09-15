@@ -9,12 +9,14 @@ public sealed class NavigationLensActivationTests
     public void StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution()
     {
         AssemblyContextParticipant participant = Participant();
+        StructuralSubjectIdentity.PackageSubject package =
+            StructuralSubjectTestData.Package(PackageCoordinate()).Subject;
         StructuralSubjectIdentity.TypeSubject active =
-            TypeSubject("Active", participant);
+            TypeSubject("Active", participant, package);
         StructuralSubjectIdentity.TypeSubject equal =
-            TypeSubject("Active", participant);
+            TypeSubject("Active", participant, package);
         StructuralSubjectIdentity.TypeSubject requested =
-            TypeSubject("Requested", participant);
+            TypeSubject("Requested", participant, package);
         Assert.NotSame(active, equal);
         Assert.Equal(active, equal);
 
@@ -96,7 +98,7 @@ public sealed class NavigationLensActivationTests
 
         NavigationLensActivationResult.Rejected inapplicable =
             Assert.IsType<NavigationLensActivationResult.Rejected>(
-                fixture.Activate("root.inapplicable"));
+                fixture.Activate("workspace.inapplicable"));
         Assert.IsType<ViewFacetResolution.Inapplicable>(
             Assert.IsType<NavigationLensRejection.Registry>(
                 inapplicable.Rejection).Result);
@@ -108,29 +110,31 @@ public sealed class NavigationLensActivationTests
             Assert.IsType<NavigationLensRejection.Registry>(
                 unknown.Rejection).Result);
 
-        StructuralSubjectIdentity.RootSubject root =
-            StructuralSubjectIdentity.ForRoot(PackageCoordinate());
-        ViewFacetDescriptor rootDescriptor = Descriptor(
-            "root.overview",
-            StructuralSubjectKind.Root);
-        ViewFacetRegistry rootRegistry = Registry(
-            rootDescriptor,
-            target =>
-                target.RootKind == ViewFacetRootKind.PackageCapable);
-        var rootFacts = new ViewFacetAvailabilitySnapshot(
+        StructuralSubjectIdentity.WorkspaceSubject workspace =
+            StructuralSubjectIdentity.ForWorkspace(
+                new InspectionWorkspaceIdentity());
+        ViewFacetDescriptor workspaceDescriptor = Descriptor(
+            "workspace.overview",
+            StructuralSubjectKind.Workspace);
+        ViewFacetRegistry workspaceRegistry = Registry(workspaceDescriptor);
+        var workspaceFacts = new ViewFacetAvailabilitySnapshot(
         [
             new ViewFacetAvailabilityFact(
-                rootDescriptor.Id,
+                workspaceDescriptor.Id,
                 ViewFacetAvailability.Available.Instance),
         ]);
-        NavigationLensActivationResult.Applied rootResult =
+        NavigationLensActivationResult.Applied workspaceResult =
             Assert.IsType<NavigationLensActivationResult.Applied>(
                 NavigationLensActivation.Activate(
-                    root,
-                    new NavigationLensIdentity(root, rootDescriptor.Id),
-                    rootRegistry,
-                    rootFacts));
-        Assert.Same(root, rootResult.Outcome.EffectiveLens!.Subject);
+                    workspace,
+                    new NavigationLensIdentity(
+                        workspace,
+                        workspaceDescriptor.Id),
+                    workspaceRegistry,
+                    workspaceFacts));
+        Assert.Same(
+            workspace,
+            workspaceResult.Outcome.EffectiveLens!.Subject);
     }
 
     [Fact]
@@ -178,7 +182,7 @@ public sealed class NavigationLensActivationTests
         foreach ((string Id, ViewFacetDescriptor? Descriptor) rejected in
             new[]
             {
-                ("root.inapplicable", fixture.Inapplicable),
+                ("workspace.inapplicable", fixture.Inapplicable),
                 ("type.unknown", null),
             })
         {
@@ -250,8 +254,8 @@ public sealed class NavigationLensActivationTests
             StructuralSubjectKind.Type,
             order: 400);
         ViewFacetDescriptor inapplicable = Descriptor(
-            "root.inapplicable",
-            StructuralSubjectKind.Root,
+            "workspace.inapplicable",
+            StructuralSubjectKind.Workspace,
             order: 100);
         ViewFacetUnavailableReason unavailableReason =
             ViewFacetUnavailableReason.CapabilityAbsent(
@@ -361,9 +365,11 @@ public sealed class NavigationLensActivationTests
 
     static StructuralSubjectIdentity.TypeSubject TypeSubject(
         string name,
-        AssemblyContextParticipant? participant = null)
+        AssemblyContextParticipant? participant = null,
+        StructuralSubjectIdentity.PackageSubject? package = null)
     {
         RealizedMemberCoordinate.Package coordinate = PackageCoordinate();
+        package ??= StructuralSubjectTestData.Package(coordinate).Subject;
         var library = new WorkspaceContextMember(
             WorkspaceMemberCoordinate.Package(
                 coordinate.PackageId,
@@ -378,7 +384,7 @@ public sealed class NavigationLensActivationTests
                     "Sample",
                     [name])).Name;
         return StructuralSubjectIdentity.ForType(
-            StructuralSubjectIdentity.ForLibrary(library),
+            StructuralSubjectIdentity.ForLibrary(package, library),
             type);
     }
 

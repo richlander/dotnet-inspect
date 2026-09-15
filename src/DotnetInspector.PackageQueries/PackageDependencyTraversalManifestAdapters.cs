@@ -51,7 +51,7 @@ public sealed class DesktopPackageDependencyTraversalManifestSource(
 
 /// <summary>
 /// Host-neutral candidate-authorized exact manifest adapter over the same
-/// caller-owned House source lease as
+/// caller-owned package-source settlement lease as
 /// <see cref="AuthorizedPackageDependencyCandidateSource"/>. This is the
 /// Browser/Wasm host's thin path: the host supplies source capabilities
 /// instead of a desktop transport composition.
@@ -60,7 +60,7 @@ public sealed class AuthorizedPackageDependencyManifestSource(
     AuthorizedPackageDependencyCandidateSource candidateSource) :
     IPackageDependencyTraversalManifestAcquirer
 {
-    private readonly PackageHouseSourceLease _sourceLease =
+    private readonly PackageSourceSettlementLease _sourceLease =
         candidateSource is null
             ? throw new ArgumentNullException(nameof(candidateSource))
             : candidateSource.SourceLease;

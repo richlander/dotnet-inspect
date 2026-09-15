@@ -63,7 +63,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             SourceFileBytes());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -116,7 +116,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 pdbBytes,
                 sourceBytes: [],
                 allowLocalSourceReads: true);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -173,7 +173,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                     "queries",
                     "DotnetInspector.Queries.EmbeddedFixtures",
                     nameof(BodylessSourceFixture) + ".cs")));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -218,7 +218,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             typeof(BodylessSourceFixture).Assembly.Location);
         TestAssembly assembly = TestAssembly.Create(image);
         using var host = QueryHost.WithUnavailableSource(statusCode);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -245,6 +245,73 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.NotEmpty(host.SourceRequests);
     }
 
+    [Theory]
+    [InlineData("MemorySafetyExtensionEnum")]
+    [InlineData("MemorySafetyExtensionDelegate")]
+    [InlineData("IMemorySafetyExtensionInterface")]
+    [InlineData("MemorySafetyAbstractFixture")]
+    public async Task BodylessType_UnsupportedMemorySafetyModeRemainsUnavailable(
+        string typeName)
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(UnsupportedMemorySafetyImage());
+        using var host = QueryHost.WithoutPdb();
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyTypeSourceEntry result =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(typeName),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(result);
+        Assert.NotNull(unavailable.DecompiledAttempt);
+        Assert.Contains(
+            unavailable.DecompiledAttempt.Diagnostics,
+            diagnostic => diagnostic.Id
+                == DiagnosticIds.MemorySafetyModeUnavailable);
+    }
+
+    [Fact]
+    public async Task AbstractMember_UnsupportedMemorySafetyModeRemainsUnavailable()
+    {
+        const string TypeName = "MemorySafetyAbstractFixture";
+        TestAssembly assembly =
+            TestAssembly.Create(UnsupportedMemorySafetyImage());
+        using var host = QueryHost.WithoutPdb();
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceEntry result =
+            await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest("Read", TypeName),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(result);
+        Assert.Equal(
+            MemberBodyProductionStatus.Failed,
+            unavailable.DecompiledAttempt?.Status);
+        Assert.Contains(
+            DiagnosticIds.MemorySafetyModeUnavailable,
+            unavailable.DecompiledAttempt?.Text);
+        Assert.Contains(
+            unavailable.DecompiledAttempt!.Failure!.Diagnostics,
+            diagnostic => diagnostic.Id
+                == DiagnosticIds.MemorySafetyModeUnavailable);
+    }
+
     [Fact]
     public async Task AmbiguousBodylessTypeSourceInferenceFallsBackToDecompiler()
     {
@@ -257,7 +324,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         TestAssembly assembly = TestAssembly.Create(image);
         using var host =
             QueryHost.WithUnavailableSource(HttpStatusCode.NotFound);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -301,7 +368,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         AssemblyMemberSourceRequest request =
             assembly.MemberRequest(nameof(SourceFixture.Describe));
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -340,7 +407,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             "not the compiled source"u8.ToArray());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -387,7 +454,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             SourceFileBytes());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -440,7 +507,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithoutPdb(
             allowLocalSourceReads: true,
             allowAdjacentPdbReads: allowAdjacentPdbReads);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -493,7 +560,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             SourceFileBytes());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -554,7 +621,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             SourceFileBytes());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -607,7 +674,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 Path.Combine(
                     Path.GetDirectoryName(SourceFileBytesPath())!,
                     "ApiInventoryQueryTests.cs")));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -643,7 +710,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             "not the compiled source"u8.ToArray());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -701,7 +768,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             SourceFileBytes());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -743,7 +810,7 @@ public sealed partial class AssemblyContextSourceQueryTests
     {
         TestAssembly assembly = TestAssembly.Create();
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -808,7 +875,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                     nameof(mismatch)),
             };
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -860,7 +927,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 assembly,
                 policy);
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [participant]);
@@ -894,7 +961,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             TestAssembly.Create(
                 selectedName: "Different.Identity");
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -935,7 +1002,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                     assembly.PdbPath,
                     SourceFileBytes(),
                     pdbStore: new CancelingPdbStore());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -972,7 +1039,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                     SourceFileBytes(),
                     pdbStore: new ThrowingPdbStore(
                         assembly.Policy.ChangeVersion));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1006,7 +1073,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             SourceFileBytes());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1036,7 +1103,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             SourceFileBytes());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1071,7 +1138,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         AssemblyTypeSourceRequest request =
             assembly.TypeRequest(typeof(SourceFixture).Name);
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1109,7 +1176,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             WrapExpressionBodyArrow = true,
         };
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1161,7 +1228,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         TestAssembly pathful =
             TestAssembly.Create(retainPath: true);
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         Assert.Null(pathless.Assembly.Path);
         Assert.NotNull(pathful.Assembly.Path);
@@ -1226,7 +1293,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         TestAssembly assembly =
             TestAssembly.Create(bytes);
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1289,7 +1356,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                     return opened;
                 });
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1367,7 +1434,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 assembly,
                 policy);
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [participant]);
@@ -1493,7 +1560,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 assembly.Assembly,
                 foreignPolicy);
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1552,7 +1619,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         TestAssembly assembly =
             TestAssembly.Create(bytes);
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1611,7 +1678,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         TestAssembly assembly =
             TestAssembly.Create(bytes);
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1653,7 +1720,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             pdbStore: pdbStore);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1711,7 +1778,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             pdbStore: pdbStore);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1760,7 +1827,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         assembly.Policy.BeforeSelection =
             assembly.Policy.ChangeVersion;
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1833,6 +1900,56 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Null(policy.Select(request));
     }
 
+    [Fact]
+    public void CancellationObservingBindingPolicy_ObservesCompositionDomain()
+    {
+        ResolvedAssemblyReference first =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "First",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(),
+                AssemblyResolutionProvenance.Local("first test candidate"));
+        ResolvedAssemblyReference second =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "Second",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(),
+                AssemblyResolutionProvenance.Local("second test candidate"));
+        var inner = new FrameworkBindingPolicy
+        {
+            SelectOverride = _ =>
+                AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create(
+                        [first, second])),
+        };
+        var policy =
+            new AssemblyContextSourceQuery.CancellationObservingBindingPolicy(
+                inner);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+
+        var required = Assert.IsType<
+            AssemblyBindingSelection.CompositionRequired>(
+                policy.Select(request).Selection);
+
+        Assert.Equal(
+            [first.Registration, second.Registration],
+            required.Domain.Candidates.Select(
+                candidate => candidate.Registration));
+        Assert.DoesNotContain(first, required.Domain.Candidates);
+        Assert.DoesNotContain(second, required.Domain.Candidates);
+    }
+
     [Theory]
     [InlineData(false, false, false)]
     [InlineData(false, true, false)]
@@ -1885,7 +2002,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                         AssemblyResolutionProvenance.Local(
                             "source query cancellation test")));
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1941,7 +2058,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         assembly.Policy.BeforeSelection =
             cancellation.Cancel;
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -1984,7 +2101,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             store);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -2036,7 +2153,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             store);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -2084,7 +2201,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             store);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -2122,7 +2239,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             store);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -2176,7 +2293,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             pdbStore: pdbStore);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -2250,7 +2367,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         TestAssembly assembly =
             TestAssembly.Create(bytes);
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -2544,7 +2661,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             pdbStore: pdbStore);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -2662,7 +2779,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             pdbStore: pdbStore);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -2756,7 +2873,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             pdbStore: pdbStore);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -2844,7 +2961,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             pdbStore: pdbStore);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -2975,7 +3092,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         AssemblyTypeSourceRequest request =
             assembly.TypeRequest(typeof(SourceDelegate).Name);
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -3008,7 +3125,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         AssemblyMemberSourceRequest request =
             assembly.MemberRequest(nameof(SourceFixture.Describe));
         using var host = QueryHost.WithoutPdb();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -3195,7 +3312,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 Path.GetFileName(assembly.PdbPath),
                 pdbBytes,
                 SourceFileBytes());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
@@ -3631,6 +3748,32 @@ public sealed partial class AssemblyContextSourceQueryTests
             _ => throw new BadImageFormatException(
                 "Invalid compressed integer."),
         };
+
+    static byte[] UnsupportedMemorySafetyImage()
+    {
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        MemorySafetyRulesObservation observation = Assert.Single(
+            MemorySafetyMetadataIndex.Create(reader)
+                .Rules
+                .Observations);
+        CustomAttribute attribute = reader.GetCustomAttribute(
+            (CustomAttributeHandle)MetadataTokens.EntityHandle(
+                observation.AttributeToken));
+        byte[] original = reader.GetBlobBytes(attribute.Value);
+        int valueOffset = Assert.Single(
+            Enumerable.Range(0, image.Length - original.Length + 1),
+            offset => image
+                    .AsSpan(offset, original.Length)
+                    .SequenceEqual(original));
+        BitConverter.TryWriteBytes(
+            image.AsSpan(valueOffset + 2, sizeof(int)),
+            99);
+        return image;
+    }
 
     sealed class TestAssembly
     {

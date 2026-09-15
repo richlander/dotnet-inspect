@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Package-free installed platform discovery and reference-pack realization</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
+    <ProjectReference Include="../DotnetInspector.Platforms.Formats/DotnetInspector.Platforms.Formats.csproj" />
+    <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
+  </ItemGroup>
+
+</Project>

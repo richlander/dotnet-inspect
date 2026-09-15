@@ -14,17 +14,18 @@ using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public sealed class RoundTripComparisonTests
 {
     static string AssemblyPath => typeof(RoundTripComparisonTests).Assembly.Location;
 
     [Fact]
-    public void Compare_ReportsExactCSharpAndIlForSameArtifact()
+    public async Task Compare_ReportsExactCSharpAndIlForSameArtifact()
     {
         var request = CreateRequest();
 
-        var result = RoundTripComparison.Compare(request, File.ReadAllBytes(AssemblyPath));
+        var result = await RoundTripComparison.CompareAsync(request, File.ReadAllBytes(AssemblyPath));
 
         Assert.Equal(RoundTripComparisonStatus.Completed, result.Status);
         var member = Assert.Single(result.Members);
@@ -39,7 +40,7 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void Compare_ReportsChangedEvidenceForRecompiledBody()
+    public async Task Compare_ReportsChangedEvidenceForRecompiledBody()
     {
         var request = CreateRequest();
         var donor = Compile("""
@@ -50,7 +51,7 @@ public sealed class RoundTripComparisonTests
             }
             """);
 
-        var result = RoundTripComparison.Compare(request, donor);
+        var result = await RoundTripComparison.CompareAsync(request, donor);
 
         Assert.Equal(RoundTripComparisonStatus.Completed, result.Status);
         var member = Assert.Single(result.Members);
@@ -61,12 +62,12 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void Compare_PreservesAbsentCorrespondenceAsUnavailable()
+    public async Task Compare_PreservesAbsentCorrespondenceAsUnavailable()
     {
         var request = CreateRequest();
         var donor = Compile("public sealed class Other { public int Transform(int value) => value; }");
 
-        var result = RoundTripComparison.Compare(request, donor);
+        var result = await RoundTripComparison.CompareAsync(request, donor);
 
         Assert.Equal(RoundTripComparisonStatus.Completed, result.Status);
         var member = Assert.Single(result.Members);
@@ -77,7 +78,7 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void Compare_FailsWhenInputBytesNoLongerMatchRequest()
+    public async Task Compare_FailsWhenInputBytesNoLongerMatchRequest()
     {
         var valid = CreateRequest();
         var request = RoundTripRequest.Create(
@@ -88,7 +89,7 @@ public sealed class RoundTripComparisonTests
             valid.BodyPolicy,
             valid.Replacements);
 
-        var result = RoundTripComparison.Compare(request, File.ReadAllBytes(AssemblyPath));
+        var result = await RoundTripComparison.CompareAsync(request, File.ReadAllBytes(AssemblyPath));
 
         Assert.Equal(RoundTripComparisonStatus.Failed, result.Status);
         Assert.Contains("content hash", result.Failure);
@@ -96,7 +97,7 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void Compare_PreservesBodylessEndpointAsUnavailable()
+    public async Task Compare_PreservesBodylessEndpointAsUnavailable()
     {
         var donor = Compile("""
             namespace ILInspector.Decompiler.Tests;
@@ -106,7 +107,7 @@ public sealed class RoundTripComparisonTests
             }
             """);
 
-        var result = RoundTripComparison.Compare(CreateRequest(), donor);
+        var result = await RoundTripComparison.CompareAsync(CreateRequest(), donor);
 
         Assert.Equal(RoundTripComparisonStatus.Completed, result.Status);
         var member = Assert.Single(result.Members);
@@ -126,7 +127,7 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void Compare_PreservesMalformedBodyAsUnavailable()
+    public async Task Compare_PreservesMalformedBodyAsUnavailable()
     {
         byte[] donor = Compile(DonorSource("value + 1"));
         using (var pe = new PEReader(new MemoryStream(donor, writable: false)))
@@ -140,7 +141,7 @@ public sealed class RoundTripComparisonTests
             donor[section.PointerToRawData + rva - section.VirtualAddress] = 0;
         }
 
-        var result = RoundTripComparison.Compare(CreateRequest(), donor);
+        var result = await RoundTripComparison.CompareAsync(CreateRequest(), donor);
 
         Assert.Equal(RoundTripComparisonStatus.Completed, result.Status);
         var member = Assert.Single(result.Members);
@@ -153,7 +154,7 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void Compare_PreservesFailedCorrespondenceAsUnavailable()
+    public async Task Compare_PreservesFailedCorrespondenceAsUnavailable()
     {
         var valid = CreateRequest();
         Guid wrongModule = Guid.NewGuid();
@@ -163,7 +164,7 @@ public sealed class RoundTripComparisonTests
             [valid.Targets[0] with { Method = valid.Targets[0].Method with { ModuleVersionId = wrongModule } }],
             valid.Scope, valid.BodyPolicy, valid.Replacements);
 
-        var result = RoundTripComparison.Compare(request, File.ReadAllBytes(AssemblyPath));
+        var result = await RoundTripComparison.CompareAsync(request, File.ReadAllBytes(AssemblyPath));
 
         Assert.Equal(RoundTripComparisonStatus.Completed, result.Status);
         var member = Assert.Single(result.Members);
@@ -175,11 +176,11 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void QueryComparison_RetainsRejectedDesignation()
+    public async Task QueryComparison_RetainsRejectedDesignation()
     {
         using var original = DecompilerMetadataSource.OpenWithoutSymbols(AssemblyPath);
         using var donor = DecompilerMetadataSource.OpenWithoutSymbols(AssemblyPath);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var query = new RoundTripComparisonQuery(workspace, original, donor);
         var target = CreateRequest().Targets[0].Method;
 
@@ -200,11 +201,11 @@ public sealed class RoundTripComparisonTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public void CSharpRoundTripChangedRejectsFailureRows(bool identityFailure, bool includeChanges)
+    public async Task CSharpRoundTripChangedRejectsFailureRows(bool identityFailure, bool includeChanges)
     {
         var request = CreateRequest();
-        var member = Assert.Single(RoundTripComparison.Compare(
-            request, Compile(DonorSource("value + 2"))).Members);
+        var member = Assert.Single((await RoundTripComparison.CompareAsync(
+            request, Compile(DonorSource("value + 2")))).Members);
         var native = Assert.IsType<ResearchProducerWorkOutcome.ProducedCSharp>(
             Completion(member.Evidence).Results
                 .Single(result => result.Item.Producer == ResearchProducerKind.CSharp).Outcome).Result;
@@ -225,14 +226,14 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void ScopeCompare_ComparesClusterAndAllDonorsDirectly()
+    public async Task ScopeCompare_ComparesClusterAndAllDonorsDirectly()
     {
         var clusterRequest = CreateRequest();
         var allRequest = WithScope(clusterRequest, RoundTripScope.All);
         var cluster = CompileResult(DonorSource("value + 1"));
         var all = CompileResult(DonorSource("value + 1", includeUnrelated: true));
 
-        var result = RoundTripScopeComparison.Compare(
+        var result = await RoundTripScopeComparison.CompareAsync(
             clusterRequest,
             cluster.Provenance,
             cluster.PeImage!,
@@ -255,14 +256,14 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void ScopeCompare_ReportsCleanDirectDonorDifference()
+    public async Task ScopeCompare_ReportsCleanDirectDonorDifference()
     {
         var clusterRequest = CreateRequest();
         var allRequest = WithScope(clusterRequest, RoundTripScope.All);
         var cluster = CompileResult(DonorSource("value + 1"));
         var all = CompileResult(DonorSource("value + 2", includeUnrelated: true));
 
-        var result = RoundTripScopeComparison.Compare(
+        var result = await RoundTripScopeComparison.CompareAsync(
             clusterRequest,
             cluster.Provenance,
             cluster.PeImage!,
@@ -277,14 +278,14 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void ScopeCompare_RejectsCompilerContextMismatch()
+    public async Task ScopeCompare_RejectsCompilerContextMismatch()
     {
         var clusterRequest = CreateRequest();
         var allRequest = WithScope(clusterRequest, RoundTripScope.All);
         var cluster = CompileResult(DonorSource("value + 1"), OptimizationLevel.Release);
         var all = CompileResult(DonorSource("value + 1", includeUnrelated: true), OptimizationLevel.Debug);
 
-        var result = RoundTripScopeComparison.Compare(
+        var result = await RoundTripScopeComparison.CompareAsync(
             clusterRequest,
             cluster.Provenance,
             cluster.PeImage!,
@@ -299,7 +300,7 @@ public sealed class RoundTripComparisonTests
     }
 
     [Fact]
-    public void ScopeCompare_RejectsReferenceContentMismatch()
+    public async Task ScopeCompare_RejectsReferenceContentMismatch()
     {
         var clusterRequest = CreateRequest();
         var allRequest = WithScope(clusterRequest, RoundTripScope.All);
@@ -311,7 +312,7 @@ public sealed class RoundTripComparisonTests
             References = all.Provenance.References.SetItem(0, changedReference),
         };
 
-        var result = RoundTripScopeComparison.Compare(
+        var result = await RoundTripScopeComparison.CompareAsync(
             clusterRequest,
             cluster.Provenance,
             cluster.PeImage!,

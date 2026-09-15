@@ -365,6 +365,55 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void CompatibleImplementation_UsesRequestedFrameworkForEmptyGroupReduction()
+    {
+        IPackageContent content = InMemory(
+            "ref/net6.0/Example.dll",
+            "ref/net8.0/_._",
+            "lib/net6.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.SelectForCompatibleImplementation(
+                content,
+                "Example",
+                "net9.0",
+                "net6.0");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            selection.Status);
+        Assert.Equal("net6.0", selection.TargetFramework);
+        Assert.Empty(selection.Assets);
+        Assert.Equal(
+            ["lib/net6.0/Example.dll"],
+            selection.ImplementationAssets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void CompatibleImplementation_DoesNotUseCompatibleReferenceAssets()
+    {
+        IPackageContent content = InMemory(
+            "ref/net6.0/Example.dll",
+            "lib/net6.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.SelectForCompatibleImplementation(
+                content,
+                "Example",
+                "net9.0",
+                "net6.0");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal("net6.0", selection.TargetFramework);
+        Assert.Equal(
+            ["lib/net6.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            PackageCompileAssetKind.Library,
+            Assert.Single(selection.Assets).Kind);
+    }
+
+    [Fact]
     public void EmptyReferenceGroup_NewerThanTheSelectedFramework_PreservesLibraryFallback()
     {
         IPackageContent content = InMemory(

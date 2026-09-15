@@ -24,7 +24,7 @@ namespace ILInspector.Decompiler.Tests;
 public class ReturnToSenderPrototypeTests
 {
     [Fact]
-    public void CompileBackTargets_AllFullReconstructsUnrelatedExplicitInterfaceEventAccessors()
+    public async Task CompileBackTargets_AllFullReconstructsUnrelatedExplicitInterfaceEventAccessors()
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -52,7 +52,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
                 RoundTripScope.All,
@@ -92,7 +92,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_AllFullReconstructsUnrelatedEventAccessors()
+    public async Task CompileBackTargets_AllFullReconstructsUnrelatedEventAccessors()
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -115,7 +115,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
                 RoundTripScope.All,
@@ -143,9 +143,9 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullRejectsMultiplePrimaryTargets()
+    public async Task CompileBackTargets_FullRejectsMultiplePrimaryTargets()
     {
-        var exception = Assert.Throws<NotSupportedException>(() => ReturnToSender.CompileBackTargets(
+        var exception = await Assert.ThrowsAsync<NotSupportedException>(async () => await ReturnToSender.CompileBackTargets(
             typeof(ReturnToSenderPrototypeTests).Assembly.Location,
             [
                 new ReturnToSender.RequestedTarget("One", "M", 0),
@@ -158,7 +158,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_AllFullReconstructsEveryConcreteMethodBody()
+    public async Task CompileBackTargets_AllFullReconstructsEveryConcreteMethodBody()
     {
         var assemblyPath = CompileFixture("""
             public static class Target
@@ -175,7 +175,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
                 RoundTripScope.All,
@@ -235,7 +235,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_AllFullReportsConcreteDeclarationItCannotRepresent()
+    public async Task CompileBackTargets_AllFullReportsConcreteDeclarationItCannotRepresent()
     {
         var assemblyPath = CompileFixture("""
             public static class Target
@@ -250,7 +250,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
                 RoundTripScope.All,
@@ -285,7 +285,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullPreservesConcreteSiblingWhenTargetIsPropertyAccessor()
+    public async Task CompileBackTargets_FullPreservesConcreteSiblingWhenTargetIsPropertyAccessor()
     {
         // Issue #3000: when the target is a property accessor, the sibling accessor's produced
         // full body was silently dropped (kept a `throw null;` stub) while still reported Complete.
@@ -302,7 +302,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
                 RoundTripScope.All,
@@ -336,7 +336,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullPreservesAutoPropertyWhenTargetIsAutoAccessor()
+    public async Task CompileBackTargets_FullPreservesAutoPropertyWhenTargetIsAutoAccessor()
     {
         // Issue #3000 regression guard: when the target is an auto-property accessor, the property
         // has no explicit accessor body to preserve. The target-aware branch must leave the base
@@ -350,7 +350,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
                 RoundTripScope.All,
@@ -372,7 +372,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullPreservesReadWriteAutoPropertyWhenTargetIsGetter()
+    public async Task CompileBackTargets_FullPreservesReadWriteAutoPropertyWhenTargetIsGetter()
     {
         // Issue #3000: a read-write auto-property targeted at its getter was rendered get-only
         // (`{ get; }`), silently dropping the setter while still recording set_Value Complete.
@@ -386,7 +386,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
                 RoundTripScope.All,
@@ -407,7 +407,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullPreservesInitAccessorWhenTargetIsGetter()
+    public async Task CompileBackTargets_FullPreservesInitAccessorWhenTargetIsGetter()
     {
         // Issue #3000: a get/init auto-property targeted at its getter was rendered get-only
         // (`{ get; }`), silently dropping the init setter while still recording set_Value Complete.
@@ -422,7 +422,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
                 RoundTripScope.All,
@@ -444,7 +444,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullPreservesInitAccessorWhenTargetIsSetter()
+    public async Task CompileBackTargets_FullPreservesInitAccessorWhenTargetIsSetter()
     {
         // Issue #3000: targeting the init setter itself must render a get/init auto-property, not
         // `{ get; set; }`. Flipping init to a public set loses the init-only shape and produces a
@@ -457,7 +457,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "set_Value", 0)],
                 RoundTripScope.All,
@@ -478,7 +478,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullPreservesExplicitInitAccessorWhenTargetIsGetter()
+    public async Task CompileBackTargets_FullPreservesExplicitInitAccessorWhenTargetIsGetter()
     {
         // Issue #3000: a non-auto (explicit-body) get/init property targeted at its getter was
         // rendered with a public `set` accessor, silently downgrading the init-only property
@@ -498,7 +498,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
                 RoundTripScope.All,
@@ -520,7 +520,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesExplicitInterfaceInitProperty()
+    public async Task CompileBackTargets_PreservesExplicitInterfaceInitProperty()
     {
         var assemblyPath = CompileFixture("""
             public interface IValue
@@ -539,10 +539,10 @@ public class ReturnToSenderPrototypeTests
                 "Holder",
                 "IValue.get_Value",
                 0);
-            var selected = Assert.Single(ReturnToSender.CompileBackTargets(
+            var selected = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [target]));
-            var full = Assert.Single(ReturnToSender.CompileBackTargets(
+            var full = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [target],
                 RoundTripScope.All,
@@ -567,7 +567,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullAutoInitPropertySiblingStaysSkeletonNotRecursive()
+    public async Task CompileBackTargets_FullAutoInitPropertySiblingStaysSkeletonNotRecursive()
     {
         // Issue #3000: under Full, a non-target auto init-property sibling was enriched by
         // decompiling its compiler-synthesized accessors, which read/write the unspeakable
@@ -584,7 +584,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
                 RoundTripScope.All,
@@ -606,7 +606,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullAutoSetPropertySiblingStaysSkeletonNotRecursive()
+    public async Task CompileBackTargets_FullAutoSetPropertySiblingStaysSkeletonNotRecursive()
     {
         // Issue #3000: the same recursion downgrade affected plain `{ get; set; }` auto-property
         // siblings under Full (this class of bug predates the init work); the skeleton must be
@@ -620,7 +620,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
                 RoundTripScope.All,
@@ -642,7 +642,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullSuppressesStrayAutoPropertyBackingField()
+    public async Task CompileBackTargets_FullSuppressesStrayAutoPropertyBackingField()
     {
         // Issue #3036: when a type is pulled onto the RTS Full member surface and one of its
         // members is a compiler-synthesized auto-property, the reconstruction preserved the
@@ -659,7 +659,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
                 RoundTripScope.All,
@@ -679,7 +679,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullPreservesExplicitInitAccessorWhenTargetIsSetter()
+    public async Task CompileBackTargets_FullPreservesExplicitInitAccessorWhenTargetIsSetter()
     {
         // Issue #3000: targeting a non-auto (explicit-body) init setter itself must render an
         // `init` accessor, not a public `set`. Flipping init to set loses the init-only shape.
@@ -696,7 +696,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "set_Value", 0)],
                 RoundTripScope.All,
@@ -717,7 +717,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullMemberSurfacePreservesSiblingInitAccessor()
+    public async Task CompileBackTargets_FullMemberSurfacePreservesSiblingInitAccessor()
     {
         // Issue #3000: targeting a plain method under Full adds the whole declaring type to the
         // member surface, so its sibling explicit-body init property flows through the surface
@@ -740,7 +740,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
                 RoundTripScope.All,
@@ -760,7 +760,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RecordSurfacePreservesSiblingInitAccessor()
+    public async Task CompileBackTargets_RecordSurfacePreservesSiblingInitAccessor()
     {
         // Issue #3000: targeting a record's compiler ToString pulls the whole record onto the
         // member surface, so a sibling auto init-property flows through the surface stub path.
@@ -774,7 +774,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "ToString", 0)],
                 RoundTripScope.All,
@@ -793,7 +793,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_InterfaceSurfacePreservesInitAccessor()
+    public async Task CompileBackTargets_InterfaceSurfacePreservesInitAccessor()
     {
         // Issue #3000: pulling an interface dependency onto the surface routed its `init` property
         // through the no-body (interface) stub branch, which emitted `{ get; set; }` and stripped
@@ -814,7 +814,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "Method", 0)],
                 RoundTripScope.All,
@@ -833,7 +833,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullReconstructsPlainEventAccessorTarget()
+    public async Task CompileBackTargets_FullReconstructsPlainEventAccessorTarget()
     {
         // Issue #3007 (follow-up to #3000/#3008): a plain (non-explicit-interface) event accessor
         // target under Full policy reconstructs a coherent single `event { add remove }` carrying
@@ -857,7 +857,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Holder", "add_Changed", 0)],
                 RoundTripScope.All,
@@ -907,7 +907,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_AllSeedsEverySupportedTopLevelRoot()
+    public async Task CompileBackTargets_AllSeedsEverySupportedTopLevelRoot()
     {
         var assemblyPath = CompileFixture("""
             public static class Target
@@ -925,7 +925,7 @@ public class ReturnToSenderPrototypeTests
         try
         {
             var target = new ReturnToSender.RequestedTarget("Target", "Run", 0);
-            var pair = ReturnToSender.CompileBackScopes(assemblyPath, target);
+            var pair = await ReturnToSender.CompileBackScopes(assemblyPath, target);
             var cluster = pair.Cluster;
             var all = pair.All;
 
@@ -962,7 +962,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_SynthesizesParameterlessConstructorForNestedDerivedType()
+    public async Task CompileBackTargets_SynthesizesParameterlessConstructorForNestedDerivedType()
     {
         // Issue #2527 guard (Gemini review of #2732): nested types are emitted from
         // their enclosing requirement and are absent from the top-level requirement
@@ -1009,7 +1009,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Use", "Run", 0)]));
 
@@ -1023,7 +1023,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotReconstructGenericBaseClass()
+    public async Task CompileBackTargets_DoesNotReconstructGenericBaseClass()
     {
         // Issue #2527 guard (Gemini review of #2732): a closed generic base
         // instantiation (`Derived : Base<int>`) is a TypeSpecification, which the
@@ -1061,7 +1061,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Use", "Run", 0)]));
 
@@ -1076,7 +1076,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_RoundTripsMinimalClassProperty()
+    public async Task CompileBackFirstPropertyGetter_RoundTripsMinimalClassProperty()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -1086,7 +1086,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact, $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Equal("Class1", result.Plan.TargetMethod.Type);
@@ -1111,7 +1111,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_RoundTripsInheritedExplicitInterfaceProperty()
+    public async Task CompileBackFirstPropertyGetter_RoundTripsInheritedExplicitInterfaceProperty()
     {
         var assemblyPath = CompileFixture("""
             public sealed class ExplicitPropertyFixture : IDerived
@@ -1136,7 +1136,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -1152,7 +1152,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsExplicitInterfaceMethod()
+    public async Task CompileBackTargets_RoundTripsExplicitInterfaceMethod()
     {
         // #3112: a class method whose metadata name is an explicit-interface spelling
         // (`IBase.Touch`) must reconstruct as an explicit-interface implementation with the
@@ -1175,7 +1175,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitMethodFixture",
@@ -1196,7 +1196,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsNamespacedExplicitInterfaceMethodWithParameters()
+    public async Task CompileBackTargets_RoundTripsNamespacedExplicitInterfaceMethodWithParameters()
     {
         // The corpus family (#3112) is dominated by namespaced interfaces (System.IConvertible,
         // System.Collections.IEnumerable, ...) with real parameters and return values. Reconstruct
@@ -1220,7 +1220,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "Sample.ExplicitComputeFixture",
@@ -1241,7 +1241,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsExternalSingleMemberExplicitInterfaceMethod()
+    public async Task CompileBackTargets_RoundTripsExternalSingleMemberExplicitInterfaceMethod()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Seq : System.Collections.IEnumerable
@@ -1254,7 +1254,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "Seq",
@@ -1289,7 +1289,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod()
+    public async Task CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
         var baseFacadePath = CompileFixture(
@@ -1358,7 +1358,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(targetPath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ForwardedImpl",
@@ -1385,7 +1385,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_AcceptsByteIdenticalDirectSignedInterfaceSibling()
+    public async Task CompileBackTargets_AcceptsByteIdenticalDirectSignedInterfaceSibling()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
         string platformPath = typeof(System.Text.Json.Serialization.IJsonOnDeserialized)
@@ -1405,7 +1405,7 @@ public class ReturnToSenderPrototypeTests
             Path.Combine(fixtureDir, "System.Text.Json.dll"));
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExactCopyImpl",
@@ -1462,7 +1462,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackPropertyGetters_SharesOneCompilationClosure()
+    public async Task CompileBackPropertyGetters_SharesOneCompilationClosure()
     {
         string assemblyPath = CompileFixture(
             """
@@ -1477,7 +1477,7 @@ public class ReturnToSenderPrototypeTests
             using ReturnToSender.CompilationClosure closure =
                 ReturnToSender.CreateCompilationClosure(assemblyPath);
             IReadOnlyList<ReturnToSender.Result> results =
-                ReturnToSender.CompileBackPropertyGetters(
+                await ReturnToSender.CompileBackPropertyGetters(
                     assemblyPath,
                     maxTargets: 2,
                     closure);
@@ -1496,14 +1496,14 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_ReleasesOwnedCompilationClosure()
+    public async Task CompileBackFirstPropertyGetter_ReleasesOwnedCompilationClosure()
     {
         string assemblyPath = CompileFixture(
             "public sealed class Fixture { public int Value => 1; }");
         try
         {
             ReturnToSender.Result result =
-                ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+                await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.NotNull(result.FinalRequest);
             Assert.Null(result.FinalRequest.CompilationClosure);
@@ -1685,7 +1685,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CreateCompilationClosure_ExcludesDistinctSourceModuleAcquisitions()
+    public async Task CreateCompilationClosure_ExcludesDistinctSourceModuleAcquisitions()
     {
         string originalPath = typeof(RoundTripCompilationEngine).Assembly.Location;
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
@@ -1695,9 +1695,9 @@ public class ReturnToSenderPrototypeTests
         try
         {
             IReadOnlyList<ReturnToSender.Result> original =
-                ReturnToSender.CompileBackPropertyGetters(originalPath, maxTargets: 40);
+                await ReturnToSender.CompileBackPropertyGetters(originalPath, maxTargets: 40);
             IReadOnlyList<ReturnToSender.Result> copied =
-                ReturnToSender.CompileBackPropertyGetters(copiedPath, maxTargets: 40);
+                await ReturnToSender.CompileBackPropertyGetters(copiedPath, maxTargets: 40);
 
             Assert.Equal(original.Count, copied.Count);
             Assert.Equal(
@@ -1935,7 +1935,7 @@ public class ReturnToSenderPrototypeTests
     [Theory]
     [InlineData("Collections")]
     [InlineData("IEnumerable")]
-    public void CompileBackTargets_ExternalExplicitInterfaceKeepsExactWhenClosureSiblingMatchesNonLeadingSegment(string siblingName)
+    public async Task CompileBackTargets_ExternalExplicitInterfaceKeepsExactWhenClosureSiblingMatchesNonLeadingSegment(string siblingName)
     {
         var assemblyPath = CompileFixture($$"""
             namespace N;
@@ -1950,7 +1950,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "N.Seq",
@@ -1991,7 +1991,7 @@ public class ReturnToSenderPrototypeTests
     // is not reconstructed, so engagement must be preserved (round-trips Exact): the decline
     // is scope-aware, not a blanket stand-down.
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenClosureSiblingShadowsSpelling()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenClosureSiblingShadowsSpelling()
     {
         var ilasm = TryLocateIlasm();
         if (ilasm is null)
@@ -2012,7 +2012,7 @@ public class ReturnToSenderPrototypeTests
             // Cluster does not reconstruct the shadowing sibling N.System, so the external
             // explicit-interface reconstruction engages and round-trips Exact.
             var cluster = Assert.Single(
-                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.Cluster));
+                await ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.Cluster));
             Assert.True(
                 cluster.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"cluster {cluster.Status}: {cluster.Detail}");
@@ -2022,7 +2022,7 @@ public class ReturnToSenderPrototypeTests
             // rather than emit a new RecompileFail (CS0426). Strictly better or identical,
             // never worse.
             var all = Assert.Single(
-                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+                await ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
             Assert.True(
                 all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
                 $"all {all.Status}: {all.Detail}");
@@ -2049,7 +2049,7 @@ public class ReturnToSenderPrototypeTests
     // must decline to the sanitized ContextFail floor. Uses two IL assemblies (an external
     // contract plus the target) resolved as siblings.
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenKeywordNamespaceSiblingShadowsSpelling()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenKeywordNamespaceSiblingShadowsSpelling()
     {
         var ilasm = TryLocateIlasm();
         if (ilasm is null)
@@ -2070,7 +2070,7 @@ public class ReturnToSenderPrototypeTests
             // shape rather than emit a new RecompileFail (CS0426). The raw-metadata-name
             // comparison is what catches this; the escaped display name would miss it.
             var all = Assert.Single(
-                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+                await ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
             Assert.True(
                 all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
                 $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
@@ -2094,7 +2094,7 @@ public class ReturnToSenderPrototypeTests
     // still declares `<Bad>`, so `Good.IProbe.__Bad_()` binds to no interface member
     // (CS0539 = RecompileFail). The gate must decline to the sanitized ContextFail floor.
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenMemberNameIsUnrepresentable()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenMemberNameIsUnrepresentable()
     {
         var ilasm = TryLocateIlasm();
         if (ilasm is null)
@@ -2115,7 +2115,7 @@ public class ReturnToSenderPrototypeTests
             // must decline rather than emit a new RecompileFail. The member-name guard is what
             // catches this; the raw member name is not identifier-like.
             var all = Assert.Single(
-                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+                await ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
             Assert.True(
                 all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
                 $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
@@ -2139,7 +2139,7 @@ public class ReturnToSenderPrototypeTests
     // (declaring the raw `M\u200C`) does not contain (CS0539 = RecompileFail). The member-name
     // round-trip guard must reject format characters, not merely check identifier-likeness.
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenMemberNameHasFormatCharacter()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenMemberNameHasFormatCharacter()
     {
         var ilasm = TryLocateIlasm();
         if (ilasm is null)
@@ -2158,7 +2158,7 @@ public class ReturnToSenderPrototypeTests
             var target = new ReturnToSender.RequestedTarget("N.Seq", $"Good.IProbe.M{zwnj}", 0);
 
             var all = Assert.Single(
-                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+                await ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
             Assert.True(
                 all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
                 $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
@@ -2181,7 +2181,7 @@ public class ReturnToSenderPrototypeTests
     // `G\u200Cood.IProbe` binds to `Good.IProbe`, which does not exist — CS0246). The
     // interface-name representability guard must reject format characters per segment.
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenNamespaceHasFormatCharacter()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenNamespaceHasFormatCharacter()
     {
         var ilasm = TryLocateIlasm();
         if (ilasm is null)
@@ -2200,7 +2200,7 @@ public class ReturnToSenderPrototypeTests
             var target = new ReturnToSender.RequestedTarget("N.Seq", $"G{zwnj}ood.IProbe.M", 0);
 
             var all = Assert.Single(
-                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+                await ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
             Assert.True(
                 all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
                 $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
@@ -2225,7 +2225,7 @@ public class ReturnToSenderPrototypeTests
     // sanitized ContextFail floor, regressing a real Exact. The gate must engage and round-trip
     // Exact, not decline.
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceKeepsExactWhenMemberNameIsDecomposed()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceKeepsExactWhenMemberNameIsDecomposed()
     {
         var ilasm = TryLocateIlasm();
         if (ilasm is null)
@@ -2243,7 +2243,7 @@ public class ReturnToSenderPrototypeTests
         {
             var target = new ReturnToSender.RequestedTarget("N.Seq", $"Good.IProbe.e{comb}", 0);
 
-            var all = Assert.Single(ReturnToSender.CompileBackTargets(
+            var all = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath, [target], RoundTripScope.All, RoundTripBodyPolicy.Full));
             Assert.True(
                 all.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -2271,7 +2271,7 @@ public class ReturnToSenderPrototypeTests
     // floor. Uses two IL assemblies (an external contract plus the target) resolved as
     // siblings.
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenNameIsUnrepresentable()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenNameIsUnrepresentable()
     {
         var ilasm = TryLocateIlasm();
         if (ilasm is null)
@@ -2292,7 +2292,7 @@ public class ReturnToSenderPrototypeTests
             // emit a new RecompileFail (CS0246). The name-representability guard is what
             // catches this; the raw metadata name is not identifier-like.
             var all = Assert.Single(
-                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+                await ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
             Assert.True(
                 all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
                 $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
@@ -2310,7 +2310,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsExternalMultiMemberExplicitInterfaceMethod()
+    public async Task CompileBackTargets_RoundTripsExternalMultiMemberExplicitInterfaceMethod()
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -2338,7 +2338,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "Convertible",
@@ -2372,7 +2372,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_MultiMemberExternalExplicitInterfaceWithUnspellableSiblingFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_MultiMemberExternalExplicitInterfaceWithUnspellableSiblingFallsBackWithoutRecompileFail()
     {
         // #3112 Increment 2 whole-surface atomicity: engaging a multi-member external interface
         // names it in the base list, which forces the reconstructed type to implement EVERY
@@ -2400,7 +2400,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "MultiImpl",
@@ -2420,7 +2420,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_MultiMemberExternalExplicitInterfaceWithOverloadedSiblingsRoundTrips()
+    public async Task CompileBackTargets_MultiMemberExternalExplicitInterfaceWithOverloadedSiblingsRoundTrips()
     {
         // #3112 Increment 2 overload robustness: a real corpus interface such as
         // System.ComponentModel.ICustomTypeDescriptor carries same-name overloads
@@ -2450,7 +2450,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "OvImpl",
@@ -2477,7 +2477,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_InheritedBaseInterfaceMemberFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_InheritedBaseInterfaceMemberFallsBackWithoutRecompileFail()
     {
         // #3112 Increment 2 base-interface atomicity: an external interface that INHERITS from
         // another interface flattens the base's members into the required surface, but the
@@ -2504,7 +2504,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("InhImpl", "RtsInh.IDerived.Target", 0)]));
 
@@ -2521,7 +2521,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_NestedExternalMultiMemberInterfaceFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_NestedExternalMultiMemberInterfaceFallsBackWithoutRecompileFail()
     {
         // #3112 Increment 2: a nested external interface (`Outer.IProbe`) cannot be named in the
         // reconstructed base list — its metadata separator (`Outer+IProbe`) is not bindable C#
@@ -2546,7 +2546,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("NestImpl", "RtsNest.Outer.IProbe.Target", 0)]));
 
@@ -2562,7 +2562,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_GenericExternalExplicitInterfaceFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_GenericExternalExplicitInterfaceFallsBackWithoutRecompileFail()
     {
         var assemblyPath = CompileFixture("""
             public sealed class IntSeq : System.Collections.Generic.IEnumerable<int>
@@ -2580,7 +2580,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "IntSeq",
@@ -2600,7 +2600,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceWithSignatureDriftFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceWithSignatureDriftFallsBackWithoutRecompileFail()
     {
         // Regression guard: the external explicit-interface gate must compare full
         // signatures, not just name + generic arity. The target is compiled against a
@@ -2633,7 +2633,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "DriftImpl",
@@ -2655,7 +2655,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceWithAmbiguousDefinitionFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceWithAmbiguousDefinitionFallsBackWithoutRecompileFail()
     {
         // Regression guard: the reconstructed base list names the interface by display name
         // only, with no extern alias, so it must be defined by exactly one assembly across
@@ -2685,7 +2685,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(primaryPath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "DupImpl",
@@ -2705,7 +2705,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceWithByRefKindDriftFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceWithByRefKindDriftFallsBackWithoutRecompileFail()
     {
         // Regression guard: a decoded-signature string cannot distinguish by-ref kinds.
         // SignatureDecoder renders `ref T`, `out T`, and `in T` identically as "ref T", so a
@@ -2740,7 +2740,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "RefImpl",
@@ -2762,7 +2762,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceWithVarArgsFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceWithVarArgsFallsBackWithoutRecompileFail()
     {
         // Regression guard: the decoded return/parameter strings do not carry a method's
         // calling convention, so a VarArgs (`__arglist`) interface method is spelled
@@ -2788,7 +2788,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "VarImpl",
@@ -2808,7 +2808,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceWithInternalInterfaceFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceWithInternalInterfaceFallsBackWithoutRecompileFail()
     {
         // Regression guard: the reconstructed assembly ("return-to-sender-source-oracle")
         // references the interface's defining assembly but is not granted InternalsVisibleTo,
@@ -2837,7 +2837,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "IntImpl",
@@ -2857,7 +2857,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceWithInternalMemberFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceWithInternalMemberFallsBackWithoutRecompileFail()
     {
         // Regression guard: a PUBLIC interface may still declare a NON-public member (C# 8+
         // allows explicit accessibility on interface members). The interface type passes the
@@ -2888,7 +2888,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "VisImpl",
@@ -2908,7 +2908,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceWithObsoleteErrorInterfaceFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceWithObsoleteErrorInterfaceFallsBackWithoutRecompileFail()
     {
         // Regression guard: the reconstructed explicit member names the interface twice — the base
         // list `: RtsObs.IProbe` and the qualifier `void RtsObs.IProbe.M()`. If the interface the
@@ -2942,7 +2942,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ObsImpl",
@@ -2964,7 +2964,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceWithCompilerFeatureRequiredInterfaceFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceWithCompilerFeatureRequiredInterfaceFallsBackWithoutRecompileFail()
     {
         // Regression guard: naming the interface in the reconstructed base list (`: N.IProbe`)
         // forces the recompile to bind to it, which demands every feature the interface requires
@@ -3000,7 +3000,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "CfrImpl",
@@ -3022,7 +3022,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceWithGenericParameterDriftFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceWithGenericParameterDriftFallsBackWithoutRecompileFail()
     {
         // Regression guard: SignatureDecoder spells generic method parameters by their metadata
         // name, not their position, so `int M<T, U>(U)` and `int M<U, T>(U)` both decode their
@@ -3053,7 +3053,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "GenImpl",
@@ -3075,7 +3075,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceWithConstraintOnlyGenericFallsBackWithoutRecompileFail()
+    public async Task CompileBackTargets_ExternalExplicitInterfaceWithConstraintOnlyGenericFallsBackWithoutRecompileFail()
     {
         // Regression guard: a generic type parameter can appear ONLY in a constraint, invisible
         // to the return/parameter signature the probe inspects. `void M<T>() where T : Base` has
@@ -3112,7 +3112,7 @@ public class ReturnToSenderPrototypeTests
             additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ConImpl",
@@ -3134,7 +3134,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
+    public async Task CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
     {
         // A generic method on a non-generic interface implemented explicitly keeps its method
         // type parameters in the reconstructed `IBox.Wrap<T>(...)` header.
@@ -3154,7 +3154,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitGenericFixture",
@@ -3175,7 +3175,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsNullableGenericExplicitInterfaceMethod()
+    public async Task CompileBackTargets_RoundTripsNullableGenericExplicitInterfaceMethod()
     {
         var assemblyPath = CompileFixture("""
             #nullable enable
@@ -3195,7 +3195,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitNullableGenericFixture",
@@ -3218,7 +3218,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_NestedExplicitInterfaceMethodFallsBackToPlainWithoutRecompileFail()
+    public async Task CompileBackTargets_NestedExplicitInterfaceMethodFallsBackToPlainWithoutRecompileFail()
     {
         // Negative case for the explicit-interface method reconstruction (#3112): a nested
         // interface (e.g. the corpus's `MutexSlim.IPendingLockToken`, `SqlMapper.ITypeHandler`)
@@ -3249,7 +3249,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "Sample.NestedExplicitFixture",
@@ -3270,7 +3270,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsStaticAbstractExplicitInterfaceMethod()
+    public async Task CompileBackTargets_RoundTripsStaticAbstractExplicitInterfaceMethod()
     {
         // Close positive case for the operator/DIM discriminators (#3112, adversarial review):
         // an explicit implementation of a NON-operator static-abstract interface method must
@@ -3292,7 +3292,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitStaticFixture",
@@ -3313,7 +3313,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExplicitInterfaceOperatorFallsBackToPlainWithoutRecompileFail()
+    public async Task CompileBackTargets_ExplicitInterfaceOperatorFallsBackToPlainWithoutRecompileFail()
     {
         // Negative case (#3112, adversarial review): an explicit-interface implementation of a
         // static-abstract operator cannot be reconstructed by the explicit-method path — the
@@ -3338,7 +3338,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitOperatorFixture",
@@ -3358,7 +3358,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsExplicitInterfaceOpPrefixedNonOperatorMethod()
+    public async Task CompileBackTargets_RoundTripsExplicitInterfaceOpPrefixedNonOperatorMethod()
     {
         // Close positive case for the operator discriminator (#3112, adversarial review):
         // a method whose metadata name merely starts with `op_` but is NOT a recognized
@@ -3383,7 +3383,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitOpNameFixture",
@@ -3404,7 +3404,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExplicitInterfaceDefaultMethodFallsBackToPlainWithoutRecompileFail()
+    public async Task CompileBackTargets_ExplicitInterfaceDefaultMethodFallsBackToPlainWithoutRecompileFail()
     {
         // Negative case (#3112, adversarial review): an explicit-interface implementation of a
         // default interface method (virtual, non-abstract, has a body) cannot be reconstructed
@@ -3429,7 +3429,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitDimFixture",
@@ -3449,7 +3449,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ExplicitStaticVirtualInterfaceMethodFallsBackToPlainWithoutRecompileFail()
+    public async Task CompileBackTargets_ExplicitStaticVirtualInterfaceMethodFallsBackToPlainWithoutRecompileFail()
     {
         // Negative case (#3112, adversarial review): an explicit-interface implementation of a
         // C# 11 `static virtual` interface method (has a body, non-abstract) cannot be
@@ -3478,7 +3478,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitStaticVirtualFixture",
@@ -3498,7 +3498,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_RoundTripsExplicitInterfaceIndexer()
+    public async Task CompileBackFirstPropertyGetter_RoundTripsExplicitInterfaceIndexer()
     {
         var assemblyPath = CompileFixture("""
             public sealed class ExplicitIndexerFixture : IValues
@@ -3513,7 +3513,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitIndexerFixture",
@@ -3534,7 +3534,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_KeepsStaticOnExplicitInterfaceProperty()
+    public async Task CompileBackFirstPropertyGetter_KeepsStaticOnExplicitInterfaceProperty()
     {
         // #2875: a C# 11 static-abstract interface member implemented explicitly must keep
         // `static` (while omitting the access modifier). Dropping `static` reconstructs an
@@ -3552,7 +3552,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitStaticFixture",
@@ -3572,7 +3572,7 @@ public class ReturnToSenderPrototypeTests
     [Theory]
     [InlineData("IBaseEvents.add_Changed")]
     [InlineData("IBaseEvents.remove_Changed")]
-    public void CompileBackEventAccessor_RoundTripsExplicitInterfaceEvent(string accessorName)
+    public async Task CompileBackEventAccessor_RoundTripsExplicitInterfaceEvent(string accessorName)
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -3603,7 +3603,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitEventFixture",
@@ -3629,7 +3629,7 @@ public class ReturnToSenderPrototypeTests
     [Theory]
     [InlineData("IBaseEvents.add_Changed", "Console.WriteLine(\"adding\");", "Console.WriteLine(\"removing\");")]
     [InlineData("IBaseEvents.remove_Changed", "Console.WriteLine(\"removing\");", "Console.WriteLine(\"adding\");")]
-    public void CompileBackEventAccessor_RaisesSiblingAccessorBodyInsteadOfThrowStub(
+    public async Task CompileBackEventAccessor_RaisesSiblingAccessorBodyInsteadOfThrowStub(
         string accessorName,
         string expectedTargetBody,
         string expectedSiblingBody)
@@ -3669,7 +3669,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitEventFixture",
@@ -3696,7 +3696,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackEventAccessor_KeepsStaticOnExplicitInterfaceEvent()
+    public async Task CompileBackEventAccessor_KeepsStaticOnExplicitInterfaceEvent()
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -3723,7 +3723,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitStaticEventFixture",
@@ -3744,7 +3744,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackEventAccessor_PreservesOrdinaryFieldLikeEventHandling()
+    public async Task CompileBackEventAccessor_PreservesOrdinaryFieldLikeEventHandling()
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -3756,7 +3756,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "OrdinaryEventFixture",
@@ -3778,7 +3778,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_PreservesRequiredImplicitInterfaceProperty()
+    public async Task CompileBackFirstPropertyGetter_PreservesRequiredImplicitInterfaceProperty()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Consumer
@@ -3808,7 +3808,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
             Assert.False(result.UsedCompileBackFloor, result.Detail);
@@ -3822,7 +3822,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_ProjectsPropertiesFromRequiredInterfaceSurface()
+    public async Task CompileBackFirstPropertyGetter_ProjectsPropertiesFromRequiredInterfaceSurface()
     {
         var assemblyPath = CompileFixture("""
             public sealed class InheritedTypeParameter : IGenericTypeParameter, IGenericParameter
@@ -3855,7 +3855,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "InheritedTypeParameter",
@@ -3879,7 +3879,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_ExposesTypedModuleAndTypeShellPlan()
+    public async Task CompileBackFirstPropertyGetter_ExposesTypedModuleAndTypeShellPlan()
     {
         var assemblyPath = CompileFixture("""
             namespace Fixtures;
@@ -3891,7 +3891,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
             var type = Assert.Single(result.Plan.Types);
             var member = Assert.Single(type.Members);
 
@@ -3915,7 +3915,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_DeduplicatesSystemUsing_WhenBodyAlreadyReferencesSystem()
+    public async Task CompileBackFirstPropertyGetter_DeduplicatesSystemUsing_WhenBodyAlreadyReferencesSystem()
     {
         // Issue #2848: the module Usings list unconditionally prepended "System" to
         // MemberBodyFacts.ReferencedNamespaces(function). A body that already
@@ -3931,7 +3931,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -3947,7 +3947,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_FallsBackToCompileBackFloorForAttributeShellStall()
+    public async Task CompileBackFirstPropertyGetter_FallsBackToCompileBackFloorForAttributeShellStall()
     {
         // Issue #2527: base-class reconstruction restores same-assembly base classes,
         // so the old dropped-base attribute stall no longer occurs. A concrete shell
@@ -3971,7 +3971,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(result.UsedCompileBackFloor, result.Detail);
             Assert.NotNull(result.CompileBackFloor);
@@ -3994,7 +3994,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CorpusParity_DoesNotApplyCompileBackFloorToRtsFailure()
+    public async Task CorpusParity_DoesNotApplyCompileBackFloorToRtsFailure()
     {
         var assemblyPath = CompileFixture("""
             public abstract class Shape
@@ -4012,11 +4012,11 @@ public class ReturnToSenderPrototypeTests
         try
         {
             var target = new ReturnToSender.RequestedTarget("Triangle", "get_First", 0);
-            var floored = Assert.Single(ReturnToSender.CompileBackTargets(assemblyPath, [target]));
+            var floored = Assert.Single(await ReturnToSender.CompileBackTargets(assemblyPath, [target]));
             Assert.True(floored.UsedCompileBackFloor, floored.Detail);
             var reference = Assert.IsType<FidelityCheck.CompileBackResult>(floored.CompileBackFloor);
 
-            var native = Assert.Single(ReturnToSender.CompileBackTargets(
+            var native = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [target],
                 applyCompileBackFloor: false));
@@ -4040,7 +4040,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_UsesDependencyReferencesAndNamespaces()
+    public async Task CompileBackFirstPropertyGetter_UsesDependencyReferencesAndNamespaces()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -4062,7 +4062,7 @@ public class ReturnToSenderPrototypeTests
             """, directory, "Fixture", [MetadataReference.CreateFromFile(dependencyPath)]);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -4077,7 +4077,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackPropertyGetters_EvaluatesSupportedGetterLadderWithCap()
+    public async Task CompileBackPropertyGetters_EvaluatesSupportedGetterLadderWithCap()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -4094,7 +4094,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2);
+            var results = await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2);
 
             Assert.Collection(
                 results,
@@ -4116,7 +4116,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CorpusFidelity_EvaluatesCompileBackSelectedTargetsThroughReturnToSender()
+    public async Task CorpusFidelity_EvaluatesCompileBackSelectedTargetsThroughReturnToSender()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -4128,7 +4128,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = CorpusSensor.EvaluateReturnToSenderForTesting(assemblyPath, cap: 10);
+            var results = await CorpusSensor.EvaluateReturnToSenderForTesting(assemblyPath, cap: 10);
             var getter = Assert.Single(results, result => result.Method == "get_Value");
             var overloads = results
                 .Where(result => result.Method == "Transform")
@@ -4150,7 +4150,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackPropertyGetters_AddsSameAssemblyReturnTypeClosureRoot()
+    public async Task CompileBackPropertyGetters_AddsSameAssemblyReturnTypeClosureRoot()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -4165,7 +4165,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2);
+            var results = await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2);
 
             Assert.Collection(
                 results,
@@ -4200,7 +4200,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsSameAssemblyClosureMemberSurface()
+    public async Task CompileBackFirstPropertyGetter_EmitsSameAssemblyClosureMemberSurface()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -4216,7 +4216,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2))
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
 
             Assert.True(
@@ -4242,7 +4242,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_DeduplicatesRepeatedPreciseClosureMembers()
+    public async Task CompileBackFirstPropertyGetter_DeduplicatesRepeatedPreciseClosureMembers()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -4258,7 +4258,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2))
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
@@ -4274,7 +4274,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_UsesTypedClosureFieldForStaticMemberAccess()
+    public async Task CompileBackFirstPropertyGetter_UsesTypedClosureFieldForStaticMemberAccess()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -4289,7 +4289,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains(result.Plan.Types, type =>
@@ -4307,7 +4307,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_UsesTypedTargetFieldForUnqualifiedFieldAccess()
+    public async Task CompileBackFirstPropertyGetter_UsesTypedTargetFieldForUnqualifiedFieldAccess()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -4319,7 +4319,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             var type = Assert.Single(result.Plan.Types);
@@ -4337,7 +4337,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_DoesNotEmitGeneratedBackingFieldRequirement()
+    public async Task CompileBackFirstPropertyGetter_DoesNotEmitGeneratedBackingFieldRequirement()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -4347,7 +4347,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             var type = Assert.Single(result.Plan.Types);
@@ -4361,7 +4361,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesThisConstructorChainOpcodes()
+    public async Task CompileBackTargets_PreservesThisConstructorChainOpcodes()
     {
         // Issue #2678: RTS used to reconstruct target constructors with empty
         // bodies, dropping the `: this(...)` chain call. The recompiled ctor then
@@ -4387,7 +4387,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Versioned", ".ctor", 0,
                     "(corelib:System.String) -> corelib:System.Void")]));
@@ -4402,7 +4402,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DropsInitializerWhenChainedConstructorUnreconstructable()
+    public async Task CompileBackTargets_DropsInitializerWhenChainedConstructorUnreconstructable()
     {
         // Issue #2678 guard: when the chained-to constructor has an unsupported
         // signature (a function pointer), the planner drops it from the shell. A
@@ -4431,7 +4431,7 @@ public class ReturnToSenderPrototypeTests
             allowUnsafe: true);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Chained", ".ctor", 0,
                     "(corelib:System.Int32) -> corelib:System.Void")]));
@@ -4446,7 +4446,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ValueBoxChainArgumentIsVisibleOpcodeDiffNotFalseExact()
+    public async Task CompileBackTargets_ValueBoxChainArgumentIsVisibleOpcodeDiffNotFalseExact()
     {
         // Issue #2726 / adversarial review: a value-type box in a chain argument
         // (`: this((object)1)` — `ldc.i4.1; box int32; call C::.ctor(object)`) is
@@ -4476,7 +4476,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
 
@@ -4490,7 +4490,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesReferenceUpcastChainArgument()
+    public async Task CompileBackTargets_PreservesReferenceUpcastChainArgument()
     {
         // Issue #2726 / adversarial review (GPT-5.5 + Gemini 3.1 Pro): a reference
         // upcast chain argument (`: this((object)text)`, `text` a `string`) emits
@@ -4515,7 +4515,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 1)]));
 
@@ -4529,7 +4529,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesConstructorChainWhenArityIsUnique()
+    public async Task CompileBackTargets_PreservesConstructorChainWhenArityIsUnique()
     {
         // Issue #2678: a chain whose arguments the printer cannot type precisely (a
         // bare `null`) is still safe to emit when exactly one constructor in the
@@ -4554,7 +4554,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 1)]));
 
@@ -4568,7 +4568,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesConstructorChainWhenArgumentIsAssignableNotIdentity()
+    public async Task CompileBackTargets_PreservesConstructorChainWhenArgumentIsAssignableNotIdentity()
     {
         // Issue #2726: a chain argument whose printed type is assignable but not
         // identity-equal to the chained-to parameter (`string[]` -> covariant
@@ -4600,7 +4600,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("V", ".ctor", 0,
                     "(corelib:System.String) -> corelib:System.Void")]));
@@ -4615,7 +4615,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesNullLiteralChainArgumentAgainstCrossAritySibling()
+    public async Task CompileBackTargets_PreservesNullLiteralChainArgumentAgainstCrossAritySibling()
     {
         // Issue #2726 / adversarial review: a type-less `null` chain argument
         // re-resolves against every same- and cross-arity sibling in the shell. Here
@@ -4644,7 +4644,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
 
@@ -4658,7 +4658,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ReviewerNullRebindFixtureRoundTripsExact()
+    public async Task CompileBackTargets_ReviewerNullRebindFixtureRoundTripsExact()
     {
         // Regression canary for the exact fixture two adversarial reviewers (GPT-5.5
         // and Gemini 3.1 Pro) used to prove the pre-fix false Exact: `: this((object)
@@ -4686,7 +4686,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
 
@@ -4700,7 +4700,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_LambdaTargetTypedChainArgumentRemainsHonestNonExact()
+    public async Task CompileBackTargets_LambdaTargetTypedChainArgumentRemainsHonestNonExact()
     {
         // Issue #2726: a lambda argument prints typeless (`() => ...`) and relies on
         // C# target-typing, which the chain-argument parameter-type cast does not
@@ -4733,7 +4733,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
 
@@ -4747,7 +4747,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ReconstructsBaseClassForCovariantArgument()
+    public async Task CompileBackTargets_ReconstructsBaseClassForCovariantArgument()
     {
         // Issue #2527: RTS minimal shells used to drop base classes entirely
         // (BaseTypeSignature emitted only System.Attribute). A body that relies on
@@ -4782,7 +4782,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Shelter", "Describe", 0)]));
 
@@ -4796,7 +4796,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_SynthesizesParameterlessConstructorForReconstructedBase()
+    public async Task CompileBackTargets_SynthesizesParameterlessConstructorForReconstructedBase()
     {
         // Issue #2527: once base classes are reconstructed, a derived stub emits an
         // implicit `: base()`. When the base shell carries only a parameterized
@@ -4836,7 +4836,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Factory", "Create", 0)]));
 
@@ -4850,7 +4850,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotReconstructExternalBaseClass()
+    public async Task CompileBackTargets_DoesNotReconstructExternalBaseClass()
     {
         // Issue #2527 guard (GPT-5.5 review of #2732): base-class reconstruction must
         // stay same-assembly. An external (referenced-assembly) base whose only
@@ -4891,7 +4891,7 @@ public class ReturnToSenderPrototypeTests
             """, directory, "Fixture", [MetadataReference.CreateFromFile(dependencyPath)]);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Factory", "Make", 0)]));
 
@@ -4906,7 +4906,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
+    public async Task CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -4921,7 +4921,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
 
@@ -4941,7 +4941,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotDuplicatePrimaryConstructorAutoPropertyInitializer()
+    public async Task CompileBackTargets_DoesNotDuplicatePrimaryConstructorAutoPropertyInitializer()
     {
         var assemblyPath = CompileFixture("""
             public class Class1(int value)
@@ -4951,7 +4951,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
 
@@ -4969,7 +4969,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesTargetBackingFieldWriteForStaticConstructorAssignment()
+    public async Task CompileBackTargets_UsesTargetBackingFieldWriteForStaticConstructorAssignment()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -4984,7 +4984,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", ".cctor", 0)]));
 
@@ -5033,7 +5033,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_SeedsTargetInterfaceRoot()
+    public async Task CompileBackTargets_SeedsTargetInterfaceRoot()
     {
         var assemblyPath = CompileFixture("""
             public interface IValue
@@ -5048,7 +5048,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "GetValue", 0)]));
 
@@ -5067,7 +5067,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_SeedsTargetInterfaceRootWhenTargetAssemblyNameIsCorelibFacade()
+    public async Task CompileBackTargets_SeedsTargetInterfaceRootWhenTargetAssemblyNameIsCorelibFacade()
     {
         // A target assembly whose own name is a canonicalized corelib facade
         // (System.Runtime, mscorlib, ...) must still resolve its own interface
@@ -5090,7 +5090,7 @@ public class ReturnToSenderPrototypeTests
             assemblyName: "System.Runtime");
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "GetValue", 0)]));
 
@@ -5105,7 +5105,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesTypedObjectInitializerPropertyRequirement()
+    public async Task CompileBackTargets_UsesTypedObjectInitializerPropertyRequirement()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -5120,7 +5120,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "Method1", 0)]));
 
@@ -5140,7 +5140,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesTypedTargetObjectInitializerPropertyRequirement()
+    public async Task CompileBackTargets_UsesTypedTargetObjectInitializerPropertyRequirement()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -5152,7 +5152,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "Method1", 0)]));
 
@@ -5172,7 +5172,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_KeepsTypeResolvedCs0117PropertyFallback()
+    public async Task CompileBackFirstPropertyGetter_KeepsTypeResolvedCs0117PropertyFallback()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -5184,7 +5184,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 3)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 3))
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromStatic");
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
@@ -5203,7 +5203,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_KeepsTypeResolvedCs1061PropertyFallback()
+    public async Task CompileBackTargets_KeepsTypeResolvedCs1061PropertyFallback()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -5215,7 +5215,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "FromOther", 0)]));
 
@@ -5239,7 +5239,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsClosureConstructorRequirement()
+    public async Task CompileBackFirstPropertyGetter_EmitsClosureConstructorRequirement()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -5259,7 +5259,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2))
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
@@ -5279,7 +5279,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_SelectsTypedOverloadByParameterTypes()
+    public async Task CompileBackFirstPropertyGetter_SelectsTypedOverloadByParameterTypes()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -5295,7 +5295,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2))
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
@@ -5316,7 +5316,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsGenericClosureMemberSurface()
+    public async Task CompileBackFirstPropertyGetter_EmitsGenericClosureMemberSurface()
     {
         var assemblyPath = CompileFixture("""
             public class Helper<T>
@@ -5332,7 +5332,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2))
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromGeneric");
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
@@ -5358,7 +5358,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_UsesPreservedDeconstructMemberEvidence()
+    public async Task CompileBackFirstPropertyGetter_UsesPreservedDeconstructMemberEvidence()
     {
         var assemblyPath = CompileFixture("""
             public class Pair
@@ -5385,7 +5385,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2))
                 .Single(item => item.Plan.TargetMethod.Method == "get_Sum");
 
             Assert.True(
@@ -5409,7 +5409,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsTargetRootSiblingMemberSurface()
+    public async Task CompileBackFirstPropertyGetter_EmitsTargetRootSiblingMemberSurface()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -5420,7 +5420,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -5439,7 +5439,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_GrowsClosureFromNamespaceSegmentDiagnostic()
+    public async Task CompileBackFirstPropertyGetter_GrowsClosureFromNamespaceSegmentDiagnostic()
     {
         var assemblyPath = CompileFixture("""
             namespace Target
@@ -5459,7 +5459,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -5478,7 +5478,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_GrowsClosureAcrossMultipleIterations()
+    public async Task CompileBackFirstPropertyGetter_GrowsClosureAcrossMultipleIterations()
     {
         var assemblyPath = CompileFixture("""
             public class A
@@ -5498,7 +5498,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2))
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromChain");
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
@@ -5526,7 +5526,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_AddsOnlyOneRootWhenSimpleNamesCollide()
+    public async Task CompileBackFirstPropertyGetter_AddsOnlyOneRootWhenSimpleNamesCollide()
     {
         var assemblyPath = CompileFixture("""
             namespace Target
@@ -5557,7 +5557,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Single(result.Plan.Types, type => type.Name == "Helper");
@@ -5569,7 +5569,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EscapesKeywordNamespacesInClosureRoots()
+    public async Task CompileBackFirstPropertyGetter_EscapesKeywordNamespacesInClosureRoots()
     {
         var assemblyPath = CompileFixture("""
             namespace My.@event
@@ -5596,7 +5596,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -5613,14 +5613,14 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackPropertyGetters_UsesAutoPropertyShellForRecordPropertyGetter()
+    public async Task CompileBackPropertyGetters_UsesAutoPropertyShellForRecordPropertyGetter()
     {
         var assemblyPath = CompileFixture("""
             public sealed record Snapshot(string Assembly, int Count);
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 8)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 8))
                 .Single(item => item.Plan.TargetMethod.Method == "get_Assembly");
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
@@ -5636,7 +5636,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void RunComparison_UsesExactCurrentTargetsPastPerTypeSampleCap()
+    public async Task RunComparison_UsesExactCurrentTargetsPastPerTypeSampleCap()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -5660,7 +5660,7 @@ public class ReturnToSenderPrototypeTests
             try
             {
                 Console.SetOut(writer);
-                var exitCode = ReturnToSender.RunComparison([assemblyPath], cap: 10, maxExamples: 10);
+                var exitCode = await ReturnToSender.RunComparison([assemblyPath], cap: 10, maxExamples: 10);
 
                 Assert.Equal(0, exitCode);
             }
@@ -5681,7 +5681,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_PreservesStaticTargetPropertyShape()
+    public async Task CompileBackFirstPropertyGetter_PreservesStaticTargetPropertyShape()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -5691,7 +5691,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
             var member = Assert.Single(Assert.Single(result.Plan.Types).Members);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
@@ -5705,7 +5705,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsStructClosureRoot()
+    public async Task CompileBackFirstPropertyGetter_EmitsStructClosureRoot()
     {
         var assemblyPath = CompileFixture("""
             public struct StructHelper
@@ -5719,7 +5719,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains(result.Plan.Types, type => type.Name == "StructHelper" && type.Kind == CompileBackTypeKind.Struct);
@@ -5732,7 +5732,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsNestedClosureRoot()
+    public async Task CompileBackFirstPropertyGetter_EmitsNestedClosureRoot()
     {
         var assemblyPath = CompileFixture("""
             public class Outer
@@ -5749,7 +5749,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -5767,7 +5767,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsNestedClosureMemberRequirement()
+    public async Task CompileBackFirstPropertyGetter_EmitsNestedClosureMemberRequirement()
     {
         var assemblyPath = CompileFixture("""
             public class Outer
@@ -5787,7 +5787,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains(result.Plan.PrintRequests, type =>
@@ -5810,7 +5810,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsTargetNestedMemberRequirement()
+    public async Task CompileBackFirstPropertyGetter_EmitsTargetNestedMemberRequirement()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -5825,7 +5825,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             var type = Assert.Single(result.Plan.Types, type => type.Name == "Class1");
@@ -5843,7 +5843,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_EmitsOuterRequirementForNestedMethodTarget()
+    public async Task CompileBackTargets_EmitsOuterRequirementForNestedMethodTarget()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -5858,7 +5858,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1.Inner", "FromOuter", 0)]));
 
@@ -5878,7 +5878,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_EmitsNestedRequirementForTopLevelMethodTarget()
+    public async Task CompileBackTargets_EmitsNestedRequirementForTopLevelMethodTarget()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -5893,7 +5893,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "FromNested", 0)]));
 
@@ -5911,7 +5911,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_DoesNotSurfaceOuterMembersForTypeOnlyNestedClosure()
+    public async Task CompileBackFirstPropertyGetter_DoesNotSurfaceOuterMembersForTypeOnlyNestedClosure()
     {
         var assemblyPath = CompileFixture("""
             internal class Hidden
@@ -5935,7 +5935,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -5951,7 +5951,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_SurfacesReferencedInstanceField()
+    public async Task CompileBackFirstPropertyGetter_SurfacesReferencedInstanceField()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -5963,7 +5963,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -5977,7 +5977,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_DoesNotEmitUnreferencedClosureConstFields()
+    public async Task CompileBackFirstPropertyGetter_DoesNotEmitUnreferencedClosureConstFields()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -5994,7 +5994,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2))
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
 
             Assert.True(
@@ -6009,7 +6009,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_DoesNotEmitUnreferencedNonFiniteClosureConstFields()
+    public async Task CompileBackFirstPropertyGetter_DoesNotEmitUnreferencedNonFiniteClosureConstFields()
     {
         var assemblyPath = CompileFixture("""
             public class Helper
@@ -6027,7 +6027,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2)
+            var result = (await ReturnToSender.CompileBackPropertyGetters(assemblyPath, maxTargets: 2))
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromHelper");
 
             Assert.True(
@@ -6043,7 +6043,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_EmitsUnsafePointerTargetAndField()
+    public async Task CompileBackFirstPropertyGetter_EmitsUnsafePointerTargetAndField()
     {
         var assemblyPath = CompileFixture("""
             public unsafe class Class1
@@ -6055,7 +6055,7 @@ public class ReturnToSenderPrototypeTests
             """, allowUnsafe: true);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -6070,7 +6070,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesMetadataMethodOverloadIndex()
+    public async Task CompileBackTargets_UsesMetadataMethodOverloadIndex()
     {
         var assemblyPath = CompileFixture("""
             public abstract class Class1
@@ -6082,7 +6082,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "Method1", 1)]));
 
@@ -6097,7 +6097,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ResolvesBySignatureOverridingOrdinal()
+    public async Task CompileBackTargets_ResolvesBySignatureOverridingOrdinal()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -6112,7 +6112,7 @@ public class ReturnToSenderPrototypeTests
             // Ordinal 0 is Pick(int) in count-all metadata order; the signature must win
             // and select Pick(string) instead, proving identity no longer depends on the
             // ordinal position of same-name members.
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -6134,7 +6134,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_LegacySignatureCannotOverrideOrdinal()
+    public async Task CompileBackTargets_LegacySignatureCannotOverrideOrdinal()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -6146,7 +6146,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0, Signature: "`0(string)")]));
 
@@ -6162,7 +6162,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers()
+    public async Task ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers()
     {
         // The compiled assembly declares Pick(int) before Pick(string); the source slice
         // reverses that order. Ordinal correlation would pair Pick(int)'s decompiled body
@@ -6189,7 +6189,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var withSignature = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var withSignature = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -6202,7 +6202,7 @@ public class ReturnToSenderPrototypeTests
 
             Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, withSignature.Outcome);
 
-            var ordinalOnly = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var ordinalOnly = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0)],
                 [sourcePath]));
@@ -6386,7 +6386,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void DiscoverTargets_DistinguishesUserNullableFromSystemNullable()
+    public async Task DiscoverTargets_DistinguishesUserNullableFromSystemNullable()
     {
         // The structural metadata adapter keeps a user type named Nullable<T>
         // distinct from System.Nullable<T>; the old simple-name projection collapsed
@@ -6416,7 +6416,7 @@ public class ReturnToSenderPrototypeTests
             // The ordinary source spelling Sample.Nullable<int> is unresolved without
             // semantic context and therefore falls back to ordinal. The exact int?
             // shape still correlates structurally.
-            var results = ReturnToSenderSourceProbe.EvaluateTargets(
+            var results = await ReturnToSenderSourceProbe.EvaluateTargets(
                 assemblyPath,
                 pickTargets.Select(target => target.Target).ToArray(),
                 [WriteTempSource(
@@ -6449,7 +6449,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_MatchesMixedRankArrayOverloadsBySignature()
+    public async Task ReturnToSenderSourceProbe_MatchesMixedRankArrayOverloadsBySignature()
     {
         // int[][,] and int[,][] must not cross-match: source lists ranks outer-to-inner
         // while metadata builds them inner-to-outer. With the source slice in reversed
@@ -6484,7 +6484,7 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(2, targets.Length);
             Assert.All(targets, target => Assert.NotNull(target.Signature));
 
-            var results = ReturnToSenderSourceProbe.EvaluateTargets(assemblyPath, targets, [reversedSource]);
+            var results = await ReturnToSenderSourceProbe.EvaluateTargets(assemblyPath, targets, [reversedSource]);
 
             Assert.All(results, result => Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome));
         }
@@ -6749,7 +6749,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void AuthoredCorpusBenchmark_RejectsMismatchedModuleCorrelation()
+    public async Task AuthoredCorpusBenchmark_RejectsMismatchedModuleCorrelation()
     {
         const string assemblySource = """
             public class Class1
@@ -6793,7 +6793,7 @@ public class ReturnToSenderPrototypeTests
                     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 }));
 
-            Assert.Equal(1, AuthoredCorpusBenchmark.Run([assemblyPath], corpusPath, json: true));
+            Assert.Equal(1, await AuthoredCorpusBenchmark.Run([assemblyPath], corpusPath, json: true));
         }
         finally
         {
@@ -7171,7 +7171,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_EmitsNestedTargetMemberRequirement()
+    public async Task CompileBackTargets_EmitsNestedTargetMemberRequirement()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7185,7 +7185,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1.Inner", "FromSibling", 0)]));
 
@@ -7203,7 +7203,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsConstructorAssigningGetOnlyAutoProperty()
+    public async Task CompileBackTargets_RoundTripsConstructorAssigningGetOnlyAutoProperty()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7218,7 +7218,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
 
@@ -7232,7 +7232,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesPrimaryConstructorForFieldInitializerPrologue()
+    public async Task CompileBackTargets_UsesPrimaryConstructorForFieldInitializerPrologue()
     {
         var assemblyPath = CompileFixture("""
             public class Class1(string message)
@@ -7244,7 +7244,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
 
@@ -7280,7 +7280,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_LexicallyShadowedNamespaceRootUsesGlobalAlias()
+    public async Task CompileBackTargets_LexicallyShadowedNamespaceRootUsesGlobalAlias()
     {
         var assemblyPath = CompileFixture("""
             namespace Alpha.Beta
@@ -7300,7 +7300,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Worker`2", "GetThing", 0)]));
 
@@ -7320,7 +7320,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsAutoPropertySetter()
+    public async Task CompileBackTargets_RoundTripsAutoPropertySetter()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7330,7 +7330,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "set_Value", 0)]));
 
@@ -7344,7 +7344,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsExplicitSetterOnlyProperties()
+    public async Task CompileBackTargets_RoundTripsExplicitSetterOnlyProperties()
     {
         var assemblyPath = CompileFixture("""
             public interface ISetOnly
@@ -7389,10 +7389,10 @@ public class ReturnToSenderPrototypeTests
 
             foreach (var target in targets)
             {
-                var selected = Assert.Single(ReturnToSender.CompileBackTargets(
+                var selected = Assert.Single(await ReturnToSender.CompileBackTargets(
                     assemblyPath,
                     [target]));
-                var full = Assert.Single(ReturnToSender.CompileBackTargets(
+                var full = Assert.Single(await ReturnToSender.CompileBackTargets(
                     assemblyPath,
                     [target],
                     RoundTripScope.All,
@@ -7414,7 +7414,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RendersRefReadonlyReturnShell()
+    public async Task CompileBackTargets_RendersRefReadonlyReturnShell()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7432,7 +7432,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "SelectReadonlyRef", 0)]));
 
@@ -7447,7 +7447,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsIndexerSetter()
+    public async Task CompileBackTargets_RoundTripsIndexerSetter()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7468,7 +7468,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "set_Item", 0)]));
 
@@ -7483,7 +7483,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_OverloadedIndexerSetterComparesSingleShellAccessor()
+    public async Task CompileBackTargets_OverloadedIndexerSetterComparesSingleShellAccessor()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7512,7 +7512,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "set_Item", 1)]));
 
@@ -7527,7 +7527,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsGenericMethodSignatures()
+    public async Task CompileBackTargets_RoundTripsGenericMethodSignatures()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7545,7 +7545,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Class1", "Echo", 0),
@@ -7590,7 +7590,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsParameterModifierSignatures()
+    public async Task CompileBackTargets_RoundTripsParameterModifierSignatures()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7618,7 +7618,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Class1", "Increment", 0),
@@ -7657,7 +7657,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsDefaultParameterSignatures()
+    public async Task CompileBackTargets_RoundTripsDefaultParameterSignatures()
     {
         var assemblyPath = CompileFixture("""
             public enum Choice
@@ -7687,7 +7687,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Class1", "Add", 0),
@@ -7734,7 +7734,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsParameterAttributes()
+    public async Task CompileBackTargets_RoundTripsParameterAttributes()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7754,7 +7754,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Class1", "Length", 0),
@@ -7791,7 +7791,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsParameterMarshalling()
+    public async Task CompileBackTargets_RoundTripsParameterMarshalling()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7834,7 +7834,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Class1", "I4", 0),
@@ -7900,7 +7900,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsReturnParameterMetadata()
+    public async Task CompileBackTargets_RoundTripsReturnParameterMetadata()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7925,7 +7925,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Class1", "I4", 0),
@@ -7966,7 +7966,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsPropertyReturnMetadata()
+    public async Task CompileBackTargets_RoundTripsPropertyReturnMetadata()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -7992,7 +7992,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Class1", "get_Text", 0),
@@ -8026,7 +8026,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsMemberAttributes()
+    public async Task CompileBackTargets_RoundTripsMemberAttributes()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -8060,7 +8060,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Class1", ".ctor", 0),
@@ -8105,7 +8105,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsTypeAttributes()
+    public async Task CompileBackTargets_RoundTripsTypeAttributes()
     {
         var assemblyPath = CompileFixture("""
             [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
@@ -8117,7 +8117,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Class1", ".ctor", 0),
@@ -8144,7 +8144,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesAbstractClosureTypeAndMethod()
+    public async Task CompileBackTargets_PreservesAbstractClosureTypeAndMethod()
     {
         var assemblyPath = CompileFixture("""
             public abstract class Node
@@ -8172,7 +8172,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Node", "CheckInvariant", 0)]));
 
@@ -8187,7 +8187,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotMarkFinalNewSlotStructMethodVirtual()
+    public async Task CompileBackTargets_DoesNotMarkFinalNewSlotStructMethodVirtual()
     {
         var assemblyPath = CompileFixture("""
             public interface IThing
@@ -8211,7 +8211,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "UseThing", 0)]));
 
@@ -8227,7 +8227,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotMarkUserBaseOverrideWithoutBaseShell()
+    public async Task CompileBackTargets_DoesNotMarkUserBaseOverrideWithoutBaseShell()
     {
         var assemblyPath = CompileFixture("""
             public abstract class BaseNode
@@ -8242,7 +8242,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("DerivedNode", "Describe", 0)]));
 
@@ -8257,14 +8257,14 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_EmitsEqualityOperatorPairSibling()
+    public async Task CompileBackTargets_EmitsEqualityOperatorPairSibling()
     {
         var assemblyPath = CompileFixture("""
             public record Row(string Name);
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Row", "op_Equality", 0),
@@ -8293,7 +8293,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesRawReferenceEqualityBesideUserOperator()
+    public async Task CompileBackTargets_PreservesRawReferenceEqualityBesideUserOperator()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Row
@@ -8312,7 +8312,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Row", "SameReference", 0),
@@ -8331,7 +8331,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesMixedAndUnrelatedReferenceIdentity()
+    public async Task CompileBackTargets_PreservesMixedAndUnrelatedReferenceIdentity()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Row
@@ -8416,7 +8416,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Cases", "Mixed", 0),
@@ -8499,7 +8499,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DeepReferenceHierarchyFallsBackConservatively()
+    public async Task CompileBackTargets_DeepReferenceHierarchyFallsBackConservatively()
     {
         string hierarchy = string.Join(
             Environment.NewLine,
@@ -8517,7 +8517,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Cases", "Same", 0)]));
 
@@ -8531,14 +8531,14 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesRecordGeneratedVirtualHelperShells()
+    public async Task CompileBackTargets_PreservesRecordGeneratedVirtualHelperShells()
     {
         var assemblyPath = CompileFixture("""
             public record Row(string Name, string Value);
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Row", "ToString", 0),
@@ -8566,7 +8566,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RecordSurfaceHelperKeepsGenericDependency()
+    public async Task CompileBackTargets_RecordSurfaceHelperKeepsGenericDependency()
     {
         // A record with a custom ToString that calls a generic same-type helper: the record
         // surface path reconstructs the faithful member surface, but the metadata surface
@@ -8582,7 +8582,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Row", "ToString", 0)]));
 
@@ -8598,7 +8598,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RecordSurfaceHelperKeepsGenericSameNameOverload()
+    public async Task CompileBackTargets_RecordSurfaceHelperKeepsGenericSameNameOverload()
     {
         // A user generic `PrintMembers<T>` overload called by a custom ToString must survive
         // the record-surface stub removal, and the synthesized `PrintMembers(StringBuilder)`
@@ -8621,7 +8621,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Row", "ToString", 0)]));
 
@@ -8638,14 +8638,14 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesFieldShellForRecordGeneratedFieldReadHelpers()
+    public async Task CompileBackTargets_UsesFieldShellForRecordGeneratedFieldReadHelpers()
     {
         var assemblyPath = CompileFixture("""
             public record Row(string Name, string Value);
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Row", "GetHashCode", 0),
@@ -8690,14 +8690,14 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesRecordEqualityContractShellForFieldReadHelpers()
+    public async Task CompileBackTargets_UsesRecordEqualityContractShellForFieldReadHelpers()
     {
         var assemblyPath = CompileFixture("""
             public record Row(string Name, string Value);
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Row", "GetHashCode", 0),
@@ -8729,7 +8729,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesIncrementConsumedOperatorEvidence()
+    public async Task CompileBackTargets_UsesIncrementConsumedOperatorEvidence()
     {
         var assemblyPath = CompileFixture("""
             public struct Counter
@@ -8755,7 +8755,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "Method1", 0)]));
 
@@ -8773,7 +8773,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesCheckedBinaryOperatorSibling()
+    public async Task CompileBackTargets_PreservesCheckedBinaryOperatorSibling()
     {
         var assemblyPath = CompileFixture("""
             public struct CustomNumber
@@ -8796,7 +8796,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "Method1", 0)]));
 
@@ -8816,14 +8816,14 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesFieldShellForRecordStructGeneratedFieldReadHelpers()
+    public async Task CompileBackTargets_UsesFieldShellForRecordStructGeneratedFieldReadHelpers()
     {
         var assemblyPath = CompileFixture("""
             public record struct Row(string Name, string Value);
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Row", "GetHashCode", 0),
@@ -8904,14 +8904,14 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesGenericRecordTypedEqualsShell()
+    public async Task CompileBackTargets_PreservesGenericRecordTypedEqualsShell()
     {
         var assemblyPath = CompileFixture("""
             public record Row<T>(T Value);
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Row`1", "Equals", 0)]));
 
@@ -8925,7 +8925,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RendersAbstractClosurePropertiesWithoutBodies()
+    public async Task CompileBackTargets_RendersAbstractClosurePropertiesWithoutBodies()
     {
         var assemblyPath = CompileFixture("""
             public abstract class Row
@@ -8936,7 +8936,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Row", "SetName", 0)]));
 
@@ -8981,7 +8981,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_EmitsSignatureMatchedEqualityOperatorPairSibling()
+    public async Task CompileBackTargets_EmitsSignatureMatchedEqualityOperatorPairSibling()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Row
@@ -8996,7 +8996,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Row", "op_Equality", 1)]));
 
@@ -9012,7 +9012,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_EmitsNoBodyEqualityOperatorPairSibling()
+    public async Task CompileBackTargets_EmitsNoBodyEqualityOperatorPairSibling()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Row
@@ -9026,7 +9026,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Row", "op_Equality", 0)]));
 
@@ -9041,7 +9041,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesGenericEqualityOperatorReferenceComparison()
+    public async Task CompileBackTargets_PreservesGenericEqualityOperatorReferenceComparison()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Row<T>
@@ -9054,7 +9054,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Row`1", "op_Equality", 0)]));
 
@@ -9070,7 +9070,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesInParameterEqualityOperatorReferenceComparison()
+    public async Task CompileBackTargets_PreservesInParameterEqualityOperatorReferenceComparison()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Row
@@ -9083,7 +9083,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Row", "op_Equality", 0)]));
 
@@ -9099,7 +9099,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PreservesSpilledLocalEqualityOperatorReferenceComparison()
+    public async Task CompileBackTargets_PreservesSpilledLocalEqualityOperatorReferenceComparison()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Row
@@ -9119,7 +9119,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Row", "op_Equality", 0)]));
 
@@ -9135,7 +9135,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsGenericTypeTargets()
+    public async Task CompileBackTargets_RoundTripsGenericTypeTargets()
     {
         var assemblyPath = CompileFixture("""
             public class Box<T>
@@ -9158,7 +9158,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Box`1", ".ctor", 0),
@@ -9236,7 +9236,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsStructPropertyTargets()
+    public async Task CompileBackTargets_RoundTripsStructPropertyTargets()
     {
         var assemblyPath = CompileFixture("""
             public struct Counter
@@ -9254,7 +9254,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Counter", "get_Value", 0),
@@ -9276,7 +9276,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_SurfacesStructNonAutoPropertyWithoutBackingField()
+    public async Task CompileBackTargets_SurfacesStructNonAutoPropertyWithoutBackingField()
     {
         var assemblyPath = CompileFixture("""
             public struct Counter
@@ -9297,7 +9297,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "Read", 0)]));
 
@@ -9312,7 +9312,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_RoundTripsStaticClassTargets()
+    public async Task CompileBackTargets_RoundTripsStaticClassTargets()
     {
         var assemblyPath = CompileFixture("""
             public static class Class1
@@ -9326,7 +9326,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var results = ReturnToSender.CompileBackTargets(
+            var results = await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [
                     new ReturnToSender.RequestedTarget("Class1", ".cctor", 0),
@@ -9347,7 +9347,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotDuplicateBodyBackedSetterDuringClosureSurface()
+    public async Task CompileBackTargets_DoesNotDuplicateBodyBackedSetterDuringClosureSurface()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -9362,7 +9362,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "set_Value", 0)]));
 
@@ -9377,7 +9377,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_EmitsGetterStubForSetterBodyThatReadsProperty()
+    public async Task CompileBackTargets_EmitsGetterStubForSetterBodyThatReadsProperty()
     {
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -9397,7 +9397,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "set_Value", 0)]));
 
@@ -9413,7 +9413,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_SurfacesUnsafeNestedClosureMember()
+    public async Task CompileBackFirstPropertyGetter_SurfacesUnsafeNestedClosureMember()
     {
         var assemblyPath = CompileFixture("""
             public unsafe class Outer
@@ -9431,7 +9431,7 @@ public class ReturnToSenderPrototypeTests
             """, allowUnsafe: true);
         try
         {
-            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+            var result = await ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -9445,7 +9445,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotDuplicateSelfRecursiveTargetMethodDuringClosureSurface()
+    public async Task CompileBackTargets_DoesNotDuplicateSelfRecursiveTargetMethodDuringClosureSurface()
     {
         // Guard for the RTS-parity known-gap row TypeResolver::GetTypeNameFromReference:
         // a target method that calls itself recursively must not also be reconstructed
@@ -9468,7 +9468,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", "Describe", 0)]));
 
@@ -9487,7 +9487,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_PopulatesEnumMembersWhenTargetReferencesThemByName()
+    public async Task CompileBackTargets_PopulatesEnumMembersWhenTargetReferencesThemByName()
     {
         // A target method that returns a nested enum and references several of its
         // members by name forces the enum to be reconstructed as a closure supporting
@@ -9511,7 +9511,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Host", "Classify", 0)]));
 
@@ -9530,7 +9530,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_ReconstructsNonIntEnumUnderlyingTypeForMemberValues()
+    public async Task CompileBackTargets_ReconstructsNonIntEnumUnderlyingTypeForMemberValues()
     {
         // A reconstructed enum that names members whose constant values do not fit
         // `int` (long/ulong/uint, negative, or byte-backed) must reproduce the enum's
@@ -9554,7 +9554,7 @@ public class ReturnToSenderPrototypeTests
         {
             foreach (var method in new[] { "GetL", "GetUL", "GetUI", "GetB" })
             {
-                var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                     assemblyPath,
                     [new ReturnToSender.RequestedTarget("Host", method, 0)]));
 
@@ -9569,7 +9569,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullExplicitInterfaceEventTargetDoesNotDoubleDeclare()
+    public async Task CompileBackTargets_FullExplicitInterfaceEventTargetDoesNotDoubleDeclare()
     {
         // Issue #3007 follow-up (PR #3075 review): the Full member surface folds events by the
         // sanitized full metadata name ("IBaseEvents.Changed") while an explicit-interface event
@@ -9599,7 +9599,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("ExplicitEventFixture", "IBaseEvents.add_Changed", 0)],
                 RoundTripScope.All,
@@ -9626,7 +9626,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullFieldLikeEventTargetStaysMethodRouted()
+    public async Task CompileBackTargets_FullFieldLikeEventTargetStaysMethodRouted()
     {
         // Issue #3007 follow-up (PR #3075 review): a field-like event (`event Action Changed;`)
         // has a compiler-generated backing field whose name equals the event. Routing its accessor
@@ -9645,7 +9645,7 @@ public class ReturnToSenderPrototypeTests
             """);
         try
         {
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("OrdinaryEventFixture", "add_Changed", 0)],
                 RoundTripScope.All,
@@ -9970,7 +9970,10 @@ public class ReturnToSenderPrototypeTests
     // a sibling type `N.System` in the same namespace. Assembled with ilasm because no C#
     // compiler can produce a clean explicit-override name alongside an in-scope shadow.
     const string ShadowingSiblingIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly shadowrepro { }
         .module shadowrepro.dll
 
@@ -10012,7 +10015,10 @@ public class ReturnToSenderPrototypeTests
     // External contract for the keyword-namespace shadow regression: an interface in a
     // namespace whose segment is the C# keyword `class` (raw metadata `class.IProbe`).
     const string KeywordContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly KeywordContracts { }
         .module KeywordContracts.dll
 
@@ -10026,7 +10032,10 @@ public class ReturnToSenderPrototypeTests
     // external `class.IProbe` with a clean metadata override name (`class.IProbe.M`), and a
     // sibling type N.'class' shadows the `class` root of the spelling once reconstructed.
     const string KeywordShadowFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern KeywordContracts { }
         .assembly keywordfixture { }
         .module keywordfixture.dll
@@ -10065,7 +10074,10 @@ public class ReturnToSenderPrototypeTests
     // segment is a compiler-unspeakable name (`<Bad>`) — legal in metadata, not a legal C#
     // identifier — so Clean() sanitizes it lossily to a different name (`__Bad_`).
     const string UnrepresentableContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly GeneratedContracts { }
         .module GeneratedContracts.dll
 
@@ -10079,7 +10091,10 @@ public class ReturnToSenderPrototypeTests
     // `<Bad>.IProbe`. The reconstruction would emit the sanitized `__Bad_.IProbe`, which names
     // no real type (CS0246) — the gate must decline to the sanitized ContextFail floor instead.
     const string UnrepresentableFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern GeneratedContracts { }
         .assembly badfixture { }
         .module badfixture.dll
@@ -10106,7 +10121,10 @@ public class ReturnToSenderPrototypeTests
     // External contract for the unspeakable-member regression: an interface with a legal name
     // (`Good.IProbe`) but a method whose metadata name is compiler-unspeakable (`<Bad>`).
     const string UnspeakableMemberContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly BadMethodContracts { }
         .module BadMethodContracts.dll
 
@@ -10121,7 +10139,10 @@ public class ReturnToSenderPrototypeTests
     // to no interface member (CS0539) — the gate must decline to the sanitized ContextFail
     // floor instead.
     const string UnspeakableMemberFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern BadMethodContracts { }
         .assembly badmethodfixture { }
         .module badmethodfixture.dll
@@ -10150,7 +10171,10 @@ public class ReturnToSenderPrototypeTests
     // characters when binding identifiers, so a member name `M\u200C` binds as `M` — a name
     // that is identifier-like yet does not round-trip. Interface variant: namespace `G\u200Cood`.
     const string CfMemberContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly CfContracts { }
         .module CfContracts.dll
 
@@ -10161,7 +10185,10 @@ public class ReturnToSenderPrototypeTests
         """;
 
     const string CfMemberFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern CfContracts { }
         .assembly cffixture { }
         .module cffixture.dll
@@ -10186,7 +10213,10 @@ public class ReturnToSenderPrototypeTests
         """;
 
     const string CfNamespaceContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly CfNsContracts { }
         .module CfNsContracts.dll
 
@@ -10197,7 +10227,10 @@ public class ReturnToSenderPrototypeTests
         """;
 
     const string CfNamespaceFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern CfNsContracts { }
         .assembly cfnsfixture { }
         .module cfnsfixture.dll
@@ -10226,7 +10259,10 @@ public class ReturnToSenderPrototypeTests
     // name is `e` + U+0301 — identifier-like, format-character-free, and NOT in NFC. Roslyn binds
     // it verbatim (no normalization), so it round-trips Exact and must NOT be declined.
     const string NfcMemberContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly NfcContracts { }
         .module NfcContracts.dll
 
@@ -10237,7 +10273,10 @@ public class ReturnToSenderPrototypeTests
         """;
 
     const string NfcMemberFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern NfcContracts { }
         .assembly nfcfixture { }
         .module nfcfixture.dll

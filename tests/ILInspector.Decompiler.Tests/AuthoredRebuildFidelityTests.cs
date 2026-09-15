@@ -16,6 +16,7 @@ using Microsoft.CodeAnalysis.Emit;
 
 namespace ILInspector.DecompilerHarness;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
 [Collection(FidelityGateCollection.Name)]
 public sealed class AuthoredRebuildFidelityTests
@@ -23,9 +24,9 @@ public sealed class AuthoredRebuildFidelityTests
     static readonly FindingSubject Subject = new("test", "test");
 
     [Fact]
-    public void BuildContextAssessment_KeepsDeterminismSeparateFromRecordedContext()
+    public async Task BuildContextAssessment_KeepsDeterminismSeparateFromRecordedContext()
     {
-        var decompiler = ReturnToSender.CompileBackFirstPropertyGetter(
+        var decompiler = await ReturnToSender.CompileBackFirstPropertyGetter(
             FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath());
         var recorded = new RecordedBuildContext(
             IsDeterministic: false,
@@ -42,9 +43,9 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
-    public void BuildContextAssessment_ReportsContextDriftIndependently()
+    public async Task BuildContextAssessment_ReportsContextDriftIndependently()
     {
-        var decompiler = ReturnToSender.CompileBackFirstPropertyGetter(
+        var decompiler = await ReturnToSender.CompileBackFirstPropertyGetter(
             FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath());
         var recorded = new RecordedBuildContext(
             IsDeterministic: true,
@@ -68,20 +69,19 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
-    public void AuthoredBody_ReusesFinalRtsRequestAndProductIlDiff()
+    public async Task AuthoredBody_ReusesFinalRtsRequestAndProductIlDiff()
     {
         string assemblyPath = FixtureCatalog.DiffPair.OldAssemblyPath();
         using ReturnToSender.CompilationClosure closure =
             ReturnToSender.CreateCompilationClosure(assemblyPath);
-        var decompiler = ReturnToSender.CompileBackPropertyGetters(
-            assemblyPath, maxTargets: 1, closure).Single();
+        var decompiler = (await ReturnToSender.CompileBackPropertyGetters(
+            assemblyPath, maxTargets: 1, closure)).Single();
         var context = new RecordedBuildContext(
             IsDeterministic: true,
             CompleteOptions(),
             CompleteReferences());
 
-        var result = AuthoredRebuildFidelity.CompileAuthoredBody(
+        var result = await AuthoredRebuildFidelity.CompileAuthoredBody(
             decompiler,
             decompiler.TargetBody,
             SourceChecksumVerification.Exact,
@@ -96,7 +96,7 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
-    public void AuthoredBody_ReusesFrozenRtsCompilationClosure()
+    public async Task AuthoredBody_ReusesFrozenRtsCompilationClosure()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -116,8 +116,8 @@ public sealed class AuthoredRebuildFidelityTests
             using ReturnToSender.CompilationClosure closure =
                 ReturnToSender.CreateCompilationClosure(assemblyPath);
             ReturnToSender.Result decompiler =
-                ReturnToSender.CompileBackPropertyGetters(
-                    assemblyPath, maxTargets: 1, closure).Single();
+                (await ReturnToSender.CompileBackPropertyGetters(
+                    assemblyPath, maxTargets: 1, closure)).Single();
 
             CompileFixture(
                 "namespace D; public sealed class After { }",
@@ -129,7 +129,7 @@ public sealed class AuthoredRebuildFidelityTests
                 CompleteReferences());
 
             AuthoredRebuildFidelityResult result =
-                AuthoredRebuildFidelity.CompileAuthoredBody(
+                await AuthoredRebuildFidelity.CompileAuthoredBody(
                     decompiler,
                     decompiler.TargetBody,
                     SourceChecksumVerification.Exact,

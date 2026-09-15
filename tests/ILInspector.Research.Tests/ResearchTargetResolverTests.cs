@@ -29,6 +29,22 @@ public class ResearchTargetResolverTests
     const string AbsentType = "ILInspector.Research.TargetFixtures.NotHere";
     const string DiffType = "DiffFixtureSample.DiffSample";
 
+    static MetadataTypeDefinitionName TypeName(string fullName)
+    {
+        int separator = fullName.LastIndexOf('.');
+        return TypeName(
+            separator < 0 ? "" : fullName[..separator],
+            fullName[(separator + 1)..]);
+    }
+
+    static MetadataTypeDefinitionName TypeName(
+        string @namespace,
+        params string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                [.. segments])).Name;
+
     // --------------------------------------------------------------- requests
 
     [Fact]
@@ -234,6 +250,16 @@ public class ResearchTargetResolverTests
             resolved.Target,
             Diagnostic: null,
             resolved.Candidates);
+        using var declarationImage = new PEReader(
+            File.OpenRead(FixtureCatalog.ResearchTargetSample.AssemblyPath()));
+        TypeDeclarationResult declaration =
+            MetadataTypeDeclarationProbe.Probe(
+                declarationImage.GetMetadataReader(),
+                selection.DeclaringType);
+        TypeDeclarationResult missingDeclaration =
+            MetadataTypeDeclarationProbe.Probe(
+                declarationImage.GetMetadataReader(),
+                TypeName(AbsentType));
         var surface = new ApiSurface();
         surface.Types.Add(resolved.Target.ApiType);
         ResearchTargetInputValidationEvidence inputEvidence = new(
@@ -278,6 +304,7 @@ public class ResearchTargetResolverTests
                     []),
                 researchDiagnostic: null,
                 candidates: []));
+        Rejects(resolved, declarationOverride: missingDeclaration);
         Rejects(resolved, corruptDispositionRequest: true);
         resolved.Target.ApiMember.Member.GetterToken =
             resolved.Target.ApiMember.Member.MetadataToken;
@@ -303,6 +330,7 @@ public class ResearchTargetResolverTests
                 input,
                 ResearchTargetInputRole.Implementation,
                 inputEvidence,
+                declaration,
                 resolved.Target.ApiType,
                 metadata,
                 TargetResolutionFailed: false,
@@ -384,6 +412,7 @@ public class ResearchTargetResolverTests
             ResearchTargetOutcome corrupted,
             bool corruptDispositionRequest = false,
             ResearchTargetInputValidationEvidence? evidenceOverride = null,
+            TypeDeclarationResult? declarationOverride = null,
             bool omitMetadataEvidence = false)
         {
             ResearchTargetAttempt attempt = new(
@@ -414,7 +443,7 @@ public class ResearchTargetResolverTests
                 [attempt]);
             ResearchTargetScope corruptedScope = new(
                 scope.Id,
-                scope.DeclaringTypeFullName,
+                scope.DeclaringType,
                 scope.Selector,
                 scope.Kind,
                 [corruptedDomain]);
@@ -428,6 +457,9 @@ public class ResearchTargetResolverTests
                     input,
                     ResearchTargetInputRole.Implementation,
                     evidenceOverride ?? inputEvidence,
+                    omitMetadataEvidence
+                        ? null
+                        : declarationOverride ?? declaration,
                     omitMetadataEvidence ? null : resolved.Target.ApiType,
                     omitMetadataEvidence ? null : metadata,
                     TargetResolutionFailed: false,
@@ -929,7 +961,12 @@ public class ResearchTargetResolverTests
         var nested = Assert.IsType<
             ResearchTargetCorrespondenceOutcome.Paired>(
                 Assert.Single(
-                    nestedFixture.ResolveDefault(NestedType, "Method")
+                    nestedFixture.ResolveDefault(
+                            TypeName(
+                                "ILInspector.Research.TargetFixtures",
+                                "TargetOuter",
+                                "TargetInner"),
+                            "Method")
                         .Correspondences));
         Assert.Equal(
             ["TargetOuter", "TargetInner"],
@@ -1070,34 +1107,27 @@ public class ResearchTargetResolverTests
                 primitiveName.Before.CorrespondenceKey.BodyIdentity!
                     .ParameterTypes).Kind);
 
-        ResearchTargetResolution nested = fixture.ResolveDefault(
-            "CorrespondenceIdentity.Outer.Inner",
-            "M");
-        ResearchTargetCorrespondenceOutcome.CounterpartUnavailable[] drift =
-        [
-            .. nested.Correspondences
-                .Select(Assert.IsType<
-                    ResearchTargetCorrespondenceOutcome
-                        .CounterpartUnavailable>),
-        ];
-        Assert.Equal(2, drift.Length);
-        Assert.All(
-            drift,
-            outcome => Assert.Equal(
-                ResearchTargetTaintKind.SelectionDrift,
-                outcome.Taint.Kind));
+        ResearchTargetResolution nested = fixture.Resolve(
+            fixture.Carried(
+                0,
+                TypeName("CorrespondenceIdentity", "Outer", "Inner"),
+                MemberTargetSelector.Parse("M")),
+            fixture.Carried(
+                0,
+                TypeName("CorrespondenceIdentity.Outer", "Inner"),
+                MemberTargetSelector.Parse("M")));
+        var beforeOnly = Assert.Single(
+            nested.Correspondences
+                .OfType<ResearchTargetCorrespondenceOutcome.BeforeOnly>());
+        var afterOnly = Assert.Single(
+            nested.Correspondences
+                .OfType<ResearchTargetCorrespondenceOutcome.AfterOnly>());
 
         MetadataTypeDefinitionName? beforeType =
-            drift.Single(outcome =>
-                    outcome.Attempt.Request.Side
-                        == ResearchComparisonSide.Before)
-                .CorrespondenceKey!.BodyIdentity!
+            beforeOnly.Before.CorrespondenceKey.BodyIdentity!
                 .DeclaringType.DefinitionName;
         MetadataTypeDefinitionName? afterType =
-            drift.Single(outcome =>
-                    outcome.Attempt.Request.Side
-                        == ResearchComparisonSide.After)
-                .CorrespondenceKey!.BodyIdentity!
+            afterOnly.After.CorrespondenceKey.BodyIdentity!
                 .DeclaringType.DefinitionName;
         Assert.NotNull(beforeType);
         Assert.NotNull(afterType);
@@ -2092,7 +2122,12 @@ public class ResearchTargetResolverTests
         // name.
         Assert.IsType<ResearchTargetOutcome.Resolved>(
             Assert.Single(
-                fixture.ResolveDefault(NestedType, "Method").Attempts).Outcome);
+                fixture.ResolveDefault(
+                    TypeName(
+                        "ILInspector.Research.TargetFixtures",
+                        "TargetOuter",
+                        "TargetInner"),
+                    "Method").Attempts).Outcome);
         Assert.IsType<ResearchTargetOutcome.NotFound>(
             Assert.Single(
                 fixture.ResolveDefault(
@@ -2124,7 +2159,9 @@ public class ResearchTargetResolverTests
             [(Occurrence(image), null, null)]);
 
         ResearchTargetAttempt forwarded = Assert.Single(
-            fixture.ResolveDefault("N.Outer.Inner", "Method").Attempts);
+            fixture.ResolveDefault(
+                TypeName("N", "Outer", "Inner"),
+                "Method").Attempts);
         var unavailable =
             Assert.IsType<ResearchTargetOutcome.Unavailable>(forwarded.Outcome);
         Assert.Equal(
@@ -2132,7 +2169,9 @@ public class ResearchTargetResolverTests
             unavailable.Diagnostic.Kind);
 
         ResearchTargetAttempt unrelated = Assert.Single(
-            fixture.ResolveDefault("N.Other.Inner", "Method").Attempts);
+            fixture.ResolveDefault(
+                TypeName("N", "Other", "Inner"),
+                "Method").Attempts);
         Assert.Equal(
             ResearchTargetDiagnosticKind.DeclaringTypeAbsent,
             Assert.IsType<ResearchTargetOutcome.NotFound>(unrelated.Outcome)
@@ -2234,6 +2273,33 @@ public class ResearchTargetResolverTests
     }
 
     [Fact]
+    public void ResearchTargetDeclaringType_UsesMetadataSemanticsForEquivalentForwarders()
+    {
+        byte[] image = BuildResearchSurfaceImage(
+            cyclicTypeName: null,
+            duplicateTypeName: null,
+            forwarderTypeName: "Forwarded",
+            forwarderDeclarationCount: 2);
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataTypeDefinitionName intent = TypeName("N", "Forwarded");
+        var declaration = Assert.IsType<TypeDeclarationResult.Forwarded>(
+            MetadataTypeDeclarationProbe.Probe(
+                pe.GetMetadataReader(),
+                intent));
+        Assert.Equal(2, declaration.Declarations.Length);
+
+        TargetFixture fixture = TargetFixture.Create(
+            [(Occurrence(image), null, null)]);
+        var unavailable = Assert.IsType<ResearchTargetOutcome.Unavailable>(
+            Assert.Single(
+                fixture.ResolveDefault(intent, "Method").Attempts).Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeForwarded,
+            unavailable.Diagnostic.Kind);
+    }
+
+    [Fact]
     public void ResearchTargetDeclaringType_RejectsFailedExactDuplicate()
     {
         byte[] image = BuildFailedExactDuplicateImage();
@@ -2258,7 +2324,7 @@ public class ResearchTargetResolverTests
     }
 
     [Fact]
-    public void ResearchTargetAbsence_UnscopedForwarderFailureBlocksOnlyAbsence()
+    public void ResearchTargetDeclaration_UnscopedForwarderFailureRemainsVisible()
     {
         byte[] image = BuildMalformedForwarderImage();
         ApiSurface surface = ExtractSurface(image);
@@ -2280,22 +2346,16 @@ public class ResearchTargetResolverTests
             ResearchTargetDiagnosticKind.IncompleteMetadataSurface,
             failed.Diagnostic.Kind);
 
-        ResearchTargetResolution resolved =
-            fixture.ResolveDefault("N.C", "M");
-        Assert.IsType<ResearchTargetOutcome.Resolved>(
-            Assert.Single(resolved.Attempts).Outcome);
-        var unavailable = Assert.IsType<
-            ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(
-                Assert.Single(resolved.Correspondences));
-        Assert.Null(unavailable.StrictKey);
-        Assert.Null(unavailable.CorrespondenceKey);
+        var localFailure = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                fixture.ResolveDefault("N.C", "M").Attempts).Outcome);
         Assert.Equal(
-            ResearchTargetTaintKind.BodyIdentityUnavailable,
-            unavailable.Taint.Kind);
+            ResearchTargetDiagnosticKind.IncompleteMetadataSurface,
+            localFailure.Diagnostic.Kind);
     }
 
     [Fact]
-    public void ResearchTargetForwarder_RetainedEvidencePrecedesUnscopedFailure()
+    public void ResearchTargetForwarder_UnscopedFailureRemainsVisible()
     {
         byte[] image = BuildMalformedForwarderImage(
             includeLocalType: false,
@@ -2310,14 +2370,14 @@ public class ResearchTargetResolverTests
 
         TargetFixture fixture = TargetFixture.Create(
             [(Occurrence(image), null, null)]);
-        var unavailable = Assert.IsType<ResearchTargetOutcome.Unavailable>(
+        var failed = Assert.IsType<ResearchTargetOutcome.Failed>(
             Assert.Single(
                 fixture.ResolveDefault(
                     "N.Forwarded",
                     "M").Attempts).Outcome);
         Assert.Equal(
-            ResearchTargetDiagnosticKind.DeclaringTypeForwarded,
-            unavailable.Diagnostic.Kind);
+            ResearchTargetDiagnosticKind.IncompleteMetadataSurface,
+            failed.Diagnostic.Kind);
     }
 
     [Fact]
@@ -2536,7 +2596,7 @@ public class ResearchTargetResolverTests
                     [
                         new ResearchCarriedMemberSelection(
                             stranger.Questions[0].Id,
-                            SampleType,
+                            TypeName(SampleType),
                             MemberTargetSelector.Parse("Method")),
                     ]),
             [ResearchTargetPlanningRejectionKind.ForeignInput] =
@@ -2547,7 +2607,7 @@ public class ResearchTargetResolverTests
                         new ResearchExactAddressMemberSelection(
                             fixture.Population.Questions[0].Id,
                             stranger.Inputs[0],
-                            SampleType,
+                            TypeName(SampleType),
                             MemberTargetSelector.Parse("Method"),
                             address,
                             ResearchTargetRelationshipRole.Method),
@@ -2594,7 +2654,7 @@ public class ResearchTargetResolverTests
                         new ResearchExactAddressMemberSelection(
                             fixture.Population.Questions[0].Id,
                             admitted,
-                            SampleType,
+                            TypeName(SampleType),
                             MemberTargetSelector.Parse("Method"),
                             address,
                             (ResearchTargetRelationshipRole)77),
@@ -2961,7 +3021,8 @@ public class ResearchTargetResolverTests
         string? duplicateTypeName,
         string? forwarderTypeName = null,
         string? nestedForwarderTypeName = null,
-        string? malformedAssemblyRefExportTypeName = null)
+        string? malformedAssemblyRefExportTypeName = null,
+        int forwarderDeclarationCount = 1)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -3021,6 +3082,7 @@ public class ResearchTargetResolverTests
 
         if (forwarderTypeName is not null)
         {
+            Assert.True(forwarderDeclarationCount >= 1);
             AssemblyReferenceHandle target = metadata.AddAssemblyReference(
                 metadata.GetOrAddString("ForwarderTarget"),
                 new Version(1, 0, 0, 0),
@@ -3028,12 +3090,18 @@ public class ResearchTargetResolverTests
                 publicKeyOrToken: default,
                 flags: default,
                 hashValue: default);
-            ExportedTypeHandle root = metadata.AddExportedType(
-                TypeAttributes.Public | Forwarder,
-                metadata.GetOrAddString("N"),
-                metadata.GetOrAddString(forwarderTypeName),
-                target,
-                typeDefinitionId: 0);
+            ExportedTypeHandle root = default;
+            for (int index = 0; index < forwarderDeclarationCount; index++)
+            {
+                ExportedTypeHandle declaration = metadata.AddExportedType(
+                    TypeAttributes.Public | Forwarder,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString(forwarderTypeName),
+                    target,
+                    typeDefinitionId: 0);
+                if (index == 0)
+                    root = declaration;
+            }
             if (nestedForwarderTypeName is not null)
             {
                 metadata.AddExportedType(
@@ -3690,6 +3758,15 @@ public class ResearchTargetResolverTests
             int questionIndex,
             string declaringType,
             MemberTargetSelector selector)
+            => Carried(
+                questionIndex,
+                TypeName(declaringType),
+                selector);
+
+        public ResearchCarriedMemberSelection Carried(
+            int questionIndex,
+            MetadataTypeDefinitionName declaringType,
+            MemberTargetSelector selector)
             => new(
                 Population.Questions[questionIndex].Id,
                 declaringType,
@@ -3705,7 +3782,7 @@ public class ResearchTargetResolverTests
             => new(
                 Population.Questions[questionIndex].Id,
                 input,
-                declaringType,
+                TypeName(declaringType),
                 MemberTargetSelector.Parse(selector),
                 address,
                 role);
@@ -3719,6 +3796,14 @@ public class ResearchTargetResolverTests
             string declaringType,
             string selector)
             => Resolve(Carried(0, declaringType, selector));
+
+        public ResearchTargetResolution ResolveDefault(
+            MetadataTypeDefinitionName declaringType,
+            string selector)
+            => Resolve(Carried(
+                0,
+                declaringType,
+                MemberTargetSelector.Parse(selector)));
 
         public ResearchTargetPlanningOutcome ResolveRaw(
             IEnumerable<ResearchMemberSelectionOccurrence?> selections,

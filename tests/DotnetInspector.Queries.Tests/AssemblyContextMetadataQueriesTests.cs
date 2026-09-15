@@ -6,9 +6,9 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextMetadataQueriesTests
 {
     [Fact]
-    public void ImageQuery_ReadsEveryParticipantInOrder()
+    public async Task ImageQuery_ReadsEveryParticipantInOrder()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(
             workspace,
             typeof(AssemblyContextMetadataQueriesTests).Assembly.Location);
@@ -26,7 +26,7 @@ public sealed class AssemblyContextMetadataQueriesTests
     }
 
     [Fact]
-    public void ImageQuery_CarriesRejectionBesideHealthyMetadata()
+    public async Task ImageQuery_CarriesRejectionBesideHealthyMetadata()
     {
         string path =
             typeof(AssemblyContextMetadataQueriesTests).Assembly.Location;
@@ -41,7 +41,7 @@ public sealed class AssemblyContextMetadataQueriesTests
             () => new MemoryStream(bytes, writable: false),
             AssemblyResolutionProvenance.Local("rejected"));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -64,9 +64,9 @@ public sealed class AssemblyContextMetadataQueriesTests
     }
 
     [Fact]
-    public void TableQuery_ReturnsRequestedWindowAndCoverage()
+    public async Task TableQuery_ReturnsRequestedWindowAndCoverage()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(
             workspace,
             typeof(AssemblyContextMetadataQueriesTests).Assembly.Location);
@@ -102,9 +102,9 @@ public sealed class AssemblyContextMetadataQueriesTests
     }
 
     [Fact]
-    public void HeapQuery_CarriesNativeCoverageAndBounds()
+    public async Task HeapQuery_CarriesNativeCoverageAndBounds()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(
             workspace,
             typeof(AssemblyContextMetadataQueriesTests).Assembly.Location);
@@ -127,9 +127,9 @@ public sealed class AssemblyContextMetadataQueriesTests
     }
 
     [Fact]
-    public void ReadyToRunAndManifestQueries_ReadRuntimeCoreLibrary()
+    public async Task ReadyToRunAndManifestQueries_ReadRuntimeCoreLibrary()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(
             workspace,
             typeof(object).Assembly.Location);
@@ -179,9 +179,9 @@ public sealed class AssemblyContextMetadataQueriesTests
     }
 
     [Fact]
-    public void ManifestQueries_DoNotFallBackToCliMetadata()
+    public async Task ManifestQueries_DoNotFallBackToCliMetadata()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(
             workspace,
             typeof(AssemblyContextMetadataQueriesTests).Assembly.Location);
@@ -215,12 +215,12 @@ public sealed class AssemblyContextMetadataQueriesTests
     }
 
     [Fact]
-    public void ParticipantQueries_RejectParticipantsFromAnotherGroup()
+    public async Task ParticipantQueries_RejectParticipantsFromAnotherGroup()
     {
         string path =
             typeof(AssemblyContextMetadataQueriesTests).Assembly.Location;
-        using var firstWorkspace = new InspectionWorkspace();
-        using var secondWorkspace = new InspectionWorkspace();
+        await using var firstWorkspace = new InspectionWorkspace();
+        await using var secondWorkspace = new InspectionWorkspace();
         using AssemblyContextGroup first = Group(firstWorkspace, path);
         using AssemblyContextGroup second = Group(secondWorkspace, path);
 

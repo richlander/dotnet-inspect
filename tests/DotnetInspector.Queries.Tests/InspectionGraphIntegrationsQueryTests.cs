@@ -58,9 +58,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_DefaultsToWorkspaceInducedSetWithoutSeeds()
+    public async Task Execute_DefaultsToWorkspaceInducedSetWithoutSeeds()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
 
         InspectionGraphDocument document =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
@@ -77,9 +77,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_BindsTypeSeedToExactNode()
+    public async Task Execute_BindsTypeSeedToExactNode()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -109,9 +109,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_BindsPackageSeedToDetailedLensGroup()
+    public async Task Execute_BindsPackageSeedToDetailedLensGroup()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.PackageSubject package =
@@ -134,9 +134,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_BindsAssemblySeedToExactNode()
+    public async Task Execute_BindsAssemblySeedToExactNode()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.AssemblySubject assembly =
@@ -164,9 +164,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_BindsPeerSeedsWithoutChoosingPrimary()
+    public async Task Execute_BindsPeerSeedsWithoutChoosingPrimary()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -209,9 +209,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_PeerNeighborhoodConnectsEqualSeeds()
+    public async Task Execute_PeerNeighborhoodConnectsEqualSeeds()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -297,9 +297,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ZeroDepthPeerNeighborhoodRetainsEverySeed()
+    public async Task Execute_ZeroDepthPeerNeighborhoodRetainsEverySeed()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -341,9 +341,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_PeerCountDoesNotMultiplyProducerDemand()
+    public async Task Execute_PeerCountDoesNotMultiplyProducerDemand()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -375,9 +375,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ExplicitPackageSetInducesOnlyInternalEvidence()
+    public async Task Execute_ExplicitPackageSetInducesOnlyInternalEvidence()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.PackageSubject abstractions =
@@ -525,9 +525,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ExplicitInducedSetRequiresBothEndpointClosures()
+    public async Task Execute_ExplicitInducedSetRequiresBothEndpointClosures()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.PackageSubject openAi =
@@ -561,9 +561,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ExplicitInducedSetRetainsIsolatedInput()
+    public async Task Execute_ExplicitInducedSetRetainsIsolatedInput()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -593,9 +593,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ExplicitInducedSetRetainsDeclaredMemberInput()
+    public async Task Execute_ExplicitInducedSetRetainsDeclaredMemberInput()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.MemberSubject member = workspace.Nodes
@@ -624,9 +624,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand()
+    public async Task Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.PackageSubject[] subjects =
@@ -661,9 +661,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ExplicitInducedSetRetainsOnlyInClosureFailures()
+    public async Task Execute_ExplicitInducedSetRetainsOnlyInClosureFailures()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             includeRejectedParticipant: true);
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
@@ -713,9 +713,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ExplicitInducedSetOmitsOutOfContextBindingMissing()
+    public async Task Execute_ExplicitInducedSetOmitsOutOfContextBindingMissing()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             omitBedrockRuntime: true);
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
@@ -754,9 +754,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ExplicitInducedSetRetainsActionableMixedFailureDetail()
+    public async Task Execute_ExplicitInducedSetRetainsActionableMixedFailureDetail()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             omitBedrockRuntime: true);
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
@@ -826,9 +826,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ExplicitInducedSetRetainsUnavailableSelectedBinding()
+    public async Task Execute_ExplicitInducedSetRetainsUnavailableSelectedBinding()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             unavailableOpenAiBinding: true);
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
@@ -862,9 +862,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ExplicitInducedSetRejectsUnsupportedRelationshipFirst()
+    public async Task Execute_ExplicitInducedSetRejectsUnsupportedRelationshipFirst()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.PackageSubject package =
@@ -890,9 +890,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ModeOnlyExplicitSubjectsRejectsBeforeProducers()
+    public async Task Execute_ModeOnlyExplicitSubjectsRejectsBeforeProducers()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         var executions = new List<InspectionQueryDefinition>();
 
         InspectionQueryException exception = Assert.Throws<
@@ -912,9 +912,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance()
+    public async Task Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         var executions = new List<InspectionQueryDefinition>();
         InspectionGraphSubject missing =
             InspectionGraphSubject.ForRealizedPackage(
@@ -945,9 +945,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_RejectsUndeclaredInScopeTypeBeforeProducerExecution()
+    public async Task Execute_RejectsUndeclaredInScopeTypeBeforeProducerExecution()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         AssemblyAcquisitionRegistration registration =
             fixture.Context.Group.Participants[0]
                 .Assembly.Registration;
@@ -983,9 +983,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_RejectsUndeclaredInScopeMemberBeforeProducerExecution()
+    public async Task Execute_RejectsUndeclaredInScopeMemberBeforeProducerExecution()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument workspace =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphMemberIdentity.AcquiredApi declared =
@@ -1027,9 +1027,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ReportsMemberPreflightDecodeFailureBeforeProducers()
+    public async Task Execute_ReportsMemberPreflightDecodeFailureBeforeProducers()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             includeMalformedExtensionParticipant: true);
         AssemblyAcquisitionRegistration registration =
             fixture.Context.Group.Participants[^1]
@@ -1076,9 +1076,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ReportsTypeDeclarationRejectionBeforeProducers()
+    public async Task Execute_ReportsTypeDeclarationRejectionBeforeProducers()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             includeRejectedDeclarationParticipant: true);
         AssemblyContextParticipant participant =
             fixture.Context.Group.Participants[^1];
@@ -1130,9 +1130,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void ProjectionOwnership_UsesStructuredGenericDeclaringType()
+    public async Task ProjectionOwnership_UsesStructuredGenericDeclaringType()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         AssemblyAcquisitionRegistration registration =
             fixture.Context.Group.Participants[0]
                 .Assembly.Registration;
@@ -1190,9 +1190,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed()
+    public async Task Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -1234,9 +1234,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_RejectsSeedOutsideWorkspaceWithGuidance()
+    public async Task Execute_RejectsSeedOutsideWorkspaceWithGuidance()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphSubject missing =
             InspectionGraphSubject.ForRealizedPackage(
                 new RealizedMemberCoordinate.Package(
@@ -1257,9 +1257,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_BoundsMixedRelationshipNeighborhoodByDepth()
+    public async Task Execute_BoundsMixedRelationshipNeighborhoodByDepth()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -1359,9 +1359,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_PackageSeedExpandsThroughOwnedSourceSubjects()
+    public async Task Execute_PackageSeedExpandsThroughOwnedSourceSubjects()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.PackageSubject openAi =
@@ -1400,9 +1400,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_OpportunitySourceTypeUsesOccurrenceAdmission()
+    public async Task Execute_OpportunitySourceTypeUsesOccurrenceAdmission()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphOccurrence inducedOpportunity = Assert.Single(
@@ -1448,9 +1448,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression()
+    public async Task Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject fulfilled = FindType(
@@ -1488,9 +1488,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ZeroDepthRetainsSeedWithoutEdges()
+    public async Task Execute_ZeroDepthRetainsSeedWithoutEdges()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -1524,9 +1524,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ZeroDepthRetainsAdmissibleSeedWithoutSelectedEvidence()
+    public async Task Execute_ZeroDepthRetainsAdmissibleSeedWithoutSelectedEvidence()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject isolated = FindType(
@@ -1564,9 +1564,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_SelectedRelationshipsControlProducerDemand()
+    public async Task Execute_SelectedRelationshipsControlProducerDemand()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -1673,9 +1673,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_RejectsForeignRelationshipBeforeProducerExecution()
+    public async Task Execute_RejectsForeignRelationshipBeforeProducerExecution()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphOccurrence integration =
@@ -1706,9 +1706,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_NeighborhoodRetainsSelectedProducerFailures()
+    public async Task Execute_NeighborhoodRetainsSelectedProducerFailures()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             includeRejectedParticipant: true);
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
@@ -1746,9 +1746,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures()
+    public async Task Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             includeRejectedParticipant: true);
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
@@ -1798,9 +1798,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups()
+    public async Task Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
 
         InspectionGraphDocument document =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
@@ -1979,9 +1979,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void PackageAndTypeModesShareSemanticIntegrationOccurrences()
+    public async Task PackageAndTypeModesShareSemanticIntegrationOccurrences()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument induced =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphSubject.TypeSubject hub = FindType(
@@ -2045,9 +2045,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities()
+    public async Task Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             duplicateHubAssembly: true);
 
         InspectionGraphDocument document =
@@ -2091,9 +2091,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ReportsApiWhoseStructuredEvidenceIsUnavailable()
+    public async Task Execute_ReportsApiWhoseStructuredEvidenceIsUnavailable()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             overBudgetAdapterTypeName: true);
 
         InspectionGraphDocument document =
@@ -2115,9 +2115,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_DifferentAiTargetDoesNotFulfillChatOpportunity()
+    public async Task Execute_DifferentAiTargetDoesNotFulfillChatOpportunity()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             openAiAdapterReturnsDifferentAiType: true);
 
         InspectionGraphDocument document =
@@ -2136,9 +2136,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_AggregatesRejectedParticipantFailuresByTarget()
+    public async Task Execute_AggregatesRejectedParticipantFailuresByTarget()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             includeRejectedParticipant: true);
 
         InspectionGraphDocument document =
@@ -2169,9 +2169,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_DeduplicatesRepeatedAssemblyReferenceRows()
+    public async Task Execute_DeduplicatesRepeatedAssemblyReferenceRows()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             duplicateOpenAiReference: true);
         var references = AssemblyContextReferencesQuery.Execute(
             fixture.Context.Group);
@@ -2203,9 +2203,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_DeduplicatesEquivalentAssemblyReferenceRows()
+    public async Task Execute_DeduplicatesEquivalentAssemblyReferenceRows()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             equivalentReferenceVariants: true);
 
         InspectionGraphDocument document =
@@ -2223,9 +2223,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ReportsUnavailableReferenceBinding()
+    public async Task Execute_ReportsUnavailableReferenceBinding()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             unavailableOpenAiBinding: true);
 
         InspectionGraphDocument document =
@@ -2243,9 +2243,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_RetainsEachUnavailableReferenceIdentity()
+    public async Task Execute_RetainsEachUnavailableReferenceIdentity()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             multipleUnavailableReferenceBindings: true);
 
         InspectionGraphDocument document =
@@ -2277,9 +2277,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_RetainsEquivalentUnavailableReferenceSpellings()
+    public async Task Execute_RetainsEquivalentUnavailableReferenceSpellings()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             equivalentReferenceVariants: true,
             multipleUnavailableReferenceBindings: true);
 
@@ -2323,9 +2323,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_DeduplicatesEquivalentExtensionMethodRows()
+    public async Task Execute_DeduplicatesEquivalentExtensionMethodRows()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             duplicateExtensionMethodRows: true);
         var extensions = AssemblyContextExtensionMethodsQuery.Execute(
             fixture.Context.Group);
@@ -2357,9 +2357,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void ExtensionOccurrenceIdentity_NormalizesEquivalentScopes()
+    public async Task ExtensionOccurrenceIdentity_NormalizesEquivalentScopes()
     {
-        using var fixture = IntegrationFixture.Create();
+        await using var fixture = IntegrationFixture.Create();
         InspectionGraphDocument document =
             InspectionGraphIntegrationsQuery.Execute(fixture.Context);
         InspectionGraphOccurrence occurrence = Assert.Single(
@@ -2404,9 +2404,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_RetainsOverloadedAdapterEvidence()
+    public async Task Execute_RetainsOverloadedAdapterEvidence()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             overloadedOpenAiAdapter: true);
 
         InspectionGraphDocument document =
@@ -2436,9 +2436,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ReportsTypeWhoseStructuredEvidenceIsUnavailable()
+    public async Task Execute_ReportsTypeWhoseStructuredEvidenceIsUnavailable()
     {
-        using var fixture = IntegrationFixture.Create(
+        await using var fixture = IntegrationFixture.Create(
             overBudgetIntegrationTypeName: true);
 
         InspectionGraphDocument document =
@@ -2586,7 +2586,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                         .Package.PackageId == packageId)
                 .Subject);
 
-    sealed class IntegrationFixture : IDisposable
+    sealed class IntegrationFixture : IAsyncDisposable
     {
         readonly InspectionWorkspace _workspace;
 
@@ -2600,7 +2600,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
 
         internal WorkspaceContextLoadOutcome.Loaded Context { get; }
 
-        public void Dispose() => _workspace.Dispose();
+        public ValueTask DisposeAsync() => _workspace.DisposeAsync();
 
         internal static IntegrationFixture Create(
             bool duplicateHubAssembly = false,
@@ -2804,6 +2804,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     [.. members.Select(
                         static member => member.Participant)]);
             var loaded = new WorkspaceContextLoadOutcome.Loaded(
+                workspace.Identity,
                 group,
                 [.. members],
                 [],

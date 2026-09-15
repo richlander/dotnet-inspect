@@ -850,9 +850,10 @@ using it must obtain the digest, format result, producer output, and publication
 payload from that one retained content snapshot; APIs reject independently
 supplied digest/snapshot or digest/result pairs. Hashing a mutable path before
 and after a separately opened inspection is not equivalent because a
-W-to-S-to-W replacement defeats the bracket. `MDP017` pins SHA-256 for the
-library effective-catalog key; this declaration does not require every artifact
-consumer to compute a digest eagerly.
+W-to-S-to-W replacement defeats the bracket. Pinning SHA-256 for the library
+effective-catalog key is unverified and tracked by [#3478](https://github.com/richlander/dotnet-inspect/issues/3478); this
+declaration does not require every artifact consumer to compute a digest
+eagerly.
 
 The operation context shares the admission result, immutable semantics index,
 and immutable declaration facts or typed failures through a context-owned
@@ -1343,7 +1344,7 @@ the design authority.
 | Local selector finalization flags and provisional option mutation | Replace with parsed and resolved plan types |
 | Local source/PDB authorization checks derived from `IncludeSections` or the union of `Discover` selections into requested sections | Replace with producer-plan authorization |
 | Render-manifest effective discovery | Retain for post-producer field/column/empty observation; move every producer call into a declared probe plan |
-| `LibraryCommand`'s cross-process `effective-v*` successful catalog | Retain as the bare `library -D --effective` compatibility cache for package and platform routes, but make direct local-file routes bypass persistent lookup and publication and recompute from a fresh retained image in each tool run. Replace the persistent routes' resolved-path/content-hash/`sl0`-or-`sl1` predecessor key. The slice-5 successor subject freezes the resolved path, acquisition-owned immutable assembly-content digest, typed `LibraryCatalogRouteEvidence` for every route fact consumed by discovery, and typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity containing the retained identity-validated PDB digest, discovery-relevant provider/provenance, and SourceLink effectiveness. Lookup, cold production, and publication use that one subject; no post-production evidence may re-key it. Do not expose the catalog to the planned type/member executor or treat it as authorization. Apply the repository-wide persistent-cache cutover rule: classify retained assembly bytes before lookup and select a successor category so no pre-classifier, bracket-hash-mislabeled, route-aliased, or Boolean-PDB-keyed predecessor entry remains eligible; supported package/platform inputs recompute and repopulate that category. Replace the pre/post mutable-path hashing tracked by #3478, make every transitive assembly/PDB consumer in each cold path consume the corresponding retained content, and apply one finite 64 MiB portable-PDB retention budget before copy, hash, or reader work across every provider. A future library typed-preflight migration must convert the catalog to authorization-independent producer evidence or remove it |
+| `LibraryCommand`'s cross-process `effective-v*` successful catalog | Retain unchanged in this migration. The future retained-snapshot, route-evidence, PDB-budget, key-cutover, and direct-file persistence decisions belong to #3478 and are not assigned to a slice in this plan |
 | `ArgumentPreprocessor`, `RouterCommandDefinition`, and `PackageCommand` structural routing | Retain syntactic routing, but replace command-only dispatch with the shared structural-view registry and move static classification before acquisition in slice 2 |
 | `ApiCommand.RunPreamble` and `ApiMemberSectionPipelines` static member catalog selection | Replace the provisional selectable-section union with explicit member type-view, inventory, and detail registry entries plus labeled dotted-tail alternatives in slice 2 |
 | `ApiSurfaceExtractor` and accessor-bearing `MetadataDeclarationQuery` calls to `GetAccessors()` | Replace every SRM convenience-accessor read in those files with the neutral `MethodSemanticsAssociationSession` and Metadata-owned semantic census, including non-admission compiler-generated-name heuristics; replace reader-only `GetProperty` and `GetTypeSurface` entry points with session-backed queries |
@@ -1513,7 +1514,7 @@ be consumed by the type/member plan before slice 4 lands.
 
 - Land and pass
   `LayeringTests.MetadataPrimitives_RemainsLeaf` in
-  `tests/dotnet-inspect.Tests` before adding the lossless row reader in this
+  `tests/DotnetInspect.Cli.Tests` before adding the lossless row reader in this
   slice; the composite `MDP016` gate expands after the reader exists.
 - Introduce `MetadataOperationContext.AdmitImage` as the single metadata-row
   charging authority, move
@@ -1550,64 +1551,10 @@ be consumed by the type/member plan before slice 4 lands.
   construction, admission, or managed metadata work. Later caller migrations
   inherit the same gate; do not parse stream/table structure or add a projected
   WinMD reader, fallback, compatibility adapter, or correspondence gate.
-- In the same cutover, bump `LibraryCommand`'s `effective-v*` category before
-  any post-cutover package/platform cache lookup or write. Direct local-file
-  routes bypass both operations and recompute from a fresh retained image in
-  each tool run. Mint typed
-  `LibraryCatalogRouteEvidence` from the owner-issued root route and every
-  stable route fact consumed by discovery; do not infer it from the resolved
-  path or use it as authorization. Acquire one bounded immutable
-  artifact-content snapshot and its owner-computed SHA-256 digest, then open the
-  acquisition-owned `PEReader` over those retained bytes and run the format
-  classifier before the local-symbol probe or any catalog lookup. Charge
-  retained assembly bytes and any requested digest pass to the
-  operation's finite image/work budgets; over-limit input fails visibly before
-  cache access. Unsupported or malformed input performs no PDB probe, cache
-  read, or current-category write.
-- After supported admission, create one operation-owned
-  `PortablePdbRetentionBudget` with a finite 64 MiB compatibility maximum shared
-  by adjacent, symbol-cache, acquired, and decompressed embedded providers.
-  Reserve a selected seekable PDB's declared length before allocation, copying,
-  hashing, or `MetadataReaderProvider` construction; bounded-copy non-seekable
-  input to limit plus one, and reserve embedded declared decompressed length
-  before expansion. An over-limit candidate returns typed
-  `PortablePdbRetentionLimitExceeded`, performs no catalog read/write, and
-  neither becomes `None` nor falls through to another provider. Product
-  effective discovery cannot use `SourceLinkReadLimits.Unlimited`. Return typed
-  `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity containing
-  the retained identity-validated PDB digest, every provider/provenance
-  dimension consumed by discovery, and typed SourceLink effectiveness. The
-  probe constructs any PDB `MetadataReader` needed to mint that evidence before
-  the catalog lookup. Bind the route evidence, retained assembly/digest,
-  supported format result, and local-symbol evidence/snapshot into one immutable
-  `LibraryEffectiveCatalogSubject`; on package and platform routes, cache
-  lookup, every cold producer, and publication accept that subject rather than
-  independently supplied key components. Direct local-file discovery consumes
-  the retained evidence without persistent lookup or publication. A
-  package/platform hit then returns without assembly identity decoding, an
-  assembly `MetadataReader`, or full discovery.
-- On a miss, make a new from-retained-content image/snapshot factory preserve
-  the same bytes, digest, owner binding, and supported-format result while it
-  performs `AssemblyImageSnapshot` identity/MVID decoding and opens the
-  inspection session. Replace the current path-opening snapshot factory in this
-  route rather than allowing it to call the mutable source opener again.
-  Thread the retained reference through every transitive assembly consumer in
-  all three bare-library branches -- package/platform cache-enabled and direct
-  local-file cold-only -- including platform surface classification, metadata
-  inspection, scanners, and SourceLink/PDB correlation; path remains
-  provenance/presentation only. Carry `LibraryCatalogRouteEvidence` to every
-  producer and, on persistent routes, the key rather than letting a
-  platform/direct/package distinction disappear after path resolution. The
-  cold inspection and any successor publication use the same retained assembly
-  and PDB content and any digests frozen in the subject; do not reopen, rehash,
-  or re-key from either mutable source inside the chain. Separately authorized
-  source work remains outside the catalog subject. If the owner observes a
-  local-symbol evidence-generation change before publication, decline the
-  write rather than filing the existing result under new evidence; a later
-  invocation recomputes. A catalog from the preceding category does not prove
-  admission, and the successor may be populated only after inspection
-  succeeds. Preserve subsequent cross-process hits for supported
-  package/platform ECMA-335 inputs.
+- Leave `LibraryCommand`'s effective catalog unchanged in this migration.
+  Retained-snapshot acquisition, route evidence, PDB retention, cache-key
+  cutover, and direct-file persistence are separate #3478 work and do not
+  contribute to this slice's completion.
 - Add typed type, member, accessor, and `MethodImpl` validation results.
 - Replace the reader-only accessor-bearing
   `MetadataDeclarationQuery.GetProperty` and `GetTypeSurface` surfaces with
@@ -1624,10 +1571,10 @@ be consumed by the type/member plan before slice 4 lands.
 Exit gate: cache, context, and hostile-input limit declarations drive `MDP009`;
 shadow results expose full/summary/focused limit, rejection, and projection
 disagreements before cutover; `MDP016` proves the narrow lossless-row exception
-before any consumer uses it to supply product results; the slice-5 portion of
-`MDP017` proves the classifier and raw table/image/leaf paths. It does not
-require later consumer migrations: slice-specific bypass closure belongs to
-`MDP011`, and final repository closure belongs to `MDP013` and `MDP017`.
+before any consumer uses it to supply product results; `MDP017` proves the
+classifier and currently adopted raw table/image/leaf paths. It does not require
+later consumer migrations: slice-specific bypass closure belongs to `MDP011`,
+while repository-wide admission remains unverified under #5559.
 
 ### Slice 6: activate shared declaration admission atomically
 
@@ -1705,11 +1652,9 @@ Depends on: slices 4, 6, and 7.
   supply expected accessor structure, including reader-only chains that must
   now carry an `AssemblyImage` lease; retain only exact allow-listed
   comparison-oracle and address-only test-input calls.
-- Inventory every remaining product acquisition owner and public/reusable
-  `PEReader` entry point. Route any path not already covered by
-  `AssemblyImage`, the slice-6 API-surface migration, or the raw metadata
-  projector through `MetadataImageFormatClassifier`; no reader-only
-  compatibility path may bypass the unsupported-format gate.
+- Preserve the adopted `MDP017` inventory through the migration. Additional
+  owner adoption remains separate, unscheduled #5559 work rather than a slice-8
+  completion condition.
 - Update architecture docs from proposed to implemented only after the
   corresponding gates pass.
 - Update `schema-query.md` and the other mechanism owners to remove superseded
@@ -1718,7 +1663,8 @@ Depends on: slices 4, 6, and 7.
 Exit gate: targeted searches and architecture tests find no dual-use option
 authority, duplicate declaration validity owner, or CSharp metadata
 reconstruction, including inert compatibility state left after the semantic
-cutovers. `MIP012`, `MDP013`, and the full `MDP017` closure must pass.
+cutovers. `MIP012`, `MDP013`, and the adopted `MDP017` inventory must pass;
+repository-wide metadata admission remains unverified under #5559.
 
 ## Verification obligations
 
@@ -1759,19 +1705,15 @@ test method name, but the PR must map each test to its gate ID.
 | `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, and consumers after slice 8; no shipped product or reusable product-library SRM `PropertyDefinition.GetAccessors()` or `EventDefinition.GetAccessors()` call remains; Decompiler fixtures prove `MemberBodyProducer` and `MethodDefinitionFacts` consume the association session under the slice-6 owner-backed image lease and a finite Decompiler operation policy, call the current owner/lender liveness check before both cold and cached results, and retain their own classification policy without a bare-reader bypass; a gate-owned exact file/enclosing-member/occurrence-count allow list records every remaining solution call exactly once with category and justification as either a comparison-only independent SRM oracle or an address-only test-input selector whose assertion depends solely on product output; the mechanical gate fails stale, unlisted, or occurrence-count drift, while category correctness is an explicit reviewer obligation whenever the list changes; no allowed category may supply expected accessor structure or construct, normalize, repair, or substitute for an artifact later compiled or measured as product evidence; reflection `PropertyInfo.GetAccessors` is outside this closure |
 | `MDP014` | CSharp failure text contains no artifact data | Hostile control-character names through every CSharp representability failure path |
 | `MDP015` | `FallbackRequired` preserves contained type/member semantics and renders artifact text through `InertString` | Set equality between the normal representable renderer's Metadata fact requests and each contained fallback payload after named erasures; type and member parity fixtures cover accessibility, modifiers, attributes, constraints, constants/defaults, explicit implementation, complete accessor aggregates including raise and every `Other` association, base/interfaces, and kind-specific facts; valid raise/`Other` aggregates force contained fallback and preserve each association instead of becoming unrelated standalone methods; unsupported type-header and paired member/indexer cases prove no fact becomes `null`, omission, or identity collapse; declaration-derived sink closure requires every fallback sink to call `EnsurePermitted` with its exact `TextPolicy` immediately before unwrapping and format escaping; cross-policy fixtures deliver Prose-produced CR/LF/TAB plus hostile type names, member names, and signature fragments to Field, Markdown, JSON, TSV, and diagnostic sinks; round-trip and pairwise injectivity prove canonical visual encoding preserves exact artifact text while no live disallowed scalar reaches a sink |
-| `MDP016` | The lossless `MethodSemantics` row boundary is the only registered raw-table exception and remains mechanical, bounded, and SRM-backed | A pre-reader `LayeringTests.MetadataPrimitives_RemainsLeaf` gate in `tests/dotnet-inspect.Tests` and post-reader symbol/API closure prove MetadataPrimitives remains an SRM-only leaf; the exact raw-layout allow list distinguishes the fixed metadata-root admission guard owned and gated by `MDP017` from table decoding, and only `MethodSemanticsRowReader` calls `GetTableMetadataOffset`, `GetTableRowSize`, or decodes raw ECMA table columns; the classifier and row reader may each call `PEReader.GetMetadata` and `PEMemoryBlock.GetReader` only for their separately bounded contracts, no arbitrary `TableIndex`, schema, or coded-index API escapes, and unrelated blob/heap `BlobReader` use is outside the detector; required-CI ordered-multiset equality with `ildasm` over association/role/method plus construction-known `ilasm` fixtures, with both external-tool groups required there but allowed to skip together locally; tool-independent `MetadataBuilder` and byte-patched raw-row fixtures remain the non-skipping construction-known floor, alongside conventional aggregate parity with SRM accessors; all four narrow/wide MethodDef and HasSemantics index combinations are generated once per test run and assert decoded values, while SRM row-size equality separately checks the total width; fixtures prove exact preservation of duplicate roles, zero/unknown/combined bits, physical row order, and nonmonotonic-order observation, while nil/out-of-range MethodDef or association rows produce typed mechanical rejection and the same out-of-order rows with the sorted bit clear fail at SRM reader construction; a supplied retained-association budget proves complete-scan bounded allocation before the leaf returns neutral rows, and the reader retains no block, reader, or pointer beyond the call; Browser/Wasm and NativeAOT gates exercise the same supported ECMA-335 result. Role legality, duplicates, declaring-type consistency, and ordering-policy rejection belong to `MDP004`; format classification belongs to `MDP017`; operation admission, generation/entry mapping, dependent-projection failure, and both cold/cache liveness wiring belong to `MDP006`/`MDP009`; consumer migration belongs to `MDP011`/`MDP013` |
-| `MDP017` | Unsupported Windows Metadata cannot enter a product metadata path or become malformed ECMA-335 | `MetadataImageFormatClassifier` is the sole registered metadata-root admission guard. `PEReader.HasMetadata == false` returns typed `NoMetadata` without requesting a block; otherwise the classifier obtains the owner-bound metadata block from the supplied `PEReader`, reads only the ECMA-335 signature, fixed major/minor/reserved fields, signed padded-version length, and at most the declared 256-byte padded field, scans through the first null for the ordinal ASCII `WindowsRuntime` marker SRM uses before optional WinRT projection, and constructs no `MetadataReader`. Ordinary and marker-bearing `MetadataBuilder` images, including a marker-bearing image without an mscorlib `AssemblyRef`, prove `SupportedEcma335` versus `UnsupportedWindowsMetadata`; a native PE proves `NoMetadata` and preserves its established no-metadata boundary; wrong-case markers, markers after the first null, and markers outside the declared field remain supported close negatives; an unmappable metadata directory, truncated fixed prefix, invalid signature, negative/over-256 padded length, and length beyond the block remain distinct typed malformed-root results, while injected lazy-stream I/O failure remains an acquisition failure. The gate records the deliberate compatibility boundary that SRM may accept a longer field when enough bytes exist, while the guard rejects it because ECMA-335 bounds the null-terminated version to 255 bytes and the padded field to 256; no input may be admitted with an unexamined marker beyond the fixed window. A marker-bearing byte-patched image whose unsorted `MethodSemantics` table would scan or fail during SRM reader initialization must return unsupported without `MetadataReader`, row, table, heap, or stream-header work. Prefetched and lazy-stream fixtures record total block-materialization cost separately; a test-only pre-materialized measurement that first obtains the block from the same `PEReader` isolates the subsequent classifier delta and proves classifier-owned allocation/work is bounded only by the root prefix and 256-byte field rather than row count. Product paths still classify before `MetadataReader` construction or managed metadata work. Within MetadataPrimitives, architecture closure permits root-admission interpretation only in the classifier; `MDP016` separately owns the exact raw-layout allow list for the classifier and `MethodSemanticsRowReader`, while the existing `StructuralCloneAnalysis.ReadUserStringHeap` stream parser remains explicitly excluded migration debt rather than an admission path. Acquisition/public-`PEReader` closure requires `AssemblyImage`, `PdbContext`, Decompiler `MetadataSource`, `MetadataImageInspector`, every `MetadataTableProjector` table/row/reference/heap entry point, and direct `MethodSemanticsRowReader` calls to invoke the classifier before `MetadataReader` construction, admission, or managed metadata work; portable-PDB `MetadataReader` construction after the owning assembly has passed admission is outside this assembly-metadata closure and remains bounded by one finite operation-owned retention/expansion budget. Direct acquisition/projector APIs preserve `NoMetadata`, map malformed roots to `BadImageFormatException` with bounded non-artifact text when their return shape has no failure arm, and throw `UnsupportedMetadataFormatException` with the same text constraint only for unsupported Windows Metadata; owning queries preserve each mechanism in a typed no-metadata, malformed-input, or unsupported-input result; CLI Markdown and structured metadata-lens modes prove there is no empty or partial success; Browser/Wasm and NativeAOT gates exercise every classifier arm. The library cache cutover first mints `LibraryCatalogRouteEvidence` from the owner-issued platform/package/direct-file route and every route fact consumed by discovery, then acquires one bounded immutable assembly-content snapshot and its owner-computed SHA-256 digest, opens a `PEReader` over those retained bytes, and invokes the classifier before the local-symbol probe or every catalog lookup. Unsupported or malformed input proves zero PDB opens, cache reads, or current-category writes. After supported admission, one operation-owned `PortablePdbRetentionBudget` applies a finite 64 MiB compatibility ceiling across adjacent, symbol-cache, acquired, and decompressed embedded providers. It reserves seekable length before allocation/copy/hash/reader construction, bounded-copies non-seekable input to limit plus one, and reserves embedded declared decompressed length before expansion. Over-limit input returns typed `PortablePdbRetentionLimitExceeded` with zero catalog read/write, does not become `None`, and does not fall through to another provider; product effective-discovery call closure rejects `SourceLinkReadLimits.Unlimited`. Within that budget, the probe reads the retained image's PE debug directory, constructs any PDB `MetadataReader` needed before catalog lookup, and returns typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity containing one retained, assembly-identity-validated portable PDB's SHA-256 digest, every provider/provenance dimension consumed by effective discovery, and typed SourceLink effectiveness. Bind the route evidence, retained assembly/digest, supported result, and local-symbol evidence/snapshot into one immutable `LibraryEffectiveCatalogSubject` before lookup. A supported catalog hit then constructs no assembly `MetadataReader` and performs no full discovery. On a miss, from-retained-content factories and every producer consume that subject; API closure rejects independently supplied subject components, route evidence, digest/snapshot, digest/result, format-result/reader, or PDB-evidence/PDB-reader pairs. Call-graph closure starts at all three cache-enabled bare-library branches and requires every transitive assembly/PDB consumer, including platform `AssemblySurfaceClassifier`, metadata inspection, scanners, and SourceLink correlation, to use those retained references and route evidence; a path may remain provenance or presentation but cannot reopen the subject. The mutable assembly source and each selected local PDB source are each opened exactly once, and neither is rehashed or reopened for the cold producer or write; the bracketed-path-hash workaround tracked by #3478 is removed. Publication uses the frozen subject and never substitutes post-production evidence. Separately authorized source work stays outside the subject; if the owner observes a local-symbol evidence-generation change, it declines publication rather than re-keying, and a later invocation probes and recomputes. A declaration-derived set-equality gate covers every route- or PDB-dependent section/field predicate, including applicability that falls back to `CanRender`, and every route/provider/provenance fact consumed by discovery; each must be a function of `LibraryCatalogRouteEvidence` and `LocalSymbolDiscoveryEvidence`, so adding a dependent producer cannot leave the successor key under-scoped. The migration declaration owns distinct predecessor and successor `effective-v*` categories and their registered set independently of key reachability. Cutover evidence seeds successful predecessor-category sentinels for both legacy `sl0` and `sl1` keys of exact marker-bearing bytes and proves classification returns unsupported before any catalog read and writes no successor entry. A paired supported ECMA-335 fixture with predecessor sentinels proves the old catalog is ignored, one real retained-content inspection populates the successor category under the new key shape, and a separate process receives the supported hit. Route fixtures invoke one exact installed assembly through platform and direct-file routes in both population orders, prove route evidence and keys differ, preserve the platform-only `Facade` field, and receive correct separate-process hits; package/direct same-file and every other declared route pair receive the same closure. Stable PDB fixtures cover `None`, a PDB without SourceLink, two identity-valid SourceLink PDBs with different document-path/catalog effectiveness, and every discovery-relevant provider kind; different PDB bytes or relevant provenance produce different keys and catalogs. A `None` subject whose cache warms to PDB P2 and a PDB P1 subject replaced by P2 prove every cold producer remains on the frozen subject and no entry is written under P2 evidence; an observed generation change declines publication, while a later invocation probes P2, recomputes, and may publish. Clearing P1 back to `None` is likewise visible only to a later invocation. Near/over-limit fixtures cover seekable adjacent, symbol-cache, acquired, non-seekable, and embedded-decompressed PDBs; the over-limit identity-valid trailing-data PDB must fail before hash/reader/cache work rather than returning success. In-process product acquisition seams whose successive assembly or PDB source opens return W, S, and W count exactly one open per selected source and assert that each published digest names the exact retained bytes supplied to admission and every producer. That deterministic witness and API closure fail mutations that restore bracketing hashes, reopen any transitive producer/publication path, re-key publication from post-production evidence, or permit independently paired evidence and result; cross-process sentinel cases remain separate evidence rather than timing the mutation. The gate records assembly/PDB retained-byte peaks, one linear digest pass per newly retained subject, reservation release on every failure, and no `SourceLinkReadLimits.Unlimited` product caller; the same 64 MiB finite policy and typed failure run without threads on Browser/Wasm. Category registration/set-equality closes the versioned category inventory |
+| `MDP016` | The lossless `MethodSemantics` row boundary is the only registered raw-table exception and remains mechanical, bounded, and SRM-backed | A pre-reader `LayeringTests.MetadataPrimitives_RemainsLeaf` gate in `tests/DotnetInspect.Cli.Tests` and post-reader symbol/API closure prove MetadataPrimitives remains an SRM-only leaf; the exact raw-layout allow list distinguishes the fixed metadata-root admission guard owned and gated by `MDP017` from table decoding, and only `MethodSemanticsRowReader` calls `GetTableMetadataOffset`, `GetTableRowSize`, or decodes raw ECMA table columns; the classifier and row reader may each call `PEReader.GetMetadata` and `PEMemoryBlock.GetReader` only for their separately bounded contracts, no arbitrary `TableIndex`, schema, or coded-index API escapes, and unrelated blob/heap `BlobReader` use is outside the detector; required-CI ordered-multiset equality with `ildasm` over association/role/method plus construction-known `ilasm` fixtures, with both external-tool groups required there but allowed to skip together locally; tool-independent `MetadataBuilder` and byte-patched raw-row fixtures remain the non-skipping construction-known floor, alongside conventional aggregate parity with SRM accessors; all four narrow/wide MethodDef and HasSemantics index combinations are generated once per test run and assert decoded values, while SRM row-size equality separately checks the total width; fixtures prove exact preservation of duplicate roles, zero/unknown/combined bits, physical row order, and nonmonotonic-order observation, while nil/out-of-range MethodDef or association rows produce typed mechanical rejection and the same out-of-order rows with the sorted bit clear fail at SRM reader construction; a supplied retained-association budget proves complete-scan bounded allocation before the leaf returns neutral rows, and the reader retains no block, reader, or pointer beyond the call; Browser/Wasm and NativeAOT gates exercise the same supported ECMA-335 result. Role legality, duplicates, declaring-type consistency, and ordering-policy rejection belong to `MDP004`; format classification belongs to `MDP017`; operation admission, generation/entry mapping, dependent-projection failure, and both cold/cache liveness wiring belong to `MDP006`/`MDP009`; consumer migration belongs to `MDP011`/`MDP013` |
+| `MDP017` | Adopted Metadata entry points reject Windows Metadata and preserve malformed-root distinction | `MetadataImageFormatClassifier` is the sole MetadataPrimitives root-admission classifier. It reads only the fixed ECMA-335 root prefix and the declared, at-most-256-byte padded version field, recognizes the exact ordinal `WindowsRuntime` marker before the first null, returns distinct `SupportedEcma335`, `UnsupportedWindowsMetadata`, `NoMetadata`, and typed malformed-root results, and constructs no `MetadataReader`; lazy block-materialization I/O remains an acquisition failure. `MetadataImageFormatClassifierTests` (`Mdp017_*`) gate ordinary, marker-bearing, native, close-negative, malformed, lazy-I/O, bounded-work, and no-reader-before-reject cases, while `MetadataFormatAdmissionTests` gate the shared Metadata entry point. `ILInspector.Metadata` adopts that entry point across acquisition, scanners, projection, and PDB-backed assembly access; `MetadataAdmissionCleanupTests` and the typed consumer tests named in [Shared metadata primitives](../metadata-primitives.md) gate visible unsupported/malformed outcomes and prevent cleanup from replacing them. Portable-PDB `MetadataReader` construction after assembly admission is outside this assembly-metadata boundary. This is staged adoption, not repository-wide closure: Analysis, Decompiler, Research, ILDiff, and remaining Queries/CLI paths stay outside the claim and are tracked by #5559. The unimplemented effective-catalog cutover, retained-PDB budget, and local-symbol evidence formerly included here belong to #3478, not this gate |
 
-The [assembly image lifetime](assembly-image-lifetime.md) decision narrows
-`MDP017`'s cache cutover: direct local-file routes still owe the retained
-snapshot, classification, bounded PDB, and cold-path rules, but they must not
-read or publish a persistent effective-catalog entry. Every contrary
-direct-file persistence requirement in the `MDP017` row and the earlier
-migration and disposition text -- including separate-process hits,
-package/direct cache-sharing pairs, and direct-file successor keys -- is
-superseded. Platform and package routes retain the persistent-cache
-requirements. This target change is unverified pending
-`LocalAssemblyFacts_DoNotEnterACrossRunCache`.
+The effective-catalog cache cutover no longer belongs to `MDP017`, which now
+covers only gated metadata-root admission. Its historical requirements are
+preserved in [#3478](https://github.com/richlander/dotnet-inspect/issues/3478);
+that issue and its eventual focused owner must derive the current contract
+rather than treating this plan as normative cache/PDB design. The work remains
+unverified and unimplemented.
 
 Contract tests should derive their cases from the declaration or section
 catalog where practical, so a new mode or validator cannot silently avoid the
@@ -1795,7 +1737,7 @@ matrix.
 | Cache reuse cannot bypass context or operation budgets | Metadata operation context and generation-scoped image entry | `MDP009` |
 | No duplicate validity owner or CSharp raw-metadata/raw-flag reconstruction survives migration | Metadata/CSharp architecture | `MDP011`, `MDP012`, `MDP013` |
 | Effective-discovery outcomes cannot cross top-level operations or authorization dispositions | Section/query plan integration | `MIP004` |
-| Unsupported Windows Metadata cannot enter product metadata projection | MetadataPrimitives/acquisition/Metadata | `MDP017` |
+| Adopted Metadata entry points reject unsupported Windows Metadata | MetadataPrimitives/acquisition/Metadata | `MDP017` |
 
 ## Review exit criteria
 

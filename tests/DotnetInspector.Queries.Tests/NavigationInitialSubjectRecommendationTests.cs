@@ -7,41 +7,41 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class NavigationInitialSubjectRecommendationTests
 {
     [Fact]
-    public void InitialRecommendation_PrefersOneLibraryThenAggregateThenRoot()
+    public void InitialRecommendation_PrefersLibraryThenPackage()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
-        StructuralSubjectIdentity.RootSubject root =
-            StructuralSubjectIdentity.ForRoot(coordinate);
+        StructuralSubjectIdentity.PackageSubject package =
+            StructuralSubjectTestData.Package(coordinate).Subject;
         StructuralSubjectIdentity.AllLibrariesSubject allLibraries =
-            StructuralSubjectIdentity.ForAllLibraries(coordinate);
+            StructuralSubjectIdentity.ForAllLibraries(package);
         NavigationInitialLibraryCandidate primary = LibraryCandidate(
-            coordinate,
+            package,
             "Primary",
             isPrimary: true);
         NavigationInitialLibraryCandidate other = LibraryCandidate(
-            coordinate,
+            package,
             "Other",
             isPrimary: false,
             ("Widget", "public"));
         NavigationInitialLibraryCandidate otherWithoutTypes =
             LibraryCandidate(
-                coordinate,
+                package,
                 "OtherWithoutTypes",
                 isPrimary: false);
 
         NavigationInitialSubjectOutcome recommendation =
             NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries,
                 [primary, other]);
         Assert.Same(primary.Subject, recommendation.Subject);
-        Assert.Same(root, recommendation.Basis.Root);
+        Assert.Same(package, recommendation.Basis.Package);
         Assert.Same(allLibraries, recommendation.Basis.AllLibraries);
         Assert.Equal([primary, other], recommendation.Basis.Libraries);
 
         NavigationInitialSubjectOutcome emptyLibrary =
             NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries,
                 [primary, otherWithoutTypes]);
         Assert.Same(primary.Subject, emptyLibrary.Subject);
@@ -49,40 +49,40 @@ public sealed class NavigationInitialSubjectRecommendationTests
         Assert.Same(
             allLibraries,
             NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries,
                 []).Subject);
 
         NavigationInitialSubjectOutcome primaryLibrary =
             NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries: null,
                 [otherWithoutTypes, primary]);
         Assert.Same(primary.Subject, primaryLibrary.Subject);
 
         NavigationInitialSubjectOutcome firstLibrary =
             NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries,
                 [otherWithoutTypes, LibraryCandidate(
-                    coordinate,
+                    package,
                     "Later",
                     isPrimary: false)]);
         Assert.Same(otherWithoutTypes.Subject, firstLibrary.Subject);
 
-        NavigationInitialSubjectOutcome rootOnly =
+        NavigationInitialSubjectOutcome packageOnly =
             NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries: null,
                 []);
-        Assert.Same(root, rootOnly.Subject);
+        Assert.Same(package, packageOnly.Subject);
 
         NavigationInitialLibraryCandidate equalPrimary =
             EqualCandidate(primary);
         NavigationInitialLibraryCandidate equalOther =
             EqualCandidate(other);
         var equalBasis = new NavigationInitialSubjectBasis(
-            root,
+            package,
             allLibraries,
             [equalPrimary, equalOther]);
         Assert.Equal(primary, equalPrimary);
@@ -99,17 +99,17 @@ public sealed class NavigationInitialSubjectRecommendationTests
             equalBasis.GetHashCode());
         Assert.Throws<ArgumentException>(
             () => NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries,
                 default));
         Assert.Throws<ArgumentException>(
             () => NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries: null,
                 [
                     primary,
                     LibraryCandidate(
-                        coordinate,
+                        package,
                         "OtherPrimary",
                         isPrimary: true),
                 ]));
@@ -119,15 +119,15 @@ public sealed class NavigationInitialSubjectRecommendationTests
     public void CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
-        StructuralSubjectIdentity.RootSubject root =
-            StructuralSubjectIdentity.ForRoot(coordinate);
+        StructuralSubjectIdentity.PackageSubject package =
+            StructuralSubjectTestData.Package(coordinate).Subject;
         NavigationInitialLibraryCandidate first = LibraryCandidate(
-            coordinate,
+            package,
             "First",
             isPrimary: true,
             ("FirstType", "public"));
         NavigationInitialLibraryCandidate other = LibraryCandidate(
-            coordinate,
+            package,
             "Other",
             isPrimary: false,
             ("OtherType", "public"));
@@ -153,28 +153,30 @@ public sealed class NavigationInitialSubjectRecommendationTests
                     Count: 1)));
         Assert.Throws<ArgumentException>(
             () => NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 StructuralSubjectIdentity.ForAllLibraries(
-                    Coordinate("2.0.0")),
+                    StructuralSubjectTestData.Package(
+                        Coordinate("2.0.0")).Subject),
                 []));
         Assert.Throws<ArgumentException>(
             () => NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries: null,
                 [
                     LibraryCandidate(
-                        Coordinate("2.0.0"),
+                        StructuralSubjectTestData.Package(
+                            Coordinate("2.0.0")).Subject,
                         "OtherCoordinate",
                         isPrimary: false),
                 ]));
         Assert.Throws<ArgumentException>(
             () => NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries: null,
                 [first, first]));
         Assert.Throws<ArgumentException>(
             () => NavigationInitialSubjectRecommendation.Recommend(
-                root,
+                package,
                 allLibraries: null,
                 [
                     first,
@@ -189,34 +191,34 @@ public sealed class NavigationInitialSubjectRecommendationTests
     public void LibraryRecommendation_UsesPrimaryThenProducerOrderRegardlessOfTypes()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
-        StructuralSubjectIdentity.RootSubject root =
-            StructuralSubjectIdentity.ForRoot(coordinate);
+        StructuralSubjectIdentity.PackageSubject package =
+            StructuralSubjectTestData.Package(coordinate).Subject;
         NavigationInitialLibraryCandidate primary = LibraryCandidate(
-            coordinate,
+            package,
             "Primary",
             isPrimary: true,
             ("PrivateFirst", "private"),
             ("PublicFirst", "public"),
             ("PublicSecond", "public"));
         NavigationInitialLibraryCandidate otherFirst = LibraryCandidate(
-            coordinate,
+            package,
             "OtherFirst",
             isPrimary: false,
             ("OtherPublicFirst", "public"),
             ("OtherPublicSecond", "public"));
         NavigationInitialLibraryCandidate otherLater = LibraryCandidate(
-            coordinate,
+            package,
             "OtherLater",
             isPrimary: false,
             ("LaterPublic", "public"));
 
         Assert.Same(
             primary.Subject,
-            Recommend(root, primary, otherFirst, otherLater).Subject);
+            Recommend(package, primary, otherFirst, otherLater).Subject);
 
         NavigationInitialLibraryCandidate primaryNonDefault =
             LibraryCandidate(
-                coordinate,
+                package,
                 "PrimaryNonDefault",
                 isPrimary: true,
                 ("PrivateFirst", "private"),
@@ -224,41 +226,41 @@ public sealed class NavigationInitialSubjectRecommendationTests
         Assert.Same(
             primaryNonDefault.Subject,
             Recommend(
-                root,
+                package,
                 primaryNonDefault,
                 otherFirst,
                 otherLater).Subject);
 
         NavigationInitialLibraryCandidate otherNonDefault =
             LibraryCandidate(
-                coordinate,
+                package,
                 "OtherNonDefault",
                 isPrimary: false,
                 ("OtherPrivate", "private"));
         Assert.Same(
             primaryNonDefault.Subject,
             Recommend(
-                root,
+                package,
                 primaryNonDefault,
                 otherNonDefault).Subject);
 
         NavigationInitialLibraryCandidate firstOtherNonDefault =
             LibraryCandidate(
-                coordinate,
+                package,
                 "FirstOtherNonDefault",
                 isPrimary: false,
                 ("PrivateBeforeProtected", "private"),
                 ("ProtectedLater", "protected"));
         NavigationInitialLibraryCandidate laterOtherNonDefault =
             LibraryCandidate(
-                coordinate,
+                package,
                 "LaterOtherNonDefault",
                 isPrimary: false,
                 ("LaterPrivate", "private"));
         Assert.Same(
             firstOtherNonDefault.Subject,
             Recommend(
-                root,
+                package,
                 firstOtherNonDefault,
                 laterOtherNonDefault).Subject);
     }
@@ -267,10 +269,10 @@ public sealed class NavigationInitialSubjectRecommendationTests
     public void InitialRecommendation_NeverChoosesTypeOrMember()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
-        StructuralSubjectIdentity.RootSubject root =
-            StructuralSubjectIdentity.ForRoot(coordinate);
+        StructuralSubjectIdentity.PackageSubject package =
+            StructuralSubjectTestData.Package(coordinate).Subject;
         NavigationInitialLibraryCandidate library = LibraryCandidate(
-            coordinate,
+            package,
             "Primary",
             isPrimary: true,
             ("Widget", "public"));
@@ -286,7 +288,7 @@ public sealed class NavigationInitialSubjectRecommendationTests
                     "Sample.Widget",
                     "Run"));
 
-        NavigationInitialSubjectOutcome outcome = Recommend(root, library);
+        NavigationInitialSubjectOutcome outcome = Recommend(package, library);
 
         Assert.Same(library.Subject, outcome.Subject);
         Assert.IsNotType<StructuralSubjectIdentity.TypeSubject>(
@@ -300,10 +302,10 @@ public sealed class NavigationInitialSubjectRecommendationTests
     }
 
     static NavigationInitialSubjectOutcome Recommend(
-        StructuralSubjectIdentity.RootSubject root,
+        StructuralSubjectIdentity.PackageSubject package,
         params NavigationInitialLibraryCandidate[] libraries) =>
         NavigationInitialSubjectRecommendation.Recommend(
-            root,
+            package,
             allLibraries: null,
             [.. libraries]);
 
@@ -323,14 +325,15 @@ public sealed class NavigationInitialSubjectRecommendationTests
             ]);
 
     static NavigationInitialLibraryCandidate LibraryCandidate(
-        RealizedMemberCoordinate.Package coordinate,
+        StructuralSubjectIdentity.PackageSubject package,
         string name,
         bool isPrimary,
         params (string Name, string Accessibility)[] types)
     {
         StructuralSubjectIdentity.LibrarySubject library =
             StructuralSubjectIdentity.ForLibrary(
-                Library(coordinate, name));
+                package,
+                Library(package.Coordinate, name));
         return new NavigationInitialLibraryCandidate(
             library,
             isPrimary,

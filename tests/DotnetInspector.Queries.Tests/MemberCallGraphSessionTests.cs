@@ -70,9 +70,9 @@ public sealed class MemberCallGraphSessionTests
             .Member;
 
     [Fact]
-    public void Callees_ScopedFirstPaint_BuildsScopedIndexOnly()
+    public async Task Callees_ScopedFirstPaint_BuildsScopedIndexOnly()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int run = MemberToken(CallerPath, "Entry", "Run");
         using var graph = new MemberCallGraphSession(
@@ -96,9 +96,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void Callees_ScopedFirstPaint_MarksInAssemblyCalleeBounded()
+    public async Task Callees_ScopedFirstPaint_MarksInAssemblyCalleeBounded()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
         using var graph = new MemberCallGraphSession(
@@ -114,9 +114,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void CrossLibraryCalleeNeighborhood_CrossesBoundaryAndContinues()
+    public async Task CrossLibraryCalleeNeighborhood_CrossesBoundaryAndContinues()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int root = MemberToken(
             CallerPath,
@@ -187,9 +187,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void CrossLibraryCalleeNeighborhood_DepthBoundStopsAfterBoundary()
+    public async Task CrossLibraryCalleeNeighborhood_DepthBoundStopsAfterBoundary()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int root = MemberToken(
             CallerPath,
@@ -223,9 +223,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void CrossLibraryCalleeNeighborhood_ZeroDepthRetainsOnlySeed()
+    public async Task CrossLibraryCalleeNeighborhood_ZeroDepthRetainsOnlySeed()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int root = MemberToken(
             CallerPath,
@@ -263,9 +263,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void CrossLibraryCalleeNeighborhood_NodeBoundRetainsOnlySeed()
+    public async Task CrossLibraryCalleeNeighborhood_NodeBoundRetainsOnlySeed()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int root = MemberToken(
             CallerPath,
@@ -300,9 +300,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void CrossLibraryCalleeNeighborhood_OutsideGroupStaysExternal()
+    public async Task CrossLibraryCalleeNeighborhood_OutsideGroupStaysExternal()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath);
         int root = MemberToken(CallerPath, "Entry", "Run");
         using var graph = new MemberCallGraphSession(
@@ -327,9 +327,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void CrossLibraryCalleeNeighborhood_DisclosesCorrespondenceLimits()
+    public async Task CrossLibraryCalleeNeighborhood_ResolvedVersionSkewStaysExternal()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(TargetV2Path, CallerPath);
         int root = MemberToken(
             TargetV2Path,
@@ -346,16 +346,12 @@ public sealed class MemberCallGraphSessionTests
                     maxDepth: 1,
                     maxNodes: 10));
 
-        var evidence = Assert.IsType<
-            CallGraphCorrespondenceIncompleteEvidence>(
-                Assert.Single(
-                    document.Limits,
-                    limit => ReferenceEquals(
-                        limit.Descriptor,
-                        CallGraphInspectionGraphCatalog
-                            .CorrespondenceIncomplete))
-                    .Evidence);
-        Assert.True(evidence.IncompleteEdgeCount > 0);
+        Assert.DoesNotContain(
+            document.Limits,
+            limit => ReferenceEquals(
+                limit.Descriptor,
+                CallGraphInspectionGraphCatalog
+                    .CorrespondenceIncomplete));
     }
 
     [Fact]
@@ -372,9 +368,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite()
+    public async Task AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runTwice = MemberToken(
             CallerPath,
@@ -472,9 +468,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void AnnotatedOwnershipProgressesWithoutReacquiringGraphWork()
+    public async Task AnnotatedOwnershipProgressesWithoutReacquiringGraphWork()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(OwnershipPath, TargetPath);
         int root = MemberToken(
             OwnershipPath,
@@ -572,13 +568,13 @@ public sealed class MemberCallGraphSessionTests
         Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
         1,
         1)]
-    public void AnnotatedOwnershipComposesTypedTerminalPaths(
+    public async Task AnnotatedOwnershipComposesTypedTerminalPaths(
         string methodName,
         Analysis.ArrayPoolOwnershipUseKind outcome,
         int edgeCount,
         int firstCalleeParameterIndex)
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(OwnershipPath, TargetPath);
         int root = MemberToken(OwnershipPath, "Entry", methodName);
         using var graph = new MemberCallGraphSession(
@@ -617,9 +613,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void OwnershipWitnessBudgetPreservesPhysicalCallIdentity()
+    public async Task OwnershipWitnessBudgetPreservesPhysicalCallIdentity()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(OwnershipPath, TargetPath);
         int root = MemberToken(
             OwnershipPath,
@@ -671,9 +667,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void OwnershipPathBudgetLeavesForwardedPathIncomplete()
+    public async Task OwnershipPathBudgetLeavesForwardedPathIncomplete()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(OwnershipPath, TargetPath);
         int root = MemberToken(
             OwnershipPath,
@@ -709,9 +705,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void OwnershipForwardedToABodilessCalleeIsIncomplete()
+    public async Task OwnershipForwardedToABodilessCalleeIsIncomplete()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(OwnershipPath, TargetPath);
         int root = MemberToken(
             OwnershipPath,
@@ -748,10 +744,10 @@ public sealed class MemberCallGraphSessionTests
     [Theory]
     [InlineData("RentWithMethodGroup")]
     [InlineData("RentWithFunctionPointer")]
-    public void OwnershipIndirectCallShapesDoNotProduceSafeFindings(
+    public async Task OwnershipIndirectCallShapesDoNotProduceSafeFindings(
         string methodName)
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(OwnershipPath, TargetPath);
         int root = MemberToken(OwnershipPath, "Entry", methodName);
         using var graph = new MemberCallGraphSession(
@@ -780,9 +776,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void AnnotatedMemberDocument_ReportsOneCycleForRepeatedRecursiveCalls()
+    public async Task AnnotatedMemberDocument_ReportsOneCycleForRepeatedRecursiveCalls()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(TargetPath, CallerPath);
         int recurseTwice = MemberToken(
             TargetPath,
@@ -831,7 +827,7 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void
+    public async Task
         AnnotatedMemberDocument_DoesNotMergeGeneratedBodyOffsets()
     {
         string path =
@@ -840,7 +836,7 @@ public sealed class MemberCallGraphSessionTests
             path,
             "ApiInventoryQuery",
             "SelectIds");
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(path);
         using var graph = new MemberCallGraphSession(
             context.Group,
@@ -869,9 +865,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void AnnotatedMemberDocument_ReportsAMutualCycleAtTheCallerTier()
+    public async Task AnnotatedMemberDocument_ReportsAMutualCycleAtTheCallerTier()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(TargetPath, CallerPath);
         int isEven = MemberToken(
             TargetPath,
@@ -1077,9 +1073,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void AnnotatedMemberDocument_RejectsSourceFromAnotherModule()
+    public async Task AnnotatedMemberDocument_RejectsSourceFromAnotherModule()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runTwice = MemberToken(
             CallerPath,
@@ -1105,9 +1101,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void AnnotatedMemberDocument_HonorsACalleeNodeBudget()
+    public async Task AnnotatedMemberDocument_HonorsACalleeNodeBudget()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runTwice = MemberToken(
             CallerPath,
@@ -1150,9 +1146,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void BodilessFocus_ProducesEveryProgressiveTier()
+    public async Task BodilessFocus_ProducesEveryProgressiveTier()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(TargetPath, CallerPath);
         Analysis.MethodIdentity focus =
             Analysis.LibraryBodyIndex.Open(TargetPath)
@@ -1194,9 +1190,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void DirectFullTier_SkipsScopedAndLaterCalleesReusesFull()
+    public async Task DirectFullTier_SkipsScopedAndLaterCalleesReusesFull()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
         using var graph = new MemberCallGraphSession(
@@ -1221,9 +1217,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void Tiers_ShareSnapshotsAndBuildEachIndexAtMostOnce()
+    public async Task Tiers_ShareSnapshotsAndBuildEachIndexAtMostOnce()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
         using var graph = new MemberCallGraphSession(
@@ -1257,9 +1253,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void DuplicateImages_BuildOneCrossLibraryIndex()
+    public async Task DuplicateImages_BuildOneCrossLibraryIndex()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath, TargetPath);
         int run = MemberToken(CallerPath, "Entry", "Run");
         using var graph = new MemberCallGraphSession(
@@ -1278,9 +1274,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void StreamOnlyParticipants_CanBuildCrossLibraryGraph()
+    public async Task StreamOnlyParticipants_CanBuildCrossLibraryGraph()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.CreateStreamOnly(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
         using var graph = new MemberCallGraphSession(
@@ -1300,9 +1296,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void CrossLibrary_AcquisitionFailureIsTypedAndCached()
+    public async Task CrossLibrary_AcquisitionFailureIsTypedAndCached()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.CreateWithFailingParticipant(
                 CallerPath,
                 TargetPath);
@@ -1330,7 +1326,7 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void MalformedMetadata_IsTypedAndCached()
+    public async Task MalformedMetadata_IsTypedAndCached()
     {
         byte[] image = BuildMalformedMethodListImage();
         int openCount = 0;
@@ -1348,7 +1344,7 @@ public sealed class MemberCallGraphSessionTests
             },
             AssemblyResolutionProvenance.Local(
                 "malformed call-graph test image"));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -1400,9 +1396,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots()
+    public async Task WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots()
     {
-        GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int run = MemberToken(CallerPath, "Entry", "Run");
         var graph = new MemberCallGraphSession(
@@ -1415,7 +1411,7 @@ public sealed class MemberCallGraphSessionTests
                 graph.CatalogScope);
         Assert.True(context.Group.RetainedImageBytes > 0);
 
-        context.Workspace.Dispose();
+        await context.Workspace.DisposeAsync();
 
         Assert.Equal(0, context.Group.RetainedImageBytes);
         Assert.Throws<ObjectDisposedException>(graph.Callees);
@@ -1424,9 +1420,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void OptionsRejectFeatureSetsThatCannotProduceScopedGraph()
+    public async Task OptionsRejectFeatureSetsThatCannotProduceScopedGraph()
     {
-        using GraphContext context = GraphContext.Create(CallerPath);
+        await using GraphContext context = GraphContext.Create(CallerPath);
         int run = MemberToken(CallerPath, "Entry", "Run");
 
         Assert.Throws<ArgumentException>(
@@ -1464,9 +1460,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void CrossLibrary_VersionSkewRetainsIncompleteDiagnostics()
+    public async Task CrossLibrary_ResolvedVersionSkewIsNotIncomplete()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(TargetV2Path, CallerPath);
         int ping = MemberToken(TargetV2Path, "Api", "Ping");
         using var graph = new MemberCallGraphSession(
@@ -1479,14 +1475,14 @@ public sealed class MemberCallGraphSessionTests
         Assert.DoesNotContain(
             view.CallerRoot!.Children,
             child => child.Member.Name == "Run");
-        Assert.True(view.Diagnostics.IsIncomplete);
-        Assert.True(view.Diagnostics.IncompleteEdgeCount > 0);
+        Assert.False(view.Diagnostics.IsIncomplete);
+        Assert.Equal(0, view.Diagnostics.IncompleteEdgeCount);
     }
 
     [Fact]
-    public void Projection_DoesNotAcquireOrBuildMoreIndexes()
+    public async Task Projection_DoesNotAcquireOrBuildMoreIndexes()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int run = MemberToken(CallerPath, "Entry", "Run");
         using var graph = new MemberCallGraphSession(
@@ -1520,7 +1516,7 @@ public sealed class MemberCallGraphSessionTests
     [Fact]
     public async Task RunAsync_RaisesLayersInOrderAndCompletes()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
         using var graph = new MemberCallGraphSession(
@@ -1548,9 +1544,9 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public void RunAsync_CancellationAfterFirstLayerSkipsFullBuild()
+    public async Task RunAsync_CancellationAfterFirstLayerSkipsFullBuild()
     {
-        using GraphContext context =
+        await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
         using var graph = new MemberCallGraphSession(
@@ -1618,7 +1614,7 @@ public sealed class MemberCallGraphSessionTests
         return image.ToArray();
     }
 
-    sealed class GraphContext : IDisposable
+    sealed class GraphContext : IAsyncDisposable
     {
         GraphContext(
             InspectionWorkspace workspace,
@@ -1680,7 +1676,7 @@ public sealed class MemberCallGraphSessionTests
             return new(workspace, group, sources);
         }
 
-        public void Dispose() => Workspace.Dispose();
+        public ValueTask DisposeAsync() => Workspace.DisposeAsync();
     }
 
     sealed class TestSource

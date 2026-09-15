@@ -7,7 +7,10 @@ public static class SearchSourceNormalizer
     public static SearchSourceSelection Normalize(SourceIntent intent)
     {
         ArgumentNullException.ThrowIfNull(intent);
-        bool usesImplicitPlatform = intent.Selectors.Count == 0;
+        SearchCandidateIntent candidateIntent = intent.Selectors.Count == 0
+            ? SearchCandidateIntent.Broad
+            : SearchCandidateIntent.Explicit;
+        bool usesImplicitPlatform = candidateIntent == SearchCandidateIntent.Broad;
         bool hasPlatform = usesImplicitPlatform
             || intent.Selectors.Any(selector => selector is SourceSelector.PlatformGroup);
         var packages = new List<SourceSelector.PackageSource>();
@@ -45,6 +48,7 @@ public static class SearchSourceNormalizer
 
         return new(
             intent,
+            candidateIntent,
             usesImplicitPlatform,
             hasPlatform
                 ? [SearchPlatformFramework.Runtime, SearchPlatformFramework.AspNetCore,

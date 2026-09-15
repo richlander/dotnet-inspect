@@ -16,12 +16,25 @@ public sealed partial class DesktopPackageSourceComposition
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null)
     {
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
-        return _sourceLease.AcquireCandidateManifestAsync(
+        if (operationContext is not null)
+        {
+            return PackageSourceSettlementCompatibility.RunAsync(
+                _sourceLease,
+                cancellationToken,
+                operationContext,
+                (generation, operation) =>
+                    generation.AcquireCandidateManifestAsync(
+                        candidate,
+                        operationContext: operation),
+                _options.RequestTimeout,
+                _options.OperationTimeout);
+        }
+
+        return PackageHouse.AcquireCandidateManifestAsync(
             candidate,
-            cancellationToken,
-            operationContext);
+            _sourceLease.IssueOperationLease(
+                cancellationToken,
+                _options.RequestTimeout,
+                _options.OperationTimeout));
     }
 }

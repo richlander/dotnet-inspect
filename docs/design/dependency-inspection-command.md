@@ -3,9 +3,10 @@
 This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
-**Status:** design target. The current `depends` and `dependency-evidence`
-commands remain implemented separately until the migration slices named here
-land.
+**Status:** adopted implementation contract. Asset-mode `depends` implements
+the explicit-root, traversal, section, and output contract in #5994. The
+separate `dependency-evidence` command and positional type-to-library fallback
+were retired in #5995.
 
 ## Owner and claim
 
@@ -52,6 +53,9 @@ It consumes owner-issued facts and does not redefine their construction:
   owns
   source-authorized package version-range resolution and exact acquisition
   candidates.
+- [Package House](package-house.md) owns the candidate-bound pruning
+  applicability, policy result, receipt, and distinction between package
+  retention and platform delegation.
 - [Package Dependency Traversal](package-dependency-traversal.md) owns
   package-manifest graph identity, direct source boundaries, root-relative
   reachability, failures, and completion while preserving owner-issued
@@ -71,12 +75,12 @@ labels, or create a second dependency-normalization model.
 
 ## User purpose
 
-The two current commands divide one user question along an implementation
+The two former commands divided one user question along an implementation
 boundary:
 
 - `depends` follows reachable relationships but drops most declaration,
   constraint, provenance, completion, and failure evidence; and
-- `dependency-evidence` retains that evidence but does not expand package
+- `dependency-evidence` retained that evidence but did not expand package
   manifests into a transitive traversal.
 
 That division creates both overlap and underlap. A user may need to know that a
@@ -95,7 +99,7 @@ Neither axis changes the admitted subject or operation arity, so the
 [Command Transition Model](command-transition-model.md) keeps them within
 `depends`.
 
-The current `dependency-evidence` design used heterogeneous root cardinality to
+The historical `dependency-evidence` design used heterogeneous root cardinality to
 justify a separate command. This target supersedes that conclusion. Root-set
 cardinality is source context inside the dependency operation: one or several
 roots still produce the same dependency document, per-root completion, graph
@@ -116,7 +120,7 @@ end-to-end dependency-evidence tracker. Browser/Wasm adoption remains owned by
 [#5535](https://github.com/richlander/dotnet-inspect/issues/5535); this
 CLI-focused design neither changes nor blocks that host.
 
-The delivery plan has seven steps:
+The seven-step delivery is complete:
 
 1. Lock this command contract in #5993.
 2. Supply the shared declaration-to-exact-candidate handoff under
@@ -137,9 +141,8 @@ The delivery plan has seven steps:
    contracts under
    [#5995](https://github.com/richlander/dotnet-inspect/issues/5995).
 
-This is an alternative to the current two-command architecture. Adoption is
-not complete until the old command and its command-specific projection path are
-removed.
+This replaced the former two-command architecture. The old command and its
+command-specific projection path are removed.
 
 The exact-candidate adapter in #5765 and typed package traversal owner in #5996
 are shared host-neutral prerequisites. They are separated because
@@ -338,9 +341,9 @@ edges. A formatter must never replace root identity with a heading comment that
 drops its outgoing edges.
 
 A root attempt that fails before semantic identity is established remains in
-the `Roots` and `Failures` sections but is not invented as a semantic graph
-node. A root admitted before a later projection or traversal failure retains
-its graph node and the associated failure.
+the diagnostic root ledger and the public `Failures` section but is not
+invented as a semantic graph node. A root admitted before a later projection
+or traversal failure retains its graph node and the associated failure.
 
 Root identity is owner-issued:
 
@@ -445,8 +448,9 @@ ordered explicit root occurrences
   + typed semantic nodes
   + typed directed dependency edges
   + owner-issued declaration and resolution evidence
+  + candidate-bound package-pruning applicability and policy evidence
   + root, acquisition, projection, and traversal failures
-  + root-set and traversal completion
+  + root-set, traversal, and pruning completion
         |
         v
 section selection and row shaping
@@ -468,14 +472,16 @@ algorithm, that work belongs in a focused owner below the CLI rather than in a
 second host-local implementation. Browser/Wasm continues to consume the
 host-neutral evidence query and does not consume this CLI document.
 
-Normalized evidence sections have one stable universe: explicit admitted roots
-only. Selecting `Dependency Graph` may acquire or admit transitive graph
-subjects, but it does not add those subjects' manifests to `Dependencies`,
-`Dependency Groups`, `Restored Packages`, or `Restored Edges`. Adding or
-removing the graph section therefore never changes those already-selected
-evidence row sets. `Failures` is plan-relative: selecting traversal can add
-typed traversal failures that an evidence-only plan never produced. For
-restored-project roots, the explicit root's owner-issued evidence already
+Normalized evidence currencies have one stable universe: explicit admitted
+roots only. Selecting `Dependency Graph` may acquire or admit transitive graph
+subjects, but it does not add those subjects' manifests to `Dependencies` or
+`Pruning`, or to the diagnostic group, restored-package, and restored-edge
+projections. Adding or removing the graph section therefore never changes
+those already-selected evidence row sets. `Pruning` evaluates only normalized
+direct declarations from explicit roots; it neither admits transitive roots nor
+deletes graph edges. `Failures` is plan-relative: selecting traversal or
+pruning can add typed failures that a declaration-only plan never produced.
+For restored-project roots, the explicit root's owner-issued evidence already
 contains the selected restored package nodes and edges.
 
 The same semantic node may be reached from several parents. It appears once in
@@ -501,39 +507,70 @@ The command uses ordinary verbosity and section selection instead of adding
 already owned by progressive disclosure and would not say which evidence is
 wanted.
 
-The base section ladder is:
+The retail base section ladder is:
 
 | Section | Declared row | Default visibility |
 | --- | --- | --- |
 | `Dependency Graph` | One directed logical dependency edge. | Minimal |
-| `Roots` | One explicit root occurrence with identity, provenance, state, and completion. | Normal |
 | `Dependencies` | One normalized direct declaration. | Normal when applicable |
-| `Restored Edges` | One owner-issued restored-project graph edge. | Normal when applicable |
+| `Pruning` | One direct declaration's pruning applicability or candidate-bound policy result. | Explicit only |
 | `Failures` | One typed root, acquisition, projection, or traversal failure occurrence. | Normal when present |
-| `Dependency Groups` | One normalized framework-scoped declaration group. | Detailed when applicable |
-| `Restored Packages` | One owner-issued restored package node with role and coordinate. | Detailed when applicable |
 
 `Dependency Graph` is the command's single high-value minimal section. It
 preserves the current reason to invoke `depends`: seeing what depends on what.
 
-`-v:n` adds the evidence needed to interpret that graph without making every
-group and package node part of the default view. `-v:d` adds the complete
-applicable base evidence.
+`-v:n` adds normalized direct dependency evidence and any failures needed to
+interpret the result. `Pruning` is unbounded because it may read an installed
+platform inventory and resolve exact package candidates; it enters no
+verbosity level. `-v:d` does not add it.
 
-The existing `@Dependencies` category contains `Dependency Graph`, `Roots`,
-`Dependencies`, `Restored Edges`, `Failures`, `Dependency Groups`, and
-`Restored Packages`. A caller that wants evidence without traversal selects
-the evidence sections it needs:
+The `@Dependencies` category contains `Dependency Graph`, `Dependencies`, and
+`Failures`. It deliberately excludes `Pruning`, so selecting the category
+preserves its established cost and acquisition contract. A caller that wants
+declaration evidence without traversal selects the public evidence and failure
+sections it needs:
 
 ```console
 dotnet-inspect depends --project ./App.csproj \
-  -S Roots -S Dependencies -S "Restored Edges"
+  -S Dependencies -S Failures
 ```
+
+Pruning policy evidence is a separate explicit projection:
+
+```console
+dotnet-inspect depends --package Some.Package@1.2.3 \
+  --tfm net11.0 -S Pruning
+```
+
+The section requires one base .NET `--tfm`. `--platform-family runtime` is the
+default; `--platform-family aspnetcore` selects the ASP.NET Core comparison
+inventory. The family is a disclosed policy comparison target, not a claim
+that an application activates that shared framework.
 
 Root-set completion and the state of every requested phase are mandatory
 document fields at every verbosity. They remain visible when the selected
 graph or evidence rows are empty or partial. A traversal phase omitted by
-section planning renders as `NotRequested`.
+section planning renders as `NotRequested`; the pruning summary does the same
+when `Pruning` is not selected.
+
+The implementation also retains four **diagnostic sections** for developing
+and diagnosing the command:
+
+| Diagnostic section | Declared row |
+| --- | --- |
+| `Roots` | One explicit root occurrence with identity, provenance, state, and completion. |
+| `Restored Edges` | One owner-issued restored-project graph edge. |
+| `Dependency Groups` | One normalized framework-scoped declaration group. |
+| `Restored Packages` | One owner-issued restored package node with role and coordinate. |
+
+Diagnostic is their purpose; `DEBUG` is their registration mechanism. A
+`[Conditional("DEBUG")]` registration helper adds them as explicit-only
+sections in Debug builds. In Release builds they are absent from the compiled
+catalog, category membership, verbosity, exact and wildcard selection,
+structural and effective discovery, schemas, count ordering, rendering, and
+typed JSON section output. Their descriptor, view, and owner-issued evidence
+types may remain compiled where the retail graph and dependency projections
+reuse them; those types do not make a section public.
 
 For `depends`, `@Dependencies` is the base category. The same category name may
 have different authored membership in another command; package inspection
@@ -548,10 +585,15 @@ the effective root plan can produce it without network acquisition; the
 explicit remote `--package` gesture and ordinary default `-v:m` continue to
 authorize the package traversal they request.
 
-Type and library roots may not have package-declaration sections. Static
-discovery lists the structural command catalog; effective discovery reports
-which sections are applicable to the admitted root kinds and available
-evidence.
+Type and library roots may not have package-declaration sections. Release
+static discovery lists the four retail sections. Bare effective discovery
+excludes `Pruning` because it is explicit-only and unbounded; exact or wildcard
+selection may request it and therefore requires `--tfm`. Effective discovery
+otherwise reports which sections are applicable to the admitted root kinds
+and available evidence. In a Debug build, bare `-D` also lists the four
+registered diagnostic sections, and effective discovery reports the applicable
+diagnostic sections. This visible Release/Debug difference is the direct
+demonstration that diagnostic registration disappears from retail compilation.
 
 ## Graph rendering and row currency
 
@@ -632,6 +674,33 @@ Dependency Evidence:
 - one owner-issued restored-project graph edge; and
 - one typed failure occurrence.
 
+`Pruning` composes one additional CLI row over those owner-issued currencies:
+one normalized direct declaration plus its PackageHouse pruning applicability
+or candidate-bound policy result. When a root has a selected declaration
+group, only that group's declarations participate. A post-processing root such
+as a restored project may report its earlier application-authored or already-
+processed outcome without manufacturing a selected package-manifest group.
+
+Candidate-free applicability runs before inventory or package-source work. It
+preserves application-authored exemption, unattributed authorship, unavailable
+or incomplete processing, runtime projection, and prior pruning evaluation as
+distinct outcomes. Only a package-manifest declaration that reaches
+`CandidateRequired` and whose root authorizes package-source candidate
+resolution proceeds to inventory and candidate acquisition. Direct nuspec and
+package-prefix roots remain source-bounded.
+
+The comparison uses one exact target-bound installed inventory per request.
+Candidate resolution remains declaration- and source-authorized. A policy
+result of `Subsumed` projects `PlatformDelegation`; every other completed
+policy result projects `PackageRetained`. `PlatformDelegation` means the policy
+receipt authorizes delegation; it does not claim that PackageHouse execution,
+PlatformHouse execution, payload acquisition, or dependency-edge pruning ran.
+
+The candidate version and the platform-provided version are separate fields.
+For example, candidate `System.Runtime` version `4.3.2` compared with platform
+version `4.3.1` is `PackageRetained`. The platform value is never displayed as
+the selected package version, and the command never downgrades the candidate.
+
 The command does not infer a declaration from a graph edge. A restored edge may
 exist without a root-authored direct declaration, and a declared constraint
 may exist when no child could be resolved.
@@ -677,6 +746,15 @@ The document reports at least, for phases selected into the request plan:
 - the requested depth, when bounded; and
 - whether a producer, authorization, resolution, or depth boundary prevented
   further traversal.
+
+When requested, pruning completion distinguishes `Complete`,
+`SourceBounded`, `Partial`, and `Failed`; when omitted it is `NotRequested`.
+Candidate-free abstention and explicit source boundaries are successful,
+explained outcomes. Inventory failure, incomplete or failed processing, and
+candidate failure or incompleteness remain typed failures and return nonzero.
+An inventory producer failure is represented once in `Failures` with affected
+root and declaration counts while every affected pruning row retains its
+unavailable disposition.
 
 Traversal completion distinguishes `Complete`, `DepthBounded`,
 `SourceBounded`, `Partial`, `Failed`, and `NotRequested`. Explicit depth and a
@@ -726,6 +804,12 @@ root owner:
 - package-prefix roots preserve the profile producer's admitted manifest
   selection.
 
+For `Pruning`, the same spelling must also parse as a base .NET platform target
+such as `net11.0`. The command derives an exact release-band inventory request
+for the selected platform family and verifies that the returned inventory
+describes the requested target before resolving candidates. A mismatched or
+family-incomplete inventory is a visible typed inventory failure.
+
 No matching package group, unavailable restored target selection, and an empty
 selected group remain distinct states.
 
@@ -756,20 +840,24 @@ dependency traversal.
 Count follows the selected section's declared row currency:
 
 - `Dependency Graph` counts selected logical edges;
-- `Roots` counts explicit root occurrences;
 - `Dependencies` counts normalized direct declarations;
-- `Failures` counts failure occurrences;
-- `Dependency Groups` counts normalized groups;
-- `Restored Packages` counts restored package nodes; and
-- `Restored Edges` counts owner-issued restored graph edges.
+- `Pruning` counts projected direct-declaration policy rows;
+- `Failures` counts failure occurrences.
+
+In a Debug build, explicitly selected diagnostic sections retain their natural
+counts: root occurrences, normalized groups, restored package nodes, or
+owner-issued restored graph edges. Those count cases are unreachable through
+the Release catalog.
 
 Several selected row sets produce the existing ordered section/count table;
 they do not collapse into one request-wide scalar.
 
-Traversal depth never filters `Dependencies`, `Dependency Groups`,
-`Restored Packages`, or `Restored Edges`. Those sections describe the complete
-owner-issued evidence for the explicit roots. Depth applies only to
-`Dependency Graph`.
+Traversal depth never filters `Dependencies` or the diagnostic group,
+`Pruning`, restored-package, and restored-edge projections. Those projections
+describe direct owner-issued evidence for the explicit roots. Depth applies
+only to `Dependency Graph`. A row window may reduce rendered pruning rows, but
+it does not change acquisition, the pruning summary, failure retention, or exit
+status.
 
 Count is exact only when the selected row set's completion supports an exact
 answer. A depth-bounded graph can be counted exactly within that explicit
@@ -832,10 +920,8 @@ The change is **intentionally breaking** under
 requires a Breaking release-note entry, replacement examples, routing tests,
 and machine-contract tests for the new `depends` document.
 
-The current
-[Dependency Evidence CLI](dependency-evidence-cli.md) document remains the
-implementation contract until the retirement slice lands. At that point it
-becomes historical and this document is the sole command owner.
+The [Dependency Evidence CLI](dependency-evidence-cli.md) document is
+historical. This document is the sole command owner.
 
 ## Demonstration
 
@@ -887,9 +973,29 @@ App
 Both `Package.A -> Shared` and `Package.B -> Shared` remain graph edges and
 appear in edge-table, Mermaid, JSON, row-window, and count output.
 
+The explicit pruning projection shows direct-declaration policy evidence
+without changing that graph:
+
+```console
+$ dotnet-inspect depends --package Some.Package@1.2.3 \
+    --tfm net11.0 -S Pruning
+
+## Pruning
+
+| Package | Constraint | Candidate | Platform Provides | Disposition |
+| --- | --- | --- | --- | --- |
+| System.Text.Json | [9.0.0] | 9.0.0 | 11.0.0 | PlatformDelegation |
+| System.Runtime | [4.3.2] | 4.3.2 | 4.3.1 | PackageRetained |
+```
+
+The second row is not a downgrade: `4.3.2` remains the package candidate, and
+the older platform-supplied version explains why the package path is retained.
+
 ## Evidence and gates
 
-The implementation slices must provide focused Release gates for:
+The implementation slices must provide focused gates. Product correctness
+runs in Release; the compile-time diagnostic registration contract also gets a
+targeted Debug-build probe.
 
 | Claim | Gate |
 | --- | --- |
@@ -899,12 +1005,18 @@ The implementation slices must provide focused Release gates for:
 | Restored-project depth is measured from the explicit project through project-reference and package edges. | #5998 fixture containing `App -> ProjectB -> PackageC`, asserted at depths 1, 2, and unbounded without opening package manifests. |
 | Missing restored assets fail visibly without changing valid sibling results. | Multi-root CLI test with one unrestored project and one valid root. |
 | `--depth 1` performs no deeper package-manifest acquisition. | Instrumented package-source test that fails if a child manifest is requested. |
-| Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting direct evidence sections without `Dependency Graph`. |
+| Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting `Dependencies` without `Dependency Graph`. |
+| Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
+| Candidate-free pruning outcomes perform no inventory or candidate work. | Restored-project application-authorship and direct-nuspec source-boundary tests with throwing producers. |
+| `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
+| Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
+| Row windows and rendering formats do not reinterpret pruning policy. | Markdown, table, typed JSON, and one-row window tests over the same two policy outcomes. |
 | Multi-root depth is preserved per root occurrence rather than by one global distance. | Cyclic DAG fixture in which one shared node is reached at different depths from two roots. |
 | A semantic node that is both a transitive child and a later explicit root does not duplicate or suppress edge rows in tree output. | Depth-asymmetric two-root graph fixture run in both root orders, asserting one rendering per selected logical edge and equal tree/table/JSON/count cardinality. |
 | Shared DAG nodes retain every edge and roots survive Mermaid lowering. | #3320 graph fixture across Markdown tree, Mermaid, edge table, JSON, count, and row selection. |
 | Declaration constraints remain when child resolution is unavailable. | Package or nuspec test with a valid declaration and unavailable child expansion. |
-| Restored-edge identity survives independently of command graph-edge projection. | Direct-assets typed JSON and `Restored Edges` section assertions over the same owner-issued edge. |
+| Restored-edge identity survives independently of command graph-edge projection. | Direct-assets owner-level identity assertions and command graph projection assertions over the same owner-issued edge. |
+| Retail builds expose only sections with documented consumer scenarios. | Release catalog, category, exact and wildcard selection, discovery/schema, verbosity, count-order, and typed JSON absence tests; Debug exact-selection tests for the diagnostic farm team. |
 | Partial or truncated evidence never renders or counts as complete. | Multi-root and package-prefix completion tests across Markdown and typed JSON. |
 | Source-authored labels remain inert and never supply graph identity. | Existing hostile-text fixtures extended through graph, evidence, and JSON sinks. |
 | The removed command cannot enter implicit package routing. | Product-entry reservation test for `dependency-evidence`. |
@@ -922,6 +1034,8 @@ This design does not:
 - make one dependency model span type hierarchy, assembly references, and
   package declarations below the CLI composition boundary;
 - add automatic restore, build, project evaluation, or package mutation;
+- apply pruning to dependency graph edges or claim that PackageHouse or
+  PlatformHouse execution occurred;
 - add a Browser/Wasm command or presentation contract;
 - make package-prefix discovery an exhaustive package universe;
 - guarantee that every root kind can expand beyond the evidence it owns; or

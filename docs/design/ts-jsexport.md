@@ -78,7 +78,7 @@ parts:
    first resolves the complete root set, then generates the same independent
    facade for each resolved assembly.
 3. **Inspect-web is a consumer of the tool.** Its managed
-   `InspectWeb.Engine.dll` exposes dotnet-inspect functionality through one
+   `DotnetInspect.Web.dll` exposes dotnet-inspect functionality through one
    `InspectionEngine` type containing static `[JSExport]` methods.
 4. **`ILInspector.JsExportSurface` is part of the tool's implementation.** It
    is a host-side library over Metadata- and Analysis-owned facts. It constructs
@@ -102,7 +102,7 @@ The phases compose as follows:
 ```text
 ts-jsexport process on a developer or CI host
 
-InspectWeb.Engine.dll --compiled context--> seven rooted export assemblies
+DotnetInspect.Web.dll --compiled context--> seven rooted export assemblies
                                                     |
                                                     v
                                           JsExportSurface models
@@ -144,7 +144,7 @@ That raw object is usable without `ts-jsexport`:
 ```js
 const runtime = await dotnet.create();
 const exports =
-  await runtime.getAssemblyExports("InspectWeb.Engine");
+  await runtime.getAssemblyExports("DotnetInspect.Web");
 const json =
   await exports.InspectionEngine.QueryPackage(
     packageId,
@@ -235,6 +235,44 @@ use `ReadonlyArray<T>`, and string-keyed dictionaries use
 `Readonly<Record<string, T>>`. Direct JS-interop arrays remain mutable because
 they are runtime values, not serialized snapshots.
 
+### Translating unions and nullability
+
+C# and TypeScript can both describe alternative and nullable values, but they
+do not use the same type-system representation. On the C# side, this design
+receives union alternatives from the generated `union` declaration model.
+Nullability is separate: nullable-reference annotations such as `string?` are
+compiler metadata over the same CLR reference type, while `int?` is
+`System.Nullable<int>`. On the TypeScript side, a native union represents both
+case alternatives and nullability; with strict null checking, nullable `T` is
+spelled `T | null`.
+
+The generator therefore translates meaning rather than preserving source
+syntax:
+
+- `string?` becomes `string | null`.
+- `int?` becomes `number | null`.
+- `GenericNested<string?>` becomes `GenericNested<string | null>`.
+- `GenericNested<string?>?` becomes
+  `GenericNested<string | null> | null`.
+- Union cases `TValue` and `int`, plus a default-null case, become
+  `TValue | number | null`.
+
+These rows remain distinct before translation. Union case evidence determines
+the alternatives; nullable metadata and authenticated serializer evidence
+determine where `null` is possible. Their TypeScript forms then compose and
+normalize as unions. In particular, `property?: T` is not another spelling of
+`property: T | null`: the former permits an absent property and introduces
+`undefined`, while the latter describes a present JSON property whose value
+may be `null`.
+
+This document uses *lowering* for the broader conversion into the public
+TypeScript facade, but union and nullable projection does not materially lower
+the abstraction level. It is closer to type-level transpilation: one
+source-language wire-type vocabulary is translated into another at roughly the
+same semantic altitude. The representation changes because TypeScript uses
+union syntax for both concepts, while the distinctions established by C# and
+System.Text.Json evidence must remain observable in the translated type.
+
 ### JSON union lowering
 
 Slice 3 of [#5892](https://github.com/richlander/dotnet-inspect/issues/5892),
@@ -259,7 +297,38 @@ arguments are JSON wire types. Closed uses retain their structured argument
 identities. A parameter embedded inside a case signature remains unsupported:
 substituting a wire type into a CLR container is not generally faithful
 (`T[]` writes an array for `T = int`, but a Base64 string for `T = byte`).
-This boundary does not add general generic DTO support.
+Generic JSON records with direct, recursively parametric members use generic
+TypeScript interfaces. Closed constructions are discovered only from
+authenticated source-generated JSON roots, and their arguments are substituted
+through supported records, arrays, dictionaries, nullable values, and unions.
+A direct serializer root does not retain nullable-reference annotations for
+its generic arguments, so reference-shaped arguments remain conservatively
+nullable. Union case signatures have the same nested-annotation erasure and
+apply the same rule to generic-record alternatives. Ordinary record member
+signatures retain their nested nullable annotations and project those precise
+generic arguments instead, including when a supported generic union wraps a
+generic record directly, through a nullable value wrapper, or through supported
+array and dictionary containers.
+Metadata nullability traversal follows the compiler transform encoding:
+`System.Nullable<T>` and non-generic value types contribute no independent
+transform slots, so following reference annotations remain aligned. Generic
+value types and generic parameters retain their compiler-issued placeholder
+slots.
+
+Recursive composition remains parametric only when substituting a wire type
+preserves the surrounding wire shape. `GenericNested<T>[]` is an array of
+records for every supported `T`; direct `T[]` is not parametric because
+`T = byte` closes to `byte[]`, whose JSON form is a Base64 string rather than
+an array. A generic parameter directly wrapped in an array therefore fails
+visibly before publication, including when that array is nested in another
+supported container. Nullable-reference annotation on an unconstrained
+parameter does not change that CLR array shape, while a value-constrained
+`T?[]` remains a genuine array of `System.Nullable<T>` and stays supported.
+Open, other embedded non-parametric, or unauthenticated constructions also fail
+visibly; the boundary does not infer arbitrary CLR generic shapes. Parameter
+arrays are identified from decoded generic-parameter positions rather than
+display names, so a qualified concrete array remains distinct even when its
+type name matches a parameter name.
 
 Deserialize-reached unions, unavailable case/null evidence, unsupported
 converters, unmapped alternatives, and recursive union-case alias components
@@ -268,9 +337,25 @@ alias components and retain their existing behavior.
 Unused union registrations remain inert. No discriminator, replacement
 transport, or runtime schema validator is introduced.
 
+The envelope pilot has one deliberate converter exception: the shared
+`InertText.InertString` field converter is authenticated as the JSON `string`
+wire shape and preserves nullable fields as `string | null`. Polymorphic
+`System.Text.Json` base records remain structural in this generation slice;
+their runtime discriminator and derived members are preserved by the managed
+serializer, while a later union-lowering slice may expose them as a
+discriminated TypeScript union.
+
 `JsonUnionWireTests` and the compiler/runtime consumer harness
 `eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
-source-generated serializer results and compiled TypeScript consumers.
+source-generated serializer results and compiled TypeScript consumers,
+including an annotation-erased null reference root, a generic-record union
+alternative with null content, a precise nullable generic argument in an
+ordinary record member both directly and through generic-union collection
+arguments, a nullable generic record struct, and mixed nullable value/reference
+generic arguments, rejected direct and container-nested `T[]` and
+unconstrained `T?[]` constructions whose `byte[]` payloads are Base64 text, a
+supported value-constrained `T?[]` neighboring case, and a concrete array whose
+name collides with a generic parameter.
 The four-step adoption path remains Metadata evidence, JsExportSurface
 evidence, this CLI generation/harness slice, and inspect-web browser/Wasm
 adoption. The existing TypeScript emitter owns this format lowering; no new

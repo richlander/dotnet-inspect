@@ -2,9 +2,12 @@
 
 ## Status
 
-Focused design proposal for
-[#6228](https://github.com/richlander/dotnet-inspect/issues/6228). Nothing
-described here is implemented.
+Focused design for
+[#6228](https://github.com/richlander/dotnet-inspect/issues/6228). The typed
+inventory and comparison are implemented by #6239. Inspect Web now projects
+exact `PackageOverrides.txt` inventories into its checked-in Platform catalog
+and uses them to gate the first package-to-Platform demo migrations. Broader
+Workspace, routing, and traversal adoption remains staged.
 
 The .NET SDK already decides which package references are unnecessary because
 the shared framework supplies them. This document makes that decision a typed
@@ -21,7 +24,7 @@ remains a separate effort with its own design; none is specified here.
 
 A project targets `net10.0` and something in its graph depends on
 `System.Text.Json` 9.0.0. The SDK removes that dependency, because the platform
-already supplies `System.Text.Json` 10.0.11. The package is never downloaded,
+already supplies `System.Text.Json` 10.0.12. The package is never downloaded,
 never appears in the assets file, and nothing binds to it. The application uses
 the platform's copy.
 
@@ -75,20 +78,28 @@ It does not own:
 
 These hold for every inventory independent of how a consumer uses it.
 
-### The platform registration is the switch
+### Explicit Platform presence is the switch
 
-Pruning is on exactly when a platform version is registered, and off exactly
-when none is. There is no second control.
+Pruning is eligible exactly when the operation's exact Workspace revision
+contains the selected `ecosystem.platform` registration, and off when that
+registration is absent. There is no second control. An ASP.NET Core ecosystem
+registration may contribute the `AspNetCore` platform family, but it does not
+substitute for the exact Platform registration that activates pruning.
 
-A new workspace registers one by default, under
-[workspace registration and call-graph focal length](workspace-registration-and-call-graph-scope.md#fresh-workspace-defaults),
-so the ordinary case has an inventory without the user choosing anything. The
-[no-platform workspace](#a-workspace-may-have-no-platform-at-all) is the off
-state, and it is a coherent configuration rather than a broken one.
+The Workspace API constructs empty and therefore starts with pruning off. The
+Ecosystems-owned curated Workspace initially includes Platform and therefore
+makes pruning eligible for operations that select that contribution. A raw
+caller may add Platform explicitly; a command gesture such as `--platform` may
+perform that addition under its command owner. The
+[no-platform workspace](#a-workspace-may-have-no-platform-at-all) remains a
+coherent off state rather than a broken one.
 
-This matters because an inventory is a property of a platform version rather
-than a separate artifact to select. A control of its own is precisely the
-mechanism by which the rules could come to describe libraries the workspace
+The target-independent registration is not itself a prune inventory. Runtime
+comparison begins only after the selected population is associated with one
+exact platform target and its owner-issued family inventories. This matters
+because an inventory is a property of an exact platform target rather than a
+separate artifact to select. A pruning control of its own is precisely the
+mechanism by which the rules could come to describe libraries the Workspace
 does not have.
 
 ### Discovering a newer platform cannot relabel older data
@@ -158,8 +169,8 @@ The SDK ships the decision as `PackageId|Version` pairs, in the reference
 pack under `data/PackageOverrides.txt`:
 
 ```text
-System.Text.Json|10.0.11
-System.Reflection.Metadata|10.0.11
+System.Text.Json|10.0.12
+System.Reflection.Metadata|10.0.12
 System.Memory|5.0.0
 Microsoft.CSharp|4.7.0
 ```
@@ -513,8 +524,8 @@ Pruning decides package identities. It does not decide assemblies, files,
 types, asset-group selection, or graph policy, and it never compares an
 assembly version with a package version.
 
-The distinction is observable in `System.Text.Json` 10.0.11: the package
-version is 10.0.11 while the assembly version is 10.0.0.0. Comparing the
+The distinction is observable in `System.Text.Json` 10.0.12: the package
+version is 10.0.12 while the assembly version is 10.0.0.0. Comparing the
 assembly reference to the package ceiling would use the wrong identity and
 version currency even though the leading major happens to match.
 
@@ -566,9 +577,17 @@ the freshness of the second.
 
 ## Data acquisition
 
-The shipped artifact is a projection of one committed band-floor inventory:
-package identity, supplying family, and the literal supplied version at that
-target. It records its target and projected precision.
+Inspect Web's shipped Platform catalog projects one exact inventory for every
+exact reference-pack target it carries: package identity, supplying family,
+supplying pack, and the literal supplied version. The generator reads the
+pack's actual `data/PackageOverrides.txt` through
+`PlatformPruneInventory.FromExactFamily`; malformed or missing data fails
+generation rather than becoming no-supply evidence.
+
+A separate cross-host band-floor projection remains proposed rather than
+implemented. If added, it must retain the source target and projected
+precision described below and cannot answer an exact cross-target version
+comparison.
 
 ### ASP.NET Core 10.0.0 and 10.0.1 have identical raw data
 
@@ -585,14 +604,17 @@ does not use the projected literal for a version-bound subsumption result.
 
 | Option | Assessment |
 | --- | --- |
-| **Regenerate and compare in CI**, as `eng/generate-inspect-web-engine-facade.sh --check` does at `ci.yml:343` | The network-dependent comparison belongs in a nightly lane. It verifies membership stability and reports any upstream change for review. |
-| **Download at runtime** | Not required for the shipped baseline. It would add a startup network dependency for data whose exact values arrive through the normal reference-pack acquisition path; until then, cross-patch version comparison remains `NotComparable`. |
+| **Regenerate the browser catalog** | Exact reference-pack acquisition belongs in the explicit generator. Review sees target-version and membership changes together in the checked-in artifact. |
+| **Regenerate and compare a future band-floor projection in CI** | The network-dependent comparison belongs in a nightly lane. It would verify membership stability and report any upstream change for review. |
+| **Download at browser startup** | Not required. It would add a startup network dependency for evidence already carried by the exact checked-in catalog. |
 
-### Opening a platform pack can sharpen an earlier answer
+### Exact pack acquisition is the refinement boundary
 
-The refinement path already exists: when catalog generation or platform
-realization acquires an exact reference pack, the owner reads its actual
-inventory and replaces the projection for that target.
+Browser catalog generation reads the exact reference pack before publishing
+the target, so its supply rows require no later refinement. A future cross-host
+band-floor projection may be replaced when platform realization acquires an
+exact reference pack, but that shared runtime replacement state is not yet
+implemented.
 
 For example, a workspace can start with projected .NET 10.0.0 membership while
 showing that a .NET 10.0.1 version comparison is unavailable. If opening a
@@ -600,10 +622,10 @@ platform library acquires the 10.0.1 reference pack, the same workspace can
 replace that projected value with the exact 10.0.1 ceiling. No separate prune
 download or background mutation is needed.
 
-The recommendation is therefore to ship the literal projection per major
-version, verify membership in a nightly regenerate-and-compare lane, and treat
-reference-pack acquisition as the exact-value refinement path. Runtime
-download of prune data is not proposed.
+For that future projection, the recommendation remains to ship the literal
+band-floor data per major version, verify membership in a nightly
+regenerate-and-compare lane, and treat reference-pack acquisition as the
+exact-value refinement path. Runtime download of prune data is not proposed.
 
 ## Staleness contract
 
@@ -643,6 +665,10 @@ The first implementation slice is #6239. Its gates live in
 | Family composition decides inventory membership | `FamilyCompositionDecidesInventoryMembership` | implemented — #6239 |
 | Composition refuses mismatched targets and prefers the lower supplied version | `CompositionRefusesMismatchedTargetsAndPrefersTheLowerSuppliedVersion` | implemented — #6239 |
 | An empty inventory subsumes nothing | `EmptyInventorySubsumesNothing` | implemented — #6239 |
+| The browser catalog projects exact pack-owned supply rows | `StjPlatformDemos_JoinExactSupplyAndCatalogEvidence` and `ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence` in `DotnetInspect.Web.Tests`, plus `platform-index.test.ts` | implemented — Inspect Web adoption |
+| A demo migrates only when exact policy delegation and explicit implementation-library correspondence both hold | `StjPlatformDemos_JoinExactSupplyAndCatalogEvidence` and `ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence` | implemented — Runtime and ASP.NET Core demo adoption |
+| Only an exact selected `ecosystem.platform` registration activates pruning; absent, unselected, and ASP.NET-Core-only registrations do not | `PruningActivation_RequiresSelectedPlatformRegistration` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
+| The selected Platform registration activates comparison only with its associated exact target inventory | `PruningActivation_RequiresExactTargetInventoryCorrespondence` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
 | An acquired exact pack replaces projected supplied versions | `Pruning_ExactPackReplacesProjectedVersions` | pending — projection slice |
 | Band-floor equality does not infer patch-following behavior | `Pruning_BandFloorEqualityRemainsLiteral` | pending — projection slice |
 | A within-band membership change is reported for review | `Pruning_MembershipChangeIsReported` | pending — projection slice |
@@ -653,9 +679,12 @@ cases that do exist are an identity absent from the inventory and a request
 that cannot be compared.
 
 The gates follow the scenarios above rather than only the implementation
-shape: the newer-package case drives `LeapfroggingPackageIsNotSubsumed`, the
-no-platform case drives `EmptyInventorySubsumesNothing`, the unchanged
-ASP.NET Core pair drives `Pruning_BandFloorEqualityRemainsLiteral`, and the
+shape: the newer-package case drives `LeapfroggingPackageIsNotSubsumed`; the
+no-platform, unselected-Platform, and ASP.NET-Core-only cases drive
+`PruningActivation_RequiresSelectedPlatformRegistration`; the target mismatch
+drives `PruningActivation_RequiresExactTargetInventoryCorrespondence`; the
+unchanged ASP.NET Core pair drives
+`Pruning_BandFloorEqualityRemainsLiteral`; and the
 same-text/different-target table drives
 `ProjectedInventoryIsNotComparableAcrossTargets`.
 

@@ -12,8 +12,10 @@ typed search-scope domain tracked by
 [Typed source intent](search-scope-domain.md) owns the independent declaration
 and reference normalizer. The focused CLI adoption is
 [#6118](https://github.com/richlander/dotnet-inspect/issues/6118), following the
-package-form prerequisite #6075. This document owns the command behavior, not
-the shared declaration's construction or normalization contract.
+package-form prerequisite #6075. The broad-versus-explicit candidate-intent
+adoption is [#6931](https://github.com/richlander/dotnet-inspect/issues/6931).
+This document owns the search policy and command behavior, not the shared
+declaration's construction or normalization mechanics.
 
 [CLI host architecture](../cli-architecture.md) owns parsing, valued
 `--platform` disambiguation, source authorization, operation lifetime,
@@ -77,6 +79,26 @@ work with the existing source configuration and timeout policy.
 
 ## Default activation
 
+Every normalized selection carries one candidate intent:
+
+- `Broad` means the declaration contained no selectors and the operation may
+  apply its declared broad candidate default.
+- `Explicit` means the declaration contained at least one selector and the
+  operation must use only the resulting explicit candidate corpus.
+
+Candidate intent is determined from the retained declaration before prefix
+expansion or other realization. An empty package group, unrealized prefix, or
+unavailable explicit source is therefore `Explicit`; zero realized candidates
+do not reactivate `Broad`.
+
+The intent does not name or construct a candidate population. In the current
+four CLI search commands, an empty declaration continues to contribute only
+the platform frameworks below. New Find and Relations consumers tracked by
+[#6761](https://github.com/richlander/dotnet-inspect/issues/6761) will map
+`Broad` to their all-known ecosystem Workspace plan in their separately owned
+host-adoption slices. Existing commands do not change behavior merely because
+the normalized result now exposes this intent.
+
 With an empty source declaration, the normalizer returns no package sources
 and exactly these platform frameworks in order:
 
@@ -137,13 +159,19 @@ changes require the package-set owner's contract evidence and the
 classification defined by the CLI change-classification design. Neither design
 duplicates the inventory in prose.
 
+An application may likewise resolve an ecosystem selection to an existing
+typed package-group declaration. Its separately retained ecosystem identity
+does not enter source normalization, and package-group membership is candidate
+intent rather than evidence that a resulting API integrates with that
+ecosystem.
+
 ## Command participation
 
 Type-search `find`, `implements`, and `extensions` use this normalization to
-select acquisition scope. Patternless `find --package-prefix` instead runs the
-Nuspec-only profile owned by
-[the package query CLI](package-query-cli.md). Its parser retains direct scope
-options and whether a search group was supplied so the command can reject
+select acquisition scope. `find PATTERN --package-prefix PREFIX` remains in
+that type/member search space. Package-row selection is owned by
+[`package query`](package-query-cli.md), which does not consume these API
+search scopes and rejects source overrides before acquisition.
 incompatible API-search scope before network access. It does not apply type
 search normalization or expand the prefix. `depends` uses
 normalization only for type-hierarchy mode; its
@@ -178,6 +206,13 @@ after migration of all four callers. The shared pure contract is gated by its
 [public-consumer suite](search-scope-domain.md#contract-evidence).
 The CLI-specific Release gates include:
 
+- `SearchSourceNormalizerTests.EveryPlatformAndGroupCombinationHasExactInterpretation`
+  gates `Broad` for the empty declaration and `Explicit` for every nonempty
+  platform/package-group combination;
+- `SearchSourceNormalizerTests.EachExplicitVariantSuppressesImplicitPlatform`
+  gates `Explicit` across every selector family;
+- `SearchSourceNormalizerTests.UnrealizedPrefixAndEmptyGroupNeverBecomeEmptyIntent`
+  gates the explicit-empty pathological case;
 - `SearchScopeResolutionTests.NoExplicitSource_UsesOnlyPlatformFrameworks`
   gates the exact empty-input result and framework order;
 - `SearchScopeResolutionTests.EachGroupCombination_ResolvesExactly` gates the
@@ -242,6 +277,7 @@ command-by-source outcome matrix.
 This design does not:
 
 - define command token grammar or optional-value disambiguation;
+- define which concrete population an operation maps from `Broad`;
 - define workspace identity, partitioning, or lifetime;
 - define package, platform, project, local-library, or prefix acquisition;
 - choose candidate or result order after source resolution;
