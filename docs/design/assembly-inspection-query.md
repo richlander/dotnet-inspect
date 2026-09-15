@@ -1120,6 +1120,88 @@ The broader retained Browser realization lifecycle, type listing, source/PDB,
 Analysis, body, decompiler, standalone `member`, and package/platform/project/
 direct-library routes are not changed by this operation.
 
+#### Exact Library API operation
+
+The exact-Library API operation answers one question: for one acquisition-bound
+package Root and one selected compile asset in its surface-role realization,
+what bounded public API is available? This is the single host-neutral semantic
+path for the existing CLI `type --package ... --library ...` listing and Inspect
+Web Library Overview. It does not add API ownership or output to the `library`
+command.
+
+An `ExactLibraryApiInspectionRequest` identifies an exact package id and
+version, one requested TFM other than `all`, and a Library selection. CLI
+compatibility selection accepts an exact package-relative asset path or an
+unambiguous assembly file/base name. Browser/Wasm submits the acquisition-issued
+opaque `PackageCompileAsset.Id`. Query selection never resolves ambiguity by
+enumeration order; exact asset-id selection is ordinal.
+
+The semantic operation consumes the acquisition-issued `PackageRootBinding`
+and matching `PackageAssemblyContextRealization`. The binding preserves the
+canonical package id/version, opaque producer identity, and acquisition
+framework that distinguish equal coordinates served by different sources. The
+operation requires the selected asset to remain associated with that package
+Root and exact surface-role participant. It projects exactly that participant
+through
+`AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved` with
+`ApiSurfaceScope.Public`; it does not reconstruct a path-shaped inspection or
+project every package participant and filter afterward.
+
+The detached `InspectionEnvelope<ExactLibraryApiInspectionResult>` contains:
+
+- the exact acquisition source coordinate, requested TFM, selected compile
+  asset id/path and TFM, assembly identity, and MVID;
+- public type/member totals, type-kind facets from `ApiInventoryQuery`, and
+  ordered namespace counts;
+- typed selection, participant, extraction, and truncation failures, plus an
+  explicit completion bit;
+- one Share projection selecting the exact Library asset, and stable typed
+  diagnostics.
+
+  The host-neutral execution also returns the detached owner-issued `ApiSurface`
+  that the existing CLI renderer consumes. It is an execution companion rather
+  than envelope content because Browser Library Overview adopts only the bounded
+  inventory summary. Neither value contains a package Root, operation lease,
+  Workspace, assembly context, reader, stream, callback, or other live
+  authority. This slice does not implement the design-only
+  `LibraryContentOwner`, `LibraryOperationLease`, Library borrowing, or Library
+  retirement contracts from
+  [Library ownership and borrowing](library-ownership-and-borrowing.md).
+
+The CLI adapter acquires the exact package Root, realizes package assembly roles
+inside a #6752 candidate Workspace, cuts over, enters operation authority,
+invokes the shared semantic operation, and returns only the detached envelope.
+Inspect Web invokes the same semantic operation while its existing
+`BrowserScopeLease` retains the package Root and role realization. Shared cache
+or transport resources may back both hosts; semantic association and lifetime
+authority remain explicit in each composition.
+
+The Browser/Wasm interop adapter losslessly projects every field of the same
+complete envelope into its assembly-local generated wire records. The adapter
+does not recompute semantic content or transport the declaration-row
+`ApiSurface` execution companion, because this slice adopts only Library
+Overview counts and facets; Browser Type/member navigation keeps its separately
+owned package-wide projection.
+
+Initial CLI adoption is limited to a pinned NuGet package, explicit non-`all`
+TFM, explicit Library, and the ordinary type-listing catalog. Documentation,
+source/PDB, clone candidates, performance, decompilation, direct-file, project,
+Platform, package ranges, and Type/member-detail requests remain on named
+compatibility paths. Inspect Web adopts only Library Overview public counts and
+facets; package-wide browsing and non-public navigation retain their separately
+owned package projection.
+
+The Release gates are:
+
+- `ExactLibraryApiInspectionOperationTests` for exact asset and compatibility
+  selection, missing and malformed Libraries, bounds, diagnostics, detached
+  identity/authority, and cold/in-scope equivalence;
+- `ExactLibraryWorkspaceRouteTests` for unchanged CLI output and non-vacuous
+  retirement of the eligible `ApiSourceResolver` path; and
+- `BrowserEngineBoundaryTests.QueryLibraryApiProjection_*` plus Library
+  Overview TypeScript tests for exact-asset Browser consumption, generated
+  contract stability, and producer-owned namespace/type-kind presentation.
+
 ### 3. `AssemblyInspectionSession` — one PE-lifetime owner, composing `PdbContext`
 
 Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReader`, opens once,

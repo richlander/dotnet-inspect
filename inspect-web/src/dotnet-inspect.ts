@@ -554,6 +554,7 @@ import type {
   BrowserPackageDependencyGroup,
   BrowserPackagePruningResult,
   BrowserPackageSurface,
+  BrowserExactLibraryApiInspection,
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
 } from "./facades/inspect-web-package.d.ts";
@@ -590,6 +591,7 @@ let inspectPackageCacheStats: EngineClient["package"]["packageCacheStats"];
 let inspectMemberDocumentation:
   EngineClient["package"]["queryMemberDocumentation"];
 let inspectPackage: EngineClient["package"]["queryPackage"];
+let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
 let inspectPackagePruning:
@@ -722,6 +724,7 @@ async function loadEngineModule() {
       getPlatformCatalog: inspectPlatformCatalog,
       prefetchPlatformPacks: inspectPrefetchPlatformPacks,
       packageCacheStats: inspectPackageCacheStats,
+      queryLibraryApi: inspectLibraryApi,
       queryMemberDocumentation: inspectMemberDocumentation,
       queryPackage: inspectPackage,
       queryPackageDependencies: inspectPackageDependencies,
@@ -996,6 +999,10 @@ const initialState = {
   typeMetadataError: "",
   typeMetadataKey: "",
   typeMetadataGeneration: 0,
+  libraryApiInspections:
+    new Map<string, BrowserExactLibraryApiInspection>(),
+  libraryApiLoads: new Set<string>(),
+  libraryApiErrors: new Map<string, string>(),
   packageDependencies: null,
   packageDependenciesLoading: false,
   packageDependenciesError: "",
@@ -1130,6 +1137,10 @@ interface StateOverrides {
   memberFindingInteraction: MemberFindingInteraction | null;
   typeSource: SourceResultState;
   typeMetadata: BrowserTypeMetadata | null;
+  libraryApiInspections:
+    Map<string, BrowserExactLibraryApiInspection>;
+  libraryApiLoads: Set<string>;
+  libraryApiErrors: Map<string, string>;
   packageDependencies: BrowserPackageDependencies | null;
   packagePruning: BrowserPackagePruningResult | null;
   dependenciesGroupIndex: number | null;
@@ -3740,11 +3751,6 @@ function activatePackage(
   return changed;
 }
 
-function isDefaultAccessibility(type: InspectedTypeSurface) {
-  return Boolean(state.package?.accessibility?.some(
-    descriptor => descriptor.isDefault && descriptor.id === type.accessibilityId));
-}
-
 // Multi-select chip toggle for the accessibility filter. An empty bucket
 // selects every bucket; otherwise, an empty result falls back to the "public"
 // default so the type list is never blanked out.
@@ -5048,6 +5054,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   maybeAutoLoadVisibleSource();
   maybeAutoLoadTypeMetadata();
+  maybeAutoLoadLibraryApi();
   maybeAutoLoadPackageDependencies();
   maybeAutoLoadPackageIntegrations();
   maybeAutoLoadPackageOpportunities();
@@ -6629,6 +6636,67 @@ function drillToPerfMember(
     "Loading member documentation");
 }
 
+function libraryApiSignature(
+  pkg: AppPackage,
+  library: { id: string },
+) {
+  return `${packageIdentityKey(pkg)}|${library.id}`;
+}
+
+function currentLibraryApiInspection() {
+  const pkg = state.package;
+  const library = selectedLibrary();
+  if (!pkg || !library) return null;
+  return state.libraryApiInspections.get(
+    libraryApiSignature(pkg, library)) ?? null;
+}
+
+async function loadLibraryApi(
+  pkg: AppPackage,
+  library: { id: string; name: string },
+) {
+  const key = libraryApiSignature(pkg, library);
+  if (state.libraryApiInspections.has(key)
+    || state.libraryApiLoads.has(key)) return;
+  state.libraryApiLoads.add(key);
+  state.libraryApiErrors.delete(key);
+  try {
+    const inspection = await inspectLibraryApi(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      library.id,
+    );
+    state.libraryApiInspections.set(key, inspection);
+  } catch (error) {
+    state.libraryApiErrors.set(
+      key,
+      errorMessage(error) || "Library API inspection failed.");
+  } finally {
+    state.libraryApiLoads.delete(key);
+    if (state.package
+      && packageIdentityEquals(state.package, pkg)
+      && selectedLibrary()?.id === library.id
+      && state.atLibraryRoot
+      && state.libraryLens === "overview") {
+      render();
+    }
+  }
+}
+
+function maybeAutoLoadLibraryApi() {
+  if (!state.atLibraryRoot || state.libraryLens !== "overview") return;
+  const pkg = state.package;
+  const library = selectedLibrary();
+  if (!pkg || !library) return;
+  const key = libraryApiSignature(pkg, library);
+  if (state.libraryApiInspections.has(key)
+    || state.libraryApiLoads.has(key)) return;
+  observeAsync(
+    loadLibraryApi(pkg, library),
+    `Loading ${library.name} public API`);
+}
+
 function renderPackageOverview() {
   const pkg = currentPackage();
   const libraries = packageLibraries();
@@ -6680,36 +6748,40 @@ function renderLibraryOverview() {
   if (!library) {
     return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No library selected</h2><p>Choose a library from the package inventory.</p></section>`;
   }
-  const kindPlural: Record<TypeKind, string> = {
-    class: "classes",
-    struct: "structs",
-    interface: "interfaces",
-    enum: "enums",
-    delegate: "delegates",
-  };
-
-  const kinds = new Map<TypeKind, number>();
-  const nsCounts = new Map<string, number>();
-  for (const type of currentPackage().types) {
-    if (!isDefaultAccessibility(type)
-      || libraryKey(type) !== library.id) {
-      continue;
-    }
-    const kind = typeKind(type.kind);
-    kinds.set(kind, (kinds.get(kind) || 0) + 1);
-    const ns = type.namespace || "global";
-    nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
+  const pkg = currentPackage();
+  const key = libraryApiSignature(pkg, library);
+  const inspection = currentLibraryApiInspection();
+  if (!inspection) {
+    const error = state.libraryApiErrors.get(key);
+    return `<section class="document-section empty-document">
+      <span class="large-glyph">${error ? "!" : "◇"}</span>
+      <h2>${error ? "Public API unavailable" : "Loading public API"}</h2>
+      <p>${escapeHtml(error || `Inspecting ${library.name} through the shared exact-Library operation…`)}</p>
+    </section>`;
   }
-  const kindChips = KIND_ORDER
-    .filter(kind => kinds.has(kind))
-    .map(kind => `<button class="type-chip" data-kind-jump="${kind}"><span class="ns-count">${kinds.get(kind)}</span>${kindPlural[kind]}</button>`)
+  const api = inspection.content;
+  if (!api || !api.isAvailable || !api.inventory) {
+    return `<section class="document-section empty-document">
+      <span class="large-glyph">!</span>
+      <h2>Public API unavailable</h2>
+      <p>${escapeHtml(api?.failures[0]?.detail || `Could not inspect ${library.name}.`)}</p>
+    </section>`;
+  }
+  const inventory = api.inventory;
+
+  const kindChips = [...inventory.typeKinds]
+    .sort((left, right) => left.weight - right.weight)
+    .map(kind => `<button class="type-chip" data-kind-jump="${escapeHtml(kind.singularLabel)}"><span class="ns-count">${kind.count}</span>${escapeHtml(kind.count === 1 ? kind.singularLabel : kind.pluralLabel)}</button>`)
     .join("");
-  const namespaceChips = [...nsCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
+  const namespaceChips = [...inventory.namespaces]
+    .sort((left, right) =>
+      right.count - left.count || left.name.localeCompare(right.name))
     .slice(0, 12)
-    .map(([ns, count]) => `<button class="type-chip" data-namespace-jump="${escapeHtml(ns)}"><span class="ns-count">${count}</span>${escapeHtml(ns)}</button>`)
+    .map(namespace => `<button class="type-chip" data-namespace-jump="${escapeHtml(namespace.name)}"><span class="ns-count">${namespace.count}</span>${escapeHtml(namespace.name || "(global namespace)")}</button>`)
     .join("");
-  const nsOverflow = nsCounts.size > 12 ? `<span class="ns-overflow">+${nsCounts.size - 12} more</span>` : "";
+  const nsOverflow = inventory.namespaces.length > 12
+    ? `<span class="ns-overflow">+${inventory.namespaces.length - 12} more</span>`
+    : "";
 
   const typeKindsHtml = `
     <section class="document-section">
@@ -6718,7 +6790,7 @@ function renderLibraryOverview() {
     </section>`;
   const namespacesHtml = `
     <section class="document-section">
-      <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
+      <div class="section-title"><h2>Namespaces</h2><span>${inventory.namespaces.length} — click to filter</span></div>
       <div class="type-chip-list">${namespaceChips || '<span class="empty-list">No public namespaces.</span>'}${nsOverflow}</div>
     </section>`;
   const contentHtml = renderLibraryOverviewContent({
@@ -6726,7 +6798,6 @@ function renderLibraryOverview() {
     typeKindsHtml,
   });
 
-  const pkg = currentPackage();
   return renderOverviewSurface({
     subject: "library",
     subjectLabel: "Library",
@@ -6736,8 +6807,8 @@ function renderLibraryOverview() {
     packageId: pkg.id,
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,
-    totalTypes: library.types,
-    totalMembers: library.members,
+    totalTypes: inventory.publicTypeCount,
+    totalMembers: inventory.publicMemberCount,
     contentHtml,
     escapeHtml,
   });

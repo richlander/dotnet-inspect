@@ -511,6 +511,52 @@ async function installFacades(
       export async function queryMemberDocumentation() {
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
       }
+      export async function queryLibraryApi(id, version, framework, asset) {
+        const surface = surfaceFor(id, version, framework);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        const types = surface.types.filter(type => type.assemblyId === asset);
+        const typeKinds = [...new Set(types.map(type => type.kind))].map((kind, index) => ({
+          id: kind.toLowerCase(), singularLabel: kind, pluralLabel: kind + "s",
+          weight: index, count: types.filter(type => type.kind === kind).length,
+          isDefault: true,
+        }));
+        const namespaces = [...new Set(types.map(type => type.namespace))].map(name => ({
+          name, count: types.filter(type => type.namespace === name).length,
+        }));
+        return {
+          content: {
+            outcome: 0, packageId: id, packageVersion: version,
+            requestedTargetFramework: framework, requestedLibrary: asset,
+            source: { packageId: id, packageVersion: version, producer: "fixture", framework },
+            asset: {
+              id: selected.id, path: selected.asset, assemblyName: selected.name,
+              targetFramework: framework, kind: 0,
+            },
+            assembly: {
+              identity: {
+                name: selected.name, version: selected.version,
+                culture: selected.culture, publicKeyToken: selected.publicKeyToken,
+              },
+              moduleVersionId: "00000000-0000-0000-0000-000000000001",
+            },
+            inventory: {
+              publicTypeCount: selected.publicTypes,
+              publicMemberCount: selected.publicMembers,
+              publicMethodCount: selected.publicMembers,
+              publicPropertyCount: 0,
+              typeKinds,
+              namespaces,
+            },
+            truncation: null, failures: [], isComplete: true, isAvailable: true,
+          },
+          share: {
+            kind: "Available", fullUrl: "https://dotnet-inspect.net/",
+            packet: "fixture", path: null, reason: null,
+          },
+          diagnostics: [],
+        };
+      }
       export async function queryPackageDependencies(id, version, framework, asset) {
         document.documentElement.dataset.referenceRequest = asset;
         document.documentElement.dataset.packageDependenciesRequest = JSON.stringify([id, version, framework]);
