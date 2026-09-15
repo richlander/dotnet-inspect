@@ -723,6 +723,16 @@ Each Free Static Web App deploys the small anonymous managed Function in
 keep it from becoming a caller-directed proxy. The function enforces the same
 8 MiB portable-PDB ceiling as the Browser consumer.
 
+The same managed Function app hosts the separately owned
+[public-evidence bridge](../docs/design/inspect-web-public-evidence-bridge.md)
+for Package Changes. Its Browser transport rewrites only canonical NuGet.org
+service-index/Catalog and GitHub reviewed-advisory requests to fixed
+same-origin routes. The Function reconstructs those requests from closed path
+and query grammars, follows no redirects, forwards no caller credentials or
+headers, and returns only bounded JSON. Product-owned source and advisory code
+continues to observe the original provider request identity after the transport
+hop.
+
 Source operations are exclusive across the Browser process: a new request
 cancels the previous request, and leaving every source view cancels hidden work.
 The operation holds its workspace and package archives until its fresh bounded
@@ -2427,6 +2437,9 @@ reproduce the exact retained dotnet/runtime#129622 and #129857 product
 rejection. The latter is deployable only to the R2R diagnostic site so
 contributors can share a failing product URL; an unfamiliar failure, missing
 evidence, or infrastructure failure leaves the prior site in place.
+The error detail preserves the first managed/Wasm operation diagnostic and
+stack before any secondary cleanup failure such as
+`The runtime is not running`.
 
 Each artifact carries exact `dotnet --info`, the installed workload list, and a
 machine-readable SDK/runtime/workload receipt. That receipt identifies the
