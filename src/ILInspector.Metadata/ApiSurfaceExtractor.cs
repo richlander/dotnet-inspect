@@ -330,11 +330,32 @@ public static class ApiSurfaceExtractor
         bool includeAll = false,
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
+        => Extract(
+            peReader,
+            source,
+            catalog,
+            bindingPolicy,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated);
+
+    internal static ApiSurface Extract(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
 
         var constraintResolution =
             new TypeParameterConstraintResolution(
@@ -343,9 +364,7 @@ public static class ApiSurfaceExtractor
                 catalog.MaxTypeResolutionRequests);
         ApiSurface surface = Extract(
             peReader,
-            includeAll
-                ? ApiSurfaceExtractionScope.IncludeAll
-                : ApiSurfaceExtractionScope.Public,
+            scope,
             typesOnly,
             includeCompilerGenerated,
             budget: null,
@@ -2181,10 +2200,18 @@ public static class ApiSurfaceExtractor
                     definitionName =
                         MetadataTypeDefinitionNameReader.Read(
                             reader,
-                            exportedTypeHandle)
-                        is MetadataTypeDefinitionNameReadResult.Read read
-                            ? read.Name
-                            : null;
+                            exportedTypeHandle) switch
+                        {
+                            MetadataTypeDefinitionNameReadResult.Read read =>
+                                read.Name,
+                            MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                                throw new MetadataRowRejectedException(
+                                    ApiSurfaceInspectionFailure
+                                        .TypeForwarderIdentityOperation,
+                                    rejected.Failure),
+                            _ => throw new InvalidOperationException(
+                                "Unknown exported-type name result."),
+                        };
                 }
                 else
                 {

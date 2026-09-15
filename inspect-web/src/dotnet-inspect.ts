@@ -1950,6 +1950,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
     request.framework,
     request.assembly,
     request.type,
+    request.typeIdentity,
     request.workspaceJson),
   queryPackageTable: (explorer, index, startRowId, maxRows) =>
     inspectPackageMetadataTable(
@@ -12014,6 +12015,7 @@ async function loadSelectedTypeMetadata() {
     framework: pkg.activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
+    typeIdentity: type.definitionId ?? type.id,
     workspaceJson,
     isVisible: () => {
       const currentType = selectedType();

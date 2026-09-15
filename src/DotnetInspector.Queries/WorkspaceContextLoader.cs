@@ -1167,6 +1167,7 @@ public static class WorkspaceContextLoader
                 .Distinct(),
         ];
         return new WorkspaceContextLoadOutcome.Loaded(
+            workspace.Identity,
             group,
             members.MoveToImmutable(),
             packageRoots,

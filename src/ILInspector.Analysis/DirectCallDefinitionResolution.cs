@@ -239,15 +239,19 @@ public abstract class DirectCallDefinitionResolutionOutcome
         internal Completed(
             AssemblyCatalogId catalog,
             AssemblyCatalogGenerationId generation,
+            ImmutableArray<CatalogCallGraphParticipant> population,
             ImmutableArray<DirectCallDefinitionResolution> results)
         {
             Catalog = catalog;
             Generation = generation;
+            Population = population;
             Results = results;
         }
 
         public AssemblyCatalogId Catalog { get; }
         public AssemblyCatalogGenerationId Generation { get; }
+        public ImmutableArray<CatalogCallGraphParticipant> Population
+            { get; }
         public ImmutableArray<DirectCallDefinitionResolution> Results
             { get; }
     }
@@ -732,6 +736,7 @@ public static class DirectCallDefinitionResolver
         {
             return CompleteWithWorkLimit(
                 context,
+                population,
                 invocationPlans,
                 DirectCallDefinitionWorkDimension.SignatureNodes,
                 limits.MaxSignatureNodes,
@@ -741,6 +746,7 @@ public static class DirectCallDefinitionResolver
         {
             return CompleteWithWorkLimit(
                 context,
+                population,
                 invocationPlans,
                 resolutionLimit.Dimension,
                 resolutionLimit.Limit,
@@ -749,6 +755,7 @@ public static class DirectCallDefinitionResolver
         return new DirectCallDefinitionResolutionOutcome.Completed(
             context.Catalog,
             context.Generation,
+            population,
             results);
     }
 
@@ -773,6 +780,7 @@ public static class DirectCallDefinitionResolver
         return new(
             context.Catalog,
             context.Generation,
+            population,
             [
                 .. pending.Select(item =>
                     CreateFailure(
@@ -791,6 +799,7 @@ public static class DirectCallDefinitionResolver
     static DirectCallDefinitionResolutionOutcome.Completed
         CompleteWithWorkLimit(
             TypeResolutionContext context,
+            ImmutableArray<CatalogCallGraphParticipant> population,
             ImmutableArray<PendingInvocation> pending,
             DirectCallDefinitionWorkDimension dimension,
             long limit,
@@ -798,6 +807,7 @@ public static class DirectCallDefinitionResolver
         new(
             context.Catalog,
             context.Generation,
+            population,
             [
                 .. pending.Select(item =>
                     CreateFailure(

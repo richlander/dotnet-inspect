@@ -534,7 +534,7 @@ public sealed class EcosystemPackRegistryTests
         string title,
         string description)
     {
-        const int version = InspectionDefinitionJson.CurrentSchemaVersion;
+        const int version = InspectionDefinitionSchema.Version1;
         var package = new DefinitionMemberCoordinate.PackageCoordinate(
             "Example.Package",
             "1.0.0",

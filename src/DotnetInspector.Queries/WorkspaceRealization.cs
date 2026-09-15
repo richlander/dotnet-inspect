@@ -300,8 +300,11 @@ public abstract record WorkspaceRealizationOperationAdmission
 /// </summary>
 public sealed class WorkspaceRealizationOperationLease : IDisposable
 {
+    readonly object _gate = new();
     WorkspaceRealizationCoordinator? _owner;
     readonly WorkspaceRealizationCoordinator.RealizationState _state;
+    int _activeUses;
+    bool _disposed;
 
     internal WorkspaceRealizationOperationLease(
         WorkspaceRealizationCoordinator owner,
@@ -325,18 +328,96 @@ public sealed class WorkspaceRealizationOperationLease : IDisposable
     {
         get
         {
-            ObjectDisposedException.ThrowIf(
-                Volatile.Read(ref _owner) is null,
-                this);
-            return _state.Workspace;
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _state.Workspace;
+            }
+        }
+    }
+
+    internal WorkspaceRealizationOperationUse EnterUse()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _activeUses++;
+            return new WorkspaceRealizationOperationUse(
+                this,
+                _state,
+                Definition,
+                Scope);
         }
     }
 
     public void Dispose()
     {
-        WorkspaceRealizationCoordinator? owner =
-            Interlocked.Exchange(ref _owner, null);
+        WorkspaceRealizationCoordinator? owner = null;
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            if (_activeUses == 0)
+            {
+                owner = _owner;
+                _owner = null;
+            }
+        }
         owner?.ReleaseOperation(_state);
+    }
+
+    internal void ReleaseUse()
+    {
+        WorkspaceRealizationCoordinator? owner = null;
+        lock (_gate)
+        {
+            if (_activeUses <= 0)
+                throw new InvalidOperationException(
+                    "The Workspace realization operation use was not active.");
+
+            _activeUses--;
+            if (_disposed && _activeUses == 0)
+            {
+                owner = _owner;
+                _owner = null;
+            }
+        }
+        owner?.ReleaseOperation(_state);
+    }
+}
+
+internal sealed class WorkspaceRealizationOperationUse : IDisposable
+{
+    WorkspaceRealizationOperationLease? _lease;
+
+    internal WorkspaceRealizationOperationUse(
+        WorkspaceRealizationOperationLease lease,
+        WorkspaceRealizationCoordinator.RealizationState state,
+        WorkspaceDefinitionSnapshot definition,
+        WorkspaceScopeSnapshot scope)
+    {
+        _lease = lease;
+        Realization = state.Identity;
+        Workspace = state.Workspace;
+        Definition = definition;
+        Scope = scope;
+    }
+
+    internal InspectionWorkspaceIdentity Realization { get; }
+
+    internal InspectionWorkspace Workspace { get; }
+
+    internal WorkspaceDefinitionSnapshot Definition { get; }
+
+    internal WorkspaceScopeSnapshot Scope { get; }
+
+    public void Dispose()
+    {
+        WorkspaceRealizationOperationLease? lease =
+            Interlocked.Exchange(ref _lease, null);
+        lease?.ReleaseUse();
     }
 }
 
