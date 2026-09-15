@@ -165,9 +165,8 @@ baseline of `[a asc]` beside a ranking of `[b desc, c asc]` can never serialize
 identically to a baseline of `[a asc, b desc]` beside a ranking of `[c asc]` —
 the vectors `operation-boundary-a` and `operation-boundary-b` are that pair.
 
-Strings follow the packet owner's rule, not a second convention: escape only
-quote, backslash, and C0 controls, in their short forms where one exists and as
-lowercase `\u00xx` otherwise, and emit every other scalar as raw UTF-8.
+Every string has exactly one spelling: the packet owner's, which the shape
+region carries for this codec so that no second convention is introduced here.
 Inheriting that rule means inheriting its rejections: an unpaired surrogate is
 refused before any vocabulary binder runs and is never repaired to U+FFFD.
 Measured, no `System.Text.Json` encoder implements the rule — each uppercases

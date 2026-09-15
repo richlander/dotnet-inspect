@@ -32,12 +32,13 @@ using System.Text.Json;
 // SHAPE — the normative structure. Change here, then add a vector.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Wire properties in canonical order, and the intent part each one carries.
-// An absent or empty part is omitted, never emitted as null or []. An intent
-// with no parts canonicalizes to the empty object; whether such a query means
-// anything is the vocabulary's question, not the codec's.
-(string Property, string Part)[] properties =
-    [("t", "terms"), ("b", "bounds"), ("s", "stages"), ("o", "order")];
+// Wire properties in canonical order. Which intent part each one carries is
+// the prose's to say (portable-query-payload.md, "Shape"); this region fixes
+// only the spelling and the order. An absent or empty part is omitted, never
+// emitted as null or []. An intent with no parts canonicalizes to the empty
+// object; whether such a query means anything is the vocabulary's question,
+// not the codec's.
+string[] properties = ["t", "b", "s", "o"];
 
 // What one tuple slot may hold.
 //   Identity    a key, dimension, or order reference: string, 1..MaxIdentityBytes
@@ -244,7 +245,7 @@ string? ValidateStructure(string text, out JsonDocument? doc, bool onTheWire)
         var names = new List<string>();
         foreach (JsonProperty p in obj.EnumerateObject()) names.Add(p.Name);
         if (names.Distinct().Count() != names.Count) return "duplicate-property";
-        foreach (string n in names) if (!properties.Any(x => x.Property == n)) return "unknown-property";
+        foreach (string n in names) if (!properties.Contains(n)) return "unknown-property";
         foreach (JsonProperty p in obj.EnumerateObject())
         {
             if (p.Value.ValueKind != JsonValueKind.Array) return "bad-arity";

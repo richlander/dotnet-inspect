@@ -5104,6 +5104,1836 @@
         ]
       },
       "reject": "bad-integer"
+    },
+    {
+      "name": "term-key-number-in-intent",
+      "description": "A JSON number in the term-key slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            1,
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-key-true-in-intent",
+      "description": "A JSON true in the term-key slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            true,
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-key-array-in-intent",
+      "description": "A JSON array in the term-key slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            [],
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-key-object-in-intent",
+      "description": "A JSON object in the term-key slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            {},
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-operator-number-in-intent",
+      "description": "A JSON number in the term-operator slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            1,
+            "v"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-operator-true-in-intent",
+      "description": "A JSON true in the term-operator slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            true,
+            "v"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-operator-array-in-intent",
+      "description": "A JSON array in the term-operator slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            [],
+            "v"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-operator-object-in-intent",
+      "description": "A JSON object in the term-operator slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            {},
+            "v"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-value-number-in-intent",
+      "description": "A JSON number in the term-value slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-value-true-in-intent",
+      "description": "A JSON true in the term-value slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            true
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-value-array-in-intent",
+      "description": "A JSON array in the term-value slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            []
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-value-object-in-intent",
+      "description": "A JSON object in the term-value slot is not a string; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            {}
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-dimension-number-in-intent",
+      "description": "A JSON number in the bound-dimension slot is not a string; refused on the intent side.",
+      "intent": {
+        "b": [
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-dimension-true-in-intent",
+      "description": "A JSON true in the bound-dimension slot is not a string; refused on the intent side.",
+      "intent": {
+        "b": [
+          [
+            true,
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-dimension-array-in-intent",
+      "description": "A JSON array in the bound-dimension slot is not a string; refused on the intent side.",
+      "intent": {
+        "b": [
+          [
+            [],
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-dimension-object-in-intent",
+      "description": "A JSON object in the bound-dimension slot is not a string; refused on the intent side.",
+      "intent": {
+        "b": [
+          [
+            {},
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "stage-kind-number-in-intent",
+      "description": "A JSON number in the stage-kind slot is not a string; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "stage-kind-true-in-intent",
+      "description": "A JSON true in the stage-kind slot is not a string; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            true,
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "stage-kind-array-in-intent",
+      "description": "A JSON array in the stage-kind slot is not a string; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            [],
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "stage-kind-object-in-intent",
+      "description": "A JSON object in the stage-kind slot is not a string; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            {},
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-kind-number-in-intent",
+      "description": "A JSON number in the order-kind slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            1,
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-kind-true-in-intent",
+      "description": "A JSON true in the order-kind slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            true,
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-kind-array-in-intent",
+      "description": "A JSON array in the order-kind slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            [],
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-kind-object-in-intent",
+      "description": "A JSON object in the order-kind slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            {},
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-reference-number-in-intent",
+      "description": "A JSON number in the order-reference slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            1,
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-reference-true-in-intent",
+      "description": "A JSON true in the order-reference slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            true,
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-reference-array-in-intent",
+      "description": "A JSON array in the order-reference slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            [],
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-reference-object-in-intent",
+      "description": "A JSON object in the order-reference slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            {},
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "direction-number-in-intent",
+      "description": "A JSON number in the direction slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            "n",
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "direction-true-in-intent",
+      "description": "A JSON true in the direction slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            "n",
+            true
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "direction-array-in-intent",
+      "description": "A JSON array in the direction slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            "n",
+            []
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "direction-object-in-intent",
+      "description": "A JSON object in the direction slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            "n",
+            {}
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-key-number-in-intent",
+      "description": "A JSON number in the field-key slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            1,
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-key-true-in-intent",
+      "description": "A JSON true in the field-key slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            true,
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-key-array-in-intent",
+      "description": "A JSON array in the field-key slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            [],
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-key-object-in-intent",
+      "description": "A JSON object in the field-key slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            {},
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-direction-number-in-intent",
+      "description": "A JSON number in the field-direction slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "k",
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-direction-true-in-intent",
+      "description": "A JSON true in the field-direction slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "k",
+            true
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-direction-array-in-intent",
+      "description": "A JSON array in the field-direction slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "k",
+            []
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-direction-object-in-intent",
+      "description": "A JSON object in the field-direction slot is not a string; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "k",
+            {}
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "role-true-in-intent",
+      "description": "A JSON true in the role slot; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            true,
+            "named",
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "role-array-in-intent",
+      "description": "A JSON array in the role slot; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            [],
+            "named",
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "role-object-in-intent",
+      "description": "A JSON object in the role slot; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            {},
+            "named",
+            "n",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "count-bound-true-in-intent",
+      "description": "A JSON true in the bound count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            true
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-bound-array-in-intent",
+      "description": "A JSON array in the bound count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            []
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-bound-object-in-intent",
+      "description": "A JSON object in the bound count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            {}
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-true-in-intent",
+      "description": "A JSON true in the head count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            true
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-array-in-intent",
+      "description": "A JSON array in the head count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            []
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-object-in-intent",
+      "description": "A JSON object in the head count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            {}
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-true-in-intent",
+      "description": "A JSON true in the tail count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            true
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-array-in-intent",
+      "description": "A JSON array in the tail count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            []
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-object-in-intent",
+      "description": "A JSON object in the tail count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            {}
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-true-in-intent",
+      "description": "A JSON true in the top count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            true
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-array-in-intent",
+      "description": "A JSON array in the top count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            []
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-object-in-intent",
+      "description": "A JSON object in the top count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            {}
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-start-true-in-intent",
+      "description": "A JSON true in the window-start count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            true,
+            null
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-start-array-in-intent",
+      "description": "A JSON array in the window-start count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            [],
+            null
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-start-object-in-intent",
+      "description": "A JSON object in the window-start count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            {},
+            null
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-end-true-in-intent",
+      "description": "A JSON true in the window-end count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            null,
+            true
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-end-array-in-intent",
+      "description": "A JSON array in the window-end count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            null,
+            []
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-end-object-in-intent",
+      "description": "A JSON object in the window-end count slot is not a Count; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            null,
+            {}
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-start-string-in-intent",
+      "description": "A JSON string in the window-start slot is not a Count or null; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            "5",
+            null
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-end-string-in-intent",
+      "description": "A JSON string in the window-end slot is not a Count or null; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            null,
+            "5"
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-null-in-intent",
+      "description": "null in the head count is refused on the intent side; only the two window slots admit null.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            null
+          ]
+        ]
+      },
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "part-t-true-in-intent",
+      "description": "A JSON true in place of the t array is not a part; refused on the intent side.",
+      "intent": {
+        "t": true
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-t-true-in-intent",
+      "description": "A JSON true in place of a tuple inside t is not a tuple; refused on the intent side.",
+      "intent": {
+        "t": [
+          true
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-b-true-in-intent",
+      "description": "A JSON true in place of the b array is not a part; refused on the intent side.",
+      "intent": {
+        "b": true
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-b-true-in-intent",
+      "description": "A JSON true in place of a tuple inside b is not a tuple; refused on the intent side.",
+      "intent": {
+        "b": [
+          true
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-s-true-in-intent",
+      "description": "A JSON true in place of the s array is not a part; refused on the intent side.",
+      "intent": {
+        "s": true
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-s-true-in-intent",
+      "description": "A JSON true in place of a tuple inside s is not a tuple; refused on the intent side.",
+      "intent": {
+        "s": [
+          true
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-o-true-in-intent",
+      "description": "A JSON true in place of the o array is not a part; refused on the intent side.",
+      "intent": {
+        "o": true
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-o-true-in-intent",
+      "description": "A JSON true in place of a tuple inside o is not a tuple; refused on the intent side.",
+      "intent": {
+        "o": [
+          true
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-t-object-in-intent",
+      "description": "A JSON object in place of the t array is not a part; refused on the intent side.",
+      "intent": {
+        "t": {}
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-t-object-in-intent",
+      "description": "A JSON object in place of a tuple inside t is not a tuple; refused on the intent side.",
+      "intent": {
+        "t": [
+          {}
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-b-object-in-intent",
+      "description": "A JSON object in place of the b array is not a part; refused on the intent side.",
+      "intent": {
+        "b": {}
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-b-object-in-intent",
+      "description": "A JSON object in place of a tuple inside b is not a tuple; refused on the intent side.",
+      "intent": {
+        "b": [
+          {}
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-s-object-in-intent",
+      "description": "A JSON object in place of the s array is not a part; refused on the intent side.",
+      "intent": {
+        "s": {}
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-s-object-in-intent",
+      "description": "A JSON object in place of a tuple inside s is not a tuple; refused on the intent side.",
+      "intent": {
+        "s": [
+          {}
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-o-object-in-intent",
+      "description": "A JSON object in place of the o array is not a part; refused on the intent side.",
+      "intent": {
+        "o": {}
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-o-object-in-intent",
+      "description": "A JSON object in place of a tuple inside o is not a tuple; refused on the intent side.",
+      "intent": {
+        "o": [
+          {}
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-t-string-in-intent",
+      "description": "A JSON string in place of the t array is not a part; refused on the intent side.",
+      "intent": {
+        "t": "x"
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-t-string-in-intent",
+      "description": "A JSON string in place of a tuple inside t is not a tuple; refused on the intent side.",
+      "intent": {
+        "t": [
+          "x"
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-b-string-in-intent",
+      "description": "A JSON string in place of the b array is not a part; refused on the intent side.",
+      "intent": {
+        "b": "x"
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-b-string-in-intent",
+      "description": "A JSON string in place of a tuple inside b is not a tuple; refused on the intent side.",
+      "intent": {
+        "b": [
+          "x"
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-s-string-in-intent",
+      "description": "A JSON string in place of the s array is not a part; refused on the intent side.",
+      "intent": {
+        "s": "x"
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-s-string-in-intent",
+      "description": "A JSON string in place of a tuple inside s is not a tuple; refused on the intent side.",
+      "intent": {
+        "s": [
+          "x"
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-o-string-in-intent",
+      "description": "A JSON string in place of the o array is not a part; refused on the intent side.",
+      "intent": {
+        "o": "x"
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-o-string-in-intent",
+      "description": "A JSON string in place of a tuple inside o is not a tuple; refused on the intent side.",
+      "intent": {
+        "o": [
+          "x"
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-t-number-in-intent",
+      "description": "A JSON number in place of the t array is not a part; refused on the intent side.",
+      "intent": {
+        "t": 1
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-t-number-in-intent",
+      "description": "A JSON number in place of a tuple inside t is not a tuple; refused on the intent side.",
+      "intent": {
+        "t": [
+          1
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-b-number-in-intent",
+      "description": "A JSON number in place of the b array is not a part; refused on the intent side.",
+      "intent": {
+        "b": 1
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-b-number-in-intent",
+      "description": "A JSON number in place of a tuple inside b is not a tuple; refused on the intent side.",
+      "intent": {
+        "b": [
+          1
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-s-number-in-intent",
+      "description": "A JSON number in place of the s array is not a part; refused on the intent side.",
+      "intent": {
+        "s": 1
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-s-number-in-intent",
+      "description": "A JSON number in place of a tuple inside s is not a tuple; refused on the intent side.",
+      "intent": {
+        "s": [
+          1
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-o-number-in-intent",
+      "description": "A JSON number in place of the o array is not a part; refused on the intent side.",
+      "intent": {
+        "o": 1
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-o-number-in-intent",
+      "description": "A JSON number in place of a tuple inside o is not a tuple; refused on the intent side.",
+      "intent": {
+        "o": [
+          1
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "last-term-invalid-in-intent",
+      "description": "Every tuple is validated, not only the first: an empty key in the twenty-fourth term is refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "k00",
+            "eq",
+            "v"
+          ],
+          [
+            "k01",
+            "eq",
+            "v"
+          ],
+          [
+            "k02",
+            "eq",
+            "v"
+          ],
+          [
+            "k03",
+            "eq",
+            "v"
+          ],
+          [
+            "k04",
+            "eq",
+            "v"
+          ],
+          [
+            "k05",
+            "eq",
+            "v"
+          ],
+          [
+            "k06",
+            "eq",
+            "v"
+          ],
+          [
+            "k07",
+            "eq",
+            "v"
+          ],
+          [
+            "k08",
+            "eq",
+            "v"
+          ],
+          [
+            "k09",
+            "eq",
+            "v"
+          ],
+          [
+            "k10",
+            "eq",
+            "v"
+          ],
+          [
+            "k11",
+            "eq",
+            "v"
+          ],
+          [
+            "k12",
+            "eq",
+            "v"
+          ],
+          [
+            "k13",
+            "eq",
+            "v"
+          ],
+          [
+            "k14",
+            "eq",
+            "v"
+          ],
+          [
+            "k15",
+            "eq",
+            "v"
+          ],
+          [
+            "k16",
+            "eq",
+            "v"
+          ],
+          [
+            "k17",
+            "eq",
+            "v"
+          ],
+          [
+            "k18",
+            "eq",
+            "v"
+          ],
+          [
+            "k19",
+            "eq",
+            "v"
+          ],
+          [
+            "k20",
+            "eq",
+            "v"
+          ],
+          [
+            "k21",
+            "eq",
+            "v"
+          ],
+          [
+            "k22",
+            "eq",
+            "v"
+          ],
+          [
+            "",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "last-bound-invalid-in-intent",
+      "description": "Every tuple is validated, not only the first: a zero maximum in the eighth bound is refused on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "d0",
+            1
+          ],
+          [
+            "d1",
+            1
+          ],
+          [
+            "d2",
+            1
+          ],
+          [
+            "d3",
+            1
+          ],
+          [
+            "d4",
+            1
+          ],
+          [
+            "d5",
+            1
+          ],
+          [
+            "d6",
+            1
+          ],
+          [
+            "d7",
+            0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "last-stage-invalid-in-intent",
+      "description": "Every tuple is validated, not only the first: a zero count in the eighth stage is refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            1
+          ],
+          [
+            "head",
+            0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "last-order-operation-invalid-in-intent",
+      "description": "Every tuple is validated, not only the first: an unknown direction in the eighth operation is refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "named",
+            "n",
+            "asc"
+          ],
+          [
+            0,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            1,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            2,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            3,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            4,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            5,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            6,
+            "named",
+            "x",
+            "up"
+          ]
+        ]
+      },
+      "reject": "unknown-token"
+    },
+    {
+      "name": "term-short-in-intent",
+      "description": "A term tuple one slot short is a wrong arity on the intent side; an encoder that defaulted the missing slot would map two intents to one payload.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-short-in-intent",
+      "description": "A bound tuple one slot short is a wrong arity on the intent side; an encoder that defaulted the missing slot would map two intents to one payload.",
+      "intent": {
+        "b": [
+          [
+            "candidates"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "head-short-in-intent",
+      "description": "A head tuple one slot short is a wrong arity on the intent side; an encoder that defaulted the missing slot would map two intents to one payload.",
+      "intent": {
+        "s": [
+          [
+            "head"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "tail-short-in-intent",
+      "description": "A tail tuple one slot short is a wrong arity on the intent side; an encoder that defaulted the missing slot would map two intents to one payload.",
+      "intent": {
+        "s": [
+          [
+            "tail"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "top-short-in-intent",
+      "description": "A top tuple one slot short is a wrong arity on the intent side; an encoder that defaulted the missing slot would map two intents to one payload.",
+      "intent": {
+        "s": [
+          [
+            "top"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "window-short-in-intent",
+      "description": "A window tuple one slot short is a wrong arity on the intent side; an encoder that defaulted the missing slot would map two intents to one payload.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            1
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "named-order-short-in-intent",
+      "description": "A named-order tuple one slot short is a wrong arity on the intent side; an encoder that defaulted the missing slot would map two intents to one payload.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            "n"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "head-overlong-in-intent",
+      "description": "A head stage carries exactly one count; a third slot is a wrong arity on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            1,
+            2
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "tail-overlong-in-intent",
+      "description": "A tail stage carries exactly one count; a third slot is a wrong arity on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            1,
+            2
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "top-overlong-in-intent",
+      "description": "A top stage carries exactly one count; a third slot is a wrong arity on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1,
+            2
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "fields-order-no-terms-in-intent",
+      "description": "A field-list operation carries at least one pair; none is a wrong arity on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "fields-order-odd-terms-in-intent",
+      "description": "A field-list operation pairs every key with a direction; an unpaired key is a wrong arity on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "fields",
+            "a",
+            "asc",
+            "b"
+          ]
+        ]
+      },
+      "reject": "bad-arity"
+    },
+    {
+      "name": "count-bound-fraction-in-intent",
+      "description": "A bound count spelled 1.0 is not a Count on the intent side, however integral its value.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            1.0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-bound-exponent-in-intent",
+      "description": "A bound count spelled 1e2 is not a Count on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            1e2
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-fraction-in-intent",
+      "description": "A head count spelled 1.0 is not a Count on the intent side, however integral its value.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            1.0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-exponent-in-intent",
+      "description": "A head count spelled 1e2 is not a Count on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            1e2
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-fraction-in-intent",
+      "description": "A tail count spelled 1.0 is not a Count on the intent side, however integral its value.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            1.0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-exponent-in-intent",
+      "description": "A tail count spelled 1e2 is not a Count on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "tail",
+            1e2
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-fraction-in-intent",
+      "description": "A top count spelled 1.0 is not a Count on the intent side, however integral its value.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1.0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-exponent-in-intent",
+      "description": "A top count spelled 1e2 is not a Count on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1e2
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-start-fraction-in-intent",
+      "description": "A window-start count spelled 1.0 is not a Count on the intent side, however integral its value.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            1.0,
+            null
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-start-exponent-in-intent",
+      "description": "A window-start count spelled 1e2 is not a Count on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            1e2,
+            null
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-end-fraction-in-intent",
+      "description": "A window-end count spelled 1.0 is not a Count on the intent side, however integral its value.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            null,
+            1.0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-end-exponent-in-intent",
+      "description": "A window-end count spelled 1e2 is not a Count on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            null,
+            1e2
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "repeated-dimension-equal-maxima-in-intent",
+      "description": "One dimension twice with identical maxima is refused on the intent side, not collapsed; there is no meaning to preserve.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            100
+          ],
+          [
+            "candidates",
+            100
+          ]
+        ]
+      },
+      "reject": "repeated-bound-dimension"
     }
   ],
   "reject": [
@@ -6948,6 +8778,870 @@
       "description": "A count spelled as a JSON string in the top position is not a Count on the wire.",
       "bytes": "{\"s\":[[\"top\",\"5\"]]}",
       "reject": "bad-integer"
+    },
+    {
+      "name": "term-key-number",
+      "description": "A JSON number in the term-key slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[1,\"eq\",\"v\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-key-true",
+      "description": "A JSON true in the term-key slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[true,\"eq\",\"v\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-key-array",
+      "description": "A JSON array in the term-key slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[[],\"eq\",\"v\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-key-object",
+      "description": "A JSON object in the term-key slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[{},\"eq\",\"v\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-operator-number",
+      "description": "A JSON number in the term-operator slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[\"k\",1,\"v\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-operator-true",
+      "description": "A JSON true in the term-operator slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[\"k\",true,\"v\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-operator-array",
+      "description": "A JSON array in the term-operator slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[\"k\",[],\"v\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-operator-object",
+      "description": "A JSON object in the term-operator slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[\"k\",{},\"v\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-value-number",
+      "description": "A JSON number in the term-value slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-value-true",
+      "description": "A JSON true in the term-value slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",true]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-value-array",
+      "description": "A JSON array in the term-value slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",[]]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-value-object",
+      "description": "A JSON object in the term-value slot is not a string; refused on the wire.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",{}]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-dimension-number",
+      "description": "A JSON number in the bound-dimension slot is not a string; refused on the wire.",
+      "bytes": "{\"b\":[[1,1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-dimension-true",
+      "description": "A JSON true in the bound-dimension slot is not a string; refused on the wire.",
+      "bytes": "{\"b\":[[true,1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-dimension-array",
+      "description": "A JSON array in the bound-dimension slot is not a string; refused on the wire.",
+      "bytes": "{\"b\":[[[],1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "bound-dimension-object",
+      "description": "A JSON object in the bound-dimension slot is not a string; refused on the wire.",
+      "bytes": "{\"b\":[[{},1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "stage-kind-number",
+      "description": "A JSON number in the stage-kind slot is not a string; refused on the wire.",
+      "bytes": "{\"s\":[[1,1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "stage-kind-true",
+      "description": "A JSON true in the stage-kind slot is not a string; refused on the wire.",
+      "bytes": "{\"s\":[[true,1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "stage-kind-array",
+      "description": "A JSON array in the stage-kind slot is not a string; refused on the wire.",
+      "bytes": "{\"s\":[[[],1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "stage-kind-object",
+      "description": "A JSON object in the stage-kind slot is not a string; refused on the wire.",
+      "bytes": "{\"s\":[[{},1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-kind-number",
+      "description": "A JSON number in the order-kind slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",1,\"n\",\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-kind-true",
+      "description": "A JSON true in the order-kind slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",true,\"n\",\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-kind-array",
+      "description": "A JSON array in the order-kind slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",[],\"n\",\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-kind-object",
+      "description": "A JSON object in the order-kind slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",{},\"n\",\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-reference-number",
+      "description": "A JSON number in the order-reference slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"named\",1,\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-reference-true",
+      "description": "A JSON true in the order-reference slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"named\",true,\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-reference-array",
+      "description": "A JSON array in the order-reference slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"named\",[],\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "order-reference-object",
+      "description": "A JSON object in the order-reference slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"named\",{},\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "direction-number",
+      "description": "A JSON number in the direction slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "direction-true",
+      "description": "A JSON true in the direction slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",true]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "direction-array",
+      "description": "A JSON array in the direction slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",[]]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "direction-object",
+      "description": "A JSON object in the direction slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",{}]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-key-number",
+      "description": "A JSON number in the field-key slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",1,\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-key-true",
+      "description": "A JSON true in the field-key slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",true,\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-key-array",
+      "description": "A JSON array in the field-key slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",[],\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-key-object",
+      "description": "A JSON object in the field-key slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",{},\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-direction-number",
+      "description": "A JSON number in the field-direction slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"k\",1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-direction-true",
+      "description": "A JSON true in the field-direction slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"k\",true]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-direction-array",
+      "description": "A JSON array in the field-direction slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"k\",[]]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-direction-object",
+      "description": "A JSON object in the field-direction slot is not a string; refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"k\",{}]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "role-true",
+      "description": "A JSON true in the role slot is neither the base role nor a RoleIndex.",
+      "bytes": "{\"o\":[[true,\"named\",\"n\",\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "role-array",
+      "description": "A JSON array in the role slot is neither the base role nor a RoleIndex.",
+      "bytes": "{\"o\":[[[],\"named\",\"n\",\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "role-object",
+      "description": "A JSON object in the role slot is neither the base role nor a RoleIndex.",
+      "bytes": "{\"o\":[[{},\"named\",\"n\",\"asc\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "count-bound-true",
+      "description": "A JSON true in the bound count slot is not a Count; refused on the wire.",
+      "bytes": "{\"b\":[[\"candidates\",true]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-bound-array",
+      "description": "A JSON array in the bound count slot is not a Count; refused on the wire.",
+      "bytes": "{\"b\":[[\"candidates\",[]]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-bound-object",
+      "description": "A JSON object in the bound count slot is not a Count; refused on the wire.",
+      "bytes": "{\"b\":[[\"candidates\",{}]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-true",
+      "description": "A JSON true in the head count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"head\",true]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-array",
+      "description": "A JSON array in the head count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"head\",[]]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-head-object",
+      "description": "A JSON object in the head count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"head\",{}]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-true",
+      "description": "A JSON true in the tail count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"tail\",true]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-array",
+      "description": "A JSON array in the tail count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"tail\",[]]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-tail-object",
+      "description": "A JSON object in the tail count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"tail\",{}]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-true",
+      "description": "A JSON true in the top count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"top\",true]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-array",
+      "description": "A JSON array in the top count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"top\",[]]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-top-object",
+      "description": "A JSON object in the top count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"top\",{}]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-start-true",
+      "description": "A JSON true in the window-start count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"window\",true,null]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-start-array",
+      "description": "A JSON array in the window-start count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"window\",[],null]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-start-object",
+      "description": "A JSON object in the window-start count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"window\",{},null]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-end-true",
+      "description": "A JSON true in the window-end count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"window\",null,true]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-end-array",
+      "description": "A JSON array in the window-end count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"window\",null,[]]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-end-object",
+      "description": "A JSON object in the window-end count slot is not a Count; refused on the wire.",
+      "bytes": "{\"s\":[[\"window\",null,{}]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-start-string",
+      "description": "A JSON string in the window-start slot is not a Count or null; refused on the wire.",
+      "bytes": "{\"s\":[[\"window\",\"5\",null]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-end-string",
+      "description": "A JSON string in the window-end slot is not a Count or null; refused on the wire.",
+      "bytes": "{\"s\":[[\"window\",null,\"5\"]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "part-t-true",
+      "description": "A JSON true in place of the t array is not a part; refused on the wire.",
+      "bytes": "{\"t\":true}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-t-true",
+      "description": "A JSON true in place of a tuple inside t is not a tuple; refused on the wire.",
+      "bytes": "{\"t\":[true]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-b-true",
+      "description": "A JSON true in place of the b array is not a part; refused on the wire.",
+      "bytes": "{\"b\":true}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-b-true",
+      "description": "A JSON true in place of a tuple inside b is not a tuple; refused on the wire.",
+      "bytes": "{\"b\":[true]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-s-true",
+      "description": "A JSON true in place of the s array is not a part; refused on the wire.",
+      "bytes": "{\"s\":true}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-s-true",
+      "description": "A JSON true in place of a tuple inside s is not a tuple; refused on the wire.",
+      "bytes": "{\"s\":[true]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-o-true",
+      "description": "A JSON true in place of the o array is not a part; refused on the wire.",
+      "bytes": "{\"o\":true}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-o-true",
+      "description": "A JSON true in place of a tuple inside o is not a tuple; refused on the wire.",
+      "bytes": "{\"o\":[true]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-t-object",
+      "description": "A JSON object in place of the t array is not a part; refused on the wire.",
+      "bytes": "{\"t\":{}}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-t-object",
+      "description": "A JSON object in place of a tuple inside t is not a tuple; refused on the wire.",
+      "bytes": "{\"t\":[{}]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-b-object",
+      "description": "A JSON object in place of the b array is not a part; refused on the wire.",
+      "bytes": "{\"b\":{}}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-b-object",
+      "description": "A JSON object in place of a tuple inside b is not a tuple; refused on the wire.",
+      "bytes": "{\"b\":[{}]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-s-object",
+      "description": "A JSON object in place of the s array is not a part; refused on the wire.",
+      "bytes": "{\"s\":{}}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-s-object",
+      "description": "A JSON object in place of a tuple inside s is not a tuple; refused on the wire.",
+      "bytes": "{\"s\":[{}]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-o-object",
+      "description": "A JSON object in place of the o array is not a part; refused on the wire.",
+      "bytes": "{\"o\":{}}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-o-object",
+      "description": "A JSON object in place of a tuple inside o is not a tuple; refused on the wire.",
+      "bytes": "{\"o\":[{}]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-t-string",
+      "description": "A JSON string in place of the t array is not a part; refused on the wire.",
+      "bytes": "{\"t\":\"x\"}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-t-string",
+      "description": "A JSON string in place of a tuple inside t is not a tuple; refused on the wire.",
+      "bytes": "{\"t\":[\"x\"]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-b-string",
+      "description": "A JSON string in place of the b array is not a part; refused on the wire.",
+      "bytes": "{\"b\":\"x\"}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-b-string",
+      "description": "A JSON string in place of a tuple inside b is not a tuple; refused on the wire.",
+      "bytes": "{\"b\":[\"x\"]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-s-string",
+      "description": "A JSON string in place of the s array is not a part; refused on the wire.",
+      "bytes": "{\"s\":\"x\"}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-s-string",
+      "description": "A JSON string in place of a tuple inside s is not a tuple; refused on the wire.",
+      "bytes": "{\"s\":[\"x\"]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-o-string",
+      "description": "A JSON string in place of the o array is not a part; refused on the wire.",
+      "bytes": "{\"o\":\"x\"}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-o-string",
+      "description": "A JSON string in place of a tuple inside o is not a tuple; refused on the wire.",
+      "bytes": "{\"o\":[\"x\"]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-t-number",
+      "description": "A JSON number in place of the t array is not a part; refused on the wire.",
+      "bytes": "{\"t\":1}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-t-number",
+      "description": "A JSON number in place of a tuple inside t is not a tuple; refused on the wire.",
+      "bytes": "{\"t\":[1]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-b-number",
+      "description": "A JSON number in place of the b array is not a part; refused on the wire.",
+      "bytes": "{\"b\":1}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-b-number",
+      "description": "A JSON number in place of a tuple inside b is not a tuple; refused on the wire.",
+      "bytes": "{\"b\":[1]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-s-number",
+      "description": "A JSON number in place of the s array is not a part; refused on the wire.",
+      "bytes": "{\"s\":1}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-s-number",
+      "description": "A JSON number in place of a tuple inside s is not a tuple; refused on the wire.",
+      "bytes": "{\"s\":[1]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "part-o-number",
+      "description": "A JSON number in place of the o array is not a part; refused on the wire.",
+      "bytes": "{\"o\":1}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "row-o-number",
+      "description": "A JSON number in place of a tuple inside o is not a tuple; refused on the wire.",
+      "bytes": "{\"o\":[1]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "last-term-invalid",
+      "description": "Every tuple is validated, not only the first: an empty key in the twenty-fourth term is refused on the wire.",
+      "bytes": "{\"t\":[[\"\",\"eq\",\"v\"],[\"k00\",\"eq\",\"v\"],[\"k01\",\"eq\",\"v\"],[\"k02\",\"eq\",\"v\"],[\"k03\",\"eq\",\"v\"],[\"k04\",\"eq\",\"v\"],[\"k05\",\"eq\",\"v\"],[\"k06\",\"eq\",\"v\"],[\"k07\",\"eq\",\"v\"],[\"k08\",\"eq\",\"v\"],[\"k09\",\"eq\",\"v\"],[\"k10\",\"eq\",\"v\"],[\"k11\",\"eq\",\"v\"],[\"k12\",\"eq\",\"v\"],[\"k13\",\"eq\",\"v\"],[\"k14\",\"eq\",\"v\"],[\"k15\",\"eq\",\"v\"],[\"k16\",\"eq\",\"v\"],[\"k17\",\"eq\",\"v\"],[\"k18\",\"eq\",\"v\"],[\"k19\",\"eq\",\"v\"],[\"k20\",\"eq\",\"v\"],[\"k21\",\"eq\",\"v\"],[\"k22\",\"eq\",\"v\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "last-bound-invalid",
+      "description": "Every tuple is validated, not only the first: a zero maximum in the eighth bound is refused on the wire.",
+      "bytes": "{\"b\":[[\"d0\",1],[\"d1\",1],[\"d2\",1],[\"d3\",1],[\"d4\",1],[\"d5\",1],[\"d6\",1],[\"d7\",0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "last-stage-invalid",
+      "description": "Every tuple is validated, not only the first: a zero count in the eighth stage is refused on the wire.",
+      "bytes": "{\"s\":[[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "last-order-operation-invalid",
+      "description": "Every tuple is validated, not only the first: an unknown direction in the eighth operation is refused on the wire.",
+      "bytes": "{\"s\":[[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1]],\"o\":[[\"base\",\"named\",\"n\",\"asc\"],[0,\"named\",\"x\",\"asc\"],[1,\"named\",\"x\",\"asc\"],[2,\"named\",\"x\",\"asc\"],[3,\"named\",\"x\",\"asc\"],[4,\"named\",\"x\",\"asc\"],[5,\"named\",\"x\",\"asc\"],[6,\"named\",\"x\",\"up\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "head-short",
+      "description": "A head stage with no count is a wrong arity on the wire.",
+      "bytes": "{\"s\":[[\"head\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "tail-short",
+      "description": "A tail stage with no count is a wrong arity on the wire.",
+      "bytes": "{\"s\":[[\"tail\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "top-short",
+      "description": "A top stage with no count is a wrong arity on the wire.",
+      "bytes": "{\"s\":[[\"top\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "field-key-2-newline-long-form",
+      "description": "A newline in the key of field-list pair 2 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\u000ab\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-carriage-return-long-form",
+      "description": "A carriage-return in the key of field-list pair 2 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\u000db\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-backspace-long-form",
+      "description": "A backspace in the key of field-list pair 2 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\u0008b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-form-feed-long-form",
+      "description": "A form-feed in the key of field-list pair 2 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\u000cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-2-backslash-as-u005c",
+      "description": "A backslash in the key of field-list pair 2 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"a\\u005cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-newline-long-form",
+      "description": "A newline in the key of field-list pair 3 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\u000ab\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-carriage-return-long-form",
+      "description": "A carriage-return in the key of field-list pair 3 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\u000db\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-backspace-long-form",
+      "description": "A backspace in the key of field-list pair 3 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\u0008b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-form-feed-long-form",
+      "description": "A form-feed in the key of field-list pair 3 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\u000cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-3-backslash-as-u005c",
+      "description": "A backslash in the key of field-list pair 3 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"a\\u005cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-newline-long-form",
+      "description": "A newline in the key of field-list pair 4 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\u000ab\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-carriage-return-long-form",
+      "description": "A carriage-return in the key of field-list pair 4 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\u000db\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-backspace-long-form",
+      "description": "A backspace in the key of field-list pair 4 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\u0008b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-form-feed-long-form",
+      "description": "A form-feed in the key of field-list pair 4 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\u000cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-4-backslash-as-u005c",
+      "description": "A backslash in the key of field-list pair 4 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"a\\u005cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-newline-long-form",
+      "description": "A newline in the key of field-list pair 5 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\u000ab\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-carriage-return-long-form",
+      "description": "A carriage-return in the key of field-list pair 5 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\u000db\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-backspace-long-form",
+      "description": "A backspace in the key of field-list pair 5 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\u0008b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-form-feed-long-form",
+      "description": "A form-feed in the key of field-list pair 5 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\u000cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-5-backslash-as-u005c",
+      "description": "A backslash in the key of field-list pair 5 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"a\\u005cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-newline-long-form",
+      "description": "A newline in the key of field-list pair 6 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\u000ab\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-carriage-return-long-form",
+      "description": "A carriage-return in the key of field-list pair 6 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\u000db\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-backspace-long-form",
+      "description": "A backspace in the key of field-list pair 6 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\u0008b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-form-feed-long-form",
+      "description": "A form-feed in the key of field-list pair 6 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\u000cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-6-backslash-as-u005c",
+      "description": "A backslash in the key of field-list pair 6 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"a\\u005cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-newline-long-form",
+      "description": "A newline in the key of field-list pair 7 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\u000ab\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-carriage-return-long-form",
+      "description": "A carriage-return in the key of field-list pair 7 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\u000db\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-backspace-long-form",
+      "description": "A backspace in the key of field-list pair 7 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\u0008b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-form-feed-long-form",
+      "description": "A form-feed in the key of field-list pair 7 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\u000cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-7-backslash-as-u005c",
+      "description": "A backslash in the key of field-list pair 7 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"a\\u005cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-newline-long-form",
+      "description": "A newline in the key of field-list pair 8 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\u000ab\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-carriage-return-long-form",
+      "description": "A carriage-return in the key of field-list pair 8 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\u000db\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-backspace-long-form",
+      "description": "A backspace in the key of field-list pair 8 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\u0008b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-form-feed-long-form",
+      "description": "A form-feed in the key of field-list pair 8 spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\u000cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-8-backslash-as-u005c",
+      "description": "A backslash in the key of field-list pair 8 spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"a\\u005cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "value-quote-escaped-as-u0022",
+      "description": "A quote in a value spelled as a hex escape decodes correctly but is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"a\\u0022b\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "value-tab-long-form",
+      "description": "A tab in a value spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"a\\u0009b\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-key-backslash-as-u005c",
+      "description": "A backslash in the term-key slot spelled as a hex escape is not canonical.",
+      "bytes": "{\"t\":[[\"a\\u005cb\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-backslash-as-u005c",
+      "description": "A backslash in the bound-dimension slot spelled as a hex escape is not canonical.",
+      "bytes": "{\"b\":[[\"a\\u005cb\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-backslash-as-u005c",
+      "description": "A backslash in the order-reference slot spelled as a hex escape is not canonical.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\u005cb\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-backslash-as-u005c",
+      "description": "A backslash in the field-key slot spelled as a hex escape is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\u005cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "value-backslash-as-u005c",
+      "description": "A backslash in the value slot spelled as a hex escape is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"a\\u005cb\"]]}",
+      "reject": "non-canonical"
     }
   ],
   "pair": [
