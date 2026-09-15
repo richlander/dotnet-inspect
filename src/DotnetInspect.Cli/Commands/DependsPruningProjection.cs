@@ -32,11 +32,11 @@ public partial class DependsCommand
         var rows = ImmutableArray.CreateBuilder<DependsPruningRow>();
         var failures = ImmutableArray.CreateBuilder<DependsFailureRow>();
         var pending = new List<PendingPruningDeclaration>();
-        int roots = 0;
+        int roots = evidence.Roots.Length + evidence.FailedRoots.Length;
         int declarations = 0;
-        int notEvaluated = 0;
+        int notEvaluated = evidence.FailedRoots.Length;
         int sourceBounded = 0;
-        int failed = 0;
+        int failed = evidence.FailedRoots.Length;
         int successful = 0;
 
         for (int inputIndex = 0;
@@ -44,7 +44,6 @@ public partial class DependsCommand
              inputIndex++)
         {
             PackageDependencyEvidenceRoot root = evidence.Roots[inputIndex];
-            roots++;
             if (root.Declaration
                     is not PackageDependencyEvidenceDeclarationResult
                         .Available available)
