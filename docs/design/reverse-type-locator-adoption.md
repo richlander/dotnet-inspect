@@ -10,10 +10,11 @@ the Find handoff portion of
 the new query contract. This map owns no participating component's internals.
 
 Metadata inventories, the Workspace's explicit-context population projection,
-and the cold locator over that input are implemented prerequisites. Existing
-Find, Type, Member, Platform routing, and Spotlight behavior remain supported
-as before. The resident facade and host adoption are still pending; no
-design-only row or mockup is advertised as implemented.
+the cold locator, and the resident facade over loader-issued contexts are
+implemented prerequisites. Existing Find, Type, Member, Platform routing, and
+Spotlight behavior remain supported as before. Additional population adapters
+and host adoption are still pending; no design-only row or mockup is advertised
+as implemented.
 
 ## Counted production path
 
@@ -30,7 +31,7 @@ inside the Workspace owner.
 | 1 | [#6852](https://github.com/richlander/dotnet-inspect/issues/6852), Reverse Type-Declaration Locator: this contract and map. | Design review only; not product support. |
 | 2 | [#6847](https://github.com/richlander/dotnet-inspect/issues/6847), Source Selection: settle exact Library coordinates for local assemblies and project outputs in its coordinate owner. | Project and Local arms preserve source domain without paths, generations, or pseudo-Package/Platform provenance. |
 | 3 | [#6848](https://github.com/richlander/dotnet-inspect/issues/6848), Metadata: [borrowed declaration inventories](type-forwarding-resolution.md#detached-declaration-inventory) through `AssemblyInspectionSession.TypeDeclarations()`. | Implemented Metadata prerequisite: detached structured names, kinds, public/all views, and whole-inventory rejection; not yet locator or host adoption. |
-| 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): [explicit-context population projection](workspace-live-locator.md#implemented-explicit-context-projection) is implemented for the existing context loader; global observation and the resident facade remain pending. | Coherent first-use observation, reuse without rescanning healthy entries, receipt-pinned vectors and owner-governed close; the projection slice does not complete this step. |
+| 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): the [explicit-context population projection](workspace-live-locator.md#implemented-explicit-context-projection) and [resident facade](workspace-live-locator.md#implemented-loader-context-resident-facade) are implemented for the existing context loader; additional source-owner adapters remain pending. | Implemented coherent first-use observation, reuse without rescanning healthy entries, receipt-pinned vectors, caller-detached cancellation, and owner-governed close for loader-issued contexts. This does not complete all-source step 4. |
 | 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: [cold reverse locator](reverse-type-declaration-locator.md#implemented-cold-query) over the implemented Workspace population input. | Implemented always-vector coordinate-plus-origin answers, deterministic outcomes and Release gates; additional population producers remain step 4 adoption, not inferred source authority. |
 | 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: adopt the locator result's row unit and structured multi-format projection. | Each row retains one candidate's origin and observation context with mandatory coverage/failure disclosure. |
 | 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: use the live facade in a short-lived Workspace; Type and Member consume the selected observation through ordinary exact-coordinate paths. | Runnable locate-once workflow, deliberate fallback/limit migration and routing parity evidence; update shipped skills only now. |
@@ -72,12 +73,12 @@ classification, source authorization and defaults remain Find-owned; any
 fallback is a separately identified request, and `FindOptions.Limit` cannot
 silently stand in for the query's inventory-read bound.
 
-The current cold-query slice deliberately does not replace a CLI collector
-before those associations and the resident facade exist. Its next production
-steps remain the named step 4 completion, step 6 Sections, and step 7 CLI
+The current resident facade deliberately does not replace a CLI collector
+before the remaining source associations exist. Its next production steps
+remain the named step 4 producer adapters, step 6 Sections, and step 7 CLI
 handoff, followed by step 8's TypeScript consumer of the same typed operation.
-The completed common inspection supplies `InspectionEnvelope<TContent>` at
-that host boundary rather than nesting envelopes around prerequisite queries.
+The completed common inspection supplies `InspectionEnvelope<TContent>` at that
+host boundary rather than nesting envelopes around prerequisite queries.
 
 ## Rendering handoff
 
@@ -129,7 +130,8 @@ implementation evidence. Add project/local fixture paths when their coordinate
 owner is ready. The query design lists the required pathological outcomes;
 the CLI and browser slices additionally demonstrate selecting each same-named
 source candidate, then inspecting its Type and an exact Member.
-The stateless query remains independently usable cold. The approved Workspace
-live facade requires cold/resident equivalence at the same population receipt
-and inventory evidence, plus first-demand, append-during-initialization,
-shared-cancellation and close/drain evidence before step 4 is complete.
+The stateless query remains independently usable cold. The loader-context
+resident facade now has cold/resident equivalence, first-demand,
+append-during-initialization, shared-cancellation, and close/drain evidence.
+Step 4 remains incomplete until the additional population producers supply
+their owner-issued associations.

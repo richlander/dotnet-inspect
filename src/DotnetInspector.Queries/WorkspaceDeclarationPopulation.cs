@@ -192,17 +192,24 @@ public sealed class WorkspaceDeclarationPopulation
     readonly IReadOnlyDictionary<
         WorkspaceDeclarationOccurrence,
         (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)> _access;
+    readonly IReadOnlyDictionary<
+        WorkspaceDeclarationOccurrence,
+        WorkspaceDeclarationInventoryOutcome>? _inventoryOutcomes;
 
     internal WorkspaceDeclarationPopulation(
         InspectionWorkspace workspace,
         WorkspaceDeclarationPopulationReceipt receipt,
         IReadOnlyDictionary<
             WorkspaceDeclarationOccurrence,
-            (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)> access)
+            (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)> access,
+        IReadOnlyDictionary<
+            WorkspaceDeclarationOccurrence,
+            WorkspaceDeclarationInventoryOutcome>? inventoryOutcomes = null)
     {
         _workspace = workspace;
         Receipt = receipt;
         _access = access;
+        _inventoryOutcomes = inventoryOutcomes;
     }
 
     public WorkspaceDeclarationPopulationReceipt Receipt { get; }
@@ -226,6 +233,14 @@ public sealed class WorkspaceDeclarationPopulation
         if (Availability() is { } unavailable)
             return new WorkspaceDeclarationInventoryOutcome.Unavailable(unavailable);
 
+        if (_inventoryOutcomes is not null)
+        {
+            if (_inventoryOutcomes.TryGetValue(occurrence, out var outcome))
+                return outcome;
+            throw new InspectionQueryException(
+                "The resident declaration locator did not supply the captured occurrence outcome.");
+        }
+
         try
         {
             var result = access.Group.UseAssemblySession(
@@ -247,5 +262,18 @@ public sealed class WorkspaceDeclarationPopulation
             return new WorkspaceDeclarationInventoryOutcome.Unavailable(
                 WorkspaceDeclarationPopulationFailure.ContextUnavailable);
         }
+    }
+
+    internal WorkspaceDeclarationPopulation WithInventoryOutcomes(
+        IReadOnlyDictionary<
+            WorkspaceDeclarationOccurrence,
+            WorkspaceDeclarationInventoryOutcome> outcomes)
+    {
+        ArgumentNullException.ThrowIfNull(outcomes);
+        return new WorkspaceDeclarationPopulation(
+            _workspace,
+            Receipt,
+            _access,
+            outcomes);
     }
 }

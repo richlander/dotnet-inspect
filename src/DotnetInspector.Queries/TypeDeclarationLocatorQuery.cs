@@ -30,27 +30,8 @@ public static class TypeDeclarationLocatorQuery
     {
         ArgumentNullException.ThrowIfNull(population);
         cancellationToken.ThrowIfCancellationRequested();
-        if (requests.IsDefaultOrEmpty)
-            return new TypeDeclarationLocatorResult.Rejected(TypeDeclarationLocatorRejectionKind.EmptyRequests);
-        for (int index = 0; index < requests.Length; index++)
-        {
-            bool valid = requests[index] switch
-            {
-                TypeDeclarationLocatorRequest.Exact exact => exact.Name is not null,
-                TypeDeclarationLocatorRequest.Pattern pattern => !string.IsNullOrWhiteSpace(pattern.Text),
-                _ => false,
-            };
-            if (!valid)
-            {
-                return new TypeDeclarationLocatorResult.Rejected(
-                    TypeDeclarationLocatorRejectionKind.InvalidRequest, index);
-            }
-        }
-        if (maxInventoryReads < 0)
-        {
-            return new TypeDeclarationLocatorResult.Rejected(
-                TypeDeclarationLocatorRejectionKind.InvalidInventoryReadLimit);
-        }
+        if (ValidateArguments(requests, maxInventoryReads) is { } invalid)
+            return invalid;
         if (population.Availability() is { } unavailable)
         {
             return new TypeDeclarationLocatorResult.Rejected(
@@ -137,6 +118,37 @@ public static class TypeDeclarationLocatorQuery
         cancellationToken.ThrowIfCancellationRequested();
         return new TypeDeclarationLocatorResult.Evaluated(
             population.Receipt, includeAll, maxInventoryReads, members, answers.MoveToImmutable());
+    }
+
+    internal static TypeDeclarationLocatorResult.Rejected? ValidateArguments(
+        ImmutableArray<TypeDeclarationLocatorRequest> requests,
+        int? maxInventoryReads)
+    {
+        if (requests.IsDefaultOrEmpty)
+        {
+            return new TypeDeclarationLocatorResult.Rejected(
+                TypeDeclarationLocatorRejectionKind.EmptyRequests);
+        }
+        for (int index = 0; index < requests.Length; index++)
+        {
+            bool valid = requests[index] switch
+            {
+                TypeDeclarationLocatorRequest.Exact exact => exact.Name is not null,
+                TypeDeclarationLocatorRequest.Pattern pattern =>
+                    !string.IsNullOrWhiteSpace(pattern.Text),
+                _ => false,
+            };
+            if (!valid)
+            {
+                return new TypeDeclarationLocatorResult.Rejected(
+                    TypeDeclarationLocatorRejectionKind.InvalidRequest,
+                    index);
+            }
+        }
+        return maxInventoryReads < 0
+            ? new TypeDeclarationLocatorResult.Rejected(
+                TypeDeclarationLocatorRejectionKind.InvalidInventoryReadLimit)
+            : null;
     }
 
     static int CompareCandidates(TypeDeclarationLocatorCandidate left, TypeDeclarationLocatorCandidate right)

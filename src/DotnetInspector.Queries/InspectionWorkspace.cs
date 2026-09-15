@@ -1403,6 +1403,8 @@ public sealed partial class InspectionWorkspace :
     public Task<InspectionWorkspaceCloseReport> CloseAsync()
     {
         WorkspaceClosePlan plan = default;
+        WorkspaceTypeDeclarationLocator
+            .WorkspaceTypeDeclarationLocatorClose? locatorClose = null;
         bool startClose = false;
         lock (_gate)
         {
@@ -1412,9 +1414,13 @@ public sealed partial class InspectionWorkspace :
                     [.. _admissions];
                 foreach (WorkspaceGroupAdmission admission in admissions)
                     admission.CloseWorkspaceAdmission();
+                locatorClose = _typeDeclarationLocator?.SealFromWorkspace();
+                _typeDeclarationLocatorActive = false;
+                _declarationContexts.Clear();
                 plan = new WorkspaceClosePlan(
                     admissions,
-                    [.. _artifactSessions]);
+                    [.. _artifactSessions],
+                    locatorClose);
                 _state = InspectionWorkspaceState.Closing;
                 foreach (AssemblyContextGroup group in _groups)
                 {
@@ -1429,7 +1435,10 @@ public sealed partial class InspectionWorkspace :
         }
 
         if (startClose)
+        {
+            locatorClose?.Cancel();
             _closeStart.SetResult(plan);
+        }
 
         return _closeTask;
     }
@@ -1551,6 +1560,11 @@ public sealed partial class InspectionWorkspace :
         WorkspaceClosePlan plan =
             await start.ConfigureAwait(false);
         Task<ImmutableArray<Exception>> rootClose = CloseArtifactRootsAsync();
+        Exception? locatorCloseFailure =
+            plan.TypeDeclarationLocator is null
+                ? null
+                : await plan.TypeDeclarationLocator.Completion
+                    .ConfigureAwait(false);
         var completionTasks =
             new Task<InspectionWorkspaceGroupCloseResult?>[
                 plan.GroupAdmissions.Length];
@@ -1618,11 +1632,20 @@ public sealed partial class InspectionWorkspace :
             _closeReport = report;
             _state = InspectionWorkspaceState.Closed;
         }
-        if (groupCloseFailure is not null)
+        Exception? closeFailure = (groupCloseFailure, locatorCloseFailure)
+            switch
+            {
+                (null, null) => null,
+                ({ } group, null) => group,
+                (null, { } locator) => locator,
+                ({ } group, { } locator) =>
+                    new AggregateException(group, locator),
+            };
+        if (closeFailure is not null)
         {
             return await Task.FromException<
                     InspectionWorkspaceCloseReport>(
-                    groupCloseFailure)
+                    closeFailure)
                 .ConfigureAwait(false);
         }
         return report;
@@ -1696,7 +1719,10 @@ public sealed partial class InspectionWorkspace :
     readonly record struct WorkspaceClosePlan(
         ImmutableArray<WorkspaceGroupAdmission> GroupAdmissions,
         ImmutableArray<WorkspaceArtifactSessionRegistration>
-            ArtifactSessions);
+            ArtifactSessions,
+        WorkspaceTypeDeclarationLocator
+            .WorkspaceTypeDeclarationLocatorClose?
+            TypeDeclarationLocator);
 
     internal sealed class WorkspaceCoordinatedGroupAdmission
     {

@@ -7,9 +7,9 @@ Focused design under
 the merged [reverse locator contract](reverse-type-declaration-locator.md)
 in [#6853](https://github.com/richlander/dotnet-inspect/pull/6853).
 The [explicit context projection](#implemented-explicit-context-projection)
-is implemented. The live facade, snapshot/subscription handoff, and resident
-implementation gates below are **not implemented**. The interaction model is
-design evidence only.
+and its Workspace-resident facade are implemented for loader-issued contexts.
+Additional population-producer adapters and CLI/Browser adoption remain
+pending. The interaction model remains bounded design evidence.
 
 **Workspace Live Locator**, within Workspace composition in
 `DotnetInspector.Queries`, owns this claim:
@@ -176,10 +176,55 @@ it does not substitute for the reference-view and resident-maintenance gates
 below. The real-asset gate is `Speed=Slow`, retained in daily Deep Inspect's
 unfiltered Queries suite; the small-fixture boundary cases remain PR-fast.
 
-Global population observation, first-demand caching, append maintenance, the
-cold matcher, and CLI/Browser adoption remain pending along the
-[delivery map](reverse-type-locator-adoption.md). This slice does not complete
-issue #6845 or expose a new Find command.
+The cold matcher and a resident facade over this explicit population are
+implemented. Raw groups, Artifact Root publication, restored projects,
+local/project producers, and reference-pack-specific producers remain pending
+adapters along the [delivery map](reverse-type-locator-adoption.md). This does
+not complete issue #6845 or expose a new Find command.
+
+### Implemented loader-context resident facade
+
+`InspectionWorkspace.GetTypeDeclarationLocator()` returns one dormant
+`WorkspaceTypeDeclarationLocator`. Its first valid request atomically activates
+observation and captures the current completed loader-context population under
+the Workspace gate. Context completion publishes only an invalidation outside
+that gate; the locator then captures a fresh authoritative population and
+reconciles by `WorkspaceDeclarationOccurrence`. This handles completion order
+such as `[B]` followed by `[A, B]` without treating population growth as a
+suffix.
+
+Each query captures one population receipt, reserves the coordinate-bearing
+occurrences admitted by its inventory-read bound, and delegates matching,
+ordering, member outcomes, and completion to
+`TypeDeclarationLocatorQuery.Execute`. A fixed per-attempt outcome overlay
+ensures that later additions cannot enter the captured answer. Maintenance
+grows to the largest admitted bounded prefix; one unbounded request admits all
+current and future coordinate-bearing occurrences.
+
+Successful Metadata inventories, including typed Metadata rejection, remain
+resident by occurrence. Operational acquisition/unavailability outcomes remain
+attempt-specific and may be retried; unexpected worker exceptions fault the
+facade and surface through later requests and Workspace close. Concurrent
+requests and maintenance join one in-flight read per occurrence. Caller
+cancellation detaches only that waiter and never cancels shared work.
+
+Workspace close seals locator admission under the existing Workspace gate,
+issues locator cancellation outside it, and waits for admitted queries and
+inventory work before group release completes. The implementation schedules
+portable continuations with `Task.Yield`; it does not require `Task.Run` or a
+thread pool.
+
+Release gates are in `WorkspaceContextLoaderTests`, with the
+`LiveTypeLocator_` prefix:
+
+| Claim | Gate suffix |
+| --- | --- |
+| Invalid requests preserve dormancy | `InvalidRequestsDoNotActivateMaintenance` |
+| First-demand and concurrent reuse | `FirstDemandReusesSuccessfulInventory`, `CallerCancellationDoesNotCancelSharedWork` |
+| Coherent activation/append handoff and receipt pinning | `ActivationRecoversEarlierPendingContext` |
+| Bounded maintenance growth | `BoundGrowthInventoriesOnlyNewlyAdmittedPrefix` |
+| Immutable rejection reuse and closed admission | `CachesMetadataRejectionAndCloseStopsAdmission` |
+| Borrowed-work drainage | `CloseDrainsBorrowedInventoryWork` |
 
 ## Resident inventories and shared work
 
@@ -311,7 +356,7 @@ its stated finite bounds. Its exact verdicts are enforced by
 `eng/tla-expected-exit-codes.txt`. It does not prove source correspondence,
 Metadata decoding, resource retention in C#, or single-threaded Wasm behavior.
 
-Before product support, #6845 requires Release gates over the actual facade:
+The loader-context facade has Release gates over these properties:
 
 | Observable property | Required implementation gate |
 | --- | --- |
@@ -320,12 +365,13 @@ Before product support, #6845 requires Release gates over the actual facade:
 | Exact request revision | Pause the first query, append and inventory another occurrence, and compare its P1 result and a subsequent P2 result against cold queries for those exact receipts. |
 | Honest failure and bounds | An added rejected/malformed or work-bound occurrence remains attributed alongside healthy candidates; retry unfinished work without rescanning healthy entries. |
 | Shared cancellation and close | Cancel one waiter while another proceeds; close during a borrowed inventory read, then verify release waits, no post-close work starts, and old results remain usable as detached data. |
-| Production adoption | CLI Find-to-Type/Member and retained Browser/Wasm Find-after-append use the same facade and preserve selected origin/context; no thread-pool dependency is assumed. |
+| Production adoption | Pending: CLI Find-to-Type/Member and retained Browser/Wasm Find-after-append use the same facade and preserve selected origin/context; no thread-pool dependency is assumed. |
 
 Metadata borrowing/visibility (#6848), exact population projection (#6845),
-and the cold query (#6849) precede the resident facade's executable delivery.
-The same #6845 issue remains open for that implementation after this design
-lands. Common Sections (#6846), CLI (#6844), and Browser (#6851) adopt the
-live facade along the existing nine-step map; the one-shot CLI uses a short
-Workspace lifetime rather than a separate index. Local/project coordinate
-support remains #6847. Old Platform lookup retirement remains #6850.
+the cold query (#6849), and the loader-context resident facade are implemented.
+Issue #6845 remains open for additional producer adapters. Common Sections (#6846),
+CLI (#6844), and Browser (#6851) adopt the live facade along the existing
+nine-step map; the one-shot CLI uses a short Workspace lifetime rather than a
+separate index. Local/project coordinate support is implemented, but its
+Workspace population adapters remain #6845 work. Old Platform lookup
+retirement remains #6850.
