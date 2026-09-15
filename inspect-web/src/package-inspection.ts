@@ -7,6 +7,7 @@ import {
 } from "./data.ts";
 import type {
   BrowserPackageDependencies,
+  BrowserPackagePruningResult,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   BrowserPackageIntegrations,
@@ -46,6 +47,26 @@ export function resolvePackagePerformanceMember(
   return type && member ? { type, member } : null;
 }
 
+function dependencyProjectionError(
+  result: BrowserPackageDependencies,
+): string {
+  const errors: string[] = [];
+  if (result.dependencyGroupError) {
+    errors.push(result.dependencyGroupError);
+  }
+
+  const failureCount = result.declarationFailures.length;
+  if (failureCount > 0) {
+    errors.push(
+      `Dependency declaration projection is incomplete (${failureCount} ${
+        failureCount === 1 ? "failure" : "failures"
+      }).`,
+    );
+  }
+
+  return errors.join(" ");
+}
+
 export interface PackageInspectionState {
   packages: AppPackage[];
   atPackageRoot: boolean;
@@ -56,6 +77,11 @@ export interface PackageInspectionState {
   packageDependenciesLoading: boolean;
   packageDependenciesError: string;
   packageDependenciesKey: string;
+  packagePruning: BrowserPackagePruningResult | null;
+  packagePruningLoading: boolean;
+  packagePruningError: string;
+  packagePruningKey: string;
+  packagePruningFamily: string;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
   workspaceDependencyLoads: Set<string>;
@@ -83,6 +109,10 @@ export interface PackageInspectionDependencies {
   queryDependencies(
     packageModel: PackageIdentity & { assemblyId: string },
   ): Promise<BrowserPackageDependencies>;
+  queryPruning(
+    packageModel: AppPackage,
+    family: string,
+  ): Promise<BrowserPackagePruningResult>;
   queryPackageIntegrations(
     packageModel: AppPackage,
     library: string,
@@ -139,6 +169,11 @@ export interface PackageInspectionCoordinator {
     packageModel: AppPackage,
     signature: string,
   ): Promise<void>;
+  loadPruning(
+    packageModel: AppPackage,
+    signature: string,
+    family: string,
+  ): Promise<void>;
   ensureWorkspaceDependencies(): Promise<void>;
   loadIntegrations(
     packageModel: AppPackage,
@@ -183,6 +218,7 @@ export function createPackageInspectionCoordinator(
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
   let packageResultGeneration = 0;
+  let pruningRequestSequence = 0;
   let metadataRequestSequence = 0;
 
   const platformCoordinates = (
@@ -220,9 +256,11 @@ export function createPackageInspectionCoordinator(
           dependencyGroups: result?.dependencyGroups || [],
           dependencyGroupError: result?.dependencyGroupError || "",
         };
-        if (result?.dependencyGroupError) {
-          state.workspaceDependencyErrors[key] =
-            result.dependencyGroupError;
+        const projectionError = result
+          ? dependencyProjectionError(result)
+          : "";
+        if (projectionError) {
+          state.workspaceDependencyErrors[key] = projectionError;
         } else {
           delete state.workspaceDependencyErrors[key];
         }
@@ -257,6 +295,10 @@ export function createPackageInspectionCoordinator(
       state.packageDependenciesLoading = false;
       state.packageDependenciesError = "";
       state.packageDependenciesKey = "";
+      state.packagePruning = null;
+      state.packagePruningLoading = false;
+      state.packagePruningError = "";
+      state.packagePruningKey = "";
       state.packageIntegrations = null;
       state.packageIntegrationsLoading = false;
       state.packageIntegrationsError = "";
@@ -310,9 +352,9 @@ export function createPackageInspectionCoordinator(
             dependencyGroups: result.dependencyGroups,
             dependencyGroupError: result.dependencyGroupError || "",
           };
-          if (result.dependencyGroupError) {
-            state.workspaceDependencyErrors[workspaceKey] =
-              result.dependencyGroupError;
+          const projectionError = dependencyProjectionError(result);
+          if (projectionError) {
+            state.workspaceDependencyErrors[workspaceKey] = projectionError;
           } else {
             delete state.workspaceDependencyErrors[workspaceKey];
           }
@@ -331,6 +373,40 @@ export function createPackageInspectionCoordinator(
           if (state.atPackageRoot && state.packageLens === "dependencies") {
             await ensureWorkspaceDependencies();
           }
+        }
+      }
+    },
+
+    async loadPruning(packageModel, signature, family) {
+      if (state.packagePruningKey === signature
+        && state.packagePruningLoading) {
+        dependencies.render();
+        return;
+      }
+      const requestSequence = ++pruningRequestSequence;
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packagePruningKey === signature
+        && pruningRequestSequence === requestSequence
+        && generation === packageResultGeneration;
+      state.packagePruningKey = signature;
+      state.packagePruning = null;
+      state.packagePruningError = "";
+      state.packagePruningLoading = true;
+      dependencies.render();
+      try {
+        const result = await dependencies.queryPruning(packageModel, family);
+        if (ownsRequest()) {
+          state.packagePruning = result;
+        }
+      } catch (error) {
+        if (ownsRequest()) {
+          state.packagePruningError = dependencies.describeError(error);
+        }
+      } finally {
+        if (ownsRequest()) {
+          state.packagePruningLoading = false;
+          dependencies.render();
         }
       }
     },

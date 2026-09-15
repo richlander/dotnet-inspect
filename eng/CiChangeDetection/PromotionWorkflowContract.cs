@@ -66,6 +66,16 @@ internal static class PromotionWorkflowContract
             ".github",
             "workflows",
             "deploy-inspect-web-coreclr.yml");
+        string runtimeCohortPath = Path.Combine(
+            repository,
+            ".github",
+            "workflows",
+            "inspect-web-runtime-cohort-nightly.yml");
+        string runtimePinProposalPath = Path.Combine(
+            repository,
+            ".github",
+            "workflows",
+            "inspect-web-runtime-pin-proposal.yml");
         string asyncVerifierPath = Path.Combine(
             repository,
             "eng",
@@ -77,16 +87,46 @@ internal static class PromotionWorkflowContract
         string promotionWorkflow = File.ReadAllText(promotionPath);
         string stagingWorkflow = File.ReadAllText(stagingPath);
         string coreClrStagingWorkflow = File.ReadAllText(coreClrStagingPath);
+        string runtimeCohortWorkflow = File.ReadAllText(runtimeCohortPath);
+        string runtimePinProposalWorkflow =
+            File.ReadAllText(runtimePinProposalPath);
         string asyncVerifier = File.ReadAllText(asyncVerifierPath);
         string asyncLoweringReceiptTarget =
             File.ReadAllText(asyncLoweringReceiptTargetPath);
         ValidatePromotion(promotionWorkflow);
         ValidateStaging(stagingWorkflow);
         ValidateCoreClrStaging(coreClrStagingWorkflow);
+        ValidateRuntimeSdkGlobalJsonOverride(
+            runtimeCohortWorkflow,
+            "$DOTNET_SDK_VERSION",
+            "runtime cohort");
+        ValidateRuntimeSdkGlobalJsonOverride(
+            runtimePinProposalWorkflow,
+            "$candidate_sdk",
+            "runtime pin proposal");
         ValidateAsyncDeploymentVerifier(asyncVerifier);
         ValidateAsyncLoweringReceiptTarget(asyncLoweringReceiptTarget);
         InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet(asyncVerifier);
         InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts(asyncVerifier);
+
+        AssertMutationRejected(
+            runtimeCohortWorkflow,
+            "              \"version\": \"$DOTNET_SDK_VERSION\",\n",
+            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            workflow => ValidateRuntimeSdkGlobalJsonOverride(
+                workflow,
+                "$DOTNET_SDK_VERSION",
+                "runtime cohort"),
+            "Runtime cohort contract accepted the repository SDK in the candidate SDK root.");
+        AssertMutationRejected(
+            runtimePinProposalWorkflow,
+            "              \"version\": \"$candidate_sdk\",\n",
+            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            workflow => ValidateRuntimeSdkGlobalJsonOverride(
+                workflow,
+                "$candidate_sdk",
+                "runtime pin proposal"),
+            "Runtime pin proposal contract accepted the repository SDK in the candidate SDK root.");
 
         const string trustedCheckout =
             """
@@ -485,6 +525,32 @@ internal static class PromotionWorkflowContract
             """,
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted an extra environment-scoped job.");
+    }
+
+    private static void ValidateRuntimeSdkGlobalJsonOverride(
+        string workflow,
+        string sdkVersionExpression,
+        string context)
+    {
+        string expected =
+            "          cat > global.json <<EOF\n" +
+            "          {\n" +
+            "            \"sdk\": {\n" +
+            "              \"version\": \"__SDK_VERSION__\",\n" +
+            "              \"rollForward\": \"disable\",\n" +
+            "              \"allowPrerelease\": true\n" +
+            "            }\n" +
+            "          }\n" +
+            "          EOF\n";
+        expected = expected.Replace(
+                    "__SDK_VERSION__",
+                    sdkVersionExpression,
+                    StringComparison.Ordinal);
+        if (!workflow.Contains(expected, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"{context} must select its installed SDK through global.json.");
+        }
     }
 
     private static void ValidatePromotion(string workflow)
@@ -1207,6 +1273,15 @@ internal static class PromotionWorkflowContract
               --untracked \
               --set-default-install false \
               --interactive false
+            cat > global.json <<EOF
+            {
+              "sdk": {
+                "version": "$DOTNET_SDK_VERSION",
+                "rollForward": "disable",
+                "allowPrerelease": true
+              }
+            }
+            EOF
             echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
             test "$("$DOTNET_ROOT/dotnet" --version)" = "$DOTNET_SDK_VERSION"
             """;

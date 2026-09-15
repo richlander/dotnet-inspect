@@ -128,6 +128,7 @@ public abstract record PackageDependencyGroupsResult
     }
 
     public sealed record Available(
+        PackageManifestFacts Manifest,
         PackageDependencyGroups Value) : PackageDependencyGroupsResult;
 
     public sealed record NoManifest : PackageDependencyGroupsResult;
@@ -211,9 +212,12 @@ public static class PackageDependencyGroupsQuery
             string? requested = string.IsNullOrWhiteSpace(requestedTargetFramework)
                 ? null
                 : requestedTargetFramework;
+            PackageManifestFacts manifest =
+                ((PackageManifestFactsResult.Available)facts).Value;
             return new PackageDependencyGroupsResult.Available(
+                manifest,
                 ProjectDependencyGroups(
-                    ((PackageManifestFactsResult.Available)facts).Value,
+                    manifest,
                     requested,
                     allowCompatibleFallbackForRequestedTfm));
         }
