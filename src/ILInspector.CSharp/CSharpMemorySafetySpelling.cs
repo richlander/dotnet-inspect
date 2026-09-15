@@ -111,8 +111,11 @@ internal static class CSharpMemorySafetySpelling
                 "a projected extension can be rendered only as a standalone member of its defining static type.");
         }
 
+        bool isStandaloneEnumMember =
+            IsStandaloneEnumMember(type, member, isStandaloneMember);
         string? typeFailure = isStandaloneMember
-                && member.Kind == "extension-method"
+                && (member.Kind == "extension-method"
+                    || isStandaloneEnumMember)
             ? ModuleFailure(type, selectedLanguage)
             : TypeFailure(type, selectedLanguage);
         if (typeFailure is not null)
@@ -131,7 +134,8 @@ internal static class CSharpMemorySafetySpelling
             if (member.MethodSemantics != ApiMethodSemanticsKind.None)
                 return Refuse("model-aware accessor spelling is not supported.");
         }
-        if (member.SignatureModel is null
+        if ((member.SignatureModel is null
+                && !isStandaloneEnumMember)
             || member.SignatureDecodeStatus == SignatureDecodeStatus.Degraded)
         {
             return Refuse("a complete structured signature is unavailable.");
@@ -154,6 +158,17 @@ internal static class CSharpMemorySafetySpelling
             return Refuse("the declaring module's rules state does not match the member.");
         if (facts.CallerContract is MemorySafetyMemberContractResult.Unavailable unavailable)
             return Refuse($"caller contract is unavailable: {unavailable.Failure.Detail}");
+
+        if (isStandaloneEnumMember)
+        {
+            if (facts.CallerContract is not MemorySafetyMemberContractResult.None)
+                return Refuse("an enum member cannot carry a caller contract.");
+            if (facts.SignaturePointer != MemorySafetyPointerEvidence.Absent)
+                return Refuse("enum-member pointer evidence is unavailable or invalid.");
+            if (member.EnumValueLiteral is null)
+                return Refuse("the enum value literal is unavailable.");
+            return new(null, null);
+        }
 
         if (rules.State == MemorySafetyRulesState.Legacy)
         {
@@ -224,6 +239,16 @@ internal static class CSharpMemorySafetySpelling
         CSharpMemorySafetyDecision Refuse(string reason)
             => new(null, $"Member '{type.FullName}.{member.Name}': {reason}");
     }
+
+    internal static bool IsStandaloneEnumMember(
+        ApiType type,
+        ApiMember member,
+        bool isStandaloneMember)
+        => isStandaloneMember
+            && type.Kind == "enum"
+            && member.Kind == "field"
+            && member.IsStatic
+            && member.IsConst;
 
     internal static string? TypeLayoutAttribute(
         ApiType type,

@@ -1079,6 +1079,13 @@ internal static class CSharpDeclarationWriter
             isStandaloneMember);
         if (safety.Failure is { } failure)
             throw new NotSupportedException(failure);
+        if (CSharpMemorySafetySpelling.IsStandaloneEnumMember(
+                type,
+                member,
+                isStandaloneMember))
+        {
+            return RenderStandaloneEnumMember(type, member, options);
+        }
 
         string signature;
         var renderedFromModel = false;
@@ -1286,6 +1293,26 @@ internal static class CSharpDeclarationWriter
             ? "\n"
             : " ";
         return string.Join(separator, attributeLines) + separator + declarationLine;
+    }
+
+    static string RenderStandaloneEnumMember(
+        ApiType type,
+        ApiMember member,
+        CSharpDeclarationOptions options)
+    {
+        if (member.EnumValueLiteral is not { } value)
+        {
+            throw new NotSupportedException(
+                $"Member '{type.FullName}.{member.Name}': the enum value literal is unavailable.");
+        }
+
+        var lines = new List<string>();
+        if (options.IncludeCustomAttributes)
+            lines.AddRange(member.Attributes.Select(attribute => $"[{attribute}]"));
+        if (options.IncludeObsoleteAttribute && member.IsObsolete)
+            lines.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
+        lines.Add($"{EscapeIdentifier(member.Name)} = {value}");
+        return string.Join("\n", lines);
     }
 
     static bool CanSafelySuppressCompatibilitySignatureAttributes(ApiMember member)

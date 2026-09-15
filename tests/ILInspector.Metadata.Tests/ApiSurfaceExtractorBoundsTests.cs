@@ -1073,6 +1073,27 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void EnumStorageSlotProvidesUnderlyingTypeWithoutBecomingMember()
+    {
+        byte[] image = BuildNestedEnumDefaultImage(
+            depth: 0,
+            nameLength: 1);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader).Types,
+            candidate => candidate.Name == "TargetEnum");
+
+        Assert.NotNull(type.EnumUnderlyingType);
+        Assert.DoesNotContain(type.Members, member => member.Name == "value__");
+        ApiMember value = Assert.Single(
+            type.Members,
+            member => member.Name == "One");
+        Assert.Equal("1", value.EnumValueLiteral);
+    }
+
+    [Fact]
     public void EnumDefaultScan_ChargesRejectedBaseTypeNames()
     {
         AssertTextAmplificationIsBounded(

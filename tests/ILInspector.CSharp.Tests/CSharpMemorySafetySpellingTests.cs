@@ -97,6 +97,33 @@ public sealed class CSharpMemorySafetySpellingTests
         Assert.False(rendered.UsesCompatibilitySpelling);
     }
 
+    [Theory]
+    [InlineData(MemorySafetyRulesState.Legacy)]
+    [InlineData(MemorySafetyRulesState.Updated)]
+    public void SingleDeclarationOutcomeRendersExactEnumValue(
+        MemorySafetyRulesState rules)
+    {
+        ApiType type = Type(rules, kind: "enum");
+        ApiMember member = Field(
+            "NotIpAddress",
+            rules,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            isStatic: true);
+        member.IsConst = true;
+        member.ReturnType = null;
+        member.SignatureModel = null;
+        member.EnumValueLiteral = "1";
+
+        CSharpMemberDeclarationOutcome.Rendered rendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.Rendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, member));
+
+        Assert.Equal("NotIpAddress = 1", rendered.Declaration.Text);
+        Assert.False(rendered.UsesCompatibilitySpelling);
+    }
+
     [Fact]
     public void SingleDeclarationOutcomeCarriesVisibleUnavailability()
     {

@@ -1609,6 +1609,7 @@ public static class ApiSurfaceExtractor
                 if (isEnum)
                 {
                     if (fieldName == "value__")
+                    {
                         apiType.EnumUnderlyingType = DecodeFieldType(
                             reader,
                             typeContext,
@@ -1616,6 +1617,8 @@ public static class ApiSurfaceExtractor
                             typeNullableContext,
                             observeText,
                             observeDecodeWork).Text;
+                        continue;
+                    }
                 }
                 else
                 {
