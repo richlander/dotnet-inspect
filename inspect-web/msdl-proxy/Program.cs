@@ -7,5 +7,15 @@ var builder = FunctionsApplication.CreateBuilder(args);
 builder.ConfigureFunctionsWebApplication();
 builder.Services.AddHttpClient(MsdlClient.Name, client =>
     client.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddHttpClient(
+        PackageChangeProxyClient.NuGetClientName,
+        client => client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(
+        PackageChangeProxyClient.CreatePrimaryHandler);
+builder.Services.AddHttpClient(
+        PackageChangeProxyClient.AdvisoryClientName,
+        client => client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(
+        PackageChangeProxyClient.CreatePrimaryHandler);
 
 builder.Build().Run();
