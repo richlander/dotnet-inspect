@@ -5,8 +5,9 @@
 **Design only; implementation and all new gates are unverified.**
 [`ILInspector.Metadata`](../overview.md) owns this focused producer contract,
 tracked by [#7073](https://github.com/richlander/dotnet-inspect/issues/7073).
-It supplies declaration evidence for step 2 of the approved coordinate-retention
-plan [#7061](https://github.com/richlander/dotnet-inspect/issues/7061).
+Coordinate retention, step 2 of the approved
+plan [#7061](https://github.com/richlander/dotnet-inspect/issues/7061), is its
+first planned consumer, not the scope of the underlying operation.
 
 The one claim is:
 
@@ -25,6 +26,39 @@ must supply exact admitted Library endpoints for Navigation. Scope owns
 replacement occurrences; Navigation owns ancestor fallback and inspector
 requests; Registry owns inspector resolution. This document changes none of
 those contracts.
+
+## Product question
+
+**Is coordinate C from A present in A'?**
+
+Here A and A' designate acquired Library API images. C identifies one exact
+Type or Member declaration in A; it is not a token that can be dereferenced
+unchanged in A'. The operation searches for its counterpart and, when uniquely
+established, returns C' bound to A':
+
+```text
+Correspond(A, C, A') -> Exact(C') | Absent | Ambiguous | Refused | Failed
+```
+
+The target coordinate is the answer, not a second member the caller must
+already have selected. The complete relevant candidate set is necessary to
+establish that answer, but the operation does not construct a whole-Library
+diff and then filter it. A UI selection, inspector, navigation session, or
+rendered signature is not a Metadata input.
+
+This is the correspondence part of a point comparison. Finding C' and
+comparing the contents of C and C' answer different questions: changed bodies,
+documentation or other facts outside the strict profile do not make the
+declaration absent. A comparison consumer could use the exact pair as its
+input; Navigation uses the destination coordinate to retain selection.
+Compatibility and change classification remain with their existing owners.
+This does not change the current `ApiDiff` matching policy or claim adoption
+by every comparison consumer.
+
+Confidence is categorical evidence under the stated profile: a complete,
+unique match, not a heuristic score. Non-success remains richer than a Boolean
+presence answer, and `Absent` means no match under that profile rather than
+proof that the API was removed under every possible correspondence policy.
 
 ## Demo and motivating evidence
 
@@ -310,7 +344,7 @@ the normal product query path rather than constructing successful result data.
 | Gate obligation | Falsifying boundary |
 | --- | --- |
 | `ApiCorrespondence_RealPackageCoordinates` | The real string/options overload above fails exact selection across the declared Version/TFM pair, or a different overload is selected; Schema exporter absence is confused with a neighboring Type |
-| `ApiCorrespondence_StrictDeclarationProfile` | Changing one retained discriminator still selects the old counterpart; cover all declaration kinds, nested generics, return-only differences, reference scopes, arrays, modifiers and function pointers, with name/default/body-only changes as positive controls |
+| `ApiCorrespondence_StrictDeclarationProfile` | Changing one retained discriminator still selects the old counterpart; cover all declaration kinds, nested generics, return-only differences, reference scopes, arrays, modifiers and function pointers, with parameter-name/default/body-only changes as positive controls |
 | `ApiCorrespondence_CompleteCandidates` | A duplicate or unreadable candidate becomes unique/absent; cover empty and duplicate groups, unreadable names, partial relationship traversal, cancellation and work exhaustion |
 | `ApiCorrespondence_ExactEndpointAssociation` | Reordered destination rows, different registrations with equal MVIDs, or a wrong source location substitutes evidence from another image |
 | `ApiCorrespondence_AddressableDeclarations` | Colliding Member anchors, accessor/declaration confusion, ambiguous local types or projected receiver rows produce an invented selectable descendant |

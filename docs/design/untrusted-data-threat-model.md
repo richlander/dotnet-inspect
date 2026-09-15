@@ -717,6 +717,21 @@ reservations and retained cache entries share the same 12-package/128 MB limit.
 Before assembly identity decoding, each workspace role also rejects more than
 256 selected assemblies or a declared expanded total above that role's 32/64 MB
 retained-image budget.
+
+A [2026-09-14 package census](../data/inspect-web-storage-budget-census-2026-09-14.tsv)
+keeps those Browser limits unchanged. The exact stable versions of ranks 1-10
+in `docs/data/nuget-top-packages.json` total 8.47 MiB of archives; their largest
+single-target managed set is `AWSSDK.Core@4.0.102.6` at 1.04 MiB. Larger
+immutable witnesses remain within both byte ceilings:
+`Microsoft.CodeAnalysis.CSharp@5.0.0` is 16.85 MiB compressed and 12.87 MiB for
+its largest managed target,
+`Microsoft.AspNetCore.App.Runtime.linux-x64@10.0.10` is 12.33 MiB and
+25.74 MiB, and `Microsoft.NETCore.App.Runtime.linux-x64@10.0.10` is
+38.24 MiB and 58.75 MiB. The last case leaves 5.25 MiB of retained-image
+headroom, while all three stress witnesses plus the top-10 archive set consume
+75.89 MiB of the 128 MiB cache. This demonstrates useful headroom for common
+packages and admits a complete runtime-pack stress case without claiming that
+every NuGet package fits; an over-limit package remains a visible refusal.
 Browser API-surface projection additionally spends one shared
 32,000,000-character retained-text budget across its selected assemblies. The
 extractor charges every string-bearing model field as it retains each member,

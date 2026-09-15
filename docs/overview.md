@@ -175,8 +175,9 @@ substrates, and inspection producers that will extend that space.
   onto the shared Finding spine while retaining compatibility classification
   through `ApiDiff`.
   The proposed [API declaration correspondence](design/api-declaration-correspondence.md)
-  producer owns strict, pair-scoped Type/Member declaration matching between
-  explicitly selected acquired Library images and its non-success evidence.
+  producer owns the strict point query for a Type/Member coordinate from one
+  explicitly selected acquired Library image in another, returning its
+  destination coordinate or non-success evidence.
   It does not select Libraries or establish runtime definition equivalence.
 - `src/ILInspector.SourceLink/` sits above Metadata. It owns SourceLink map
   extraction and matching, canonical document paths, URL decoration,
