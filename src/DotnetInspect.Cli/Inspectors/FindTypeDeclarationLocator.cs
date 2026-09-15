@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Inspectors;
 
@@ -111,8 +112,7 @@ internal static class FindTypeDeclarationLocator
             }
             && answer.IsComplete
             && answer.Candidates.IsEmpty
-            && !patterns[0].Contains('*')
-            && !patterns[0].Contains('?'))
+            && !TypeMatcher.IsTypeGlobPattern(patterns[0]))
         {
             return new FindTypeDeclarationLocatorAttempt.NotApplicable();
         }

@@ -438,6 +438,56 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task Find_NullableGenericLiteralMissUsesCompatibilityFallback()
+    {
+        string id =
+            $"Workspace.Search.NullableFallback.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "nullable generic fallback package",
+            library: assembly,
+            libraryName: "Workspace.Search.dll");
+        ConfigureCommandFeed(id, package);
+
+        var result = await RunCommandAsync(
+            [
+                "find", "WorkspaceNavigationGenericFixtur<object?>",
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--compact",
+                "--verbose",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "Using the resident Workspace locator",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Using committed package Root for search:",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"match\":\"Partial\"",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(WorkspaceNavigationGenericFixture<object>),
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "\"candidates\":[]",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Find_LocatorPreservesMetadataAssemblyIdentity()
     {
         string id =

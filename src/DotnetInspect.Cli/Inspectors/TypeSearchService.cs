@@ -165,7 +165,7 @@ internal static class TypeSearchService
             {
                 resultsByPattern[pattern] = matches;
             }
-            else if (!pattern.Contains('*') && !pattern.Contains('?'))
+            else if (!TypeMatcher.IsTypeGlobPattern(pattern))
             {
                 if (TryGetNamespacePrefixMatches(pattern, allTypes, options, out var prefixPattern, out var prefixMatches))
                 {
@@ -234,7 +234,7 @@ internal static class TypeSearchService
 
         List<TypeSearchResult>? partialMatches = null;
         Dictionary<string, double>? partialSimilarities = null;
-        if (results.Count == 0 && !pattern.Contains('*') && !pattern.Contains('?'))
+        if (results.Count == 0 && !TypeMatcher.IsTypeGlobPattern(pattern))
         {
             var allTypes = await collect(null);
             var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
@@ -292,7 +292,7 @@ internal static class TypeSearchService
 
         foreach (var (pattern, types) in exactMatches)
         {
-            var isGlob = pattern.Contains('*') || pattern.Contains('?');
+            bool isGlob = TypeMatcher.IsTypeGlobPattern(pattern);
             foreach (var t in types)
             {
                 results.Add(new TypeFindResult
