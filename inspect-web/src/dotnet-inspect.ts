@@ -175,7 +175,7 @@ import {
   homeDemosEntryHtml,
   isProductHomeDemosPath,
   prepareProductHomeDemoSource,
-  productHomeDemoCatalog,
+  productHomeDemosViewHtml,
   setProductHomeDemoCatalog,
   type PreparedProductHomeDemoSource,
   type ProductHomeDemoId,
@@ -4622,6 +4622,23 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     return;
   }
   retainFailedWorkspaceUrl();
+  if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
+    renderProductDemosPage();
+    if (state.settings) {
+      document.querySelector<HTMLElement>("#settings-title")
+        ?.focus({ preventScroll: true });
+    } else if (state.keyboardHelp) {
+      document.querySelector<HTMLElement>("#keyboard-help-title")
+        ?.focus({ preventScroll: true });
+    } else if (workspaceFocus) {
+      restoreWorkspaceFocus(document, workspaceFocus);
+    } else if (homeFocus) {
+      restoreHomeFocus(homeFocus);
+    } else if (levelOneHeadingHadFocus) {
+      focusLevelOneHeading();
+    }
+    return;
+  }
   if (state.home) {
     renderHomeView(homeFocus);
     return;
@@ -5385,8 +5402,6 @@ function renderWorkspaceView() {
     occurrences: state.workspaceOccurrences?.occurrences ?? [],
     packages: state.packages,
     platform: state.platformSelection,
-    demos: productHomeDemoCatalog(),
-    demoError: productHomeDemoCatalogError,
     loading: state.workspaceOccurrenceLoading,
     error: state.workspaceOccurrenceError,
     escapeHtml,
@@ -9816,20 +9831,6 @@ async function captureSavedWorkspacePacket(): Promise<string> {
 }
 
 async function buildStateUrl(base = location.href): Promise<URL> {
-  if (scope() === "workspace") {
-    const snapshot = captureWorkspaceUrlState();
-    return snapshot
-      ? await workspaceLocation.build(snapshot, base)
-      : new URL(base);
-  }
-  if (state.atPackageRoot && state.rootKind === "package" && state.package) {
-    return buildPackageRootStateUrl(base, {
-      package: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework,
-      lens: state.packageLens,
-    });
-  }
   const snapshot = captureWorkspaceUrlState();
   return snapshot
     ? await workspaceLocation.build(snapshot, base)
@@ -10589,6 +10590,7 @@ function focusWorkspaceOrHeading(): void {
 }
 
 function openProductDemos(): void {
+  dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   state.loading = false;
   clearNavigationError();
@@ -10605,10 +10607,36 @@ function openProductDemos(): void {
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
   workspaceLocation.push("/demos");
-  activeWorkspaceUrl = location.href;
   render();
   afterCurrentNavigationFrame(() =>
     focusWorkspaceOrHeading());
+}
+
+function renderProductDemosPage(): void {
+  document.title = "Demos — dotnet-inspect";
+  app.innerHTML = `
+    <div class="home demos-page"${state.settings || state.keyboardHelp ? " inert" : ""}>
+      <header class="home-bar">
+        ${renderBrand()}
+        <div class="home-bar-actions">
+          <a class="home-link" href="/">Home</a>
+          <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
+          <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
+        </div>
+      </header>
+      <div class="notice-stack">${renderQueryNotice()}</div>
+      <main class="detail-scroll demos-content">
+        ${productHomeDemosViewHtml(escapeHtml, productHomeDemoCatalogError)}
+      </main>
+      ${dataBarHtml({ buildIdentity: state.buildIdentity }, escapeHtml)}
+      ${state.spotlightOpen ? spotlight.modalHtml() : ""}
+    </div>
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}`;
+  bindHomeShell(document, homeShellActions);
+  bindWorkspaceSubjectEvents();
+  bindSettingsPanelEvents();
+  if (state.spotlightOpen) spotlight.bind(document, "modal");
 }
 
 // Workspace demo actions use product ids from engine `listHomeDemos` /
