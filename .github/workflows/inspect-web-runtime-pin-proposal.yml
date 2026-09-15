@@ -110,6 +110,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          candidate_sdk="${{ steps.discover.outputs.sdk_version }}"
           dotnetup_dir="$RUNNER_TEMP/dotnetup"
           getter_script="$RUNNER_TEMP/get-dotnetup.sh"
           mkdir -p "$dotnetup_dir" "$DOTNET_ROOT" "$DOTNET_DOTNETUP_DATA_DIR"
@@ -117,15 +118,22 @@ jobs:
             https://aka.ms/dotnet/dotnetup/daily/get-dotnetup.sh \
             -o "$getter_script"
           bash "$getter_script" --install-dir "$dotnetup_dir"
-          "$dotnetup_dir/dotnetup" sdk install \
-            "${{ steps.discover.outputs.sdk_version }}" \
+          "$dotnetup_dir/dotnetup" sdk install "$candidate_sdk" \
             --install-path "$DOTNET_ROOT" \
             --untracked \
             --set-default-install false \
             --interactive false
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$candidate_sdk",
+              "rollForward": "disable",
+              "allowPrerelease": true
+            }
+          }
+          EOF
           echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
-          test "$("$DOTNET_ROOT/dotnet" --version)" \
-            = "${{ steps.discover.outputs.sdk_version }}"
+          test "$("$DOTNET_ROOT/dotnet" --version)" = "$candidate_sdk"
 
       - name: Install candidate browser Wasm workload
         if: steps.discover.outputs.update_available == 'true'
