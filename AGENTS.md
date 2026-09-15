@@ -170,7 +170,7 @@ The standing adjustments and their exact evidence requirements live in
 
 ## Task-specific guidance
 
-Documentation entry points have distinct roles: root `README.md` owns the product overview and primary workflows; `docs/README.md` curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` current code composition.
+Documentation entry points have distinct roles: root `README.md` owns the full product guide; `docs/README.md` immediate acquisition and curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` current code composition.
 Update one only when its owned claim changes; adding or editing a focused document does not require parallel entrypoint updates.
 Read the relevant entry below; [`docs/README.md`](docs/README.md) owns the detailed boundary and curated routes.
 

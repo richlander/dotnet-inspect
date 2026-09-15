@@ -17,8 +17,9 @@ rules. Read this before any edit to AGENTS.md, not just during a cleanup pass.
   edit. Do not land growth and plan to trim later.
 - **No large table of contents.** The "Task-specific guidance" pointer table
   stays at 12 rows or fewer, holding only the highest-value entries.
-  `docs/README.md` curates broader routes but does not catalog every focused
-  document. Do not grow a second TOC inside AGENTS.md.
+  `docs/README.md` provides immediate acquisition and curates broader routes,
+  but does not catalog every focused document. Do not grow a second TOC inside
+  AGENTS.md.
 
 ## What belongs in AGENTS.md vs. a doc
 
@@ -78,8 +79,8 @@ move instead.
 - When a new entry would push the table past 12, swap out a lower-value row.
   Add a `docs/README.md` route only when the destination is itself a
   high-value entrypoint; otherwise rely on focused owner and consumer links.
-- Update `docs/README.md` only when one of its curated routes or entrypoint
-  roles changes.
+- Update `docs/README.md` only when its acquisition block, a curated route, or
+  an entrypoint role changes.
 
 ## Validation
 
