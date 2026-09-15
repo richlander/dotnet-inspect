@@ -431,6 +431,47 @@ public sealed class InspectionDefinitionV2Tests
             () => InspectionDefinitionJson.Parse(malformedIdentity));
     }
 
+    [Theory]
+    [InlineData("10.0.0.1\0")]
+    [InlineData("10\0.0.0.1")]
+    public void PortableLibraryIdentity_RejectsNonDecimalVersionCharacters(
+        string version)
+    {
+        Assert.Throws<ArgumentException>(
+            () => new PortableLibraryIdentity(
+                "System.Text.Json",
+                version,
+                null,
+                null));
+
+        string json = $$"""
+            {
+              "schemaVersion": 2,
+              "kind": "view",
+              "id": "view",
+              "states": [
+                { "navigation": null, "subject": { "kind": "workspace" } },
+                {
+                  "navigation": "stj",
+                  "subject": { "kind": "workspace" },
+                  "context": {
+                    "kind": "library",
+                    "library": {
+                      "name": "System.Text.Json",
+                      "version": {{JsonSerializer.Serialize(version)}},
+                      "culture": null,
+                      "publicKeyToken": null
+                    }
+                  }
+                }
+              ]
+            }
+            """;
+
+        Assert.Throws<InspectionDefinitionException>(
+            () => InspectionDefinitionJson.Parse(json));
+    }
+
     [Fact]
     public void Version2ProjectionToPacketFormat1_IsNonProjectable()
     {

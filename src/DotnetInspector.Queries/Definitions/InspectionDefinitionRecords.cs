@@ -954,6 +954,8 @@ public sealed record PortableLibraryIdentity
         {
             if (component.Length == 0
                 || component.Length > 1 && component[0] == '0'
+                || component.Any(character =>
+                    character is not (>= '0' and <= '9'))
                 || !ushort.TryParse(
                     component,
                     System.Globalization.NumberStyles.None,
