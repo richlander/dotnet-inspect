@@ -150,7 +150,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task ExactTypeInspection_BoundedProjectionReportsAdjacentParticipantTruncation()
+    public async Task ExactTypeInspection_BoundedProjectionMakesSelectionUnavailable()
     {
         const string packageId = "Browser.ExactType.Bounds";
         const string selectedType = "Browser.Bounds.Selected";
@@ -188,7 +188,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 BrowserPackageWorkspace.PackageLimits,
         };
 
-        InspectionEnvelope<ExactTypeInspectionResult> available =
+        InspectionEnvelope<ExactTypeInspectionResult> selected =
             await ExactTypeInspectionOperation.ExecuteAsync(
                 new ExactTypeInspectionRequest(
                     packageId,
@@ -210,11 +210,12 @@ public sealed partial class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken);
 
         Assert.Equal(
-            ExactTypeInspectionOutcome.Available,
-            available.Content.Outcome);
-        Assert.False(available.Content.IsComplete);
+            ExactTypeInspectionOutcome.Unavailable,
+            selected.Content.Outcome);
+        Assert.Null(selected.Content.Type);
+        Assert.False(selected.Content.IsComplete);
         Assert.Contains(
-            available.Diagnostics,
+            selected.Diagnostics,
             diagnostic => diagnostic.Code
                 == "exact-type.projection-truncated");
         Assert.Equal(
