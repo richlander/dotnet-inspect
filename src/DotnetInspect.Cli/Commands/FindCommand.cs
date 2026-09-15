@@ -437,6 +437,11 @@ public class FindCommand
             Verbosity.Minimal => [PackageAssemblyQuerySections.Candidates],
             _ => null,
         };
+        writerOptions.SectionOrder =
+        [
+            PackageAssemblyQuerySections.Matches,
+            PackageAssemblyQuerySections.Candidates
+        ];
         return writerOptions;
     }
 

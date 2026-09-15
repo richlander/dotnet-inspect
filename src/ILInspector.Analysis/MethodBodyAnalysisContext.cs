@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -10,24 +11,78 @@ namespace ILInspector.Analysis;
 /// Topic-specific producers build their own interpretation over the common
 /// Layer-0 instructions and blocks.
 /// </summary>
-internal sealed record MethodBodyAnalysisContext(
-    MethodIdentity Method,
-    MethodInstructions Instructions,
-    ImmutableArray<ExceptionRegion> ExceptionRegions,
-    IReadOnlyList<(int Start, int End)> LoopRegions,
-    ImmutableArray<TypeRef> LocalTypes)
+internal sealed class MethodBodyAnalysisContext
 {
-    ImmutableArray<TypeRef> _localTypes =
-        LocalTypes.IsDefault ? [] : LocalTypes;
+    readonly MethodExceptionRegionCatalog? _exceptionCatalog;
 
-    public ImmutableArray<TypeRef> LocalTypes
+    internal MethodBodyAnalysisContext(
+        MethodIdentity method,
+        MethodInstructions instructions,
+        IReadOnlyList<(int Start, int End)> loopRegions,
+        ImmutableArray<TypeRef> localTypes,
+        MethodExceptionRegionCatalog? exceptionCatalog = null)
     {
-        get => _localTypes;
-        init => _localTypes = value.IsDefault ? [] : value;
+        ArgumentNullException.ThrowIfNull(method);
+        ArgumentNullException.ThrowIfNull(instructions);
+        ArgumentNullException.ThrowIfNull(loopRegions);
+
+        Method = method;
+        Instructions = instructions;
+        LoopRegions = loopRegions;
+        LocalTypes = localTypes.IsDefault ? [] : localTypes;
+        _exceptionCatalog = exceptionCatalog;
+    }
+
+    public MethodIdentity Method { get; }
+    public MethodInstructions Instructions { get; }
+    public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
+    public ImmutableArray<TypeRef> LocalTypes { get; }
+
+    internal static MethodBodyAnalysisContext Create(
+        MethodIdentity method,
+        MethodBodyData body,
+        ImmutableArray<TypeRef> localTypes)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        ArgumentNullException.ThrowIfNull(body);
+        if (body.EvidenceId.Method.ModuleVersionId
+                != method.ModuleVersionId
+            || body.EvidenceId.Method.Token
+                != method.MetadataToken)
+        {
+            throw new ArgumentException(
+                "The Metadata body evidence does not identify the analyzed method.",
+                nameof(body));
+        }
+
+        MethodInstructions instructions =
+            MethodInstructions.Decode(body);
+        if (!instructions.IsComplete)
+        {
+            throw new BadImageFormatException(
+                instructions.Blocks.IncompleteReason
+                ?? "Method instruction decoding was incomplete.");
+        }
+
+        return new MethodBodyAnalysisContext(
+            method,
+            instructions,
+            CollectLoopRegions(instructions),
+            localTypes,
+            body.ExceptionRegionCatalog);
     }
 
     /// <summary>The shared Layer-0 block graph for this body.</summary>
     public BlockGraph Blocks => Instructions.Blocks;
+
+    /// <summary>
+    /// The Metadata-issued physical exception catalog for production analysis.
+    /// Synthetic Layer-0 contexts do not manufacture correlated evidence.
+    /// </summary>
+    public MethodExceptionRegionCatalog RequireExceptionCatalog() =>
+        _exceptionCatalog
+        ?? throw new InvalidOperationException(
+            "Physical exception-region evidence is unavailable for this analysis context.");
 
     /// <summary>
     /// The instruction beginning exactly at <paramref name="offset"/>, or null
@@ -73,5 +128,35 @@ internal sealed record MethodBodyAnalysisContext(
                 return true;
         }
         return false;
+    }
+
+    static IReadOnlyList<(int Start, int End)> CollectLoopRegions(
+        MethodInstructions body)
+    {
+        var regions = new List<(int Start, int End)>();
+        BlockGraph blockGraph = body.Blocks;
+        foreach (DecodedInstruction instruction in body.Instructions)
+        {
+            if (instruction.OpCode == ILOpCode.Switch)
+                continue;
+            int sourceBlock =
+                blockGraph.BlockIndexAt(instruction.Offset);
+            foreach (int target in instruction.BranchTargets)
+            {
+                if (target >= instruction.Offset)
+                    continue;
+                int targetBlock =
+                    blockGraph.BlockIndexAt(target);
+                if (sourceBlock >= 0
+                    && targetBlock >= 0
+                    && blockGraph.Blocks[sourceBlock]
+                        .Edges.Successors.Contains(targetBlock))
+                {
+                    regions.Add(
+                        (target, instruction.Offset));
+                }
+            }
+        }
+        return regions;
     }
 }

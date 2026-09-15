@@ -53,22 +53,16 @@ public class StringArraySlotMaterializationTests
     }
 
     [Theory]
-    [InlineData("object")]
-    [InlineData("foreign")]
     [InlineData("generic")]
     [InlineData("rank-one")]
     [InlineData("rectangular")]
-    [InlineData("jagged")]
-    public void OtherReferenceArrayShapesRemainDeferred(string kind)
+    public void UnspellableAndNonSzReferenceArrayShapesRemainDeferred(string kind)
     {
         var type = kind switch
         {
-            "object" => ObjectArray,
-            "foreign" => TypeRef.SzArray(TypeRef.Definition("Other", "System", "String")),
             "generic" => TypeRef.SzArray(TypeRef.GenericInstance(String, [Int32])),
             "rank-one" => TypeRef.MdArray(String, 1),
             "rectangular" => TypeRef.MdArray(String, 2),
-            "jagged" => TypeRef.SzArray(StringArray),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         var function = Function(type,
