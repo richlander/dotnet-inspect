@@ -14,6 +14,44 @@ public sealed partial class InspectionWorkspace
     WorkspaceDeclarationLocator? _declarationLocator;
     WorkspaceDeclarationLocator? _declarationObserver;
 
+    internal WorkspaceDeclarationPopulationCapture CapturePackageSurfaceDeclarationPopulation(
+        int order,
+        WorkspaceContextInput request,
+        PackageRootBinding binding,
+        PackageAssemblyContextRealization realization)
+    {
+        lock (_gate)
+        {
+            if (DeclarationPopulationAvailability() is { } unavailable)
+                return new WorkspaceDeclarationPopulationCapture.Rejected(unavailable);
+            if (realization.HasAssemblyContexts && !_groups.Contains(realization.SurfaceGroup))
+            {
+                return new WorkspaceDeclarationPopulationCapture.Rejected(
+                    WorkspaceDeclarationPopulationFailure.ContextUnavailable);
+            }
+
+            var members = ImmutableArray.CreateBuilder<WorkspaceDeclarationMember>();
+            var access = new Dictionary<WorkspaceDeclarationOccurrence,
+                (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)>();
+            foreach (PackageAssemblyRoleParticipant role in realization.SurfaceParticipants)
+            {
+                var occurrence = new WorkspaceDeclarationOccurrence(_identity, order, members.Count);
+                ResolvedAssemblyReference assembly = role.Participant.Assembly;
+                members.Add(new(
+                    occurrence,
+                    assembly.Identity.Version is null ? null : new ExactLibrarySourceCoordinate.Package(
+                        PackageSourceCoordinate.Create(binding.Coordinate.PackageId, binding.Coordinate.Version),
+                        new ManagedMetadataIdentity.Assembly(assembly.Identity)),
+                    assembly.Identity, request.Members[0], binding.Coordinate, assembly.Provenance));
+                access.Add(occurrence, (realization.SurfaceGroup, assembly));
+            }
+            var receipt = new WorkspaceDeclarationContextReceipt(
+                _identity, order, request, true, members.ToImmutable(), []);
+            return new WorkspaceDeclarationPopulationCapture.Captured(
+                new(this, new(_identity, [receipt]), access));
+        }
+    }
+
     internal int BeginDeclarationContext()
     {
         lock (_gate)

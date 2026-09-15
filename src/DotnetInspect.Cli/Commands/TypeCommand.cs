@@ -50,6 +50,15 @@ public static class TypeCommand
             source,
             loaded);
 
+    internal static Task<int> ExecuteExactAsync(
+        TypeOptions options,
+        WorkspaceContextLoadOptions loadOptions) =>
+        ExecuteCoreAsync(
+            options,
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options),
+            exactLoadOptions: loadOptions);
+
     internal static TypeOptions FromDeferredMemberOptions(
         MemberOptions options)
     {
@@ -111,7 +120,8 @@ public static class TypeCommand
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
         ApiSourceResult? resolvedSource = null,
-        ApiServices.LoadedApiSurface? loadedSurface = null)
+        ApiServices.LoadedApiSurface? loadedSurface = null,
+        WorkspaceContextLoadOptions? exactLoadOptions = null)
     {
         if (plan.Intent.Surface != InspectionSurface.Type)
             throw new ArgumentException(
@@ -149,7 +159,30 @@ public static class TypeCommand
         }
 
         bool ownsSource = resolvedSource is null;
+        ExactTypeInspectionResult.Available? exactType = null;
         ApiSourceResult source;
+        if (resolvedSource is null
+            && loadedSurface is null
+            && CliExactTypeInspection.IsEligible(options))
+        {
+            InspectionEnvelope<ExactTypeInspectionResult> envelope =
+                await CliExactTypeInspection.ExecuteAsync(
+                    options,
+                    exactLoadOptions);
+            if (envelope.Content is ExactTypeInspectionResult.Available available)
+            {
+                (resolvedSource, loadedSurface) =
+                    CliExactTypeInspection.AdaptAvailable(options, available);
+                exactType = available;
+                ownsSource = false;
+            }
+            else if (envelope.Content is not ExactTypeInspectionResult.NotFound)
+            {
+                return CliExactTypeInspection.WriteUnavailable(
+                    envelope.Content,
+                    envelope.Diagnostics);
+            }
+        }
         if (resolvedSource is null)
         {
             var (acquiredSource, sourceError) =
@@ -278,7 +311,12 @@ public static class TypeCommand
                 var api = loaded.Api;
                 var apiDllPath = loaded.ApiDllPath;
 
-                var lookupResult = ApiTypeLookupService.LookupType(api, typeName);
+                var lookupResult = exactType is null
+                    ? ApiTypeLookupService.LookupType(api, typeName)
+                    : new ApiTypeLookupResult(
+                        typeName,
+                        new LookupResult(exactType.Type.FullName, []),
+                        exactType.Type);
                 if (lookupResult.ImpliedMember is not null)
                 {
                     lookupResult.WriteNotFoundError();
@@ -311,7 +349,10 @@ public static class TypeCommand
                     ResolvedAssemblyReference? sourceAssembly =
                         loaded.TryGetSourceAssembly(apiType);
                     var acquisition = new ApiCommand.TypeAcquisitionContext(
-                        loaded.GetLibraryAssetPath(source.PackageExtractPath),
+                        exactType is null
+                            ? loaded.GetLibraryAssetPath(
+                                source.PackageExtractPath)
+                            : source.SearchPath,
                         packageName, packageVersion ?? apiVersion, apiSource, selectedTfm,
                         sourceAssembly);
 
@@ -322,7 +363,14 @@ public static class TypeCommand
 
                     // The resolved assembly path enables decompiler-backed
                     // sections (whole-type Decompiled Source).
-                    effectiveOptions = effectiveOptions with { DllPath = apiType.SourceAssemblyPath ?? runtimeAssemblyPath ?? apiDllPath };
+                    effectiveOptions = effectiveOptions with
+                    {
+                        DllPath = exactType is null
+                            ? apiType.SourceAssemblyPath
+                                ?? runtimeAssemblyPath
+                                ?? apiDllPath
+                            : null,
+                    };
 
                     if (!CloneCandidatesCommand.ValidatePredicateSelection(
                             effectiveOptions.CloneCandidateQuery,

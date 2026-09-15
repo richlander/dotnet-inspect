@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
   </ItemGroup>
 
   <PropertyGroup>

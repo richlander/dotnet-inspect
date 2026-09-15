@@ -1,4 +1,13 @@
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
+export type BrowserExactTypeDiagnosticSeverity = "Information" | "Warning" | "Error" | number;
+export type BrowserExactTypeFailureKind = "InvalidRequest" | "DefinitionMismatch" | "ContextUnavailable" | "ContextLoadFailed" | "PopulationUnavailable" | "DeclarationInventoryIncomplete" | "TypeResolutionRejected" | "TypeResolutionUnavailable" | "TypeResolutionAmbiguous" | "ApiSurfaceRejected" | "ApiSurfaceFailed" | "ApiSurfaceIncomplete" | "AsyncClassificationUnavailable" | "ResolvedTypeMissing" | number;
+export type BrowserExactTypeInspectionFailureMechanism = "Metadata" | "Relationship" | "Signature" | "TypeSpecification" | number;
+export type BrowserExactTypeLibrarySourceKind = "Package" | "Platform" | "Project" | "Local" | number;
+export type BrowserExactTypeOutcome = "Available" | "NotFound" | "Ambiguous" | "Incomplete" | "Rejected" | number;
+export type BrowserExactTypeRealizedSourceKind = "Package" | "Platform" | number;
+export type BrowserExactTypeResolutionScope = "Any" | "Platform" | number;
+export type BrowserExactTypeShareKind = "Available" | "NonProjectable" | number;
+export type BrowserExactTypeSurfaceScope = "Public" | "IncludeAll" | "PublicWithNonPublicTypes" | number;
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
 export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
@@ -65,6 +74,152 @@ export interface BrowserCompileLibraryAvailability {
     readonly status: BrowserCompileLibraryStatus;
     readonly targetFramework: string | null;
     readonly message: string | null;
+}
+export interface BrowserExactTypeAssemblyIdentity {
+    readonly name: string;
+    readonly version: string | null;
+    readonly culture: string | null;
+    readonly publicKeyToken: string | null;
+}
+export interface BrowserExactTypeAvailable {
+    readonly candidate: BrowserExactTypeCandidate;
+    readonly isContextUnique: boolean;
+    readonly type: BrowserExactTypeSelectedType;
+    readonly memberFacts: ReadonlyArray<BrowserExactTypeMemberFacts>;
+    readonly memberKindFacets: ReadonlyArray<BrowserExactTypeFacet>;
+    readonly inspectionFailures: ReadonlyArray<BrowserExactTypeInspectionFailure>;
+}
+export interface BrowserExactTypeCandidate {
+    readonly definition: BrowserExactTypeName;
+    readonly address: BrowserExactTypeDefinitionAddress;
+    readonly declaration: BrowserExactTypeLibrarySource;
+    readonly supplier: BrowserExactTypeLibrarySource;
+    readonly supplierSource: BrowserExactTypeRealizedSource;
+    readonly supplierAssembly: BrowserExactTypeAssemblyIdentity;
+    readonly forwardingHops: ReadonlyArray<BrowserExactTypeForwardingHop>;
+    readonly declarationAssetId: string;
+    readonly supplierAssetId: string;
+}
+export interface BrowserExactTypeDefinitionAddress {
+    readonly moduleVersionId: string;
+    readonly metadataToken: number;
+}
+export interface BrowserExactTypeDiagnostic {
+    readonly code: string;
+    readonly severity: BrowserExactTypeDiagnosticSeverity;
+    readonly summary: string;
+    readonly correspondence: string | null;
+}
+export interface BrowserExactTypeFacet {
+    readonly id: string;
+    readonly singularLabel: string;
+    readonly pluralLabel: string;
+    readonly weight: number;
+    readonly count: number;
+    readonly isDefault: boolean;
+}
+export interface BrowserExactTypeFailure {
+    readonly kind: BrowserExactTypeFailureKind;
+    readonly assembly: BrowserExactTypeAssemblyIdentity | null;
+    readonly contextLoadFailure: string | null;
+    readonly candidateOpenFailure: string | null;
+    readonly populationFailure: string | null;
+    readonly surfaceLimit: string | null;
+}
+export interface BrowserExactTypeForwardingHop {
+    readonly sourceAssembly: BrowserExactTypeAssemblyIdentity;
+    readonly targetAssembly: BrowserExactTypeAssemblyIdentity;
+    readonly scope: BrowserExactTypeResolutionScope;
+}
+export interface BrowserExactTypeInspectionContent {
+    readonly kind: BrowserExactTypeOutcome;
+    readonly isComplete: boolean;
+    readonly request: BrowserExactTypeRequest;
+    readonly available: BrowserExactTypeAvailable | null;
+    readonly suggestions: ReadonlyArray<BrowserExactTypeName>;
+    readonly candidates: ReadonlyArray<BrowserExactTypeCandidate>;
+    readonly failures: ReadonlyArray<BrowserExactTypeFailure>;
+}
+export interface BrowserExactTypeInspectionEnvelope {
+    readonly content: BrowserExactTypeInspectionContent;
+    readonly share: BrowserExactTypeShare;
+    readonly diagnostics: ReadonlyArray<BrowserExactTypeDiagnostic>;
+}
+export interface BrowserExactTypeInspectionFailure {
+    readonly operation: string;
+    readonly subjectToken: number;
+    readonly mechanism: BrowserExactTypeInspectionFailureMechanism;
+    readonly kind: string;
+    readonly detail: string;
+    readonly subjectAssembly: BrowserExactTypeAssemblyIdentity | null;
+    readonly dependencyAssembly: BrowserExactTypeAssemblyIdentity | null;
+    readonly owningTypeToken: number | null;
+    readonly owningTypeDefinition: BrowserExactTypeName | null;
+    readonly affectedTypeDefinitions: ReadonlyArray<BrowserExactTypeName>;
+}
+export interface BrowserExactTypeLibrarySource {
+    readonly kind: BrowserExactTypeLibrarySourceKind;
+    readonly library: BrowserExactTypeAssemblyIdentity;
+    readonly packageId: string | null;
+    readonly version: string | null;
+    readonly platformFamily: string | null;
+}
+export interface BrowserExactTypeMemberFacts {
+    readonly metadataToken: number | null;
+    readonly declarationMetadataToken: number | null;
+    readonly isAsync: boolean;
+    readonly hasMethodBody: boolean | null;
+    readonly attributes: ReadonlyArray<string>;
+}
+export interface BrowserExactTypeName {
+    readonly namespace: string;
+    readonly segments: ReadonlyArray<string>;
+}
+export interface BrowserExactTypeRealizedSource {
+    readonly kind: BrowserExactTypeRealizedSourceKind;
+    readonly packageId: string | null;
+    readonly version: string | null;
+    readonly producer: string | null;
+    readonly framework: string | null;
+    readonly runtimeIdentifier: string | null;
+    readonly platformFamily: string | null;
+    readonly assembly: string | null;
+}
+export interface BrowserExactTypeRequest {
+    readonly contextIndex: number;
+    readonly typeSelector: string;
+    readonly scope: BrowserExactTypeSurfaceScope;
+    readonly surfaceLimits: BrowserExactTypeSurfaceLimits;
+    readonly assemblyName: string | null;
+    readonly library: BrowserExactTypeAssemblyIdentity | null;
+    readonly compileAssetId: string | null;
+}
+export interface BrowserExactTypeSelectedType {
+    readonly surface: BrowserTypeSurface;
+    readonly baseType: string | null;
+    readonly interfaces: ReadonlyArray<string>;
+    readonly derivedTypes: ReadonlyArray<string>;
+    readonly typeParameters: ReadonlyArray<BrowserTypeParameter>;
+    readonly attributes: ReadonlyArray<string>;
+    readonly enumUnderlyingType: string | null;
+    readonly composition: BrowserTypeComposition | null;
+    readonly isForwarded: boolean;
+}
+export interface BrowserExactTypeShare {
+    readonly kind: BrowserExactTypeShareKind;
+    readonly fullUrl: string | null;
+    readonly packet: string | null;
+    readonly path: string | null;
+    readonly reason: string | null;
+}
+export interface BrowserExactTypeSurfaceLimits {
+    readonly maxParticipants: number;
+    readonly maxTypes: number;
+    readonly maxMembers: number;
+    readonly maxInspectionFailures: number;
+    readonly maxTypeForwarders: number;
+    readonly maxMetadataRows: number;
+    readonly maxRetainedTextCharacters: number;
 }
 export interface BrowserExceptionSurface {
     readonly type: string;
@@ -414,6 +569,7 @@ export interface BrowserTypeMetadata {
     readonly composition: BrowserTypeComposition | null;
     readonly graphNodes: ReadonlyArray<BrowserTypeGraphNode>;
     readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
+    readonly exactTypeInspection: BrowserExactTypeInspectionEnvelope;
     readonly typeDependencyInspection: InspectionEnvelope<TypeDependencySectionResult>;
     readonly inspectionFailures: ReadonlyArray<string>;
 }

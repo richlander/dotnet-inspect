@@ -57,6 +57,7 @@ public sealed record BrowserTypeMetadata(
     BrowserTypeComposition? Composition,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
+    BrowserExactTypeInspectionEnvelope ExactTypeInspection,
     InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
     string[] InspectionFailures);
 
@@ -309,6 +310,7 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(BrowserExactTypeInspectionEnvelope))]
 [JsonSerializable(typeof(InspectionEnvelope<TypeDependencySectionResult>))]
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserMemberDeclaration))]

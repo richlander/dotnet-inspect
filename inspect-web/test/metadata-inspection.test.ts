@@ -35,6 +35,41 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
     composition: null,
     graphNodes: [],
     graphEdges: [],
+    exactTypeInspection: {
+      content: {
+        kind: "NotFound",
+        isComplete: true,
+        request: {
+          contextIndex: 0,
+          typeSelector: fullName,
+          scope: "IncludeAll",
+          surfaceLimits: {
+            maxParticipants: 1,
+            maxTypes: 1,
+            maxMembers: 1,
+            maxInspectionFailures: 0,
+            maxTypeForwarders: 0,
+            maxMetadataRows: 1,
+            maxRetainedTextCharacters: 1,
+          },
+          assemblyName: "Example.Package",
+          library: null,
+          compileAssetId: "asset:example",
+        },
+        available: null,
+        suggestions: [],
+        candidates: [],
+        failures: [],
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "exact-type/type",
+        reason: "The exact type was not found.",
+      },
+      diagnostics: [],
+    },
     typeDependencyInspection: {
       content: {
         queryResult: {

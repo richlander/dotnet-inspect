@@ -4055,7 +4055,8 @@ public sealed partial class WorkspaceContextLoaderTests
         IPackageSourceAuthorization? sourceAuthorization = null,
         PackagePayloadLimits? payloadLimits = null,
         Action<string>? log = null,
-        IPackagePayloadTransferPolicy? packageTransferPolicy = null) =>
+        IPackagePayloadTransferPolicy? packageTransferPolicy = null,
+        bool includePackageRootBindings = false) =>
         new()
         {
             HttpClient = client,
@@ -4066,6 +4067,7 @@ public sealed partial class WorkspaceContextLoaderTests
             EmbeddedContent = embeddedContent,
             PayloadLimits = payloadLimits ?? PackagePayloadLimits.Default,
             Log = log,
+            IncludePackageRootBindings = includePackageRootBindings,
         };
 
     static string Producer(PackageSource source) =>

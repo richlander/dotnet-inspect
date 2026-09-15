@@ -23,10 +23,10 @@ public static partial class MetadataExports
 {
     /// <summary>
     /// One type's metadata projection, produced by
-    /// <see cref="AssemblyContextTypeProjectionQuery"/> over the participant that owns the type
-    /// and <see cref="AssemblyContextTypeDependencyQuery"/> over the active package Workspace.
-    /// The queries own metadata access and resolve references through the group's binding policy;
-    /// nothing here opens a source or reads an image.
+    /// <see cref="ExactTypeInspection"/> under an active Workspace realization operation and
+    /// <see cref="AssemblyContextTypeDependencyQuery"/> over the supplementary Browser package
+    /// Workspace. The shared inspection owns type and supplier selection; the Browser retains its
+    /// existing dependency graph projection separately.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryTypeProjection(
@@ -79,38 +79,51 @@ public static partial class MetadataExports
                 root,
                 root.CompileAsset(assemblyName));
 
-        (ResearchViews.TypeProjectionResult Projection,
-            TypeDependencySectionResult Dependencies) result =
+        InspectionEnvelope<ExactTypeInspectionResult> exactInspection =
+            await BrowserExactTypeInspection.ExecuteAsync(
+                    packageId,
+                    version,
+                    targetFramework,
+                    typeId,
+                    assemblyName,
+                    library: participant.Assembly.Identity,
+                    compileAssetId: participant.Asset.Id)
+                .ConfigureAwait(false);
+        BrowserExactTypeInspectionEnvelope browserExactInspection =
+            BrowserExactTypeInspectionWireProjection.Project(
+                exactInspection);
+        ExactTypeInspectionResult.Available available =
+            RequireAvailable(exactInspection, typeId);
+        ResearchViews.TypeProjectionResult projection =
+            ResearchViews.ProjectType(available.Type);
+        projection = projection with
+        {
+            Identity = projection.Identity with
+            {
+                Assembly = available.Candidate.SupplierAssembly.Name,
+            },
+            InspectionFailures = available.InspectionFailures,
+        };
+
+        TypeDependencySectionResult dependencies =
             scope.UseSurfaceParticipant(
                 participant,
                 (group, member) =>
-                {
-                    ResearchViews.TypeProjectionResult projection =
-                        BrowserSurfaceProjection.Require(
-                            AssemblyContextTypeProjectionQuery.ExecuteParticipant(
-                                group,
-                                member,
-                                new AssemblyContextTypeProjectionRequest(typeId)),
-                            $"Type projection for '{typeId}'");
-                    return (
-                        projection,
-                        TypeDependencySectionExecutor.ExecuteParticipant(
-                            group,
-                            member,
-                            new TypeDependencySectionPlan(
-                                projection.Identity.FullName,
-                                typeDependencyRows,
-                                maximumDepth: null)));
-                });
-        ResearchViews.TypeProjectionResult projection = result.Projection;
+                    TypeDependencySectionExecutor.ExecuteParticipant(
+                        group,
+                        member,
+                        new TypeDependencySectionPlan(
+                            projection.Identity.FullName,
+                            typeDependencyRows,
+                            maximumDepth: null)));
         (BrowserTypeGraphNode[] graphNodes,
             BrowserTypeGraphEdge[] graphEdges) =
-            TypeRelationshipGraph(projection, result.Dependencies);
+            TypeRelationshipGraph(projection, dependencies);
         InspectionEnvelope<TypeDependencySectionResult> dependencyEnvelope =
             TypeDependencyEnvelope(
                 scope,
                 root,
-                result.Dependencies,
+                dependencies,
                 projection.Identity.FullName);
 
         return new BrowserTypeMetadata(
@@ -154,12 +167,83 @@ public static partial class MetadataExports
                     : null,
                 graphNodes,
                 graphEdges,
+                browserExactInspection,
                 dependencyEnvelope,
                 [
                     .. projection.InspectionFailures.Select(
                         failure => $"{failure.Operation}: {failure.Detail}"),
-                    .. TypeDependencyFailures(scope, result.Dependencies),
+                    .. exactInspection.Diagnostics.Select(
+                        diagnostic => $"{diagnostic.Code}: {diagnostic.Summary}"),
+                    .. TypeDependencyFailures(scope, dependencies),
                 ]);
+    }
+
+    static ExactTypeInspectionResult.Available RequireAvailable(
+        InspectionEnvelope<ExactTypeInspectionResult> envelope,
+        string typeId) =>
+        envelope.Content switch
+        {
+            ExactTypeInspectionResult.Available available => available,
+            ExactTypeInspectionResult.NotFound notFound =>
+                throw new InvalidOperationException(
+                    $"Exact type inspection did not find '{typeId}'."
+                        + Suggestions(notFound)),
+            ExactTypeInspectionResult.Ambiguous ambiguous =>
+                throw new InvalidOperationException(
+                    $"Exact type inspection for '{typeId}' was ambiguous "
+                        + $"across {ambiguous.Candidates.Length} candidates"
+                        + Candidates(ambiguous.Candidates) + "."),
+            ExactTypeInspectionResult.Incomplete incomplete =>
+                throw new InvalidOperationException(
+                    $"Exact type inspection for '{typeId}' was incomplete"
+                        + Failures(incomplete.Failures)
+                        + Candidates(incomplete.Candidates) + "."),
+            ExactTypeInspectionResult.Rejected rejected =>
+                throw new InvalidOperationException(
+                    $"Exact type inspection for '{typeId}' was rejected"
+                        + Failures(rejected.Failures) + "."),
+            _ => throw new InvalidOperationException(
+                "Exact type inspection returned an unknown outcome."),
+        };
+
+    static string Suggestions(ExactTypeInspectionResult.NotFound result) =>
+        result.Suggestions.IsEmpty
+            ? ""
+            : " Suggestions: "
+                + string.Join(
+                    ", ",
+                    result.Suggestions.Select(
+                        static suggestion =>
+                            suggestion.ToMetadataFullName()))
+                + ".";
+
+    static string Candidates(
+        IEnumerable<ExactTypeCandidate> candidates)
+    {
+        string[] assemblies =
+        [
+            .. candidates
+                .Select(static candidate =>
+                    candidate.SupplierAssembly.Name)
+                .Distinct(StringComparer.Ordinal),
+        ];
+        return assemblies.Length == 0
+            ? ""
+            : $" ({string.Join(", ", assemblies)})";
+    }
+
+    static string Failures(
+        IEnumerable<ExactTypeInspectionFailure> failures)
+    {
+        string[] kinds =
+        [
+            .. failures
+                .Select(static failure => failure.Kind.ToString())
+                .Distinct(StringComparer.Ordinal),
+        ];
+        return kinds.Length == 0
+            ? ""
+            : $" ({string.Join(", ", kinds)})";
     }
 
     static InspectionEnvelope<TypeDependencySectionResult> TypeDependencyEnvelope(

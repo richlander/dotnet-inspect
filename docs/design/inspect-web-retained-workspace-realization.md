@@ -630,8 +630,20 @@ saved definition records are not retired.
 - [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) remains the
   owner for append-only Workspace Scope admission and is required before final
   retirement of package-removal compatibility paths.
-- [#6818](https://github.com/richlander/dotnet-inspect/issues/6818) is the first
-  exact type-inspection production adopter.
+- [#6818](https://github.com/richlander/dotnet-inspect/issues/6818) adopts the
+  realization seam for the baseline exact-Type operation, returning a detached
+  `InspectionEnvelope<ExactTypeInspectionResult>` with the requested assembly
+  selection preserved through the package owner's reference-preferred surface
+  role and exact compile asset ID. `BrowserTypeMetadata.ExactTypeInspection`
+  preserves that baseline at the JSON boundary separately from dependencies.
+  It constructs a per-operation realization host; it does
+  not select or restore the retained application's active definition. The
+  supplementary dependency/relationship scope remains on
+  `BrowserPackageWorkspace.ResolveAndOpenScopeAsync`, with separate realization
+  and acquisition work (the existing package store can reuse payloads).
+  This slice does not join that legacy scope to the baseline operation lease.
+  Retiring it and sharing the application's active realization remain #6757
+  work, not completion claims of #6818.
 - [#5697](https://github.com/richlander/dotnet-inspect/issues/5697) continues
   to own Workspace viewer/editor expansion rather than runtime retention.
 
