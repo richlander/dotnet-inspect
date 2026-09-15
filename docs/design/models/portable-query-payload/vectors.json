@@ -1846,6 +1846,73 @@
         ]
       },
       "canonical": "{\"s\":[[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1]],\"o\":[[\"base\",\"named\",\"n\",\"asc\"],[7,\"named\",\"x\",\"asc\"]]}"
+    },
+    {
+      "name": "supplementary-scalar-in-term-key",
+      "description": "A supplementary-plane scalar in the term-key slot is admissible and emits as four raw bytes.",
+      "queryId": "row.query",
+      "intent": {
+        "t": [
+          [
+            "k😀",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k😀\",\"eq\",\"v\"]]}"
+    },
+    {
+      "name": "supplementary-scalar-in-bound-dimension",
+      "description": "A supplementary-plane scalar in the bound-dimension slot is admissible and emits as four raw bytes.",
+      "queryId": "row.query",
+      "intent": {
+        "b": [
+          [
+            "k😀",
+            1
+          ]
+        ]
+      },
+      "canonical": "{\"b\":[[\"k😀\",1]]}"
+    },
+    {
+      "name": "supplementary-scalar-in-order-reference",
+      "description": "A supplementary-plane scalar in the order-reference slot is admissible and emits as four raw bytes.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "k😀",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"k😀\",\"desc\"]]}"
+    },
+    {
+      "name": "supplementary-scalar-in-field-key",
+      "description": "A supplementary-plane scalar in the field-key slot is admissible and emits as four raw bytes.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "k😀",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"k😀\",\"asc\"]]}"
     }
   ],
   "encode-reject": [
@@ -3011,6 +3078,193 @@
         ]
       },
       "reject": "bad-integer"
+    },
+    {
+      "name": "count-bound-negative-in-intent",
+      "description": "A negative count in the bound position is outside the Count domain on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            -1
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-stage-negative-in-intent",
+      "description": "A negative count in the stage position is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            -1
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-start-zero-in-intent",
+      "description": "0 in the window start slot alone, the other slot open, is outside the Count domain on the intent side; each window slot is independently a Count or null.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            0,
+            null
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-start-over-domain-in-intent",
+      "description": "2147483648 in the window start slot alone, the other slot open, is outside the Count domain on the intent side; each window slot is independently a Count or null.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            2147483648,
+            null
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-start-negative-in-intent",
+      "description": "-1 in the window start slot alone, the other slot open, is outside the Count domain on the intent side; each window slot is independently a Count or null.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            -1,
+            null
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-end-zero-in-intent",
+      "description": "0 in the window end slot alone, the other slot open, is outside the Count domain on the intent side; each window slot is independently a Count or null.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            null,
+            0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-end-over-domain-in-intent",
+      "description": "2147483648 in the window end slot alone, the other slot open, is outside the Count domain on the intent side; each window slot is independently a Count or null.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            null,
+            2147483648
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-end-negative-in-intent",
+      "description": "-1 in the window end slot alone, the other slot open, is outside the Count domain on the intent side; each window slot is independently a Count or null.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            null,
+            -1
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "identity-term-key-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the term-key slot is refused on the intent side, never repaired to U+FFFD.",
+      "intent": {
+        "t": [
+          [
+            "a\ud800b",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "identity-bound-dimension-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the bound-dimension slot is refused on the intent side, never repaired to U+FFFD.",
+      "intent": {
+        "b": [
+          [
+            "a\ud800b",
+            1
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "identity-order-reference-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the order-reference slot is refused on the intent side, never repaired to U+FFFD.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "a\ud800b",
+            "desc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "identity-field-key-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in the field-key slot is refused on the intent side, never repaired to U+FFFD.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "a\ud800b",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "value-unpaired-surrogate-in-intent",
+      "description": "A lone surrogate in a value is refused on the intent side, never repaired to U+FFFD.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "a\ud800b"
+          ]
+        ]
+      },
+      "reject": "unpaired-surrogate"
     }
   ],
   "reject": [
@@ -3787,6 +4041,234 @@
       "description": "A window count spelled -1 is not a canonical Count.",
       "bytes": "{\"s\":[[\"window\",-1,-1]]}",
       "reject": "bad-integer"
+    },
+    {
+      "name": "window-start-zero",
+      "description": "0 in the window start slot alone, the other slot open, is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"window\",0,null]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-start-over-domain",
+      "description": "2147483648 in the window start slot alone, the other slot open, is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"window\",2147483648,null]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-start-negative",
+      "description": "-1 in the window start slot alone, the other slot open, is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"window\",-1,null]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-start-fraction",
+      "description": "A window start spelled 1.0, the other slot open, is not a canonical Count.",
+      "bytes": "{\"s\":[[\"window\",1.0,null]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-start-exponent",
+      "description": "A window start spelled 1e2, the other slot open, is not a canonical Count.",
+      "bytes": "{\"s\":[[\"window\",1e2,null]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-end-zero",
+      "description": "0 in the window end slot alone, the other slot open, is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"window\",null,0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-end-over-domain",
+      "description": "2147483648 in the window end slot alone, the other slot open, is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"window\",null,2147483648]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-end-negative",
+      "description": "-1 in the window end slot alone, the other slot open, is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"window\",null,-1]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-end-fraction",
+      "description": "A window end spelled 1.0, the other slot open, is not a canonical Count.",
+      "bytes": "{\"s\":[[\"window\",null,1.0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-end-exponent",
+      "description": "A window end spelled 1e2, the other slot open, is not a canonical Count.",
+      "bytes": "{\"s\":[[\"window\",null,1e2]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "term-key-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the term-key slot decodes correctly but is not canonical; the packet emits it raw.",
+      "bytes": "{\"t\":[[\"a\\u00e9b\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-key-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the term-key slot is not canonical; the packet emits four raw bytes.",
+      "bytes": "{\"t\":[[\"a\\ud83d\\ude00b\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the bound-dimension slot decodes correctly but is not canonical; the packet emits it raw.",
+      "bytes": "{\"b\":[[\"a\\u00e9b\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the bound-dimension slot is not canonical; the packet emits four raw bytes.",
+      "bytes": "{\"b\":[[\"a\\ud83d\\ude00b\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the order-reference slot decodes correctly but is not canonical; the packet emits it raw.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\u00e9b\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the order-reference slot is not canonical; the packet emits four raw bytes.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\ud83d\\ude00b\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-escaped-non-ascii",
+      "description": "An escaped two-byte scalar in the field-key slot decodes correctly but is not canonical; the packet emits it raw.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\u00e9b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-surrogate-pair-escape",
+      "description": "An emoji as a surrogate-pair escape in the field-key slot is not canonical; the packet emits four raw bytes.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\ud83d\\ude00b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-key-newline-long-form",
+      "description": "A newline in the term-key slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"t\":[[\"a\\u000ab\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-key-carriage-return-long-form",
+      "description": "A carriage-return in the term-key slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"t\":[[\"a\\u000db\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-key-backspace-long-form",
+      "description": "A backspace in the term-key slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"t\":[[\"a\\u0008b\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-key-form-feed-long-form",
+      "description": "A form-feed in the term-key slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"t\":[[\"a\\u000cb\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-newline-long-form",
+      "description": "A newline in the bound-dimension slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"b\":[[\"a\\u000ab\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-carriage-return-long-form",
+      "description": "A carriage-return in the bound-dimension slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"b\":[[\"a\\u000db\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-backspace-long-form",
+      "description": "A backspace in the bound-dimension slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"b\":[[\"a\\u0008b\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimension-form-feed-long-form",
+      "description": "A form-feed in the bound-dimension slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"b\":[[\"a\\u000cb\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-newline-long-form",
+      "description": "A newline in the order-reference slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\u000ab\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-carriage-return-long-form",
+      "description": "A carriage-return in the order-reference slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\u000db\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-backspace-long-form",
+      "description": "A backspace in the order-reference slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\u0008b\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-reference-form-feed-long-form",
+      "description": "A form-feed in the order-reference slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"a\\u000cb\",\"desc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-newline-long-form",
+      "description": "A newline in the field-key slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\u000ab\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-carriage-return-long-form",
+      "description": "A carriage-return in the field-key slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\u000db\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-backspace-long-form",
+      "description": "A backspace in the field-key slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\u0008b\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "field-key-form-feed-long-form",
+      "description": "A form-feed in the field-key slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"a\\u000cb\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "value-newline-long-form",
+      "description": "A newline in the value slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"a\\u000ab\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "value-carriage-return-long-form",
+      "description": "A carriage-return in the value slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"a\\u000db\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "value-backspace-long-form",
+      "description": "A backspace in the value slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"a\\u0008b\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "value-form-feed-long-form",
+      "description": "A form-feed in the value slot spelled as a hex escape rather than its short form is not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"a\\u000cb\"]]}",
+      "reject": "non-canonical"
     }
   ],
   "pair": [
