@@ -54,7 +54,8 @@ createServer((request, response) => {
   const startupCaptures: Readonly<Record<string, string>> = {
     "/inspect-web-host.js": "host = { buildIdentity }",
     "/inspect-web-catalog.js": "catalog = { listVocabulary, listHomeDemos }",
-    "/inspect-web-package.js": "package = { listPackageQueryFacets }",
+    "/inspect-web-package.js":
+      "package = { listPackageChangesPackageSets, listPackageQueryFacets }",
   };
   const startupCapture = observeStartup ? startupCaptures[pathname] : undefined;
   void readFile(file).then(
