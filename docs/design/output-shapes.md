@@ -551,11 +551,12 @@ population-issued context/member order, assembly identity, source realization,
 and image-selection provenance as separate typed values. Equal logical
 coordinates observed through different feeds, targets, views, or occurrences
 therefore remain different rows. Selection never unwraps a singleton, groups
-away an observation, prefers an origin, or changes query completeness.
+away an observation, prefers an origin, or rewrites upstream coverage.
 
-Rows retain Metadata's
+Rows retain Metadata's `IsPublicSurface` and
 [definition discovery attributes](type-forwarding-resolution.md#definition-discovery-attributes)
-without applying visibility policy. Typed JSON emits `discovery_attributes`
+as facts. Raw projection does not apply visibility policy. Typed JSON emits
+`is_public_surface` and `discovery_attributes`
 with `is_editor_browsable_never` and `is_obsolete` for definitions; the field is
 omitted for exports whose target attributes are unavailable. Omission is not a
 pair of false facts. These facts do not add default Markout columns.
@@ -564,6 +565,21 @@ gate checks cold/resident equivalence, append reuse, occurrence preservation,
 detached lifetime, and both source-generated JSON forms. Its neighboring
 `TypeLocator_MalformedDiscoveryAttributesKeepAttributedIncompleteEvidence`
 gate preserves Metadata rejection as attributed incomplete discovery.
+
+An optional [type-declaration visibility plan](type-declaration-visibility.md)
+selects known matches before output row windows. That owner defines facet
+overrides, all-declaration input admission, and three-valued evaluation.
+The result echoes its effective plan; each answer retains its original input
+count, known exclusion count, and full undecidable candidate vectors with
+their unknown facets. These vectors are independent of selected result rows.
+`AvailableCandidateCount` counts known visibility matches before row windows.
+Combined answer completeness additionally requires visibility completeness;
+the original realization/evaluation facts remain unchanged. A visibility
+admission failure marks selection unsuccessful and unevaluated, preserves
+source coverage and input counts, and skips row windows. Both failures and
+undecidable candidates appear in the existing Markout Gaps section, including
+when no rows survive or a strict row window fails. A plan omitted by an
+existing consumer preserves the previous projection behavior.
 
 `Head`, `Tail`, and `Window` apply independently to every answer through the
 shared rows-cohort semantics. The locator declares stable sequence order but
