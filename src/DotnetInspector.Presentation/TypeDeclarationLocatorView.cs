@@ -94,7 +94,8 @@ public sealed class TypeDeclarationLocatorView
         TypeDeclarationLocatorSectionResult.Evaluated result)
     {
         bool complete =
-            result.Answers.All(static answer => answer.IsComplete);
+            result.VisibilityFailure is null
+            && result.Answers.All(static answer => answer.IsComplete);
         var gaps = new List<TypeDeclarationLocatorGapRowView>();
         foreach (TypeDeclarationLocatorContextCoverage context
             in result.Contexts)
@@ -148,13 +149,33 @@ public sealed class TypeDeclarationLocatorView
                         + $"{selection.RequiredPosition}, but only "
                         + $"{selection.AvailableCount} are available."));
         }
+        if (result.VisibilityFailure is { } visibilityFailure)
+        {
+            gaps.Add(new("Request", "Visibility selection", visibilityFailure.ToString()));
+        }
+        foreach (TypeDeclarationLocatorSectionAnswer answer in result.Answers)
+        {
+            if (answer.Visibility is not { } visibility)
+                continue;
+            foreach (TypeDeclarationVisibilityUnknownCandidate unknown in visibility.UnknownCandidates)
+            {
+                gaps.Add(new(
+                    $"{Request(answer.Request)}; {ObservationScope(unknown.Candidate.Observation)}; "
+                        + Origin(unknown.Candidate.Observation),
+                    "Visibility unknown",
+                    Safe($"{unknown.Candidate.Name.ToMetadataFullName()}: unavailable "
+                        + string.Join(", ", unknown.Facets))));
+            }
+        }
 
         return new()
         {
             Status =
-                result.RowSelectionFailure is null
-                    ? "Evaluated"
-                    : "Row selection failed",
+                result.VisibilityFailure is not null
+                    ? "Visibility selection failed"
+                    : result.RowSelectionFailure is not null
+                        ? "Row selection failed"
+                        : "Evaluated",
             Completion = complete ? "Complete" : "Incomplete",
             KnownCandidates =
                 result.Answers.Sum(

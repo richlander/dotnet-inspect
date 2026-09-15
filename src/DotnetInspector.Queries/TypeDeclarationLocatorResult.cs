@@ -27,6 +27,7 @@ public sealed class TypeDeclarationLocatorCandidate
         Kind = declaration.Kind;
         DefinitionKind = declaration.DefinitionKind;
         IsDefinitionPublic = declaration.IsDefinitionPublic;
+        IsPublicSurface = declaration.IsPublicSurface;
         DiscoveryAttributes = declaration.DiscoveryAttributes;
         DeclarationOrder = declarationOrder;
         Observation = observation;
@@ -37,6 +38,7 @@ public sealed class TypeDeclarationLocatorCandidate
     public AssemblyTypeDeclarationKind Kind { get; }
     public AssemblyTypeDefinitionKind? DefinitionKind { get; }
     public bool? IsDefinitionPublic { get; }
+    public bool IsPublicSurface { get; }
     public TypeDeclarationDiscoveryAttributes? DiscoveryAttributes { get; }
     public int DeclarationOrder { get; }
     public WorkspaceDeclarationMember Observation { get; }

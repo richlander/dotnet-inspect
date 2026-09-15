@@ -76,15 +76,28 @@ silently stand in for the query's inventory-read bound.
 [#7101](https://github.com/richlander/dotnet-inspect/issues/7101) supplies the
 Metadata-owned [definition discovery attributes](type-forwarding-resolution.md#definition-discovery-attributes)
 needed for default-visibility adoption. Locator candidates and Sections rows
-carry `IsDefinitionPublic` and `DiscoveryAttributes` unchanged, including
-unavailable definition-local evidence for exports. The existing public/all
-locator views do not apply the API renderer's row-local visibility, attribute,
-or generated-name suppression. Step 7 queries the complete declaration view
-and applies the established Find policy only when those facts are known,
-reuses same-name definition facts for a forwarder in the same answer, and uses
-the compatibility inventory when target evidence remains unavailable. Step 8
-consumes the same typed facts rather than reopening
-metadata or parsing display text to discover them.
+carry `IsDefinitionPublic`, `IsPublicSurface`, and `DiscoveryAttributes`
+unchanged, including unavailable definition-local and target-attribute
+evidence for exports. The existing public/all locator views do not apply
+attribute suppression.
+
+[#7142](https://github.com/richlander/dotnet-inspect/issues/7142) supplies the
+focused step-6 [type-declaration visibility selector](type-declaration-visibility.md):
+independent public-surface, EditorBrowsable Never, and obsolete facets;
+Default/All presets with per-facet overrides; and attributed unknown evidence
+through Sections/JSON/Markout. The shared-first prerequisite is now complete;
+superseded PR #7082 is closed.
+
+Established Find policy differs from the shared presets in two deliberate
+ways: it evaluates a definition row's own visibility rather than its complete
+enclosing public surface, and it applies generated-name suppression to the
+leaf Metadata segment. Step 7 therefore projects the complete raw declaration
+view and applies that compatibility policy from the same Metadata-issued facts,
+without reopening metadata or parsing display text. The shared selector remains
+the owner for consumer-controlled PublicSurface predicates and attributed
+unknown evidence; CLI predicate bindings and `-Q` disclosure remain unshipped.
+Step 8 consumes the shared plan and typed evidence rather than implementing
+another filter.
 
 The remaining production step is step 8's TypeScript consumer of the same
 typed operation, followed by step 9's duplicate Platform lookup retirement.
