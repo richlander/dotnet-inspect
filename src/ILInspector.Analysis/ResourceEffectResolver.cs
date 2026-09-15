@@ -149,7 +149,7 @@ public static class ResourceEffectResolver
 
                 if (declaration.Target
                     is not ResourceEffectTargetSelector.Member
-                    { Selector.Kind: not ResourceEffectMemberKind.Field })
+                        { Selector.Kind: not ResourceEffectMemberKind.Field })
                 {
                     unsupported = true;
                     Retain(
@@ -607,26 +607,26 @@ public static class ResourceEffectResolver
 
     static ImmutableArray<ResolvedResourceEffect> Coalesce(
         IEnumerable<ResolvedResourceEffect> effects)
-    {
-        var grouped = new Dictionary<BoundEffectKey, CoalescedEffect>();
-        foreach (ResolvedResourceEffect effect in effects)
         {
-            var key = new BoundEffectKey(
-                effect.PhysicalInvocation,
-                effect.CanonicalEffect);
-            if (grouped.TryGetValue(key, out CoalescedEffect? existing))
+            var grouped = new Dictionary<BoundEffectKey, CoalescedEffect>();
+            foreach (ResolvedResourceEffect effect in effects)
             {
-                existing.Sources.AddRange(effect.Sources);
-                continue;
+                var key = new BoundEffectKey(
+                    effect.PhysicalInvocation,
+                    effect.CanonicalEffect);
+                if (grouped.TryGetValue(key, out CoalescedEffect? existing))
+                {
+                    existing.Sources.AddRange(effect.Sources);
+                    continue;
+                }
+                grouped.Add(
+                    key,
+                    new CoalescedEffect(effect, [.. effect.Sources]));
             }
-            grouped.Add(
-                key,
-                new CoalescedEffect(effect, [.. effect.Sources]));
-        }
 
-        return
-        [
-            .. grouped.Values.Select(value =>
+            return
+            [
+                .. grouped.Values.Select(value =>
                 {
                     ImmutableArray<ResolvedResourceEffectSource> sources =
                     [
@@ -647,356 +647,356 @@ public static class ResourceEffectResolver
                         first.CanonicalEffect);
                 }),
             ];
-    }
+        }
 
-    static ImmutableArray<ResourceEffectConflict> FindConflicts(
-        ImmutableArray<ResolvedResourceEffect> effects,
-        ResourceEffectResolutionLimits limits,
-        GapCollector gaps,
-        CancellationToken cancellationToken,
-        out bool incomplete)
-    {
-        var conflicts =
-            ImmutableArray.CreateBuilder<ResourceEffectConflict>();
-        long comparisons = 0;
-        incomplete = false;
-        foreach (IGrouping<GraphNodeStorageKey, ResolvedResourceEffect> group
-            in effects.GroupBy(effect => effect.PhysicalInvocation))
+        static ImmutableArray<ResourceEffectConflict> FindConflicts(
+            ImmutableArray<ResolvedResourceEffect> effects,
+            ResourceEffectResolutionLimits limits,
+            GapCollector gaps,
+            CancellationToken cancellationToken,
+            out bool incomplete)
         {
-            ResolvedResourceEffect[] values = [.. group];
-            var conflicting = new bool[values.Length];
-            for (int left = 0; left < values.Length; left++)
+            var conflicts =
+                ImmutableArray.CreateBuilder<ResourceEffectConflict>();
+            long comparisons = 0;
+            incomplete = false;
+            foreach (IGrouping<GraphNodeStorageKey, ResolvedResourceEffect> group
+                in effects.GroupBy(effect => effect.PhysicalInvocation))
             {
-                for (int right = left + 1;
-                    right < values.Length;
-                    right++)
+                ResolvedResourceEffect[] values = [.. group];
+                var conflicting = new bool[values.Length];
+                for (int left = 0; left < values.Length; left++)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    comparisons++;
-                    if (comparisons
-                        > limits.MaxCompatibilityComparisons)
+                    for (int right = left + 1;
+                        right < values.Length;
+                        right++)
                     {
-                        incomplete = true;
-                        gaps.TryAdd(
-                            WorkGap(
-                                ResourceEffectResolutionWorkDimension
-                                    .CompatibilityComparisons,
-                                limits.MaxCompatibilityComparisons,
-                                comparisons,
-                                group.Key));
-                        if (conflicting.Any(static value => value))
+                        cancellationToken.ThrowIfCancellationRequested();
+                        comparisons++;
+                        if (comparisons
+                            > limits.MaxCompatibilityComparisons)
                         {
-                            conflicts.Add(
-                                new ResourceEffectConflict(
-                                    group.Key,
-                                    [
-                                        .. values.Where(
+                            incomplete = true;
+                            gaps.TryAdd(
+                                WorkGap(
+                                    ResourceEffectResolutionWorkDimension
+                                        .CompatibilityComparisons,
+                                    limits.MaxCompatibilityComparisons,
+                                    comparisons,
+                                    group.Key));
+                            if (conflicting.Any(static value => value))
+                            {
+                                conflicts.Add(
+                                    new ResourceEffectConflict(
+                                        group.Key,
+                                        [
+                                            .. values.Where(
                                                 (_, index) =>
                                                     conflicting[index]),
-                                    ]));
+                                        ]));
+                            }
+                            return conflicts.ToImmutable();
                         }
-                        return conflicts.ToImmutable();
-                    }
-                    if (Conflicts(values[left], values[right]))
-                    {
-                        conflicting[left] = true;
-                        conflicting[right] = true;
+                        if (Conflicts(values[left], values[right]))
+                        {
+                            conflicting[left] = true;
+                            conflicting[right] = true;
+                        }
                     }
                 }
-            }
-            if (conflicting.Any(static value => value))
-            {
-                conflicts.Add(
-                    new ResourceEffectConflict(
-                        group.Key,
-                        [
-                            .. values.Where(
+                if (conflicting.Any(static value => value))
+                {
+                    conflicts.Add(
+                        new ResourceEffectConflict(
+                            group.Key,
+                            [
+                                .. values.Where(
                                     (_, index) => conflicting[index]),
-                        ]));
+                            ]));
+                }
             }
+            return conflicts.ToImmutable();
         }
-        return conflicts.ToImmutable();
-    }
 
-    static bool Conflicts(
-        ResolvedResourceEffect left,
-        ResolvedResourceEffect right)
-    {
-        if (left.CanonicalEffect == right.CanonicalEffect)
-            return false;
-        if (left.Effect is ResourceEffect.Operation leftOperation
-            && right.Effect is ResourceEffect.Operation rightOperation)
+        static bool Conflicts(
+            ResolvedResourceEffect left,
+            ResolvedResourceEffect right)
         {
-            return GuardsOverlap(
-                    left,
-                    leftOperation.Guard,
-                    right,
-                    rightOperation.Guard)
-                && (leftOperation.Boundary != rightOperation.Boundary
-                    || leftOperation.Throws != rightOperation.Throws);
+            if (left.CanonicalEffect == right.CanonicalEffect)
+                return false;
+            if (left.Effect is ResourceEffect.Operation leftOperation
+                && right.Effect is ResourceEffect.Operation rightOperation)
+            {
+                return GuardsOverlap(
+                        left,
+                        leftOperation.Guard,
+                        right,
+                        rightOperation.Guard)
+                    && (leftOperation.Boundary != rightOperation.Boundary
+                        || leftOperation.Throws != rightOperation.Throws);
+            }
+            if (left.Effect is ResourceEffect.Independent leftIndependent)
+            {
+                return ConflictsWithIndependence(
+                    leftIndependent,
+                    right.Effect);
+            }
+            if (right.Effect
+                is ResourceEffect.Independent rightIndependent)
+            {
+                return ConflictsWithIndependence(
+                    rightIndependent,
+                    left.Effect);
+            }
+            if (!TryOwnershipClaim(left, out OwnershipClaim? leftClaim)
+                || !TryOwnershipClaim(right, out OwnershipClaim? rightClaim)
+                || leftClaim!.Source != rightClaim!.Source
+                || !KindDomainsOverlap(leftClaim.Kind, rightClaim.Kind))
+            {
+                return false;
+            }
+            if (leftClaim.Entry && rightClaim.Entry)
+            {
+                return leftClaim.Borrow != rightClaim.Borrow
+                    || (!leftClaim.Borrow
+                        && leftClaim.CanonicalTransition
+                            != rightClaim.CanonicalTransition);
+            }
+            if (leftClaim.Entry || rightClaim.Entry)
+            {
+                OwnershipClaim entry =
+                    leftClaim.Entry ? leftClaim : rightClaim;
+                return !entry.Borrow;
+            }
+            return CompletionDomainsOverlap(
+                    leftClaim.Completion,
+                    rightClaim.Completion)
+                && leftClaim.CanonicalTransition
+                    != rightClaim.CanonicalTransition;
         }
-        if (left.Effect is ResourceEffect.Independent leftIndependent)
-        {
-            return ConflictsWithIndependence(
-                leftIndependent,
-                right.Effect);
-        }
-        if (right.Effect
-            is ResourceEffect.Independent rightIndependent)
-        {
-            return ConflictsWithIndependence(
-                rightIndependent,
-                left.Effect);
-        }
-        if (!TryOwnershipClaim(left, out OwnershipClaim? leftClaim)
-            || !TryOwnershipClaim(right, out OwnershipClaim? rightClaim)
-            || leftClaim!.Source != rightClaim!.Source
-            || !KindDomainsOverlap(leftClaim.Kind, rightClaim.Kind))
-        {
-            return false;
-        }
-        if (leftClaim.Entry && rightClaim.Entry)
-        {
-            return leftClaim.Borrow != rightClaim.Borrow
-                || (!leftClaim.Borrow
-                    && leftClaim.CanonicalTransition
-                        != rightClaim.CanonicalTransition);
-        }
-        if (leftClaim.Entry || rightClaim.Entry)
-        {
-            OwnershipClaim entry =
-                leftClaim.Entry ? leftClaim : rightClaim;
-            return !entry.Borrow;
-        }
-        return CompletionDomainsOverlap(
-                leftClaim.Completion,
-                rightClaim.Completion)
-            && leftClaim.CanonicalTransition
-                != rightClaim.CanonicalTransition;
-    }
 
-    static bool ConflictsWithIndependence(
-        ResourceEffect.Independent independence,
-        ResourceEffect other) =>
-        other switch
-        {
-            ResourceEffect.Borrow value =>
-                SameRelation(
-                    value.Source,
-                    value.Target,
-                    independence)
-                || (value.Lender is not null
+        static bool ConflictsWithIndependence(
+            ResourceEffect.Independent independence,
+            ResourceEffect other) =>
+            other switch
+            {
+                ResourceEffect.Borrow value =>
+                    SameRelation(
+                        value.Source,
+                        value.Target,
+                        independence)
+                    || (value.Lender is not null
+                        && SameRelation(
+                            value.Lender,
+                            value.Target,
+                            independence)),
+                ResourceEffect.Derive value =>
+                    SameRelation(
+                        value.Source,
+                        value.Target,
+                        independence),
+                ResourceEffect.Pass value =>
+                    SameRelation(
+                        value.Source,
+                        value.Target,
+                        independence),
+                ResourceEffect.Move value =>
+                    SameRelation(
+                        value.Source,
+                        value.Target,
+                        independence),
+                ResourceEffect.Consume value =>
+                    SameRelation(
+                        value.Source,
+                        value.Target,
+                        independence),
+                ResourceEffect.Accept value =>
+                    SameRelation(
+                        value.Source,
+                        value.Target,
+                        independence),
+                ResourceEffect.Acquire value =>
+                    value.Lender is not null
                     && SameRelation(
                         value.Lender,
                         value.Target,
-                        independence)),
-            ResourceEffect.Derive value =>
-                SameRelation(
-                    value.Source,
-                    value.Target,
-                    independence),
-            ResourceEffect.Pass value =>
-                SameRelation(
-                    value.Source,
-                    value.Target,
-                    independence),
-            ResourceEffect.Move value =>
-                SameRelation(
-                    value.Source,
-                    value.Target,
-                    independence),
-            ResourceEffect.Consume value =>
-                SameRelation(
-                    value.Source,
-                    value.Target,
-                    independence),
-            ResourceEffect.Accept value =>
-                SameRelation(
-                    value.Source,
-                    value.Target,
-                    independence),
-            ResourceEffect.Acquire value =>
-                value.Lender is not null
-                && SameRelation(
-                    value.Lender,
-                    value.Target,
-                    independence),
-            _ => false,
-        };
+                        independence),
+                _ => false,
+            };
 
-    static bool SameRelation(
-        ResourceEffectLocation source,
-        ResourceEffectLocation target,
-        ResourceEffect.Independent independence) =>
-        source == independence.Source
-        && target == independence.Target;
+        static bool SameRelation(
+            ResourceEffectLocation source,
+            ResourceEffectLocation target,
+            ResourceEffect.Independent independence) =>
+            source == independence.Source
+            && target == independence.Target;
 
-    static bool TryOwnershipClaim(
-        ResolvedResourceEffect effect,
-        out OwnershipClaim? claim)
-    {
-        claim = effect.Effect switch
+        static bool TryOwnershipClaim(
+            ResolvedResourceEffect effect,
+            out OwnershipClaim? claim)
         {
-            ResourceEffect.Borrow value =>
-                new(
-                    value.Source,
-                    Kind(effect, value.Kind),
-                    Borrow: true,
-                    Entry: true,
-                    Completion: null,
-                    CanonicalTransition: CanonicalTransition(effect)),
-            ResourceEffect.Consume value =>
-                new(
-                    value.Source,
-                    Kind(effect, value.Kind),
-                    Borrow: false,
-                    Entry: true,
-                    Completion: null,
-                    CanonicalTransition: CanonicalTransition(effect)),
-            ResourceEffect.Move value =>
-                new(
-                    value.Source,
-                    Kind(effect, value.Kind),
-                    Borrow: false,
-                    Entry: value.When is ResourceEffectCompletion.Entry,
-                    value.When,
-                    CanonicalTransition(effect)),
-            ResourceEffect.Release value =>
-                new(
-                    value.Source,
-                    Kind(effect, value.Kind),
-                    Borrow: false,
-                    Entry: value.When is ResourceEffectCompletion.Entry,
-                    value.When,
-                    CanonicalTransition(effect)),
-            ResourceEffect.Accept value =>
-                new(
-                    value.Source,
-                    Kind(effect, value.Kind),
-                    Borrow: false,
-                    Entry: value.When is ResourceEffectCompletion.Entry,
-                    value.When,
-                    CanonicalTransition(effect)),
-            _ => null,
-        };
-        return claim is not null;
-    }
-
-    static string CanonicalTransition(
-        ResolvedResourceEffect effect)
-    {
-        var value = new StringBuilder();
-        switch (effect.Effect)
-        {
-            case ResourceEffect.Borrow item:
-                Append(value, "borrow");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                Append(value, (int)item.Access);
-                Append(value, item.Scope.GetType().Name);
-                AppendLocation(value, item.Lender);
-                Append(
-                    value,
-                    item.Materialization is null
-                        ? -1
-                        : (int)item.Materialization.Value);
-                break;
-            case ResourceEffect.Consume item:
-                Append(value, "consume");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                break;
-            case ResourceEffect.Move item:
-                Append(value, "move");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                AppendCompletion(value, item.When);
-                break;
-            case ResourceEffect.Release item:
-                Append(value, "release");
-                AppendLocation(value, item.Source);
-                AppendCompletion(value, item.When);
-                AppendLocation(value, item.Correspondence);
-                AppendLocation(value, item.Observation);
-                break;
-            case ResourceEffect.Accept item:
-                Append(value, "accept");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                AppendCompletion(value, item.When);
-                Append(value, item.Order?.Value ?? "");
-                break;
-            default:
-                Append(value, effect.CanonicalEffect);
-                break;
+            claim = effect.Effect switch
+            {
+                ResourceEffect.Borrow value =>
+                    new(
+                        value.Source,
+                        Kind(effect, value.Kind),
+                        Borrow: true,
+                        Entry: true,
+                        Completion: null,
+                        CanonicalTransition: CanonicalTransition(effect)),
+                ResourceEffect.Consume value =>
+                    new(
+                        value.Source,
+                        Kind(effect, value.Kind),
+                        Borrow: false,
+                        Entry: true,
+                        Completion: null,
+                        CanonicalTransition: CanonicalTransition(effect)),
+                ResourceEffect.Move value =>
+                    new(
+                        value.Source,
+                        Kind(effect, value.Kind),
+                        Borrow: false,
+                        Entry: value.When is ResourceEffectCompletion.Entry,
+                        value.When,
+                        CanonicalTransition(effect)),
+                ResourceEffect.Release value =>
+                    new(
+                        value.Source,
+                        Kind(effect, value.Kind),
+                        Borrow: false,
+                        Entry: value.When is ResourceEffectCompletion.Entry,
+                        value.When,
+                        CanonicalTransition(effect)),
+                ResourceEffect.Accept value =>
+                    new(
+                        value.Source,
+                        Kind(effect, value.Kind),
+                        Borrow: false,
+                        Entry: value.When is ResourceEffectCompletion.Entry,
+                        value.When,
+                        CanonicalTransition(effect)),
+                _ => null,
+            };
+            return claim is not null;
         }
-        return value.ToString();
-    }
 
-    static ResolvedResourceKindReference? Kind(
-        ResolvedResourceEffect effect,
-        ResourceKindReference? declared)
-    {
-        if (declared is null)
-            return null;
-        return effect.ResourceKinds.Single(kind =>
-            kind.Identity == declared.Identity
-            && kind.Arguments.Length == declared.Arguments.Length
-            && declared.Arguments.Select(variable =>
-                    effect.GenericBindings.Single(binding =>
-                        binding.Variable == variable).Value)
-                .SequenceEqual(kind.Arguments));
-    }
-
-    static bool KindDomainsOverlap(
-        ResolvedResourceKindReference? left,
-        ResolvedResourceKindReference? right) =>
-        left is null || right is null || left.Equals(right);
-
-    static bool CompletionDomainsOverlap(
-        ResourceEffectCompletion? left,
-        ResourceEffectCompletion? right)
-    {
-        if (left is null || right is null)
-            return true;
-        if (left is ResourceEffectCompletion.Entry
-            || right is ResourceEffectCompletion.Entry)
+        static string CanonicalTransition(
+            ResolvedResourceEffect effect)
         {
+            var value = new StringBuilder();
+            switch (effect.Effect)
+            {
+                case ResourceEffect.Borrow item:
+                    Append(value, "borrow");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    Append(value, (int)item.Access);
+                    Append(value, item.Scope.GetType().Name);
+                    AppendLocation(value, item.Lender);
+                    Append(
+                        value,
+                        item.Materialization is null
+                            ? -1
+                            : (int)item.Materialization.Value);
+                    break;
+                case ResourceEffect.Consume item:
+                    Append(value, "consume");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    break;
+                case ResourceEffect.Move item:
+                    Append(value, "move");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    AppendCompletion(value, item.When);
+                    break;
+                case ResourceEffect.Release item:
+                    Append(value, "release");
+                    AppendLocation(value, item.Source);
+                    AppendCompletion(value, item.When);
+                    AppendLocation(value, item.Correspondence);
+                    AppendLocation(value, item.Observation);
+                    break;
+                case ResourceEffect.Accept item:
+                    Append(value, "accept");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    AppendCompletion(value, item.When);
+                    Append(value, item.Order?.Value ?? "");
+                    break;
+                default:
+                    Append(value, effect.CanonicalEffect);
+                    break;
+            }
+            return value.ToString();
+        }
+
+        static ResolvedResourceKindReference? Kind(
+            ResolvedResourceEffect effect,
+            ResourceKindReference? declared)
+        {
+            if (declared is null)
+                return null;
+            return effect.ResourceKinds.Single(kind =>
+                kind.Identity == declared.Identity
+                && kind.Arguments.Length == declared.Arguments.Length
+                && declared.Arguments.Select(variable =>
+                        effect.GenericBindings.Single(binding =>
+                            binding.Variable == variable).Value)
+                    .SequenceEqual(kind.Arguments));
+        }
+
+        static bool KindDomainsOverlap(
+            ResolvedResourceKindReference? left,
+            ResolvedResourceKindReference? right) =>
+            left is null || right is null || left.Equals(right);
+
+        static bool CompletionDomainsOverlap(
+            ResourceEffectCompletion? left,
+            ResourceEffectCompletion? right)
+        {
+            if (left is null || right is null)
+                return true;
+            if (left is ResourceEffectCompletion.Entry
+                || right is ResourceEffectCompletion.Entry)
+            {
+                return true;
+            }
+            if (left is ResourceEffectCompletion.ExceptionalExit
+                || right is ResourceEffectCompletion.ExceptionalExit)
+            {
+                return left is ResourceEffectCompletion.ExceptionalExit
+                    && right is ResourceEffectCompletion.ExceptionalExit;
+            }
             return true;
         }
-        if (left is ResourceEffectCompletion.ExceptionalExit
-            || right is ResourceEffectCompletion.ExceptionalExit)
+
+        static bool GuardsOverlap(
+            ResolvedResourceEffect left,
+            ResourceEffectGuard? leftGuard,
+            ResolvedResourceEffect right,
+            ResourceEffectGuard? rightGuard)
         {
-            return left is ResourceEffectCompletion.ExceptionalExit
-                && right is ResourceEffectCompletion.ExceptionalExit;
+            if (leftGuard is null || rightGuard is null)
+                return true;
+            var leftExact =
+                (ResourceEffectGuard.ExactRuntimeType)leftGuard;
+            var rightExact =
+                (ResourceEffectGuard.ExactRuntimeType)rightGuard;
+            if (leftExact.Subject != rightExact.Subject)
+                return true;
+            return left.GuardExpectedType is null
+                || right.GuardExpectedType is null
+                || left.GuardExpectedType.Equals(
+                    right.GuardExpectedType);
         }
-        return true;
-    }
 
-    static bool GuardsOverlap(
-        ResolvedResourceEffect left,
-        ResourceEffectGuard? leftGuard,
-        ResolvedResourceEffect right,
-        ResourceEffectGuard? rightGuard)
-    {
-        if (leftGuard is null || rightGuard is null)
-            return true;
-        var leftExact =
-            (ResourceEffectGuard.ExactRuntimeType)leftGuard;
-        var rightExact =
-            (ResourceEffectGuard.ExactRuntimeType)rightGuard;
-        if (leftExact.Subject != rightExact.Subject)
-            return true;
-        return left.GuardExpectedType is null
-            || right.GuardExpectedType is null
-            || left.GuardExpectedType.Equals(
-                right.GuardExpectedType);
-    }
-
-    static ImmutableArray<ResolvedResourceEffect> OrderEffects(
-        IEnumerable<ResolvedResourceEffect> effects) =>
-        [
-            .. effects
+        static ImmutableArray<ResolvedResourceEffect> OrderEffects(
+            IEnumerable<ResolvedResourceEffect> effects) =>
+            [
+                .. effects
                     .OrderBy(OccurrenceKey, StringComparer.Ordinal)
                     .ThenBy(
                         effect => effect.CanonicalEffect,
@@ -1004,515 +1004,504 @@ public static class ResourceEffectResolver
                     .ThenBy(
                         CanonicalSources,
                         StringComparer.Ordinal),
-        ];
+            ];
 
-    static string OccurrenceKey(ResolvedResourceEffect effect) =>
-        OccurrenceKey(effect.DirectCall);
+        static string OccurrenceKey(ResolvedResourceEffect effect) =>
+            OccurrenceKey(effect.DirectCall);
 
-    static string OccurrenceKey(
-        DirectCallDefinitionResolution directCall)
-    {
-        var value = new StringBuilder();
-        Append(
-            value,
-            MetadataReceiptEvidence.For(
-                directCall.Participant.Assembly.Registration));
-        Append(value, directCall.PhysicalInvocation.ModuleVersionId);
-        Append(value, directCall.PhysicalInvocation.MethodToken);
-        Append(value, directCall.PhysicalInvocation.ILOffset);
-        Append(value, directCall.PhysicalInvocation.OperandToken);
-        Append(value, (int)directCall.Call.Kind);
-        if (directCall is DirectCallDefinitionResolution.Resolved resolved)
+        static string OccurrenceKey(
+            DirectCallDefinitionResolution directCall)
         {
-            Append(
-                value,
-                MetadataReceiptEvidence.For(
-                    resolved.Definition.Registration));
-            Append(value, resolved.Definition.ModuleVersionId);
-            Append(value, resolved.Definition.MetadataToken);
-            AppendForwarding(value, resolved.Definition.Forwarding);
-        }
-        else
-        {
-            Append(value, directCall.GetType().Name);
-        }
-        return value.ToString();
-    }
-
-    static string CanonicalBoundEffect(
-        ResourceEffect effect,
-        ImmutableArray<ResolvedResourceEffectGenericBinding> bindings,
-        ImmutableArray<ResolvedResourceKindReference> resourceKinds,
-        ResolvedResourceEffectType? guardExpectedType)
-    {
-        var value = new StringBuilder();
-        switch (effect)
-        {
-            case ResourceEffect.Resource item:
-                Append(value, "resource");
-                AppendKind(value, item.Kind);
-                Append(value, item.Value is null ? -1 : (int)item.Value);
-                Append(value, item.Selector?.Value ?? "");
-                break;
-            case ResourceEffect.Authority item:
-                Append(value, "authority");
-                AppendKind(value, item.Kind);
-                AppendLocation(value, item.Target);
-                switch (item.Key)
-                {
-                    case ResourceAuthorityKey.Value:
-                        Append(value, "value");
-                        break;
-                    case ResourceAuthorityKey.Singleton singleton:
-                        Append(value, "singleton");
-                        foreach (ResourceEffectGenericVariable argument
-                            in singleton.Arguments)
-                        {
-                            AppendType(
-                                value,
-                                Binding(argument));
-                        }
-                        break;
-                }
-                break;
-            case ResourceEffect.Acquire item:
-                Append(value, "acquire");
-                AppendKind(value, item.Kind);
-                AppendLocation(value, item.Target);
-                AppendCompletion(value, item.When);
-                AppendLocation(value, item.Correspondence);
-                AppendLocation(value, item.Lender);
-                break;
-            case ResourceEffect.Move item:
-                Append(value, "move");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                AppendCompletion(value, item.When);
-                AppendKind(value, item.Kind);
-                break;
-            case ResourceEffect.Consume item:
-                Append(value, "consume");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                AppendKind(value, item.Kind);
-                break;
-            case ResourceEffect.Release item:
-                Append(value, "release");
-                AppendLocation(value, item.Source);
-                AppendCompletion(value, item.When);
-                AppendKind(value, item.Kind);
-                AppendLocation(value, item.Correspondence);
-                AppendLocation(value, item.Observation);
-                break;
-            case ResourceEffect.Borrow item:
-                Append(value, "borrow");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                Append(value, (int)item.Access);
-                Append(value, item.Scope.GetType().Name);
-                AppendKind(value, item.Kind);
-                AppendLocation(value, item.Lender);
-                Append(
-                    value,
-                    item.Materialization is null
-                        ? -1
-                        : (int)item.Materialization);
-                break;
-            case ResourceEffect.Derive item:
-                Append(value, "derive");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                Append(value, (int)item.Relation);
-                AppendGuard(value, item.Guard);
-                break;
-            case ResourceEffect.Pass item:
-                Append(value, "pass");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                Append(
-                    value,
-                    item.Identity is null ? -1 : (int)item.Identity);
-                break;
-            case ResourceEffect.Independent item:
-                Append(value, "independent");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                break;
-            case ResourceEffect.Accept item:
-                Append(value, "accept");
-                AppendLocation(value, item.Source);
-                AppendLocation(value, item.Target);
-                AppendCompletion(value, item.When);
-                AppendKind(value, item.Kind);
-                Append(value, item.Order?.Value ?? "");
-                break;
-            case ResourceEffect.Operation item:
-                Append(value, "operation");
-                Append(value, (int)item.Boundary);
-                Append(value, (int)item.Throws);
-                AppendGuard(value, item.Guard);
-                break;
-            default:
-                Append(value, effect.ToString() ?? effect.GetType().Name);
-                break;
-        }
-        return value.ToString();
-
-        ResolvedResourceEffectType Binding(
-            ResourceEffectGenericVariable variable) =>
-            bindings.Single(binding =>
-                binding.Variable == variable).Value;
-
-        void AppendKind(
-            StringBuilder builder,
-            ResourceKindReference? reference)
-        {
-            if (reference is null)
+            var value = new StringBuilder();
+            Append(value, directCall.Participant.Assembly.Registration.Value);
+            Append(value, directCall.PhysicalInvocation.ModuleVersionId);
+            Append(value, directCall.PhysicalInvocation.MethodToken);
+            Append(value, directCall.PhysicalInvocation.ILOffset);
+            Append(value, directCall.PhysicalInvocation.OperandToken);
+            Append(value, (int)directCall.Call.Kind);
+            if (directCall is DirectCallDefinitionResolution.Resolved resolved)
             {
-                Append(builder, "all-kinds");
-                return;
+                Append(value, resolved.Definition.Registration.Value);
+                Append(value, resolved.Definition.ModuleVersionId);
+                Append(value, resolved.Definition.MetadataToken);
+                AppendForwarding(value, resolved.Definition.Forwarding);
             }
-            ResolvedResourceKindReference resolved =
-                resourceKinds.Single(kind =>
-                    kind.Identity == reference.Identity
-                    && kind.Arguments.Length
-                        == reference.Arguments.Length
-                    && reference.Arguments.Select(Binding)
-                        .SequenceEqual(kind.Arguments));
-            Append(builder, resolved.Identity.Value);
-            foreach (ResolvedResourceEffectType argument
-                in resolved.Arguments)
-            {
-                AppendType(builder, argument);
-            }
-        }
-
-        void AppendGuard(
-            StringBuilder builder,
-            ResourceEffectGuard? guard)
-        {
-            if (guard is null)
-            {
-                Append(builder, "unguarded");
-                return;
-            }
-            var exact = (ResourceEffectGuard.ExactRuntimeType)guard;
-            Append(builder, "exact-runtime-type");
-            AppendLocation(builder, exact.Subject);
-            AppendType(builder, guardExpectedType!);
-        }
-    }
-
-    static void AppendCompletion(
-        StringBuilder value,
-        ResourceEffectCompletion completion) =>
-        Append(value, completion.GetType().Name);
-
-    static void AppendLocation(
-        StringBuilder value,
-        ResourceEffectLocation? location)
-    {
-        switch (location)
-        {
-            case null:
-                Append(value, "none");
-                break;
-            case ResourceEffectLocation.Receiver:
-                Append(value, "receiver");
-                break;
-            case ResourceEffectLocation.Return:
-                Append(value, "return");
-                break;
-            case ResourceEffectLocation.Constructed:
-                Append(value, "constructed");
-                break;
-            case ResourceEffectLocation.Parameter parameter:
-                Append(value, "parameter");
-                Append(value, parameter.Index);
-                break;
-            default:
-                Append(value, location.ToString() ?? "");
-                break;
-        }
-    }
-
-    static void AppendType(
-        StringBuilder value,
-        ResolvedResourceEffectType type)
-    {
-        Append(value, (int)type.Type.Kind);
-        Append(value, type.Type.RawTypeKind);
-        Append(value, type.Type.Rank);
-        Append(value, "array-sizes");
-        Append(value, type.Type.ArraySizes.Length);
-        foreach (int size in type.Type.ArraySizes)
-            Append(value, size);
-        Append(value, "array-lower-bounds");
-        Append(value, type.Type.ArrayLowerBounds.Length);
-        foreach (int lowerBound in type.Type.ArrayLowerBounds)
-            Append(value, lowerBound);
-        if (type.Definition is { } definition)
-        {
-            Append(value, "definition");
-            Append(
-                value,
-                MetadataReceiptEvidence.For(definition));
-            Append(value, (int)definition.Kind);
-        }
-        else
-        {
-            Append(value, "exact-signature");
-            AppendTypeRef(value, type.Type);
-            if (type.DefiningAssembly is { } assembly)
-                AppendAssembly(value, assembly);
             else
-                Append(value, "no-defining-assembly");
+            {
+                Append(value, directCall.GetType().Name);
+            }
+            return value.ToString();
         }
-        if (type.GenericScope is { } scope)
-        {
-            Append(value, (int)scope.Kind);
-            Append(value, scope.Owner.SourceReceiptEvidence);
-            Append(value, scope.Owner.ModuleVersionId);
-            Append(value, scope.Owner.MethodToken);
-        }
-        else
-        {
-            Append(value, "no-generic-scope");
-        }
-        Append(value, type.Element is null ? "no-element" : "element");
-        if (type.Element is not null)
-            AppendType(value, type.Element);
-        Append(value, "arguments");
-        Append(value, type.Arguments.Length);
-        foreach (ResolvedResourceEffectType argument in type.Arguments)
-            AppendType(value, argument);
-    }
 
-    static ResolvedResourceEffectSource CanonicalizeSource(
-        ResolvedResourceEffectSource source) =>
-        new(
-            source.Model,
-            source.ModelReceipt,
-            source.Declaration,
-            [
-                .. source.Provenances.OrderBy(
+        static string CanonicalBoundEffect(
+            ResourceEffect effect,
+            ImmutableArray<ResolvedResourceEffectGenericBinding> bindings,
+            ImmutableArray<ResolvedResourceKindReference> resourceKinds,
+            ResolvedResourceEffectType? guardExpectedType)
+        {
+            var value = new StringBuilder();
+            switch (effect)
+            {
+                case ResourceEffect.Resource item:
+                    Append(value, "resource");
+                    AppendKind(value, item.Kind);
+                    Append(value, item.Value is null ? -1 : (int)item.Value);
+                    Append(value, item.Selector?.Value ?? "");
+                    break;
+                case ResourceEffect.Authority item:
+                    Append(value, "authority");
+                    AppendKind(value, item.Kind);
+                    AppendLocation(value, item.Target);
+                    switch (item.Key)
+                    {
+                        case ResourceAuthorityKey.Value:
+                            Append(value, "value");
+                            break;
+                        case ResourceAuthorityKey.Singleton singleton:
+                            Append(value, "singleton");
+                            foreach (ResourceEffectGenericVariable argument
+                                in singleton.Arguments)
+                            {
+                                AppendType(
+                                    value,
+                                    Binding(argument));
+                            }
+                            break;
+                    }
+                    break;
+                case ResourceEffect.Acquire item:
+                    Append(value, "acquire");
+                    AppendKind(value, item.Kind);
+                    AppendLocation(value, item.Target);
+                    AppendCompletion(value, item.When);
+                    AppendLocation(value, item.Correspondence);
+                    AppendLocation(value, item.Lender);
+                    break;
+                case ResourceEffect.Move item:
+                    Append(value, "move");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    AppendCompletion(value, item.When);
+                    AppendKind(value, item.Kind);
+                    break;
+                case ResourceEffect.Consume item:
+                    Append(value, "consume");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    AppendKind(value, item.Kind);
+                    break;
+                case ResourceEffect.Release item:
+                    Append(value, "release");
+                    AppendLocation(value, item.Source);
+                    AppendCompletion(value, item.When);
+                    AppendKind(value, item.Kind);
+                    AppendLocation(value, item.Correspondence);
+                    AppendLocation(value, item.Observation);
+                    break;
+                case ResourceEffect.Borrow item:
+                    Append(value, "borrow");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    Append(value, (int)item.Access);
+                    Append(value, item.Scope.GetType().Name);
+                    AppendKind(value, item.Kind);
+                    AppendLocation(value, item.Lender);
+                    Append(
+                        value,
+                        item.Materialization is null
+                            ? -1
+                            : (int)item.Materialization);
+                    break;
+                case ResourceEffect.Derive item:
+                    Append(value, "derive");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    Append(value, (int)item.Relation);
+                    AppendGuard(value, item.Guard);
+                    break;
+                case ResourceEffect.Pass item:
+                    Append(value, "pass");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    Append(
+                        value,
+                        item.Identity is null ? -1 : (int)item.Identity);
+                    break;
+                case ResourceEffect.Independent item:
+                    Append(value, "independent");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    break;
+                case ResourceEffect.Accept item:
+                    Append(value, "accept");
+                    AppendLocation(value, item.Source);
+                    AppendLocation(value, item.Target);
+                    AppendCompletion(value, item.When);
+                    AppendKind(value, item.Kind);
+                    Append(value, item.Order?.Value ?? "");
+                    break;
+                case ResourceEffect.Operation item:
+                    Append(value, "operation");
+                    Append(value, (int)item.Boundary);
+                    Append(value, (int)item.Throws);
+                    AppendGuard(value, item.Guard);
+                    break;
+                default:
+                    Append(value, effect.ToString() ?? effect.GetType().Name);
+                    break;
+            }
+            return value.ToString();
+
+            ResolvedResourceEffectType Binding(
+                ResourceEffectGenericVariable variable) =>
+                bindings.Single(binding =>
+                    binding.Variable == variable).Value;
+
+            void AppendKind(
+                StringBuilder builder,
+                ResourceKindReference? reference)
+            {
+                if (reference is null)
+                {
+                    Append(builder, "all-kinds");
+                    return;
+                }
+                ResolvedResourceKindReference resolved =
+                    resourceKinds.Single(kind =>
+                        kind.Identity == reference.Identity
+                        && kind.Arguments.Length
+                            == reference.Arguments.Length
+                        && reference.Arguments.Select(Binding)
+                            .SequenceEqual(kind.Arguments));
+                Append(builder, resolved.Identity.Value);
+                foreach (ResolvedResourceEffectType argument
+                    in resolved.Arguments)
+                {
+                    AppendType(builder, argument);
+                }
+            }
+
+            void AppendGuard(
+                StringBuilder builder,
+                ResourceEffectGuard? guard)
+            {
+                if (guard is null)
+                {
+                    Append(builder, "unguarded");
+                    return;
+                }
+                var exact = (ResourceEffectGuard.ExactRuntimeType)guard;
+                Append(builder, "exact-runtime-type");
+                AppendLocation(builder, exact.Subject);
+                AppendType(builder, guardExpectedType!);
+            }
+        }
+
+        static void AppendCompletion(
+            StringBuilder value,
+            ResourceEffectCompletion completion) =>
+            Append(value, completion.GetType().Name);
+
+        static void AppendLocation(
+            StringBuilder value,
+            ResourceEffectLocation? location)
+        {
+            switch (location)
+            {
+                case null:
+                    Append(value, "none");
+                    break;
+                case ResourceEffectLocation.Receiver:
+                    Append(value, "receiver");
+                    break;
+                case ResourceEffectLocation.Return:
+                    Append(value, "return");
+                    break;
+                case ResourceEffectLocation.Constructed:
+                    Append(value, "constructed");
+                    break;
+                case ResourceEffectLocation.Parameter parameter:
+                    Append(value, "parameter");
+                    Append(value, parameter.Index);
+                    break;
+                default:
+                    Append(value, location.ToString() ?? "");
+                    break;
+            }
+        }
+
+        static void AppendType(
+            StringBuilder value,
+            ResolvedResourceEffectType type)
+        {
+            Append(value, (int)type.Type.Kind);
+            Append(value, type.Type.RawTypeKind);
+            Append(value, type.Type.Rank);
+            Append(value, "array-sizes");
+            Append(value, type.Type.ArraySizes.Length);
+            foreach (int size in type.Type.ArraySizes)
+                Append(value, size);
+            Append(value, "array-lower-bounds");
+            Append(value, type.Type.ArrayLowerBounds.Length);
+            foreach (int lowerBound in type.Type.ArrayLowerBounds)
+                Append(value, lowerBound);
+            if (type.Definition is { } definition)
+            {
+                Append(value, "definition");
+                Append(value, definition.Value);
+                Append(value, (int)definition.Kind);
+            }
+            else
+            {
+                Append(value, "exact-signature");
+                AppendTypeRef(value, type.Type);
+                if (type.DefiningAssembly is { } assembly)
+                    AppendAssembly(value, assembly);
+                else
+                    Append(value, "no-defining-assembly");
+            }
+            if (type.GenericScope is { } scope)
+            {
+                Append(value, (int)scope.Kind);
+                Append(value, scope.Owner.SourceValue);
+                Append(value, scope.Owner.ModuleVersionId);
+                Append(value, scope.Owner.MethodToken);
+            }
+            else
+            {
+                Append(value, "no-generic-scope");
+            }
+            Append(value, type.Element is null ? "no-element" : "element");
+            if (type.Element is not null)
+                AppendType(value, type.Element);
+            Append(value, "arguments");
+            Append(value, type.Arguments.Length);
+            foreach (ResolvedResourceEffectType argument in type.Arguments)
+                AppendType(value, argument);
+        }
+
+        static ResolvedResourceEffectSource CanonicalizeSource(
+            ResolvedResourceEffectSource source) =>
+            new(
+                source.Model,
+                source.ModelReceipt,
+                source.Declaration,
+                [
+                    .. source.Provenances.OrderBy(
                         ResourceEffectCanonicalizer.Provenance,
                         StringComparer.Ordinal),
-            ]);
+                ]);
 
-    static string CanonicalSource(
-        ResolvedResourceEffectSource source) =>
-        source.Model.Value
-        + "\u001f"
-        + source.ModelReceipt.ContentHash
-        + "\u001f"
-        + ResourceEffectCanonicalizer.Declaration(
-            source.Declaration.Target,
-            source.Declaration.Effect)
-        + "\u001f"
-        + string.Join(
-            "\u001e",
-            source.Provenances.Select(
-                ResourceEffectCanonicalizer.Provenance));
+        static string CanonicalSource(
+            ResolvedResourceEffectSource source) =>
+            source.Model.Value
+            + "\u001f"
+            + source.ModelReceipt.ContentHash
+            + "\u001f"
+            + ResourceEffectCanonicalizer.Declaration(
+                source.Declaration.Target,
+                source.Declaration.Effect)
+            + "\u001f"
+            + string.Join(
+                "\u001e",
+                source.Provenances.Select(
+                    ResourceEffectCanonicalizer.Provenance));
 
-    static string CanonicalSources(ResolvedResourceEffect effect) =>
-        string.Join(
-            "\u001d",
-            effect.Sources
-                .Select(CanonicalizeSource)
-                .OrderBy(CanonicalSource, StringComparer.Ordinal)
-                .Select(CanonicalSource));
+        static string CanonicalSources(ResolvedResourceEffect effect) =>
+            string.Join(
+                "\u001d",
+                effect.Sources
+                    .Select(CanonicalizeSource)
+                    .OrderBy(CanonicalSource, StringComparer.Ordinal)
+                    .Select(CanonicalSource));
 
-    static ResourceEffectOccurrencePopulationReceipt
-        CreatePopulationReceipt(
-            DirectCallDefinitionResolutionOutcome.Completed directCalls)
-    {
-        ImmutableArray<CatalogCallGraphParticipant> participants =
-        [
-            .. directCalls.Population.OrderBy(
+        static ResourceEffectOccurrencePopulationReceipt
+            CreatePopulationReceipt(
+                DirectCallDefinitionResolutionOutcome.Completed directCalls)
+        {
+            ImmutableArray<CatalogCallGraphParticipant> participants =
+            [
+                .. directCalls.Population.OrderBy(
                     ParticipantKey,
                     StringComparer.Ordinal),
             ];
-        ImmutableArray<DirectCallDefinitionResolution> ordered =
-        [
-            .. directCalls.Results.OrderBy(
+            ImmutableArray<DirectCallDefinitionResolution> ordered =
+            [
+                .. directCalls.Results.OrderBy(
                     OccurrenceKey,
                     StringComparer.Ordinal),
             ];
-        using var hash = IncrementalHash.CreateHash(
-            HashAlgorithmName.SHA256);
-        AppendHash("resource-effect-occurrence-population-v1");
-        AppendHash(directCalls.Catalog.Value.ToString("D"));
-        AppendHash(MetadataReceiptEvidence.For(directCalls.Generation));
-        foreach (CatalogCallGraphParticipant participant
-            in participants)
-        {
-            AppendHash(ParticipantKey(participant));
-            AppendHash(participant.Index.DeclaredMethods.Length.ToString(
-                CultureInfo.InvariantCulture));
-            AppendHash(participant.Index.DirectCalls.Length.ToString(
-                CultureInfo.InvariantCulture));
-            AppendHash(participant.Index.Diagnostics.Length.ToString(
-                CultureInfo.InvariantCulture));
-            foreach (AnalysisDiagnostic diagnostic
-                in participant.Index.Diagnostics.OrderBy(
-                    diagnostic => diagnostic.MethodToken))
+            using var hash = IncrementalHash.CreateHash(
+                HashAlgorithmName.SHA256);
+            AppendHash("resource-effect-occurrence-population-v1");
+            AppendHash(directCalls.Catalog.Value.ToString("D"));
+            AppendHash(directCalls.Generation.Value.ToString("D"));
+            foreach (CatalogCallGraphParticipant participant
+                in participants)
             {
-                AppendHash(diagnostic.MethodToken.ToString(
+                AppendHash(ParticipantKey(participant));
+                AppendHash(participant.Index.DeclaredMethods.Length.ToString(
                     CultureInfo.InvariantCulture));
-                AppendHash(diagnostic.SourceMethodToken?.ToString(
-                    CultureInfo.InvariantCulture) ?? "");
-                AppendHash(diagnostic.DeclaringType is null
-                    ? ""
-                    : CanonicalTypeRef(diagnostic.DeclaringType));
-                AppendHash(diagnostic.SourceDeclaringType is null
-                    ? ""
-                    : CanonicalTypeRef(
-                        diagnostic.SourceDeclaringType));
+                AppendHash(participant.Index.DirectCalls.Length.ToString(
+                    CultureInfo.InvariantCulture));
+                AppendHash(participant.Index.Diagnostics.Length.ToString(
+                    CultureInfo.InvariantCulture));
+                foreach (AnalysisDiagnostic diagnostic
+                    in participant.Index.Diagnostics.OrderBy(
+                        diagnostic => diagnostic.MethodToken))
+                {
+                    AppendHash(diagnostic.MethodToken.ToString(
+                        CultureInfo.InvariantCulture));
+                    AppendHash(diagnostic.SourceMethodToken?.ToString(
+                        CultureInfo.InvariantCulture) ?? "");
+                    AppendHash(diagnostic.DeclaringType is null
+                        ? ""
+                        : CanonicalTypeRef(diagnostic.DeclaringType));
+                    AppendHash(diagnostic.SourceDeclaringType is null
+                        ? ""
+                        : CanonicalTypeRef(
+                            diagnostic.SourceDeclaringType));
+                }
+            }
+            foreach (DirectCallDefinitionResolution result in ordered)
+            {
+                AppendHash(OccurrenceKey(result));
+                AppendHash(result.GetType().Name);
+                if (result is DirectCallDefinitionResolution.Resolved resolved)
+                    AppendHash(CanonicalMember(resolved.Definition.Member));
+            }
+            return new ResourceEffectOccurrencePopulationReceipt(
+                directCalls.Catalog,
+                directCalls.Generation,
+                participants,
+                ordered,
+                Convert.ToHexString(hash.GetHashAndReset())
+                    .ToLowerInvariant());
+
+            void AppendHash(string text)
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(text);
+                hash.AppendData(bytes);
+                hash.AppendData([0]);
             }
         }
-        foreach (DirectCallDefinitionResolution result in ordered)
+
+        static string ParticipantKey(
+            CatalogCallGraphParticipant participant)
         {
-            AppendHash(OccurrenceKey(result));
-            AppendHash(result.GetType().Name);
-            if (result is DirectCallDefinitionResolution.Resolved resolved)
-                AppendHash(CanonicalMember(resolved.Definition.Member));
+            var value = new StringBuilder();
+            Append(value, participant.Assembly.Registration.Value);
+            AppendAssembly(value, participant.Assembly.Identity);
+            Append(
+                value,
+                participant.Index.ModuleIdentity.ModuleVersionId);
+            return value.ToString();
         }
-        return new ResourceEffectOccurrencePopulationReceipt(
-            directCalls.Catalog,
-            directCalls.Generation,
-            participants,
-            ordered,
-            Convert.ToHexString(hash.GetHashAndReset())
-                .ToLowerInvariant());
 
-        void AppendHash(string text)
+        static string CanonicalTypeRef(TypeRef type)
         {
-            byte[] bytes = Encoding.UTF8.GetBytes(text);
-            hash.AppendData(bytes);
-            hash.AppendData([0]);
+            var value = new StringBuilder();
+            AppendTypeRef(value, type);
+            return value.ToString();
         }
-    }
 
-    static string ParticipantKey(
-        CatalogCallGraphParticipant participant)
-    {
-        var value = new StringBuilder();
-        Append(
-            value,
-            MetadataReceiptEvidence.For(
-                participant.Assembly.Registration));
-        AppendAssembly(value, participant.Assembly.Identity);
-        Append(
-            value,
-            participant.Index.ModuleIdentity.ModuleVersionId);
-        return value.ToString();
-    }
-
-    static string CanonicalTypeRef(TypeRef type)
-    {
-        var value = new StringBuilder();
-        AppendTypeRef(value, type);
-        return value.ToString();
-    }
-
-    static ResourceEffectResolutionReceipt CreateReceipt(
-        ResourceEffectAdmissionReceipt admission,
-        ResourceEffectOccurrencePopulationReceipt population,
-        string completion,
-        ImmutableArray<ResourceEffectTargetEvaluation> evaluations,
-        ImmutableArray<ResolvedResourceEffect> effects,
-        ImmutableArray<ResourceEffectConflict> conflicts,
-        ImmutableArray<ResourceEffectResolutionGap> gaps)
-    {
-        using var hash = IncrementalHash.CreateHash(
-            HashAlgorithmName.SHA256);
-        AppendHash("resolved-resource-effects-v1");
-        AppendHash(admission.ContentHash);
-        AppendHash(population.ContentHash);
-        AppendHash(completion);
-        foreach (ResourceEffectTargetEvaluation evaluation
-            in evaluations)
+        static ResourceEffectResolutionReceipt CreateReceipt(
+            ResourceEffectAdmissionReceipt admission,
+            ResourceEffectOccurrencePopulationReceipt population,
+            string completion,
+            ImmutableArray<ResourceEffectTargetEvaluation> evaluations,
+            ImmutableArray<ResolvedResourceEffect> effects,
+            ImmutableArray<ResourceEffectConflict> conflicts,
+            ImmutableArray<ResourceEffectResolutionGap> gaps)
         {
-            AppendHash(evaluation.Model.Value);
-            AppendHash(evaluation.ModelReceipt.ContentHash);
-            AppendHash(
-                ResourceEffectCanonicalizer.Declaration(
-                    evaluation.Declaration.Target,
-                    evaluation.Declaration.Effect));
-            AppendHash(((int)evaluation.Kind).ToString(
-                CultureInfo.InvariantCulture));
-            foreach (ResolvedResourceEffect effect in evaluation.Effects)
+            using var hash = IncrementalHash.CreateHash(
+                HashAlgorithmName.SHA256);
+            AppendHash("resolved-resource-effects-v1");
+            AppendHash(admission.ContentHash);
+            AppendHash(population.ContentHash);
+            AppendHash(completion);
+            foreach (ResourceEffectTargetEvaluation evaluation
+                in evaluations)
+            {
+                AppendHash(evaluation.Model.Value);
+                AppendHash(evaluation.ModelReceipt.ContentHash);
+                AppendHash(
+                    ResourceEffectCanonicalizer.Declaration(
+                        evaluation.Declaration.Target,
+                        evaluation.Declaration.Effect));
+                AppendHash(((int)evaluation.Kind).ToString(
+                    CultureInfo.InvariantCulture));
+                foreach (ResolvedResourceEffect effect in evaluation.Effects)
+                    AppendEffect(effect);
+                foreach (ResourceEffectResolutionGap gap in evaluation.Gaps)
+                    AppendGap(gap);
+            }
+            foreach (ResolvedResourceEffect effect in effects)
                 AppendEffect(effect);
-            foreach (ResourceEffectResolutionGap gap in evaluation.Gaps)
+            foreach (ResourceEffectConflict conflict in conflicts)
+            {
+                AppendHash("conflict");
+                AppendHash(OccurrenceKey(conflict.Effects[0]));
+                foreach (ResolvedResourceEffect effect in conflict.Effects)
+                    AppendEffect(effect);
+            }
+            foreach (ResourceEffectResolutionGap gap in gaps)
                 AppendGap(gap);
-        }
-        foreach (ResolvedResourceEffect effect in effects)
-            AppendEffect(effect);
-        foreach (ResourceEffectConflict conflict in conflicts)
-        {
-            AppendHash("conflict");
-            AppendHash(OccurrenceKey(conflict.Effects[0]));
-            foreach (ResolvedResourceEffect effect in conflict.Effects)
-                AppendEffect(effect);
-        }
-        foreach (ResourceEffectResolutionGap gap in gaps)
-            AppendGap(gap);
 
-        return new ResourceEffectResolutionReceipt(
-            admission,
-            population,
-            Convert.ToHexString(hash.GetHashAndReset())
-                .ToLowerInvariant());
+            return new ResourceEffectResolutionReceipt(
+                admission,
+                population,
+                Convert.ToHexString(hash.GetHashAndReset())
+                    .ToLowerInvariant());
 
-        void AppendEffect(ResolvedResourceEffect effect)
-        {
-            AppendHash(OccurrenceKey(effect));
-            AppendHash(effect.CanonicalEffect);
-            AppendHash(CanonicalBindingEvidence(effect));
-            AppendHash(CanonicalSources(effect));
-        }
+            void AppendEffect(ResolvedResourceEffect effect)
+            {
+                AppendHash(OccurrenceKey(effect));
+                AppendHash(effect.CanonicalEffect);
+                AppendHash(CanonicalBindingEvidence(effect));
+                AppendHash(CanonicalSources(effect));
+            }
 
-        void AppendGap(ResourceEffectResolutionGap gap)
-        {
-            AppendHash(((int)gap.Kind).ToString(
-                CultureInfo.InvariantCulture));
-            AppendHash(gap.Participant is null
-                ? ""
-                : ParticipantKey(gap.Participant));
-            AppendHash(gap.AnalysisDiagnostic is null
-                ? ""
-                : gap.AnalysisDiagnostic.MethodToken.ToString(
+            void AppendGap(ResourceEffectResolutionGap gap)
+            {
+                AppendHash(((int)gap.Kind).ToString(
                     CultureInfo.InvariantCulture));
-            AppendHash(gap.AnalysisDiagnostic?.SourceMethodToken
-                ?.ToString(CultureInfo.InvariantCulture) ?? "");
-            AppendHash(gap.PhysicalInvocation is null
-                ? ""
-                : CanonicalPhysical(gap.PhysicalInvocation));
-            AppendHash(gap.SelectorGap is null
-                ? ""
-                : CanonicalSelectorGap(gap.SelectorGap));
-            AppendHash(gap.DeferredKind is null
-                ? ""
-                : ((int)gap.DeferredKind).ToString(
-                    CultureInfo.InvariantCulture));
-            AppendHash(gap.WorkDimension is null
-                ? ""
-                : ((int)gap.WorkDimension).ToString(
-                    CultureInfo.InvariantCulture));
-            AppendHash(gap.Limit?.ToString(
-                CultureInfo.InvariantCulture) ?? "");
-            AppendHash(gap.RequiredWork?.ToString(
-                CultureInfo.InvariantCulture) ?? "");
-        }
+                AppendHash(gap.Participant is null
+                    ? ""
+                    : ParticipantKey(gap.Participant));
+                AppendHash(gap.AnalysisDiagnostic is null
+                    ? ""
+                    : gap.AnalysisDiagnostic.MethodToken.ToString(
+                        CultureInfo.InvariantCulture));
+                AppendHash(gap.AnalysisDiagnostic?.SourceMethodToken
+                    ?.ToString(CultureInfo.InvariantCulture) ?? "");
+                AppendHash(gap.PhysicalInvocation is null
+                    ? ""
+                    : CanonicalPhysical(gap.PhysicalInvocation));
+                AppendHash(gap.SelectorGap is null
+                    ? ""
+                    : CanonicalSelectorGap(gap.SelectorGap));
+                AppendHash(gap.DeferredKind is null
+                    ? ""
+                    : ((int)gap.DeferredKind).ToString(
+                        CultureInfo.InvariantCulture));
+                AppendHash(gap.WorkDimension is null
+                    ? ""
+                    : ((int)gap.WorkDimension).ToString(
+                        CultureInfo.InvariantCulture));
+                AppendHash(gap.Limit?.ToString(
+                    CultureInfo.InvariantCulture) ?? "");
+                AppendHash(gap.RequiredWork?.ToString(
+                    CultureInfo.InvariantCulture) ?? "");
+            }
 
-        void AppendHash(string text)
-        {
-            byte[] bytes = Encoding.UTF8.GetBytes(text);
-            hash.AppendData(bytes);
-            hash.AppendData([0]);
+            void AppendHash(string text)
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(text);
+                hash.AppendData(bytes);
+                hash.AppendData([0]);
+            }
         }
-    }
 
     static string CanonicalBindingEvidence(
         ResolvedResourceEffect effect)
@@ -1569,15 +1558,13 @@ public static class ResourceEffectResolver
         {
             Append(
                 value,
-                MetadataReceiptEvidence.For(
-                    hop.SourceAssembly.Assembly.Registration));
+                hop.SourceAssembly.Assembly.Registration.Value);
             AppendAssembly(
                 value,
                 hop.SourceAssembly.Assembly.Identity);
             Append(
                 value,
-                MetadataReceiptEvidence.For(
-                    hop.SourceOccurrence.Assembly.Registration));
+                hop.SourceOccurrence.Assembly.Registration.Value);
             Append(value, hop.Declarations.Length);
             foreach (ExportedTypeToken declaration in hop.Declarations)
                 Append(value, declaration.Value);
@@ -1588,197 +1575,197 @@ public static class ResourceEffectResolver
 
     static string CanonicalSelectorGap(
             ResourceEffectSelectorBindingGap gap)
-    {
-        var value = new StringBuilder();
-        Append(value, (int)gap.Kind);
-        if (gap.DirectCallGap is { } direct)
         {
-            Append(value, (int)direct.Kind);
-            Append(value, (int)direct.CallKind);
-            Append(value, CanonicalPhysical(direct.PhysicalInvocation));
+            var value = new StringBuilder();
+            Append(value, (int)gap.Kind);
+            if (gap.DirectCallGap is { } direct)
+            {
+                Append(value, (int)direct.Kind);
+                Append(value, (int)direct.CallKind);
+                Append(value, CanonicalPhysical(direct.PhysicalInvocation));
+                Append(
+                    value,
+                    direct.WorkDimension is null
+                        ? -1
+                        : (int)direct.WorkDimension);
+                Append(value, direct.Limit ?? -1);
+                Append(value, direct.RequiredWork ?? -1);
+            }
+            if (gap.Type is not null)
+                AppendTypeRef(value, gap.Type);
+            if (gap.TypeResolution is not null)
+                Append(value, gap.TypeResolution.GetType().Name);
+            if (gap.DefinitionProjection is not null)
+                Append(value, gap.DefinitionProjection.GetType().Name);
+            return value.ToString();
+        }
+
+        static string CanonicalPhysical(GraphNodeStorageKey physical)
+        {
+            var value = new StringBuilder();
+            Append(value, physical.SourceValue);
+            Append(value, physical.ModuleVersionId);
+            Append(value, (int)physical.Kind);
+            Append(value, physical.MethodToken);
+            Append(value, physical.ILOffset);
+            Append(value, physical.OperandToken);
+            return value.ToString();
+        }
+
+        static string CanonicalMember(MemberRef member)
+        {
+            var value = new StringBuilder();
+            Append(value, (int)member.Kind);
+            Append(value, member.Name);
+            Append(value, member.GenericArity);
+            AppendTypeRef(value, member.DeclaringType);
+            AppendTypeRef(value, member.ReturnType);
+            foreach (TypeRef parameter in member.ParameterTypes)
+                AppendTypeRef(value, parameter);
+            return value.ToString();
+        }
+
+        static void AppendTypeRef(StringBuilder value, TypeRef type)
+        {
+            Append(value, (int)type.Kind);
+            Append(value, type.Assembly);
+            Append(value, type.Namespace);
+            Append(value, type.Name);
+            Append(value, type.Rank);
+            Append(value, type.GenericParameterIndex);
+            Append(value, type.RawTypeKind);
+            Append(value, "array-sizes");
+            Append(value, type.ArraySizes.Length);
+            foreach (int size in type.ArraySizes)
+                Append(value, size);
+            Append(value, "array-lower-bounds");
+            Append(value, type.ArrayLowerBounds.Length);
+            foreach (int lowerBound in type.ArrayLowerBounds)
+                Append(value, lowerBound);
             Append(
                 value,
-                direct.WorkDimension is null
-                    ? -1
-                    : (int)direct.WorkDimension);
-            Append(value, direct.Limit ?? -1);
-            Append(value, direct.RequiredWork ?? -1);
-        }
-        if (gap.Type is not null)
-            AppendTypeRef(value, gap.Type);
-        if (gap.TypeResolution is not null)
-            Append(value, gap.TypeResolution.GetType().Name);
-        if (gap.DefinitionProjection is not null)
-            Append(value, gap.DefinitionProjection.GetType().Name);
-        return value.ToString();
-    }
-
-    static string CanonicalPhysical(GraphNodeStorageKey physical)
-    {
-        var value = new StringBuilder();
-        Append(value, physical.SourceReceiptEvidence);
-        Append(value, physical.ModuleVersionId);
-        Append(value, (int)physical.Kind);
-        Append(value, physical.MethodToken);
-        Append(value, physical.ILOffset);
-        Append(value, physical.OperandToken);
-        return value.ToString();
-    }
-
-    static string CanonicalMember(MemberRef member)
-    {
-        var value = new StringBuilder();
-        Append(value, (int)member.Kind);
-        Append(value, member.Name);
-        Append(value, member.GenericArity);
-        AppendTypeRef(value, member.DeclaringType);
-        AppendTypeRef(value, member.ReturnType);
-        foreach (TypeRef parameter in member.ParameterTypes)
-            AppendTypeRef(value, parameter);
-        return value.ToString();
-    }
-
-    static void AppendTypeRef(StringBuilder value, TypeRef type)
-    {
-        Append(value, (int)type.Kind);
-        Append(value, type.Assembly);
-        Append(value, type.Namespace);
-        Append(value, type.Name);
-        Append(value, type.Rank);
-        Append(value, type.GenericParameterIndex);
-        Append(value, type.RawTypeKind);
-        Append(value, "array-sizes");
-        Append(value, type.ArraySizes.Length);
-        foreach (int size in type.ArraySizes)
-            Append(value, size);
-        Append(value, "array-lower-bounds");
-        Append(value, type.ArrayLowerBounds.Length);
-        foreach (int lowerBound in type.ArrayLowerBounds)
-            Append(value, lowerBound);
-        Append(
-            value,
-            type.ElementType is null ? "no-element" : "element");
-        if (type.ElementType is not null)
-            AppendTypeRef(value, type.ElementType);
-        Append(value, "type-arguments");
-        Append(value, type.TypeArguments.Length);
-        foreach (TypeRef argument in type.TypeArguments)
-            AppendTypeRef(value, argument);
-        Append(
-            value,
-            type.ModifierType is null
-                ? "no-modifier"
-                : "modifier");
-        if (type.ModifierType is not null)
-            AppendTypeRef(value, type.ModifierType);
-        Append(
-            value,
-            type.UnmodifiedType is null
-                ? "no-unmodified"
-                : "unmodified");
-        if (type.UnmodifiedType is not null)
-            AppendTypeRef(value, type.UnmodifiedType);
-    }
-
-    static void AppendAssembly(
-        StringBuilder value,
-        AssemblyReferenceIdentity assembly)
-    {
-        Append(value, assembly.Name);
-        Append(value, assembly.Version?.ToString() ?? "");
-        Append(value, assembly.Culture ?? "");
-        Append(value, assembly.PublicKeyToken ?? "");
-    }
-
-    static void Append(StringBuilder value, string text)
-    {
-        value.Append(text.Length.ToString(CultureInfo.InvariantCulture));
-        value.Append(':');
-        value.Append(text);
-        value.Append(';');
-    }
-
-    static void Append(StringBuilder value, Guid item) =>
-        Append(value, item.ToString("D"));
-
-    static void Append(StringBuilder value, int item) =>
-        Append(value, item.ToString(CultureInfo.InvariantCulture));
-
-    static void Append(StringBuilder value, long item) =>
-        Append(value, item.ToString(CultureInfo.InvariantCulture));
-
-    sealed record BoundEffectKey(
-        GraphNodeStorageKey PhysicalInvocation,
-        string CanonicalEffect);
-
-    sealed class CoalescedEffect
-    {
-        internal CoalescedEffect(
-            ResolvedResourceEffect first,
-            List<ResolvedResourceEffectSource> sources)
-        {
-            First = first;
-            Sources = sources;
+                type.ElementType is null ? "no-element" : "element");
+            if (type.ElementType is not null)
+                AppendTypeRef(value, type.ElementType);
+            Append(value, "type-arguments");
+            Append(value, type.TypeArguments.Length);
+            foreach (TypeRef argument in type.TypeArguments)
+                AppendTypeRef(value, argument);
+            Append(
+                value,
+                type.ModifierType is null
+                    ? "no-modifier"
+                    : "modifier");
+            if (type.ModifierType is not null)
+                AppendTypeRef(value, type.ModifierType);
+            Append(
+                value,
+                type.UnmodifiedType is null
+                    ? "no-unmodified"
+                    : "unmodified");
+            if (type.UnmodifiedType is not null)
+                AppendTypeRef(value, type.UnmodifiedType);
         }
 
-        internal ResolvedResourceEffect First { get; }
-        internal List<ResolvedResourceEffectSource> Sources { get; }
-    }
-
-    sealed class SourceComparer
-        : IEqualityComparer<ResolvedResourceEffectSource>
-    {
-        internal static SourceComparer Instance { get; } = new();
-
-        public bool Equals(
-            ResolvedResourceEffectSource? left,
-            ResolvedResourceEffectSource? right) =>
-            ReferenceEquals(left, right)
-            || (left is not null
-                && right is not null
-                && CanonicalSource(left) == CanonicalSource(right));
-
-        public int GetHashCode(ResolvedResourceEffectSource value) =>
-            StringComparer.Ordinal.GetHashCode(CanonicalSource(value));
-    }
-
-    sealed record OwnershipClaim(
-        ResourceEffectLocation Source,
-        ResolvedResourceKindReference? Kind,
-        bool Borrow,
-        bool Entry,
-        ResourceEffectCompletion? Completion,
-        string CanonicalTransition);
-
-    sealed class GapCollector
-    {
-        readonly int _limit;
-        readonly List<ResourceEffectResolutionGap> _gaps = [];
-
-        internal GapCollector(int limit) => _limit = limit;
-
-        internal bool Exhausted { get; private set; }
-
-        internal bool TryAdd(ResourceEffectResolutionGap gap)
+        static void AppendAssembly(
+            StringBuilder value,
+            AssemblyReferenceIdentity assembly)
         {
-            if (_gaps.Count >= _limit)
+            Append(value, assembly.Name);
+            Append(value, assembly.Version?.ToString() ?? "");
+            Append(value, assembly.Culture ?? "");
+            Append(value, assembly.PublicKeyToken ?? "");
+        }
+
+        static void Append(StringBuilder value, string text)
+        {
+            value.Append(text.Length.ToString(CultureInfo.InvariantCulture));
+            value.Append(':');
+            value.Append(text);
+            value.Append(';');
+        }
+
+        static void Append(StringBuilder value, Guid item) =>
+            Append(value, item.ToString("D"));
+
+        static void Append(StringBuilder value, int item) =>
+            Append(value, item.ToString(CultureInfo.InvariantCulture));
+
+        static void Append(StringBuilder value, long item) =>
+            Append(value, item.ToString(CultureInfo.InvariantCulture));
+
+        sealed record BoundEffectKey(
+            GraphNodeStorageKey PhysicalInvocation,
+            string CanonicalEffect);
+
+        sealed class CoalescedEffect
+        {
+            internal CoalescedEffect(
+                ResolvedResourceEffect first,
+                List<ResolvedResourceEffectSource> sources)
             {
-                Exhausted = true;
-                return false;
+                First = first;
+                Sources = sources;
             }
-            _gaps.Add(gap);
-            return true;
+
+            internal ResolvedResourceEffect First { get; }
+            internal List<ResolvedResourceEffectSource> Sources { get; }
         }
 
-        internal void AddLimitGap(ResourceEffectResolutionGap gap)
+        sealed class SourceComparer
+            : IEqualityComparer<ResolvedResourceEffectSource>
         {
-            if (_gaps.Count == _limit)
-                _gaps[^1] = gap;
-            else
-                _gaps.Add(gap);
+            internal static SourceComparer Instance { get; } = new();
+
+            public bool Equals(
+                ResolvedResourceEffectSource? left,
+                ResolvedResourceEffectSource? right) =>
+                ReferenceEquals(left, right)
+                || (left is not null
+                    && right is not null
+                    && CanonicalSource(left) == CanonicalSource(right));
+
+            public int GetHashCode(ResolvedResourceEffectSource value) =>
+                StringComparer.Ordinal.GetHashCode(CanonicalSource(value));
         }
 
-        internal ImmutableArray<ResourceEffectResolutionGap> ToImmutable()
-            => [.. _gaps];
+        sealed record OwnershipClaim(
+            ResourceEffectLocation Source,
+            ResolvedResourceKindReference? Kind,
+            bool Borrow,
+            bool Entry,
+            ResourceEffectCompletion? Completion,
+            string CanonicalTransition);
+
+        sealed class GapCollector
+        {
+            readonly int _limit;
+            readonly List<ResourceEffectResolutionGap> _gaps = [];
+
+            internal GapCollector(int limit) => _limit = limit;
+
+            internal bool Exhausted { get; private set; }
+
+            internal bool TryAdd(ResourceEffectResolutionGap gap)
+            {
+                if (_gaps.Count >= _limit)
+                {
+                    Exhausted = true;
+                    return false;
+                }
+                _gaps.Add(gap);
+                return true;
+            }
+
+            internal void AddLimitGap(ResourceEffectResolutionGap gap)
+            {
+                if (_gaps.Count == _limit)
+                    _gaps[^1] = gap;
+                else
+                    _gaps.Add(gap);
+            }
+
+            internal ImmutableArray<ResourceEffectResolutionGap> ToImmutable()
+                => [.. _gaps];
     }
 }
