@@ -7,9 +7,10 @@ Focused design under
 the merged [reverse locator contract](reverse-type-declaration-locator.md)
 in [#6853](https://github.com/richlander/dotnet-inspect/pull/6853).
 The [explicit context projection](#implemented-explicit-context-projection)
-is implemented. The live facade, snapshot/subscription handoff, and resident
-implementation gates below are **not implemented**. The interaction model is
-design evidence only.
+and [resident context facade](#implemented-resident-context-facade) are
+implemented for loader-issued declaration contexts. Other population producers,
+reference-view projection and host adoption remain pending. The interaction
+model supplements, rather than certifies, the implementation.
 
 **Workspace Live Locator**, within Workspace composition in
 `DotnetInspector.Queries`, owns this claim:
@@ -50,8 +51,9 @@ Existing analogous implementations explain both reuse and boundaries.
 policy and uses a process-static path key. `AssemblyContextTypeInventoryQuery`
 provides group-authorized per-participant execution but not the required
 structured coordinate/context inventory. Neither is the new facade.
-`InspectionWorkspace` already retains admitted groups and coordinates their
-release; its current implementation has no participant-notification API.
+`InspectionWorkspace` retains admitted groups and coordinates their release.
+Its dedicated declaration-context observation seam is not a notification API
+for every kind of Workspace participant.
 
 The live Library owner/operation-lease APIs are still design-only. Adoption
 must use the then-implemented ownership seam or land its prerequisite; a
@@ -107,13 +109,15 @@ prerequisite, not something the locator can reconstruct from paths or events.
 
 ### Implemented explicit context projection
 
-The first #6845 implementation supplies the cold query's population input,
-not Workspace-wide observation. `LoadDeclarationContextAsync` uses the
+The first #6845 implementation supplies the cold query's population input.
+`LoadDeclarationContextAsync` uses the
 existing `WorkspaceContextLoader` acquisition path and issues a
 `WorkspaceDeclarationContext`: one frozen request associated with either its
 committed group and source correspondence or its upstream realization failure.
 The request's order is reserved before acquisition awaits; completion timing
-does not choose population order.
+does not choose population order. Completion now also admits that explicitly
+selected context into this Workspace's resident declaration population,
+including a failed request's upstream gap.
 
 `InspectionWorkspace.CaptureDeclarationPopulation` captures exactly the supplied
 loader-issued contexts, ordered by that request order and then by the loader's
@@ -176,10 +180,115 @@ it does not substitute for the reference-view and resident-maintenance gates
 below. The real-asset gate is `Speed=Slow`, retained in daily Deep Inspect's
 unfiltered Queries suite; the small-fixture boundary cases remain PR-fast.
 
-Global population observation, first-demand caching, append maintenance, the
-cold matcher, and CLI/Browser adoption remain pending along the
-[delivery map](reverse-type-locator-adoption.md). This slice does not complete
-issue #6845 or expose a new Find command.
+The [cold matcher](reverse-type-declaration-locator.md#implemented-cold-query)
+and the resident facade below consume this projection. Other population
+producers and CLI/Browser adoption remain on the
+[delivery map](reverse-type-locator-adoption.md); neither prerequisite exposes
+a new Find command.
+
+## Implemented resident context facade
+
+`InspectionWorkspace.GetDeclarationLocator(options)` returns the Workspace's
+one `WorkspaceDeclarationLocator`. Getting it does not subscribe or inventory.
+The first valid `ExecuteAsync` request activates observation; rejected requests
+and already-cancelled callers do not activate it. The first getter fixes the
+options, and a later getter cannot silently change the active service's limits.
+
+The observed population consists of completed `LoadDeclarationContextAsync`
+calls on that Workspace. This method is explicit searchable-context admission;
+ordinary `LoadAsync`, raw groups, inert registrations, and Artifact Root/Scope
+publication do not implicitly join it. Cold callers may still capture an exact
+subset with `CaptureDeclarationPopulation`. The resident facade has one
+append-only population, not a mutable selection or a Scope replacement policy.
+
+First request admission atomically observes and captures that population.
+Subsequent requests capture its current immutable association. An unchanged
+population reuses its receipt identity; a completed context issues a new
+association, even when it adds only an upstream failure. Notifications occur
+outside publication coordination and reconcile the authoritative roster, not
+event counts or ordinal suffixes. A context whose request began earlier can
+finish later and sort before already inventoried contexts without relabeling
+their occurrences.
+
+Each request retains its own inventory tasks and population receipt. Append
+maintenance can finish newer work without adding it to an earlier answer.
+Matching, vector construction, ordering and coverage use the same query core
+as the cold path. The internal prepared-outcome path changes its inventory
+supplier, not its matching or source-selection contract.
+
+The resident unit is an occurrence-associated immutable Metadata outcome.
+Both inventories and Metadata's whole-image rejections are reusable; neither
+coordinate equality nor identical bytes merge observations. Pending work is
+single-flight. Automatic append maintenance schedules new occurrences without
+another query and does not retry previous operational failures or bound stops.
+A new valid query may retry those unfinished entries while reusing completed
+Metadata evidence. The lower image owner may still return its retained failure;
+retry is not permission to refresh its immutable content.
+
+`WorkspaceDeclarationLocatorOptions` fixes two finite count limits:
+
+- `MaxInventoryReadsPerAttempt`, default 256, limits newly scheduled whole-image
+  read attempts for one request or append reconciliation. Joined work and reused
+  outcomes do not consume that attempt's read allowance.
+- `MaxRetainedInventories`, default 1,024, limits resident Metadata outcomes
+  together with reservations for in-flight construction. No entry is evicted
+  to admit another. Operational failures release their reservation.
+
+These are local count bounds, not byte, time, intra-image, matching or output-row
+bounds. Zero is an explicit no-work/no-retention choice. A stopped member stays
+`NotEvaluated` with `Bound` identifying `ReadAttempts` or `RetainedInventories`;
+healthy candidates remain visible with incomplete coverage. The result does
+not misrepresent these limits as the cold query's per-call `maxInventoryReads`
+window.
+
+`InventoryReadCount` reports attempted scoped reads and
+`RetainedInventoryCount` reports resident Metadata outcomes. `Maintenance`
+exposes the currently scheduled worker's completion or fault without starting
+or retrying work. These permit a host to observe background completion without
+making another Find request. Work yields cooperatively between images, using
+the existing Package completion pattern; it does not introduce a new scheduler
+or platform exception.
+
+Caller cancellation detaches its wait without cancelling shared maintenance.
+Workspace close detaches observation, stops admission, cancels waiters and
+drains the worker before terminal close. Actual image/session release still
+belongs to the groups; no session is stored in this cache. Close clears the
+resident outcomes. An unexpected maintenance exception permanently faults
+`Maintenance` and subsequent valid requests until close; there is no automatic
+worker recovery. Close still releases resources and then propagates that fault,
+combining it with an independent exceptional group-close failure if necessary.
+The ordinary close report continues to describe resource-release outcomes.
+
+Release gates are in `WorkspaceContextLoaderTests`, prefixed `ResidentLocator_`:
+
+| Claim | Gate suffix |
+| --- | --- |
+| Lazy activation, shared inventories, public/all reuse and cold equivalence | `IsLazyAndReusesInventoriesAcrossPatternsAndVisibility` |
+| Initialization append, duplicate notifications, automatic maintenance and P1/P2 isolation | `AppendDuringInitializationMaintainsWithoutAnotherFindAndPinsReceipt` |
+| In-progress acquisition at activation is not lost | `LoadStartedBeforeActivationIsObservedAfterCommit` |
+| Growth is not inferred from ordinal arithmetic | `LateEarlierContextDoesNotTreatReceiptGrowthAsAnOrdinalSuffix` |
+| A cancelled caller does not stop another caller or later maintenance | `CallerCancellationDoesNotCancelSharedOrLaterMaintenance` |
+| Explicit bounds and retry without rescanning healthy entries | `BoundsStayVisibleAndExplicitRetryDoesNotRescanHealthyEntries` |
+| Immutable rejection and upstream-gap coverage | `ImmutableRejectionsAreResidentAndUpstreamGapsRemainVisible` |
+| Unsupported coordinates remain visible and unscanned | `UnsupportedCoordinateRemainsAnUnscannedObservation` |
+| Close drains scheduled work and preserves detached answers | `CloseDrainsScheduledWorkAndPreservesDetachedAnswers` |
+| Close waits for the actual borrowed access path | `CloseWaitsForActualBorrowedInventoryAccess` |
+| Operational failures are retried rather than memoized as empty inventories | `OperationalRejectionIsRetriedWithoutRescanningHealthyInventory` |
+| Fatal maintenance remains visible while close releases resources | `UnexpectedMaintenanceFailureStaysFaultedAndCloseStillReleases` |
+| Invalid demand does not activate or reconfigure maintenance | `InvalidRequestsDoNotActivateOrChangeFixedLimits` |
+| Real Package/Platform append and facade/definition choices | `RealJsonAppendMaintainsDistinctOriginsAndForwarderChoices` |
+
+The 17 small-fixture cases are PR-fast. The real multi-assembly case is
+`Speed=Slow`, retained by daily Deep Inspect's unfiltered Queries suite.
+It uses the existing loader's **implementation-pack** Platform view:
+`System.Text.Json@10.0.0` followed by selected
+`Microsoft.NETCore.App.Runtime.linux-x64@10.0.10` assemblies. Reference-view
+population projection is still unverified at this adapter. The dedicated
+[package-backed Platform source](package-backed-platform-realization.md)
+owns reference-pack realization; adopting its correspondence is not permission
+to label reference-pack files as the legacy loader's implementation view.
+Other producer adapters and the complete CLI/Browser handoff remain successor
+work; this implementation does not close all of #6845.
 
 ## Resident inventories and shared work
 
