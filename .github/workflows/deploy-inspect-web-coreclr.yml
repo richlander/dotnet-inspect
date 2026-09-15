@@ -280,7 +280,7 @@ jobs:
             eng/test-inspect-web-package-adoption-gate.sh \
               --grep 'drives the production opening, join, occurrence, and rejection contracts'
 
-      - name: Publish MSDL managed API
+      - name: Publish Inspect Web managed API
         run: >
           dotnet publish
           inspect-web/msdl-proxy/MsdlProxy.csproj
