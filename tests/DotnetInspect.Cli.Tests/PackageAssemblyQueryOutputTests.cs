@@ -4,6 +4,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
@@ -12,9 +13,9 @@ using NuGetFetch;
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Covers how the CLI projects the shared assembly Package Query's own
-/// outcomes, using real producer evidence from a locally built fixture package
-/// rather than a network source or a fabricated outcome.
+/// Covers how the CLI projects the shared assembly-semantic Find Document,
+/// using real producer evidence from locally built fixture packages rather
+/// than a network source or fabricated semantic outcomes.
 /// </summary>
 [Collection("Console")]
 public sealed class PackageAssemblyQueryOutputTests
@@ -24,6 +25,15 @@ public sealed class PackageAssemblyQueryOutputTests
     const string Framework = "net11.0";
     const string AssetPath = $"lib/{Framework}/ILInspector.Analysis.Fixtures.dll";
     const string RepeatedMarker = "shared-literal-use-marker";
+
+    static byte[] MatchImage =>
+        File.ReadAllBytes(
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath());
+
+    static byte[] NoMatchImage =>
+        File.ReadAllBytes(
+            typeof(PackageAssemblySemanticFindDocument)
+                .Assembly.Location);
 
     [Fact]
     public async Task Matches_LeadWithOccurrenceEvidenceAndAnOwnerIssuedRootToken()
@@ -273,43 +283,240 @@ public sealed class PackageAssemblyQueryOutputTests
     }
 
     [Fact]
-    public void StreamWithoutACompletionSummary_IsRefusedRatherThanRenderedEmpty()
+    public async Task CompletedDocument_IsTheProjectionAndCountAuthority()
     {
-        PackageAssemblyQueryPlan plan = Plan(RepeatedMarker);
+        (PackageAssemblyQueryView view, _) =
+            await RunAsync(RepeatedMarker);
 
-        var failure = Assert.Throws<InvalidOperationException>(
-            () => PackageAssemblyQuerySections.CreateDocument(plan, []));
-
-        Assert.Contains("completion summary", failure.Message, StringComparison.Ordinal);
+        Assert.True(view.IsComplete);
+        Assert.Equal(2, view.Matches!.Count);
+        Assert.Equal(1, view.CandidateCount);
     }
 
     [Fact]
-    public void AcquisitionFailure_IsVisibleAndCarriesNoRootToken()
+    public async Task BoundedPrefixProjection_KeepsAllCandidatesAfterOccurrenceHead()
     {
-        PackageAssemblyQueryPlan plan = Plan(RepeatedMarker);
-        var failure = new PackageAssemblyQueryAcquisitionFailure(
-            PackageSourceCoordinate.Create(PackageId, Version),
-            new InertText.InertString(InertText.TextPolicy.Field, "fixture-producer"),
-            new InertText.InertString(InertText.TextPolicy.Prose, "the fixture source refused"),
-            PackageSourceFailureKind.NotFound);
+        string[] packageIds =
+        [
+            "Contoso.Miss",
+            "Contoso.Match.First",
+            "Contoso.NotApplicable",
+            "Contoso.Failed",
+            "Contoso.Match.Later",
+        ];
+        await using var fixture = new SemanticFindSourceFixture();
+        fixture.ConfigurePrefix(packageIds);
+        await fixture.CachePackageAsync(
+            packageIds[0],
+            ($"lib/{Framework}/{packageIds[0]}.dll", NoMatchImage));
+        await fixture.CachePackageAsync(
+            packageIds[1],
+            ($"lib/{Framework}/{packageIds[1]}.dll", MatchImage));
+        await fixture.CachePackageAsync(packageIds[2]);
+        await fixture.CachePackageAsync(
+            packageIds[4],
+            ($"lib/{Framework}/{packageIds[4]}.dll", MatchImage));
 
-        PackageAssemblyQueryView view = PackageAssemblyQuerySections.CreateDocument(
-            plan,
+        PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                operationTimeout:
+                    PackageAssemblySemanticFindBudget.Default.MaximumDuration);
+        PackageAcquisitionPopulation population =
+            await PackageAcquisitionPopulationResolver
+                .ResolveGalleryPrefixAsync(
+                    operation,
+                    new PackagePrefixDeclaration("Contoso."),
+                    maximumCandidates: 5,
+                    fixture.Authorization);
+        var request = new PackageAssemblySemanticFindRequest(
+            population,
+            PackageHouseTargetContext.Exact(Framework),
+            PackageAssemblyPatterns.CreateRequest(
+                PackageAssemblyPatterns.StringLiteralContains,
+                RepeatedMarker));
+        InspectionEnvelope<PackageAssemblySemanticFindDocument> envelope =
+            await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                request,
+                operation,
+                fixture.PayloadAcquisition,
+                TestContext.Current.CancellationToken);
+        PackageAssemblySemanticFindDocument document =
+            envelope.Content;
+
+        PackageAssemblyQueryView view =
+            PackageAssemblyQuerySections.CreateDocument(
+                request,
+                document,
+                [document.Results[0]]);
+
+        Assert.Equal(
+            PackageAcquisitionPopulationCompletionKind.CandidateLimitReached,
+            document.Population.Completion);
+        Assert.Equal(5, document.CandidateCount);
+        Assert.Single(view.Matches!);
+        Assert.Equal(
             [
-                new PackageAssemblyQueryEvent.AcquisitionFailed(failure),
-                new PackageAssemblyQueryEvent.Completed(new(1, 0, 0, 0, 1)),
-            ]);
+                "no-match",
+                "matched",
+                "not-applicable",
+                "failed",
+                "matched",
+            ],
+            view.Candidates!.Select(row => row.Outcome));
+        Assert.Equal("", view.Candidates![3].Root);
+        Assert.NotEqual("", view.Candidates[4].Root);
+        Assert.Equal(1, view.FailureCount);
+        Assert.False(view.IsComplete);
+        Assert.NotNull(view.Description);
+        Assert.Contains(
+            "wider prefix was not exhausted",
+            view.Description,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PopulationFailure_IsSeparateAndMakesCountUnavailable()
+    {
+        string[] packageIds =
+        [
+            "Contoso.Available",
+            "Contoso.Version.Failed",
+        ];
+        await using var fixture = new SemanticFindSourceFixture();
+        fixture.ConfigurePrefix(packageIds);
+        fixture.SourceClient.VersionFailures[packageIds[1]] =
+            PackageSourceFailureKind.Transport;
+        await fixture.CachePackageAsync(
+            packageIds[0],
+            ($"lib/{Framework}/{packageIds[0]}.dll", NoMatchImage));
+
+        PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                operationTimeout:
+                    PackageAssemblySemanticFindBudget.Default.MaximumDuration);
+        PackageAcquisitionPopulation population =
+            await PackageAcquisitionPopulationResolver
+                .ResolveGalleryPrefixAsync(
+                    operation,
+                    new PackagePrefixDeclaration("Contoso."),
+                    maximumCandidates: 2,
+                    fixture.Authorization);
+        var request = new PackageAssemblySemanticFindRequest(
+            population,
+            PackageHouseTargetContext.Exact(Framework),
+            PackageAssemblyPatterns.CreateRequest(
+                PackageAssemblyPatterns.StringLiteralContains,
+                RepeatedMarker));
+        InspectionEnvelope<PackageAssemblySemanticFindDocument> envelope =
+            await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                request,
+                operation,
+                fixture.PayloadAcquisition,
+                TestContext.Current.CancellationToken);
+        PackageAssemblyQueryView view =
+            PackageAssemblyQuerySections.CreateDocument(
+                request,
+                envelope.Content);
+
+        PackageAssemblyPopulationFailureRow failure =
+            Assert.Single(view.PopulationFailures!);
+        Assert.Equal("2", failure.Candidate);
+        Assert.Equal(
+            "contoso.version.failed",
+            failure.Package);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Transport.ToString(),
+            failure.Kind);
+        Assert.False(view.IsComplete);
+        Assert.Throws<InvalidOperationException>(() =>
+            FindCommand.WriteAssemblyQueryOutput(
+                view,
+                new FindOptions { Count = true }));
+    }
+
+    [Fact]
+    public async Task CompleteBoundedPrefix_AllowsSelectedOccurrenceCount()
+    {
+        string[] packageIds =
+        [
+            "Contoso.First",
+            "Contoso.Beyond.Bound",
+        ];
+        await using var fixture = new SemanticFindSourceFixture();
+        fixture.ConfigurePrefix(packageIds);
+        await fixture.CachePackageAsync(
+            packageIds[0],
+            ($"lib/{Framework}/{packageIds[0]}.dll", MatchImage));
+
+        PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                operationTimeout:
+                    PackageAssemblySemanticFindBudget.Default.MaximumDuration);
+        PackageAcquisitionPopulation population =
+            await PackageAcquisitionPopulationResolver
+                .ResolveGalleryPrefixAsync(
+                    operation,
+                    new PackagePrefixDeclaration("Contoso."),
+                    maximumCandidates: 1,
+                    fixture.Authorization);
+        var request = new PackageAssemblySemanticFindRequest(
+            population,
+            PackageHouseTargetContext.Exact(Framework),
+            PackageAssemblyPatterns.CreateRequest(
+                PackageAssemblyPatterns.StringLiteralContains,
+                RepeatedMarker));
+        InspectionEnvelope<PackageAssemblySemanticFindDocument> envelope =
+            await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                request,
+                operation,
+                fixture.PayloadAcquisition,
+                TestContext.Current.CancellationToken);
+        PackageAssemblyQueryView view =
+            PackageAssemblyQuerySections.CreateDocument(
+                request,
+                envelope.Content,
+                [envelope.Content.Results[0]]);
+
+        Assert.True(view.IsComplete);
+        Assert.Equal(
+            PackageAcquisitionPopulationCompletionKind.CandidateLimitReached,
+            envelope.Content.Population.Completion);
+        var captured = await ConsoleCapture.RunAsync(() =>
+        {
+            FindCommand.WriteAssemblyQueryOutput(
+                view,
+                new FindOptions { Count = true });
+            return Task.FromResult(0);
+        });
+        Assert.Equal("1", captured.Output.Trim());
+    }
+
+    [Fact]
+    public async Task AcquisitionFailure_IsVisibleAndCarriesNoRootToken()
+    {
+        (PackageAssemblySemanticFindRequest request,
+            PackageAssemblySemanticFindDocument document) =
+            await RunDocumentAsync(
+                RepeatedMarker,
+                entries: null,
+                cachePayload: false);
+        PackageAssemblyQueryView view =
+            PackageAssemblyQuerySections.CreateDocument(
+                request,
+                document);
 
         PackageAssemblyCandidateRow row = Assert.Single(view.Candidates!);
         Assert.Equal("failed", row.Outcome);
         Assert.Equal("", row.Root);
-        Assert.Contains("fixture-producer", row.Detail, StringComparison.Ordinal);
         Assert.Contains(
-            PackageSourceFailureKind.NotFound.ToString(),
+            "package payload was not found",
             row.Detail,
             StringComparison.Ordinal);
-        Assert.Contains("the fixture source refused", row.Detail, StringComparison.Ordinal);
         Assert.Equal(1, view.FailureCount);
+        Assert.False(view.IsComplete);
         Assert.StartsWith(
             "No matching decoded string literal uses were reported.",
             view.Description,
@@ -377,7 +584,7 @@ public sealed class PackageAssemblyQueryOutputTests
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "searches only explicit ID@VERSION packages",
+            "searches only explicit ID@VERSION packages or one bounded package prefix",
             captured.Error,
             StringComparison.Ordinal);
     }
@@ -424,6 +631,10 @@ public sealed class PackageAssemblyQueryOutputTests
             StringComparison.Ordinal);
         Assert.Contains(
             PackageAssemblyQuerySections.Candidates,
+            captured.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            PackageAssemblyQuerySections.PopulationFailures,
             captured.Output,
             StringComparison.Ordinal);
         Assert.DoesNotContain("Namespace", captured.Output, StringComparison.Ordinal);
@@ -474,55 +685,331 @@ public sealed class PackageAssemblyQueryOutputTests
         Assert.DoesNotContain("targetFramework", error, StringComparison.Ordinal);
     }
 
-    static PackageAssemblyQueryPlan Plan(string operand) =>
-        PackageAssemblyQuery.Plan(
-            PackageAssemblyPatterns.StringLiteralContains,
-            operand,
-            [$"{PackageId}@{Version}"],
-            Framework);
-
     static async Task<(PackageAssemblyQueryView View, PackageAssemblyEvaluationOutcome Outcome)>
         RunAsync(
             string operand,
             (string Path, byte[] Bytes)[]? entries = null)
     {
-        PackageAssemblyQueryPlan plan = Plan(operand);
-        byte[] image = await File.ReadAllBytesAsync(
-            FixtureCatalog.AnalysisStringLiterals.AssemblyPath(),
-            TestContext.Current.CancellationToken);
-        byte[] archive = SnupkgPdbReaderTests.MakeSnupkg(
-            entries
-            ??
-            [
-                ($"{PackageId}.nuspec", "<package />"u8.ToArray()),
-                (AssetPath, image),
-            ]);
-        var content = new InMemoryPackageContent(archive, false, "fixture-producer");
-        PackageRootBinding binding = PackageRootBinding.CreateFromSource(
-            new AcquiredPackageSourcePayload(
-                PackageSourceCoordinate.Create(PackageId, Version),
-                content,
-                content.ProducerKey,
-                PackagePayloadOrigin.Download),
-            Framework);
+        (PackageAssemblySemanticFindRequest request,
+            PackageAssemblySemanticFindDocument document) =
+            await RunDocumentAsync(
+                operand,
+                entries
+                ??
+                [
+                    ($"{PackageId}.nuspec", "<package />"u8.ToArray()),
+                    (AssetPath, MatchImage),
+                ],
+                cachePayload: true);
         PackageAssemblyEvaluationOutcome outcome =
-            await PackageAssemblyEvaluator.EvaluateAsync(
-                binding,
-                plan.Pattern,
-                plan.Budget,
-                TestContext.Current.CancellationToken);
-        PackageAssemblyQueryView view = PackageAssemblyQuerySections.CreateDocument(
-            plan,
-            [
-                new PackageAssemblyQueryEvent.Evaluated(outcome),
-                new PackageAssemblyQueryEvent.Completed(
-                    new(
-                        1,
-                        outcome is PackageAssemblyEvaluationOutcome.Matched ? 1 : 0,
-                        outcome is PackageAssemblyEvaluationOutcome.NoMatch ? 1 : 0,
-                        outcome is PackageAssemblyEvaluationOutcome.NotApplicable ? 1 : 0,
-                        outcome is PackageAssemblyEvaluationOutcome.Failure ? 1 : 0)),
-            ]);
+            Assert.Single(document.CandidateOutcomes) switch
+            {
+                PackageAssemblySemanticFindCandidateOutcome.Matched matched =>
+                    matched.Evaluation,
+                PackageAssemblySemanticFindCandidateOutcome.NoMatch noMatch =>
+                    noMatch.Evaluation,
+                PackageAssemblySemanticFindCandidateOutcome.NotApplicable
+                    notApplicable =>
+                    notApplicable.Evaluation,
+                PackageAssemblySemanticFindCandidateOutcome.Failure
+                    {
+                        Reason:
+                            PackageAssemblySemanticFindFailureReason.Evaluation
+                            failure,
+                    } =>
+                    failure.Evidence,
+                _ => throw new InvalidOperationException(
+                    "The fixture expected an evaluated candidate."),
+            };
+        PackageAssemblyQueryView view =
+            PackageAssemblyQuerySections.CreateDocument(
+                request,
+                document);
         return (view, outcome);
+    }
+
+    static async Task<(
+        PackageAssemblySemanticFindRequest Request,
+        PackageAssemblySemanticFindDocument Document)> RunDocumentAsync(
+        string operand,
+        (string Path, byte[] Bytes)[]? entries,
+        bool cachePayload)
+    {
+        await using var fixture = new SemanticFindSourceFixture();
+        if (cachePayload)
+            await fixture.CacheAsync(entries!);
+
+        PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                operationTimeout:
+                    PackageAssemblySemanticFindBudget.Default.MaximumDuration);
+        PackageAcquisitionPopulation population =
+            await operation.ResolvePinnedPopulationAsync(
+                new FixedAuthorization(fixture.Authorization),
+                [
+                    PackageSourceCoordinate.Create(
+                        PackageId,
+                        Version),
+                ]);
+        var request = new PackageAssemblySemanticFindRequest(
+            population,
+            PackageHouseTargetContext.Exact(Framework),
+            PackageAssemblyPatterns.CreateRequest(
+                PackageAssemblyPatterns.StringLiteralContains,
+                operand));
+        InspectionEnvelope<PackageAssemblySemanticFindDocument> envelope =
+            await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                request,
+                operation,
+                fixture.PayloadAcquisition,
+                TestContext.Current.CancellationToken);
+        return (request, envelope.Content);
+    }
+
+    private sealed class FixedAuthorization(
+        PackageSourceAuthorization authorization)
+        : IPackageSourceAuthorization
+    {
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId) =>
+            authorization;
+    }
+
+    private sealed class SemanticFindSourceFixture : IAsyncDisposable
+    {
+        internal PackageSourceAuthorization Authorization { get; } =
+            PackageSourceAuthorization.Authorize(
+                [PackageSource.NuGetOrg]);
+
+        internal FixtureSourceClient SourceClient { get; }
+
+        internal IPackageSourceClient Client { get; }
+
+        internal PackageSourceSettlementLease Root { get; }
+
+        internal InMemoryPackageStore Store { get; } = new();
+
+        internal PackagePayloadAcquisitionPlan PayloadAcquisition
+            { get; }
+
+        internal SemanticFindSourceFixture()
+        {
+            FixtureSourceClient? client = null;
+            Client = PackageSourceClientFactory.CreateCustom(
+                PackageSourceDescriptor.NuGetGallery,
+                Authorization.Authorities[0].Association,
+                factory => client = new FixtureSourceClient(factory));
+            SourceClient = client!;
+            Root = PackageSourceSettlementService.IssueLease(
+                authority =>
+                {
+                    Assert.Same(
+                        Authorization.Authorities[0],
+                        authority);
+                    return Client;
+                });
+            PayloadAcquisition =
+                new PackagePayloadAcquisitionPlan(
+                    (_, _) => Store);
+        }
+
+        internal async Task CacheAsync(
+            (string Path, byte[] Bytes)[] entries)
+        {
+            await CachePackageAsync(PackageId, entries);
+        }
+
+        internal void ConfigurePrefix(
+            IReadOnlyList<string> packageIds)
+        {
+            SourceClient.SearchResults =
+            [
+                .. packageIds.Select(
+                    packageId =>
+                        new SearchResult(packageId, Version)),
+            ];
+            SourceClient.SearchTruncation =
+                PackageSearchTruncationReason.RequestedLimit;
+            foreach (string packageId in packageIds)
+                SourceClient.Versions[packageId] = [Version];
+        }
+
+        internal async Task CachePackageAsync(
+            string packageId,
+            params (string Path, byte[] Bytes)[] entries)
+        {
+            (string Path, byte[] Bytes)[] archiveEntries =
+                entries.Any(entry =>
+                    entry.Path.EndsWith(
+                        ".nuspec",
+                        StringComparison.OrdinalIgnoreCase))
+                    ? entries
+                    :
+                    [
+                        ($"{packageId}.nuspec", "<package />"u8.ToArray()),
+                        .. entries,
+                    ];
+            byte[] archive =
+                SnupkgPdbReaderTests.MakeSnupkg(archiveEntries);
+            await Store.CommitAsync(
+                packageId,
+                Version,
+                Client.Source.Producer.Key,
+                new MemoryStream(
+                    archive,
+                    writable: false),
+                TestContext.Current.CancellationToken);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Root.DisposeAsync();
+            Client.Dispose();
+        }
+    }
+
+    private sealed class FixtureSourceClient(
+        PackageSourceResultFactory results)
+        : IPackageSourceClient
+    {
+        internal IReadOnlyList<SearchResult> SearchResults { get; set; } =
+            [];
+
+        internal PackageSearchTruncationReason SearchTruncation
+            { get; set; }
+
+        internal Dictionary<string, IReadOnlyList<string>> Versions
+            { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        internal Dictionary<string, PackageSourceFailureKind>
+            VersionFailures { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        public PackageSourceResultIdentity Source => results.Source;
+
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.Search
+            | PackageSourceCapabilities.VersionEnumeration
+            | PackageSourceCapabilities.PackagePayload;
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            operationContext?.ThrowIfExpired();
+            if (VersionFailures.TryGetValue(
+                    packageId,
+                    out PackageSourceFailureKind failure))
+            {
+                return Task.FromResult(
+                    results.FailedVersions(failure));
+            }
+            IReadOnlyList<string> versions =
+                Versions.TryGetValue(
+                    packageId,
+                    out IReadOnlyList<string>? configured)
+                    ? configured
+                    : [];
+            return Task.FromResult(
+                results.SucceededVersions(
+                    results.Versions(
+                        [
+                            .. versions.Select(version =>
+                                results.Candidate(
+                                    PackageSourceCoordinate.Create(
+                                        packageId,
+                                        version),
+                                    PackageDiscoveryContract
+                                        .CompleteVersionEnumeration,
+                                    PackageListingState.Listed)),
+                        ],
+                        hasAuthoritativeListingState: true)));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            operationContext?.ThrowIfExpired();
+            return Task.FromResult(
+                results.SucceededSearch(
+                    results.Search(
+                        [.. SearchResults.Take(take)],
+                        SearchTruncation)));
+        }
+
+        public async IAsyncEnumerable<
+            PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixPagesAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                [System.Runtime.CompilerServices.EnumeratorCancellation]
+                    CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            operationContext?.ThrowIfExpired();
+            yield return results.SucceededSearch(
+                results.Search(
+                    [.. SearchResults.Take(take)],
+                    SearchTruncation));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            operationContext?.ThrowIfExpired();
+            return Task.FromResult(
+                results.FailedPackage(
+                    PackageSourceCoordinate.Create(
+                        packageId,
+                        version),
+                    PackageSourceFailureKind.NotFound));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
     }
 }

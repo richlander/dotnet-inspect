@@ -1,14 +1,12 @@
-using DotnetInspector.PackageQueries;
-
 namespace DotnetInspect.Cli.CommandLine;
 
 /// <summary>
-/// Projects <see cref="PackageAssemblyQuery.Plan"/> argument failures into the CLI's own stable
+/// Projects assembly-semantic Find planning failures into the CLI's own stable
 /// diagnostics.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The planner is host-neutral and reports plan violations through the ordinary
+/// The CLI planner reports plan violations through the ordinary
 /// <see cref="ArgumentException"/> contract, so its product-authored sentence arrives with the
 /// framework's parameter-name line appended. That line names an internal parameter, and under
 /// invariant/trimmed resource lookup it renders as the raw resource key

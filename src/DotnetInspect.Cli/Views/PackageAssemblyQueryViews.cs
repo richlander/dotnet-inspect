@@ -4,8 +4,8 @@ using Markout;
 namespace DotnetInspect.Cli.Views;
 
 /// <summary>
-/// The rendered result of one decoded-literal Package Query over an explicit
-/// package selection.
+/// The rendered result of one assembly-semantic decoded-literal Find
+/// operation over a bounded package population.
 /// </summary>
 /// <remarks>
 /// Matches lead in expanded output, and every candidate keeps its own row so a semantic miss, an
@@ -38,6 +38,8 @@ public sealed class PackageAssemblyQueryView
     [MarkoutIgnore] public int SemanticMissCount { get; init; }
     [MarkoutIgnore] public int NotApplicableCount { get; init; }
     [MarkoutIgnore] public int FailureCount { get; init; }
+    [MarkoutIgnore] public int PopulationFailureCount { get; init; }
+    [MarkoutIgnore] public bool IsComplete { get; init; }
 
     [MarkoutSection(Name = "Matches")]
     [MarkoutSkipNull]
@@ -46,6 +48,11 @@ public sealed class PackageAssemblyQueryView
     [MarkoutSection(Name = "Candidates")]
     [MarkoutSkipNull]
     public List<PackageAssemblyCandidateRow>? Candidates { get; init; }
+
+    [MarkoutSection(Name = "Population Failures")]
+    [MarkoutSkipNull]
+    public List<PackageAssemblyPopulationFailureRow>? PopulationFailures
+        { get; init; }
 }
 
 /// <summary>One decoded <c>ldstr</c> occurrence that contains the operand.</summary>
@@ -100,7 +107,7 @@ public sealed class PackageAssemblyLiteralUseRow
     public string Literal => LiteralText.ToString();
 }
 
-/// <summary>One explicit package candidate and its evaluation outcome.</summary>
+/// <summary>One admitted package candidate and its evaluation outcome.</summary>
 [MarkoutSerializable]
 public sealed class PackageAssemblyCandidateRow
 {
@@ -157,6 +164,61 @@ public sealed class PackageAssemblyCandidateRow
     public string TargetFramework => TargetFrameworkText.ToString();
     public string Detail => DetailText.ToString();
     public string Root => RootText.ToString();
+}
+
+/// <summary>
+/// One failure observed while forming the requested bounded package
+/// population.
+/// </summary>
+[MarkoutSerializable]
+public sealed class PackageAssemblyPopulationFailureRow
+{
+    public PackageAssemblyPopulationFailureRow(
+        string candidate,
+        string package,
+        string version,
+        string authority,
+        string kind,
+        string detail)
+        : this(
+            PackageAssemblyQueryText.Cell(candidate),
+            PackageAssemblyQueryText.Cell(package),
+            PackageAssemblyQueryText.Cell(version),
+            PackageAssemblyQueryText.Cell(authority),
+            PackageAssemblyQueryText.Cell(kind),
+            PackageAssemblyQueryText.Cell(detail))
+    {
+    }
+
+    internal PackageAssemblyPopulationFailureRow(
+        InertString candidate,
+        InertString package,
+        InertString version,
+        InertString authority,
+        InertString kind,
+        InertString detail)
+    {
+        CandidateText = candidate;
+        PackageText = package;
+        VersionText = version;
+        AuthorityText = authority;
+        KindText = kind;
+        DetailText = detail;
+    }
+
+    [MarkoutIgnore] public InertString CandidateText { get; }
+    [MarkoutIgnore] public InertString PackageText { get; }
+    [MarkoutIgnore] public InertString VersionText { get; }
+    [MarkoutIgnore] public InertString AuthorityText { get; }
+    [MarkoutIgnore] public InertString KindText { get; }
+    [MarkoutIgnore] public InertString DetailText { get; }
+
+    public string Candidate => CandidateText.ToString();
+    public string Package => PackageText.ToString();
+    public string Version => VersionText.ToString();
+    public string Authority => AuthorityText.ToString();
+    public string Kind => KindText.ToString();
+    public string Detail => DetailText.ToString();
 }
 
 internal static class PackageAssemblyQueryText

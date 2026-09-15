@@ -8,6 +8,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using Markout;
@@ -31,6 +32,14 @@ public class FindCommand
 
         try
         {
+            if (options.Literal is null
+                && options.CandidateTake is not null)
+            {
+                CommandError.Write(
+                    "--take is available only with find --literal --package-prefix.");
+                return 1;
+            }
+
             // Discovery mode: -D/--discover lists schema
             if (options.Discover != null)
             {
@@ -200,17 +209,14 @@ public class FindCommand
     }
 
     /// <summary>
-    /// Runs the decoded-literal Package Query over an explicit, finite package
-    /// selection and renders the shared evaluator's own outcomes.
+    /// Runs assembly-semantic decoded-literal Find over one finite exact or
+    /// bounded-prefix package population.
     /// </summary>
     /// <remarks>
-    /// The route is deliberately narrow: it acquires only the exact
-    /// ID@VERSION candidates named on the command line, evaluates the
-    /// selector-issued primary implementation assembly of each, and never
-    /// falls back to the type-search scopes. Candidates are disposable — the
-    /// shared pipeline keeps no long-lived package cache for them — so the
-    /// only durable result a host may act on is the owner-issued Root
-    /// reopening token each evaluated candidate carries.
+    /// The route is deliberately narrow: it evaluates the selector-issued
+    /// primary implementation assembly of each admitted candidate and never
+    /// falls back to type-search scopes. The returned shared Document is the
+    /// sole terminal authority; sink observations are progress only.
     /// </remarks>
     private static async Task<int> ExecuteAssemblyLiteralQueryAsync(
         FindOptions options,
@@ -223,16 +229,14 @@ public class FindCommand
             || options.PlatformFrameworks.Length > 0
             || options.Projects.Length > 0
             || options.BinPaths.Length > 0
-            || options.PackagePrefixSpecified
-            || options.PackagePrefix is not null
             || options.Members
             || options.IncludeAll
             || options.TypeFilter is not null)
         {
             CommandError.Write(
-                "--literal searches only explicit ID@VERSION packages; "
-                + "it cannot be combined with a type pattern, API search scopes, "
-                + "--package-prefix, --members, --all, or --type.");
+                "--literal searches only explicit ID@VERSION packages or one "
+                + "bounded package prefix; it cannot be combined with a type "
+                + "pattern, other API search scopes, --members, --all, or --type.");
             return 1;
         }
 
@@ -252,13 +256,15 @@ public class FindCommand
             return 1;
         }
 
-        PackageAssemblyQueryPlan plan;
+        PackageAssemblySemanticFindCliPlan plan;
         try
         {
-            plan = PackageAssemblyQuery.Plan(
-                PackageAssemblyPatterns.StringLiteralContains,
+            plan = PackageAssemblySemanticFindCliPlan.Create(
                 options.Literal!,
                 options.Packages,
+                options.PackagePrefix,
+                options.PackagePrefixSpecified,
+                options.CandidateTake,
                 options.Tfm);
         }
         catch (ArgumentException ex)
@@ -267,91 +273,188 @@ public class FindCommand
             return 1;
         }
 
-        await using var payloadProvider =
-            new ConfiguredPackageRootPayloadProvider(
-                context.HttpClient.Timeout,
-                new NuGetSourceOptions
-                {
-                    Sources = [PackageSource.NuGetOrg.Url],
-                });
+        PackageAssemblySemanticFindBudget budget =
+            PackageAssemblySemanticFindBudget.Default;
+        NuGetFetchOptions fetchOptions =
+            NuGetFetchOptions.FromRequestTimeout(
+                context.HttpClient.Timeout);
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                [PackageSource.NuGetOrg]);
+        ConfiguredPackageAuthority galleryAuthority =
+            authorization.Authorities[0];
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                galleryAuthority.Association,
+                DotnetInspector.Networking.HttpClientFactory
+                    .CreateCredentialFreeHandler(),
+                fetchOptions);
+        await using PackageSourceSettlementLease settlement =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(authority, galleryAuthority)
+                        ? source
+                        : throw new InvalidOperationException(
+                            "Assembly-semantic Find requested an unauthorized package source."));
+        using var stores = new AssemblySemanticFindStores();
+        PackageSourceOperationLease? operation =
+            settlement.IssueOperationLease(
+                cancellationToken,
+                fetchOptions.RequestTimeout,
+                budget.MaximumDuration);
 
-        var events = new List<PackageAssemblyQueryEvent>();
+        PackageAssemblySemanticFindDocument document;
+        PackageAssemblySemanticFindRequest request;
         try
         {
-            await foreach (PackageAssemblyQueryEvent queryEvent
-                in PackageAssemblyQuery.ExecuteAsync(
-                        payloadProvider,
-                        plan,
-                        cancellationToken)
-                    .ConfigureAwait(false))
-            {
-                if (queryEvent is PackageAssemblyQueryEvent.Progress progress)
+            PackageAcquisitionPopulation population =
+                plan.Population switch
                 {
-                    context.Logger.Log(
-                        $"Evaluated {progress.CompletedCandidates} of {progress.Limit} package candidates");
-                    continue;
-                }
-
-                events.Add(queryEvent);
-            }
+                    PackageAssemblySemanticFindPopulationPlan.Exact exact =>
+                        await operation.ResolvePinnedPopulationAsync(
+                            new FixedPackageSourceAuthorization(
+                                authorization),
+                            exact.Coordinates).ConfigureAwait(false),
+                    PackageAssemblySemanticFindPopulationPlan.Prefix prefix =>
+                        await PackageAcquisitionPopulationResolver
+                            .ResolveGalleryPrefixAsync(
+                                operation,
+                                prefix.Declaration,
+                                prefix.MaximumCandidates,
+                                authorization).ConfigureAwait(false),
+                    _ => throw new InvalidOperationException(
+                        "Unknown assembly-semantic Find population plan."),
+                };
+            request = new(
+                population,
+                plan.Target,
+                plan.Pattern,
+                budget);
+            PackageSourceOperationLease transferredOperation =
+                operation;
+            operation = null;
+            InspectionEnvelope<
+                PackageAssemblySemanticFindDocument> envelope =
+                await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                    request,
+                    transferredOperation,
+                    new PackagePayloadAcquisitionPlan(
+                        stores.GetStore,
+                        log: context.Logger.Log),
+                    new AssemblySemanticFindProgressSink(
+                        context.Logger,
+                        population.Candidates.Length),
+                    cancellationToken).ConfigureAwait(false);
+            document = envelope.Content;
         }
-        catch (Exception ex)
-            when (PackageAssemblyEvaluationExceptionEvidence.TryGetCleanup(
-                ex,
-                out PackageAssemblyEvaluationCleanupEvidence? cleanup))
+        finally
         {
-            // Cleanup evidence rides on the propagated exception, so reporting
-            // only the primary message would silently drop it.
+            operation?.Dispose();
+        }
+
+        if (!TrySelectRows(
+                options.RowSelection,
+                document.Results,
+                "literal-use",
+                out IReadOnlyList<PackageAssemblySemanticFindResult>
+                    selectedResults))
+        {
+            PackageAssemblyQueryView failedSelectionView =
+                PackageAssemblyQuerySections.CreateDocument(
+                    request,
+                    document,
+                    []);
+            WriteAssemblyQueryOutput(
+                failedSelectionView,
+                options with { Count = false });
+            WriteAssemblyQueryDiagnostics(document);
+            return 1;
+        }
+
+        bool complete =
+            document.Completion.IsRequestedPopulationComplete
+            && document.Completion.IsSemanticEvaluationComplete;
+        if (options.Count
+            && (!complete
+                || !CliSemanticRowSelection.ProvidesExactCount(
+                    options.RowSelection,
+                    document.Results.Length,
+                    sourceComplete: complete)))
+        {
+            WriteAssemblyQueryDiagnostics(document);
             CommandError.Write(
-                ex.Message,
-                [
-                    "Candidate cleanup was incomplete: "
-                    + PackageAssemblyQuerySections.DescribeCleanup(cleanup),
-                ]);
+                "Cannot count decoded literal-use rows because package "
+                + "population formation or candidate evaluation is incomplete; "
+                + "omit --count to inspect candidate and population outcomes.");
             return 1;
         }
 
         PackageAssemblyQueryView view =
-            PackageAssemblyQuerySections.CreateDocument(plan, events);
-        PackageAssemblyLiteralUseRow[] matchRows =
-            [.. view.Matches ?? []];
-        if (!TrySelectRows(
-                options.RowSelection,
-                matchRows,
-                "literal-use",
-                out IReadOnlyList<PackageAssemblyLiteralUseRow>
-                    selectedMatchRows))
-        {
-            view = PackageAssemblyQuerySections.WithSelectedMatches(
-                plan,
-                view,
-                []);
-            WriteAssemblyQueryOutput(
-                view,
-                options with { Count = false });
-            WriteAssemblyQueryDiagnostics(events);
-            return 1;
-        }
-        view = PackageAssemblyQuerySections.WithSelectedMatches(
-            plan,
-            view,
-            selectedMatchRows);
+            PackageAssemblyQuerySections.CreateDocument(
+                request,
+                document,
+                selectedResults);
         WriteAssemblyQueryOutput(view, options);
+        WriteAssemblyQueryDiagnostics(document);
 
-        WriteAssemblyQueryDiagnostics(events);
-
-        return view.FailureCount == 0 ? 0 : 1;
+        return complete ? 0 : 1;
     }
 
     private static void WriteAssemblyQueryDiagnostics(
-        IReadOnlyList<PackageAssemblyQueryEvent> events)
+        PackageAssemblySemanticFindDocument document)
     {
-        foreach (PackageAssemblyQueryEvent.AcquisitionFailed failed
-            in events.OfType<PackageAssemblyQueryEvent.AcquisitionFailed>())
+        foreach (PackageAcquisitionPopulationFailure failure
+            in document.Population.Failures)
+        {
+            string subject = failure.Coordinate is { } coordinate
+                ? $"{coordinate.PackageId}@{coordinate.Version}"
+                : failure.PackageId ?? "Package population";
+            CommandError.WriteWarning(
+                $"{subject}: {failure.Failure.Authority} "
+                + $"({failure.Failure.Kind}): "
+                + failure.Failure.Message);
+        }
+
+        foreach (PackageAssemblySemanticFindCandidateOutcome.Failure failure
+            in document.CandidateOutcomes
+                .OfType<
+                    PackageAssemblySemanticFindCandidateOutcome.Failure>())
+        {
+            if (failure.Reason
+                is not PackageAssemblySemanticFindFailureReason.Acquisition
+                    acquisition)
+            {
+                continue;
+            }
+
+            string coordinate =
+                $"{failure.Coordinate.PackageId}@"
+                + failure.Coordinate.Version;
+            foreach (PackageAuthorityFailure sourceFailure
+                in acquisition.Evidence.Failures)
+            {
+                CommandError.WriteWarning(
+                    $"{coordinate}: {sourceFailure.Authority} "
+                    + $"({sourceFailure.Kind}): "
+                    + sourceFailure.Message);
+            }
+            foreach (InertText.InertString authority
+                in acquisition.Evidence.NotFoundAuthorities)
+            {
+                CommandError.WriteWarning(
+                    $"{coordinate}: {authority}: "
+                    + "package payload was not found.");
+            }
+        }
+
+        if (!document.Completion.IsRequestedPopulationComplete)
         {
             CommandError.WriteWarning(
-                $"{failed.Value.Coordinate.PackageId}@{failed.Value.Coordinate.Version}: "
-                + failed.Value.Message);
+                $"Package population completion: "
+                + $"{document.Population.Completion}; "
+                + $"{document.Population.Candidates.Length}/"
+                + $"{document.Population.RequestedCandidates} candidates. "
+                + "These results do not cover the requested bounded population.");
         }
     }
 
@@ -361,10 +464,12 @@ public class FindCommand
     {
         if (options.Count)
         {
-            if (view.FailureCount > 0)
+            if (!view.IsComplete)
             {
                 throw new InvalidOperationException(
-                    "Cannot count decoded literal uses because one or more package candidates failed; omit --count to inspect candidate outcomes.");
+                    "Cannot count decoded literal uses because package population "
+                    + "formation or candidate evaluation is incomplete; omit "
+                    + "--count to inspect candidate and population outcomes.");
             }
 
             if (!CountOutput.TryWriteProjected(
@@ -376,7 +481,7 @@ public class FindCommand
                     rows: null))
             {
                 throw new InvalidOperationException(
-                    "The literal Package Query count projection was rejected.");
+                    "The assembly-semantic Find count projection was rejected.");
             }
         }
         else if (options.JsonOutput)
@@ -434,15 +539,80 @@ public class FindCommand
         writerOptions.IncludeSections = verbosity switch
         {
             Verbosity.Quiet => [],
-            Verbosity.Minimal => [PackageAssemblyQuerySections.Candidates],
+            Verbosity.Minimal =>
+            [
+                PackageAssemblyQuerySections.Candidates,
+                PackageAssemblyQuerySections.PopulationFailures,
+            ],
             _ => null,
         };
         writerOptions.SectionOrder =
         [
             PackageAssemblyQuerySections.Matches,
-            PackageAssemblyQuerySections.Candidates
+            PackageAssemblyQuerySections.Candidates,
+            PackageAssemblyQuerySections.PopulationFailures,
         ];
         return writerOptions;
+    }
+
+    private sealed class FixedPackageSourceAuthorization(
+        PackageSourceAuthorization authorization)
+        : IPackageSourceAuthorization
+    {
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+            return authorization;
+        }
+    }
+
+    private sealed class AssemblySemanticFindStores : IDisposable
+    {
+        private readonly Dictionary<
+            ConfiguredPackageAuthority,
+            IPackageStore> _stores =
+            new(ReferenceEqualityComparer.Instance);
+        private string? _temporaryRoot;
+
+        internal IPackageStore GetStore(
+            ConfiguredPackageAuthority authority,
+            PackageProducerIdentity producer)
+        {
+            if (!_stores.TryGetValue(authority, out IPackageStore? store))
+            {
+                store = new AuthorityScopedFileSystemPackageStore(
+                    authority,
+                    producer,
+                    () =>
+                        _temporaryRoot ??=
+                            Directory.CreateTempSubdirectory(
+                                "inspect-find").FullName);
+                _stores.Add(authority, store);
+            }
+            return store;
+        }
+
+        public void Dispose() =>
+            DotnetInspector.Packages.PackageExtractor.Cleanup(
+                _temporaryRoot);
+    }
+
+    private sealed class AssemblySemanticFindProgressSink(
+        VerboseLogger logger,
+        int candidateCount)
+        : IPackageAssemblySemanticFindNonterminalSink
+    {
+        public ValueTask ReportAsync(
+            PackageAssemblySemanticFindCandidateOutcome outcome,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            logger.Log(
+                $"Evaluated {outcome.CandidateOrdinal} of "
+                + $"{candidateCount} package candidates");
+            return ValueTask.CompletedTask;
+        }
     }
 
     private static async Task<int> ExecuteMemberSearchAsync(

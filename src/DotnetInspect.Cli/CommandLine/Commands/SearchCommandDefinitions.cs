@@ -3,6 +3,7 @@ using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
@@ -65,15 +66,25 @@ public static class SearchCommandDefinitions
         var membersOption = new Option<bool>("--members") { Description = "Search member names instead of type names (auto-enabled when the pattern starts with '.', e.g. .Serialize)" };
         var literalOption = new Option<string?>("--literal")
         {
-            Description = "Find decoded IL string literals containing this exact ordinal substring in the primary implementation assembly of up to 5 explicit name@version packages; requires --tfm; -v:n includes literal-use rows",
+            Description = "Find decoded IL string literals containing this exact ordinal substring in selected primary implementation assemblies; use 1-5 explicit name@version packages or --package-prefix with --take; requires --tfm; -v:n includes literal-use rows",
             Arity = ArgumentArity.ExactlyOne
+        };
+        var takeOption = new Option<string[]>("--take")
+        {
+            Description =
+                "Maximum package-prefix candidates to inspect with --literal "
+                + $"(required; maximum {PackageAcquisitionPopulation.MaximumCandidates})",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false
         };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
         {
             Description =
                 $"With a type or member pattern, search up to "
-                + $"{ScopeConstants.PackagePrefixExpansionLimit} matching package IDs"
+                + $"{ScopeConstants.PackagePrefixExpansionLimit} matching package IDs; "
+                + "with --literal, select a bounded NuGet Gallery population "
+                + "and require --take"
         };
         var typeFilterOption = new Option<string?>("--type")
         {
@@ -92,6 +103,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(allOption);
         findCommand.Options.Add(membersOption);
         findCommand.Options.Add(literalOption);
+        findCommand.Options.Add(takeOption);
         findCommand.Options.Add(typeFilterOption);
         findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(compactOption);
@@ -111,7 +123,7 @@ public static class SearchCommandDefinitions
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
             typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
-            literalOption);
+            literalOption, takeOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -128,6 +140,7 @@ public static class SearchCommandDefinitions
                         "find Chat* --aspnetcore                   # ASP.NET Core packages",
                         "find Chat* --package Newtonsoft.Json       # specific package",
                         "find --literal Json --package System.Text.Json@10.0.0 --tfm net10.0",
+                        "find --literal Json --package-prefix System.Text --take 5 --tfm net10.0",
                         "find Chat* --platform --extensions         # combine scopes");
 
                 case FindOptionsParser.Success success:
@@ -166,6 +179,11 @@ public static class SearchCommandDefinitions
                 tailLinesOption),
             CliRowSelectionCapabilities.HeadTail
                 | CliRowSelectionCapabilities.Window,
+            isActive: static _ => true);
+        CliExecutionBoundCommandRegistry.Register(
+            findCommand,
+            takeOption,
+            _ => PackageAcquisitionPopulation.MaximumCandidates,
             isActive: static _ => true);
         return findCommand;
     }
