@@ -82,6 +82,479 @@ public sealed class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task VersionPopulationSettlementServesMultipleCellsFromOneDiscovery()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0", "2.0.0"]),
+            new SourceBehavior(["2.0.0", "3.0.0"]));
+        int stores = 0;
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest("1.0.0..3.0.0");
+        PackageHouse house = environment.CreateHouse(
+            (_, _) =>
+            {
+                stores++;
+                return new InMemoryPackageStore();
+            });
+
+        PackageHouseVersionPopulationResult result =
+            await house.SettleVersionPopulationAsync(
+                request,
+                environment.Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    request.Operation.RequestTimeout,
+                    request.Operation.OperationTimeout));
+
+        var available =
+            Assert.IsType<PackageHouseVersionPopulationResult.Available>(
+                result);
+        Assert.Equal(
+            ["1.0.0", "2.0.0", "3.0.0"],
+            available.Vector.Addresses.Select(
+                address => address.Version.ToNormalizedString()));
+        Assert.All(
+            environment.Clients,
+            client =>
+            {
+                Assert.Equal(1, client.VersionRequests);
+                Assert.Equal(0, client.PayloadRequests);
+            });
+
+        PackageHouseVersionPopulationCell[] cells =
+        [
+            .. available.Vector.Addresses.Select(
+                available.SelectCell),
+        ];
+        Assert.Single(cells[0].Candidate.Authorities);
+        Assert.Equal(2, cells[1].Candidate.Authorities.Count);
+        Assert.Single(cells[2].Candidate.Authorities);
+
+        foreach (PackageHouseVersionPopulationCell cell in cells)
+        {
+            PackageHouseOperation operation = PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle);
+            PackageHouseSettlement settlement =
+                await house.ExecuteAsync(
+                    cell.CreateRequest(
+                        operation,
+                        targetContext: null,
+                        assetSelection: null,
+                        libraryHandoff:
+                            PackageHouseLibraryHandoffMode.PackageOnly),
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        operation.RequestTimeout,
+                        operation.OperationTimeout));
+            Assert.IsType<PackageHouseResult.Settled>(
+                settlement.Result);
+        }
+
+        Assert.All(
+            environment.Clients,
+            client =>
+            {
+                Assert.Equal(1, client.VersionRequests);
+                Assert.Equal(0, client.PayloadRequests);
+            });
+        Assert.Equal(0, stores);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationCellRequiresItsExactVectorAddress()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0", "2.0.0"]));
+        PackageHouseVersionPopulationRequest firstRequest =
+            PopulationRequest("1.0.0..2.0.0");
+        PackageHouseVersionPopulationRequest secondRequest =
+            PopulationRequest("1.0.0..2.0.0");
+        PackageHouse house = environment.CreateHouse();
+
+        var first = Assert.IsType<
+            PackageHouseVersionPopulationResult.Available>(
+                await house.SettleVersionPopulationAsync(
+                    firstRequest,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        firstRequest.Operation.RequestTimeout,
+                        firstRequest.Operation.OperationTimeout)));
+        var second = Assert.IsType<
+            PackageHouseVersionPopulationResult.Available>(
+                await house.SettleVersionPopulationAsync(
+                    secondRequest,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        secondRequest.Operation.RequestTimeout,
+                        secondRequest.Operation.OperationTimeout)));
+
+        Assert.Throws<ArgumentException>(
+            () => first.SelectCell(second.Vector.Addresses[0]));
+        Assert.NotNull(first.SelectCell(first.Vector.Addresses[0]));
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationCellAcquiresOnlyFromItsReporters()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0", "2.0.0"]),
+            new SourceBehavior(["2.0.0"]));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest("1.0.0..2.0.0");
+        PackageHouse house = environment.CreateHouse(
+            (_, _) => new InMemoryPackageStore());
+        var available = Assert.IsType<
+            PackageHouseVersionPopulationResult.Available>(
+                await house.SettleVersionPopulationAsync(
+                    request,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        request.Operation.RequestTimeout,
+                        request.Operation.OperationTimeout)));
+        PackageHouseVersionPopulationCell cell =
+            available.SelectCell(available.Vector.Addresses[0]);
+        PackageHouseOperation operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Acquire);
+
+        PackageHouseSettlement settlement =
+            await house.ExecuteAsync(
+                cell.CreateRequest(
+                    operation,
+                    targetContext: null,
+                    assetSelection: null,
+                    libraryHandoff:
+                        PackageHouseLibraryHandoffMode.PackageOnly),
+                environment.Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    operation.RequestTimeout,
+                    operation.OperationTimeout));
+
+        Assert.IsType<PackageHouseSettlement.Acquired>(settlement);
+        Assert.Same(cell.Candidate, settlement.Result.Decision!.Candidate);
+        Assert.Equal(1, environment.Clients[0].PayloadRequests);
+        Assert.Equal(0, environment.Clients[1].PayloadRequests);
+        Assert.All(
+            environment.Clients,
+            client => Assert.Equal(1, client.VersionRequests));
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task VersionPopulationIncompleteOrFailedDiscoveryCannotIssueCells(
+        bool hasHealthyPeer)
+    {
+        SourceBehavior[] behaviors = hasHealthyPeer
+            ?
+            [
+                new SourceBehavior(["1.0.0", "2.0.0"]),
+                new SourceBehavior(
+                    [],
+                    VersionFailure: PackageSourceFailureKind.Transport),
+            ]
+            :
+            [
+                new SourceBehavior(
+                    [],
+                    VersionFailure: PackageSourceFailureKind.Transport),
+            ];
+        await using HouseEnvironment environment =
+            HouseEnvironment.Create(behaviors);
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest("1.0.0..2.0.0");
+
+        PackageHouseVersionPopulationResult result =
+            await environment.CreateHouse()
+                .SettleVersionPopulationAsync(
+                    request,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        request.Operation.RequestTimeout,
+                        request.Operation.OperationTimeout));
+
+        if (hasHealthyPeer)
+        {
+            Assert.IsType<
+                PackageHouseVersionPopulationResult.Incomplete>(
+                    result);
+        }
+        else
+        {
+            Assert.IsType<
+                PackageHouseVersionPopulationResult.Failed>(
+                    result);
+        }
+        Assert.NotNull(result.Evidence.Discovery);
+        Assert.All(
+            environment.Clients,
+            client => Assert.Equal(0, client.PayloadRequests));
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationMissingEndpointIsNoMatch()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0"]));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest("1.0.0..2.0.0");
+
+        PackageHouseVersionPopulationResult result =
+            await environment.CreateHouse()
+                .SettleVersionPopulationAsync(
+                    request,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        request.Operation.RequestTimeout,
+                        request.Operation.OperationTimeout));
+
+        Assert.IsType<PackageHouseVersionPopulationResult.NoMatch>(
+            result);
+        Assert.Equal(1, environment.Clients[0].VersionRequests);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationAuthoritativeAbsenceIsNotFound()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([]));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest("1.0.0..2.0.0");
+
+        PackageHouseVersionPopulationResult result =
+            await environment.CreateHouse()
+                .SettleVersionPopulationAsync(
+                    request,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        request.Operation.RequestTimeout,
+                        request.Operation.OperationTimeout));
+
+        Assert.IsType<PackageHouseVersionPopulationResult.NotFound>(
+            result);
+        Assert.Equal(1, environment.Clients[0].VersionRequests);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationOperationTimeoutIsTypedAndReleasesOperation()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                ["1.0.0", "2.0.0"],
+                BeforeVersions: async (_, token) =>
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(60),
+                        token)));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest(
+                "1.0.0..2.0.0",
+                operationTimeout: TimeSpan.FromMilliseconds(20));
+
+        PackageHouseVersionPopulationResult result =
+            await environment.CreateHouse()
+                .SettleVersionPopulationAsync(
+                    request,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        request.Operation.RequestTimeout,
+                        request.Operation.OperationTimeout));
+
+        Assert.IsType<PackageHouseVersionPopulationResult.Failed>(
+            result);
+        Assert.Contains(
+            result.Evidence.Failures,
+            failure =>
+                failure is PackageHouseFailure.Authority
+                {
+                    Failure.Timeout.Kind:
+                        PackageSourceTimeoutKind.Operation,
+                });
+        Assert.IsType<PackageHouseFailure.Timeout>(
+            result.Evidence.Failures.Last());
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationOperationTimeoutDuringVectorConstructionRetainsDiscovery()
+    {
+        const int versionCount = 8_000;
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(VersionPopulation(versionCount)));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest(
+                $"1.0.0..1.0.{versionCount - 1}",
+                operationTimeout: TimeSpan.FromMilliseconds(150));
+
+        PackageHouseVersionPopulationResult result =
+            await environment.CreateHouse()
+                .SettleVersionPopulationAsync(
+                    request,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        request.Operation.RequestTimeout,
+                        request.Operation.OperationTimeout));
+
+        Assert.IsType<PackageHouseVersionPopulationResult.Failed>(
+            result);
+        Assert.Equal(
+            PackageVersionDiscoveryState.Authoritative,
+            result.Evidence.Discovery?.State);
+        Assert.Equal(
+            versionCount,
+            result.Evidence.Discovery?.Versions.Count);
+        Assert.IsType<PackageHouseFailure.Timeout>(
+            result.Evidence.Failures.Last());
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationOperationDeadlinesMustMatchRequest()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0", "2.0.0"]));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest("1.0.0..2.0.0");
+        PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                request.Operation.RequestTimeout
+                    + TimeSpan.FromSeconds(1),
+                request.Operation.OperationTimeout);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => environment.CreateHouse()
+                .SettleVersionPopulationAsync(
+                    request,
+                    operation));
+
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task NullVersionPopulationRequestReleasesTransferredOperation()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0", "2.0.0"]));
+        PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => environment.CreateHouse()
+                .SettleVersionPopulationAsync(
+                    null!,
+                    operation));
+
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationCallerCancellationRemainsCancellation()
+    {
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                ["1.0.0", "2.0.0"],
+                BeforeVersions: async (_, token) =>
+                {
+                    cancellation.Cancel();
+                    await Task.Delay(
+                        Timeout.InfiniteTimeSpan,
+                        token);
+                }));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest("1.0.0..2.0.0");
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => environment.CreateHouse()
+                    .SettleVersionPopulationAsync(
+                        request,
+                        environment.Root.IssueOperationLease(
+                            cancellation.Token,
+                            request.Operation.RequestTimeout,
+                            request.Operation.OperationTimeout)));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationCallerCancellationDuringVectorConstructionRemainsCancellation()
+    {
+        const int versionCount = 8_000;
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromMilliseconds(150));
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(VersionPopulation(versionCount)));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest($"1.0.0..1.0.{versionCount - 1}");
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => environment.CreateHouse()
+                    .SettleVersionPopulationAsync(
+                        request,
+                        environment.Root.IssueOperationLease(
+                            cancellation.Token,
+                            request.Operation.RequestTimeout,
+                            request.Operation.OperationTimeout)));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionPopulationCellRejectsAnotherRootGeneration()
+    {
+        await using HouseEnvironment source = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0", "2.0.0"]));
+        await using HouseEnvironment other = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0", "2.0.0"]));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest("1.0.0..2.0.0");
+        var available = Assert.IsType<
+            PackageHouseVersionPopulationResult.Available>(
+                await source.CreateHouse()
+                    .SettleVersionPopulationAsync(
+                        request,
+                        source.Root.IssueOperationLease(
+                            TestContext.Current.CancellationToken,
+                            request.Operation.RequestTimeout,
+                            request.Operation.OperationTimeout)));
+        PackageHouseVersionPopulationCell cell =
+            available.SelectCell(available.Vector.Addresses[0]);
+        PackageHouseOperation operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Settle);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => other.CreateHouse().ExecuteAsync(
+                cell.CreateRequest(
+                    operation,
+                    targetContext: null,
+                    assetSelection: null,
+                    libraryHandoff:
+                        PackageHouseLibraryHandoffMode.PackageOnly),
+                other.Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    operation.RequestTimeout,
+                    operation.OperationTimeout)));
+
+        await source.AssertRootSettledAsync();
+        await other.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task ExactSettleAuthorizesWithoutPayloadWork()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
@@ -1834,6 +2307,31 @@ public sealed class PackageHouseExecutionTests
                     PlatformTargetFramework.Parse("net11.0"),
                     PlatformVersion.Parse("11.0.0"))),
             assetSelection);
+
+    private static PackageHouseVersionPopulationRequest PopulationRequest(
+        string endpoints,
+        bool includePrerelease = false,
+        TimeSpan? operationTimeout = null)
+    {
+        Assert.True(
+            PackageVersionRange.TryParse(
+                $"{PackageId}@{endpoints}",
+                out PackageVersionRange? range,
+                out string? error),
+            error);
+        return new(
+            range!,
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle,
+                operationTimeout: operationTimeout),
+            includePrerelease);
+    }
+
+    private static string[] VersionPopulation(int count) =>
+    [
+        .. Enumerable.Range(0, count).Select(
+            index => $"1.0.{index}"),
+    ];
 
     private static PackageAcquisitionCandidate ResolveCandidate(
         HouseEnvironment environment,

@@ -10375,6 +10375,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DiscoverEffective_ListsCategoriesBeforeSections()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = []
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        var rows = ExtractDiscoveryRows(output);
+        int lastCategoryIndex = rows.FindLastIndex(row => row.Kind == "category");
+        int firstSectionIndex = rows.FindIndex(
+            row => row.Kind.StartsWith("section", StringComparison.Ordinal));
+        Assert.True(lastCategoryIndex >= 0 && firstSectionIndex > lastCategoryIndex);
+    }
+
+    [Fact]
     public async Task Member_DiscoverEffective_ShowIndexAtNormal_ListsMemberIndexColumns()
     {
         var options = new MemberOptions
