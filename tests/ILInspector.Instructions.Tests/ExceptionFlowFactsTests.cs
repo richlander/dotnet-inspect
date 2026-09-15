@@ -155,6 +155,65 @@ public class ExceptionFlowFactsTests
     }
 
     [Fact]
+    public void ExplicitBranchTargetDoesNotInheritFallthroughRegionEntry()
+    {
+        byte[] branchImage = File.ReadAllBytes(SelfPath);
+        int token = TokenOf(nameof(ExceptionFlowFactsSamples.ConditionalInTry));
+        using var pe = new PEReader(
+            new MemoryStream(branchImage, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodBodyBlock body = ReadBody(pe, reader, token);
+        ExceptionRegion clause = Assert.Single(body.ExceptionRegions);
+        DecodedInstruction branch = MethodInstructions.Decode(body).Instructions.Single(
+            instruction => instruction.Branches
+                && !instruction.IsUnconditionalBranch);
+        Assert.Equal(OperandKind.ShortInlineBrTarget, branch.Operand);
+        Assert.Equal(2, branch.Length);
+        int protectedEnd = clause.TryOffset + clause.TryLength;
+        Assert.InRange(
+            branch.NextOffset,
+            clause.TryOffset + 1,
+            protectedEnd - 1);
+
+        WriteTryExtent(
+            branchImage,
+            token,
+            clauseOrdinal: 0,
+            branch.NextOffset,
+            protectedEnd - branch.NextOffset);
+        WriteBranchTarget(
+            branchImage,
+            token,
+            branch,
+            branch.NextOffset);
+
+        MethodInstructions rejected = MethodInstructions.Decode(
+            ReadMutatedBody(branchImage, token));
+        Assert.True(rejected.IsComplete, rejected.Blocks.IncompleteReason);
+        var unavailable = Assert.IsType<
+            InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Unavailable>(
+                    rejected.ExceptionFlow);
+        Assert.Equal(
+            InstructionExceptionFlowUnavailableReason.InvalidControlTransfer,
+            unavailable.Reason);
+
+        byte[] fallthroughImage = File.ReadAllBytes(SelfPath);
+        WriteTryExtent(
+            fallthroughImage,
+            token,
+            clauseOrdinal: 0,
+            branch.NextOffset,
+            protectedEnd - branch.NextOffset);
+        int branchOffset = MethodCodeOffset(fallthroughImage, token) + branch.Offset;
+        fallthroughImage[branchOffset] = 0x26;
+        fallthroughImage[branchOffset + 1] = 0x00;
+
+        AvailableFacts(MethodInstructions.Decode(
+            ReadMutatedBody(fallthroughImage, token)));
+    }
+
+    [Fact]
     public void ExceptionalTransfersAreExplicitlyUnavailable()
     {
         (_, MethodInstructions method) =
@@ -375,6 +434,65 @@ public class ExceptionFlowFactsTests
         Assert.Equal(
             InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
             unavailable.Reason);
+    }
+
+    [Fact]
+    public void MetadataBackedDecodeRejectsClauseWithDifferentEnclosingContexts()
+    {
+        byte[] image = File.ReadAllBytes(SelfPath);
+        int token = TokenOf(nameof(ExceptionFlowFactsSamples.NestedFinally));
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodBodyBlock body = ReadBody(pe, reader, token);
+        ExceptionRegion inner = body.ExceptionRegions[0];
+        ExceptionRegion outer = body.ExceptionRegions[1];
+        Assert.True(inner.TryLength < outer.TryLength);
+        Assert.InRange(
+            inner.HandlerOffset,
+            outer.TryOffset,
+            outer.TryOffset + outer.TryLength - 1);
+
+        WriteHandlerExtent(
+            image,
+            token,
+            clauseOrdinal: 0,
+            outer.HandlerOffset,
+            outer.HandlerLength);
+
+        MethodInstructions method = MethodInstructions.Decode(
+            ReadMutatedBody(image, token));
+
+        Assert.False(method.IsComplete);
+        var unavailable = Assert.IsType<
+            InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Unavailable>(
+                    method.ExceptionFlow);
+        Assert.Equal(
+            InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
+            unavailable.Reason);
+    }
+
+    [Theory]
+    [InlineData(nameof(ExceptionFlowFactsSamples.LeaveWithinCatchHandler))]
+    [InlineData(nameof(ExceptionFlowFactsSamples.LeaveWithinFinallyHandler))]
+    public void LeaveMayRemainInsideAnEnclosingHandler(string methodName)
+    {
+        (_, MethodInstructions method) = Decode(methodName);
+        InstructionExceptionFlowFacts facts = AvailableFacts(method);
+        InstructionNormalTransfer[] leaves =
+            [.. method.Instructions
+                .Where(instruction => instruction.LeavesRegion)
+                .Select(instruction => AvailableTransfer(facts, instruction))];
+
+        Assert.Contains(
+            leaves,
+            transfer => transfer.SourceContext.Any(
+                source => source.Id.Role == InstructionExceptionRegionRole.Handler
+                    && transfer.DestinationContext.Any(
+                        destination => destination.Id == source.Id))
+                && transfer.RegionsLeft.All(
+                    region => region.Id.Role
+                        != InstructionExceptionRegionRole.Handler));
     }
 
     [Fact]
@@ -689,6 +807,36 @@ public class ExceptionFlowFactsTests
         }
     }
 
+    static void WriteHandlerExtent(
+        byte[] image,
+        int methodToken,
+        int clauseOrdinal,
+        int start,
+        int length)
+    {
+        int sectionOffset = ExceptionSectionOffset(
+            image,
+            methodToken,
+            out bool fat);
+        int clauseOffset = sectionOffset + 4 + clauseOrdinal * (fat ? 24 : 12);
+        if (fat)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(clauseOffset + 12, 4),
+                start);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(clauseOffset + 16, 4),
+                length);
+        }
+        else
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(clauseOffset + 5, 2),
+                checked((ushort)start));
+            image[clauseOffset + 7] = checked((byte)length);
+        }
+    }
+
     static void WriteBranchTarget(
         byte[] image,
         int methodToken,
@@ -835,6 +983,62 @@ public static class ExceptionFlowFactsSamples
 
     public static int Branch(bool condition) =>
         condition ? 1 : 2;
+
+    public static int ConditionalInTry(bool condition)
+    {
+        try
+        {
+            return condition ? 1 : 2;
+        }
+        catch (Exception)
+        {
+            return -1;
+        }
+    }
+
+    public static int LeaveWithinCatchHandler(int value)
+    {
+        int result;
+        try
+        {
+            throw new InvalidOperationException();
+        }
+        catch (InvalidOperationException)
+        {
+            try
+            {
+                result = value;
+            }
+            finally
+            {
+                Sink(value);
+            }
+            result++;
+        }
+        return result;
+    }
+
+    public static int LeaveWithinFinallyHandler(int value)
+    {
+        int result = 0;
+        try
+        {
+            result = value;
+        }
+        finally
+        {
+            try
+            {
+                result += value;
+            }
+            finally
+            {
+                Sink(value);
+            }
+            result++;
+        }
+        return result;
+    }
 
     public static void Throw() =>
         throw new InvalidOperationException();

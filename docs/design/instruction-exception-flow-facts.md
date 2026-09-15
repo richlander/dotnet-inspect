@@ -93,8 +93,12 @@ Construction is transactional. Invalid crossing regions, impossible or
 prefix-interior boundaries, malformed IL, invalid nested-clause order, or an
 incomplete owner handoff produce typed unavailability. Shared protected
 extents retain catch/filter clause order; a shared extent cannot combine a
-`finally` or `fault` with another clause. The owner does not discard one clause
-and publish a smaller topology as complete.
+`finally` or `fault` with another clause. A clause's protected, filter, and
+handler extents share the same external enclosing-region context. The
+inner-before-outer metadata-order requirement applies to nested protected
+groups; a complete clause nested in another clause's handler is not reordered.
+The owner does not discard one clause and publish a smaller topology as
+complete.
 
 The existing `MethodInstructions` and `BlockGraph` are the implementation
 basis and first same-owner consumer. Adoption replaces their independently
@@ -148,11 +152,13 @@ matter.
 Availability is opcode-aware. An ordinary branch is available only when its
 encoded edge stays in one EH context; sequential fallthrough may enter one or
 more protected regions at their starts. A direct return is available only
-outside EH regions. A leave can exit protected regions and catch/filter
-handlers, but cannot originate in a filter, `finally`, or `fault` body or
-target a filter or handler. The ECMA-335 catch-to-associated-try exception is
-preserved; otherwise a leave cannot enter a new protected region. Other
-encoded cross-boundary transfers make construction of the correlated fact set
+outside EH regions. A leave can exit protected regions and catch or
+filter-associated handlers, but cannot originate in a filter, exit a `finally`
+or `fault` handler, or enter a filter or handler. A handler retained by both
+endpoints is neither exited nor entered, so a leave nested within that handler
+is valid. The ECMA-335 catch-to-associated-try exception is preserved;
+otherwise a leave cannot enter a new protected region. Other encoded
+cross-boundary transfers make construction of the correlated fact set
 unavailable rather than receive synthetic runtime cleanup semantics.
 
 Exceptional search is outside the initial contract. `throw`, `rethrow`,
@@ -223,13 +229,14 @@ review and applicable notices.
 - shared protected extents, nesting, filters, catches, `finally`, and a real
   platform `fault`;
 - malformed IL, invalid and prefix-interior boundaries, crossing regions, and
-  invalid nested-clause order;
+  invalid protected-group order and mismatched clause-enclosing context;
 - body/fact re-pairing and structurally equal foreign blocks;
 - known-empty location context versus a non-instruction offset;
-- per-edge branch, catch-to-associated-try leave, ordinary leave, and return
-  facts, ordered nested cleanup handlers, canonical block/method-exit
-  continuations, typed out-of-range destination failure, and rejection of a
-  branch or direct return that illegally exits an EH context;
+- per-edge branch, distinct explicit-target and sequential-fallthrough entry,
+  catch-to-associated-try leave, retained enclosing handlers, ordinary leave,
+  and return facts, ordered nested cleanup handlers, canonical
+  block/method-exit continuations, typed out-of-range destination failure, and
+  rejection of a branch or direct return that illegally exits an EH context;
 - explicit exceptional-transfer unavailability; and
 - the runtime `TextReader.Read(Span<char>)` `finally` transfer, cleanup
   identity, and continuation witness.

@@ -746,6 +746,26 @@ internal sealed class ExceptionFlowTopology
             }
         }
 
+        foreach (ExceptionFlowClauseDescriptor clause in clauses)
+        {
+            var components =
+                ImmutableArray.CreateBuilder<ExceptionFlowTopologyRegion>(3);
+            components.Add(topology[protectedOrdinals[clause.Protected]]);
+            if (clause.Filter is not null)
+                components.Add(topology[filterOrdinals[clause.Ordinal]]);
+            components.Add(topology[handlerOrdinals[clause.Ordinal]]);
+            ImmutableArray<int> enclosingContext =
+                EnclosingRegionOrdinals(components[0]);
+            if (components.Skip(1).Any(
+                    component => !EnclosingRegionOrdinals(component)
+                        .SequenceEqual(enclosingContext)))
+            {
+                return Invalid(
+                    InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
+                    "A clause's protected, filter, and handler extents must share one enclosing context.");
+            }
+        }
+
         ImmutableArray<ExceptionRegionModel> models =
             [.. clauses
                 .OrderBy(clause => clause.Ordinal)
@@ -835,6 +855,15 @@ internal sealed class ExceptionFlowTopology
             extent.Start < extent.End
             && boundaries.Contains(extent.Start)
             && boundaries.Contains(extent.End);
+
+        ImmutableArray<int> EnclosingRegionOrdinals(
+            ExceptionFlowTopologyRegion component) =>
+            [.. topology
+                .Where(candidate =>
+                    candidate.Extent != component.Extent
+                    && candidate.Extent.Contains(component.Extent))
+                .Select(candidate => candidate.Ordinal)
+                .Order()];
     }
 
     internal ImmutableArray<ExceptionFlowTopologyRegion> ContextAt(int offset) =>
@@ -855,6 +884,24 @@ internal sealed class ExceptionFlowTopology
     internal bool TryValidateNormalTransfer(
         DecodedInstruction source,
         int? destinationOffset,
+        out InstructionNormalTransferKind kind,
+        out InstructionExceptionFlowUnavailableReason reason,
+        out string detail) =>
+        TryValidateNormalTransfer(
+            source,
+            destinationOffset,
+            isSequentialFallthrough: destinationOffset is { } destination
+                && source.FallsThrough
+                && source.NextOffset == destination
+                && !source.BranchTargets.Contains(destination),
+            out kind,
+            out reason,
+            out detail);
+
+    bool TryValidateNormalTransfer(
+        DecodedInstruction source,
+        int? destinationOffset,
+        bool isSequentialFallthrough,
         out InstructionNormalTransferKind kind,
         out InstructionExceptionFlowUnavailableReason reason,
         out string detail)
@@ -911,9 +958,9 @@ internal sealed class ExceptionFlowTopology
         }
 
         kind = InstructionNormalTransferKind.Branch;
-        bool fallthrough = source.FallsThrough && source.NextOffset == destination;
         if (SameContext(sourceContext, destinationContext)
-            || fallthrough && IsLegalRegionEntry(sourceContext, destinationContext))
+            || isSequentialFallthrough
+                && IsLegalRegionEntry(sourceContext, destinationContext))
         {
             return true;
         }
@@ -961,6 +1008,7 @@ internal sealed class ExceptionFlowTopology
                     if (!TryValidateNormalTransfer(
                             instruction,
                             target,
+                            isSequentialFallthrough: false,
                             out _,
                             out unavailableReason,
                             out reason))
@@ -1002,14 +1050,26 @@ internal sealed class ExceptionFlowTopology
             return false;
         if (source.Any(region => region.Role == InstructionExceptionRegionRole.Filter))
             return false;
-        foreach (ExceptionFlowTopologyRegion handler in source.Where(
+
+        HashSet<int> destinationOrdinals =
+            destination.Select(region => region.Ordinal).ToHashSet();
+        ImmutableArray<ExceptionFlowTopologyRegion> regionsLeft =
+            [.. source.Where(region => !destinationOrdinals.Contains(region.Ordinal))];
+        if (regionsLeft.IsEmpty)
+            return false;
+        foreach (ExceptionFlowTopologyRegion handler in regionsLeft.Where(
                      region => region.Role == InstructionExceptionRegionRole.Handler))
         {
             ExceptionRegionKind kind = Clauses[handler.ClauseOrdinals[0]].Kind;
             if (kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault)
                 return false;
         }
-        if (destination.Any(region =>
+
+        HashSet<int> sourceOrdinals =
+            source.Select(region => region.Ordinal).ToHashSet();
+        ImmutableArray<ExceptionFlowTopologyRegion> regionsEntered =
+            [.. destination.Where(region => !sourceOrdinals.Contains(region.Ordinal))];
+        if (regionsEntered.Any(region =>
                 region.Role is InstructionExceptionRegionRole.Filter
                     or InstructionExceptionRegionRole.Handler))
             return false;
@@ -1018,7 +1078,7 @@ internal sealed class ExceptionFlowTopology
             source.Where(region => region.Role == InstructionExceptionRegionRole.Protected)
                 .Select(region => region.Ordinal)
                 .ToHashSet();
-        return destination
+        return regionsEntered
             .Where(region => region.Role == InstructionExceptionRegionRole.Protected)
             .All(region => sourceProtected.Contains(region.Ordinal)
                 || IsAssociatedCatchProtectedRegion(source, region));
