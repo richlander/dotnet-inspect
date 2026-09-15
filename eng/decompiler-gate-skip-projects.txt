@@ -94,7 +94,6 @@ src/DotnetInspector.PlatformHouse.Installed
 src/DotnetInspector.PlatformHouse.Packages
 src/DotnetInspector.Platforms.Formats
 src/DotnetInspector.Platforms.Installed
-src/DotnetInspector.Platforms.Packages
 src/DotnetInspector.Presentation
 src/DotnetInspector.Sections
 src/DotnetInspector.SourceDelegation

@@ -375,13 +375,33 @@ candidate arrays, pre-selection candidate counts, and any row-selection
 failure. Zero, one, and many candidates use the same array shape. It does not
 serialize live Workspace handles or configured package-source authorities.
 
+Reference observations use the `platform-reference` realization alternative,
+not the legacy implementation-pack `platform` realization. It retains the
+exact family target, reference path, population demand, safe authority label,
+producer, source generation, candidate/discovery evidence, and package failures.
+Package-source association and content-generation tokens lower to separate
+result-local integer ordinals: equal owner tokens receive equal ordinals
+within that one result, and distinct tokens remain distinct. Those ordinals
+are neither portable versions nor keys for reopening a source. A null
+or omitted `requested_assembly` denotes a complete source-population demand.
+
+Context gaps use a closed `context-load` / `reference-source` /
+`reference-image` union. Source outcomes and diagnostic codes stay separate,
+and package failures remain attached. This evolves the prerequisite JSON
+context-failure shape: context-loader codes now appear in `code`, while `kind`
+identifies the failure alternative. Existing successful context-loader row
+shapes are unchanged.
+
 `TypeDeclarationLocatorView` is the common Markout lowering. Its result rows
 contain request, Type, declaration kind, source arm, Library, origin and
 context display columns; separate Coverage and Gaps sections keep incomplete
 or failed evidence visible when Results has zero rows. Dynamic display text
 crosses `InertString` field containment. Package and Platform origins use the
-credential-free producer identity already carried by realization, never raw
-configured source URLs. Projected JSON, JSONL, TSV and Markdown are therefore
+credential-free producer identity already carried by realization. Reference
+origins use `PackageSourceDisplay`'s safe authority label and explicitly show
+the reference view in the context column; structured producer identity remains
+separate. They never display raw configured source URLs. Projected JSON, JSONL,
+TSV and Markdown are therefore
 one-way display projections, not identity codecs or reopening authority.
 
 The Release gates
@@ -393,7 +413,12 @@ identity/context, coverage, source-generated JSON, Markout correspondence,
 atomic failure, admission-failure, and ranking-refusal boundaries.
 `ProjectionRetainsEveryCoordinateArmAndOwnerEquality` additionally gates all
 four coordinate arms and preserves Source Selection's assembly-equivalence
-semantics. The CLI and Browser/Wasm production consumers remain
+semantics. Reference admission additionally uses
+`ReferenceSection_PreservesOriginTokensVectorsAndSafeDisplay` and
+`ReferenceSection_RetainsSourceAndImageFailuresWithoutRows` to gate reference
+view evidence, result-local token correspondence, source-generated JSON,
+authority display, and failure disclosure when no candidate row matches.
+The CLI and Browser/Wasm production consumers remain
 [#6844](https://github.com/richlander/dotnet-inspect/issues/6844) and
 [#6851](https://github.com/richlander/dotnet-inspect/issues/6851);
 `InspectionEnvelope<TypeDeclarationLocatorSectionResult>` is formed at those
