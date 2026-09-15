@@ -175,6 +175,10 @@ public sealed class WorkspaceEcosystemRegistrationDeclaration
 
     public ImmutableArray<string> NamespaceRoots { get; }
 
+    /// <summary>
+    /// Gets inert unversioned package roots that a selecting operation may
+    /// resolve and traverse under its own policies.
+    /// </summary>
     public ImmutableArray<PackageCoordinate> CorePackages { get; }
 
     public ImmutableArray<WorkspaceEcosystemPopulationDeclaration>

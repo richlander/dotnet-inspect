@@ -90,10 +90,12 @@ internal static class EcosystemWorkspacePlanFactory
             switch (registry.SelectWorkspaceRegistration(id))
             {
                 case EcosystemWorkspaceRegistrationSelectionResult.Known known:
-                    if (known.Declaration.Populations.IsEmpty)
+                    if (known.Declaration.CorePackages.IsEmpty
+                        && known.Declaration.Populations.IsEmpty)
                     {
                         throw new ArgumentException(
-                            $"Ecosystem pack '{id}' has no Workspace population contribution.",
+                            $"Ecosystem pack '{id}' has no registered package"
+                            + " or Workspace population contribution.",
                             nameof(manifest));
                     }
 

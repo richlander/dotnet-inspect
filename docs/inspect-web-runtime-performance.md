@@ -249,7 +249,9 @@ unfamiliar ReadyToRun correctness failure, a failed required variant, missing
 evidence, or any preparation or infrastructure failure leaves the prior public
 site deployed. Publishing the recognized rejection is intentional: the R2R
 site exists to make that exact product failure reproducible through shareable
-URLs. It does not make R2R supported or eligible for timing.
+URLs. Its failure details retain the originating managed/Wasm operation
+diagnostic and stack ahead of any later cleanup failure. This does not make R2R
+supported or eligible for timing.
 
 ### Daily runtime-pin advancement
 
