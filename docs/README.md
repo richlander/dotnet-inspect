@@ -42,6 +42,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Inspection Plan Projections](design/inspection-plan-projections.md) | Shared resolved inspection basis with distinct typed plans for section execution, effective-section discovery, and portable sharing. |
 | [Inspection Operation Composition](design/inspection-operation-composition.md) | Cross-host sequencing of semantic intent, House and Workspace resolution, terminal purpose, query/section/row/work plans, typed results, and host-specific projection. |
 | [Inspection Envelope](design/inspection-envelope.md) | Shared terminal wrapper that preserves owner-issued primary content while carrying typed cross-host diagnostics and supporting broader host composition. |
+| [Host-observable Content Kinds](design/host-observable-content-kinds.md) | Result, Document, and owner-specific Outcome semantics for serialized content carried by completed inspection envelopes. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
 | [CLI Option-Value Validation](design/cli-option-value-validation.md) | Shared zero-arity diagnostics that preserve positional ownership and command-owned capacity. |
@@ -130,7 +131,8 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Clone Candidates Presentation](design/clone-candidate-presentation.md) | Portable globally ranked Workspace clone-search candidates, exact endpoint addresses, coverage, failures, suppression, and receipts. |
 | [Library API Diff Presentation](design/library-api-diff-presentation.md) | Portable Library-root changed-Type composition with complete compatibility changes and distinct changed-member summaries. |
 | [Population Range Selection](design/population-range-selection.md) | Proposed explicit consumers for population-creating ranges, filtering without an extra consumer, and Count as a population reduction. |
-| [Diff History Inspection](design/diff-history.md) | Proposed explicit endpoint, History, and version-count consumers, shared typed results for both hosts, and no-compat retirement of standalone Timeline. |
+| [Subject-owned Diff](design/command-transition-model.md#subject-owned-diff) | Proposed Library/Type/Member Diff placement, Package version counts, complete envelopes in both hosts, public CLI envelope output, and root-command retirement. |
+| [Diff History Inspection](design/diff-history.md) | Proposed temporal Outcome/Document and scalar version-count Result semantics consumed through shared envelopes by both hosts. |
 | [Inspect Web Compare Experience](design/inspect-web-compare-experience.md) | Browser Diff/Clone mode and exact Library-to-Type-to-Member drill-down, with whole-Type Diff and Member detail/Explore boundaries. |
 | [Inspect Web Library API Diff](design/inspect-web-library-api-diff.md) | Gallery Library Diff target resolution, request-associated operation, bounded wire inventory, and flat changed-Type presentation. |
 | [Performance Analysis Baselines](analysis-baselines.md) | Internal baselines of what each analysis type finds over a fixed corpus, with effectiveness ratings for the one-stop-shop Performance Analysis view. |
