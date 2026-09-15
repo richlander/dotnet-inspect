@@ -52,14 +52,17 @@ Three consumers need this layer and none of them has it:
   one defines what the slot would carry.
 
   **The slot alone is not sufficient for a package query.** Format 2 permits a
-  query reference only from a per-coordinate view entry, rejects an unreferenced
-  query-table entry, requires one view state per coordinate tuple, and rejects
-  empty contexts. A package query has no coordinate, so a payload that satisfies
-  this contract and the codec's still has nowhere valid to attach. A
-  coordinate-free attachment is therefore a **Workspace Definitions-owned
-  composition point**, not something either slice may specify, and its adoption
-  is a counted step on the path to a working `/query` share link rather than an
-  implied consequence of supplying a codec.
+  query reference from its leading coordinate-free Workspace state or from a
+  per-coordinate view entry, rejects an unreferenced query-table entry,
+  requires one view state per coordinate tuple, and rejects empty contexts.
+  The leading state must request Workspace, so a package query with no
+  coordinate still has nowhere valid to attach. A coordinate-free Package
+  attachment is therefore a **Workspace Definitions-owned composition point**,
+  not something either slice may specify, and its adoption is a counted step
+  on the path to a working `/query` share link rather than an implied
+  consequence of supplying a codec. Workspace Definitions' format-2
+  composition gate separately round-trips a Workspace-compatible query on the
+  leading state and proves that this does not admit a Package query there.
 - **The CLI** spells Package Query facets as `--where "facet=<opaque id>"`, one
   pseudo-field whose value is a product ID checked by string comparison.
 

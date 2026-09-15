@@ -1526,8 +1526,9 @@ remains the independently selected binding context.
   long-form `retained.type`. Decode treats it as a bounded identity string and
   requires exactly one Type in the resolved `l` Library whose structured name
   emits that exact ordinal spelling; it does not split delimiters or
-  reconstruct segments. Absence on a coordinate entry denotes Package-only
-  retained context.
+  reconstruct segments. Absence on a direct Package-tuple entry denotes
+  Package-only retained context. A group-tuple entry has no retained-context
+  semantics.
 - `u` is the structural subject request. Its only property is `k`, whose value
   is `workspace`, `package`, `all-libraries`, `library`, `type`, or `member`.
   The leading null-coordinate entry requires `workspace`. A coordinate entry
@@ -2217,7 +2218,10 @@ Implementation must add, at minimum:
   non-portable result-affecting filter, body, or source target as
   `NonProjectable`; and prove the null Workspace state rejects state-level
   Library scope while a direct Package-coordinate Workspace state resolves it
-  only within that occurrence;
+  only within that occurrence. It must round-trip a Workspace-compatible query
+  attached to the leading null state through both long-form records and packet
+  format 2, while continuing to reject Package-query attachment without a
+  Package coordinate;
 - a navigation gate proving ordered tabs and nullable record-local focus
   round-trip, `null` selects the Workspace state with no occurrence context,
   non-null version-2 focus accepts only a direct Package coordinate, every
