@@ -1613,10 +1613,10 @@ is eligible only when its focused source is a direct Package coordinate and
 its recognized view requests Package or Package-only recommendation state.
 Version-1 query state, including packet `l`, additionally requires an exact
 lowerable Package facet; a query never attaches to recommendation-only state.
-Any recognized view that requires Type, Member, or aggregate-Library as its
-active subject returns `LegacyCompatibilityRequired`, because version 2 carries
-those values only as retained context and cannot apply their facets to a
-Workspace or Package subject. Definition-v1 input carrying `library` or
+Any recognized view that requires Library, Type, Member, or aggregate-Library
+as its active subject returns `LegacyCompatibilityRequired`, because version 2
+carries those values only as retained context and cannot apply their facets to
+a Workspace or Package subject. Definition-v1 input carrying `library` or
 `libraries` returns the same handoff. The compatibility adapter maps only the
 remaining closed lens/section table to a candidate Registry ID, submits that
 exact ID and Package subject to ordinary Registry resolution, invokes any
@@ -1670,6 +1670,7 @@ table:
 | Package-only recommendation state with a referenced query or packet `l` | any | `LegacyCompatibilityRequired` |
 | package-capable coordinate with no Type or Member | `overview` | Package, `package.overview` |
 | package-capable coordinate with no Type or Member | `dependencies` | Package, `package.dependencies` |
+| one exact selected Library | `library:overview`, `library:compare`, `library:references`, `library:integrations`, `library:analysis`, or `library:metadata` | `LegacyCompatibilityRequired` |
 | exact Type and no Member | absent, `api`, `metadata`, `source`, or definition `Methods` | `LegacyCompatibilityRequired` |
 | package-capable coordinate with no Type or Member | `integrations`, `opportunities`, `analysis`, or `metadata` | `LegacyCompatibilityRequired` |
 | exact Member | absent, `overview`, `call-graph`, `facts`, `source`, `annotated`, or definition `Call Graph` | `LegacyCompatibilityRequired` |
@@ -1683,11 +1684,12 @@ absent from this table fail with `LegacyLoweringFailed`.
 Version 1 does not require the exact structured Metadata identities that
 version 2 requires. Strict decode therefore preserves every selector and its
 source kind in an unresolved legacy plan rather than pretending it already
-contains a version-2 subject. A recognized Type, Member, or aggregate-Library
-request remains unchanged in `LegacyCompatibilityRequired`; its existing
-compatibility executor continues to interpret the legacy Browser or definition
-vocabulary. The classifier does not acquire Libraries or Types merely to decide
-that the requested active subject is outside the closed version-2 union.
+contains a version-2 subject. A recognized Library, Type, Member, or
+aggregate-Library request remains unchanged in `LegacyCompatibilityRequired`;
+its existing compatibility executor continues to interpret the legacy Browser
+or definition vocabulary. The classifier does not acquire Libraries or Types
+merely to decide that the requested active subject is outside the closed
+version-2 union.
 Definition-v1 `library` and `libraries` remain context-scoped
 assembly-filename-stem selectors and independently require the same handoff.
 
@@ -1731,15 +1733,15 @@ occurrence. A direct Package-focused version-1 composition with no view fields
 likewise becomes recommendation state.
 
 A workspace-backed format-1 plan with absent or non-Package focus is not
-lowered. Neither is a plan whose recognized view requires Type, Member, or
-aggregate-Library as its active subject, nor a definition-v1 plan carrying
-`library` or `libraries`, nor a plan with v1 query state but no exact lowerable
-Package facet. Its unchanged decoded basis and exact semantic plan return
-through `LegacyCompatibilityRequired`. The consumer may pass only that plan to
-its existing compatibility executor; it does not reconstruct the request from
-display state. Captured descendant or non-Package active state from that
-session is `NonProjectable`; no format-2 writer emits either active-subject
-kind.
+lowered. Neither is a plan whose recognized view requires Library, Type,
+Member, or aggregate-Library as its active subject, nor a definition-v1 plan
+carrying `library` or `libraries`, nor a plan with v1 query state but no exact
+lowerable Package facet. Its unchanged decoded basis and exact semantic plan
+return through `LegacyCompatibilityRequired`. The consumer may pass only that
+plan to its existing compatibility executor; it does not reconstruct the
+request from display state. Captured descendant or non-Package active state
+from that session is `NonProjectable`; no format-2 writer emits either
+active-subject kind.
 Filters, body targets, source targets, and overload ordinals have no version-1
 field and are never inferred from courtesy routes or host state.
 
@@ -1758,12 +1760,12 @@ packet. Version-2 and Package-subject-lowerable version-1 inputs continue to
 resource-free construction input and prepare an independent host-owned
 Workspace. Each such Workspace is constructed solely from its own definition;
 no other Workspace or Workspace definition participates. A workspace-backed
-version-1 input with absent or non-Package focus, a recognized Type, Member, or
-aggregate-Library active request, or a definition-v1 view carrying `library` or
-`libraries`, or a referenced query without an exact lowerable Package facet,
-returns `LegacyCompatibilityRequired` before construction and remains on its
-immutable compatibility path. Workspace-free scenarios remain outside this
-operation and execute through their source or query owner.
+version-1 input with absent or non-Package focus, a recognized Library, Type,
+Member, or aggregate-Library active request, or a definition-v1 view carrying
+`library` or `libraries`, or a referenced query without an exact lowerable
+Package facet, returns `LegacyCompatibilityRequired` before construction and
+remains on its immutable compatibility path. Workspace-free scenarios remain
+outside this operation and execute through their source or query owner.
 
 This operation applies to workspace-backed saved definitions, share packets,
 Browser history, workspace-backed product demos, Spotlight package selections
@@ -1798,8 +1800,8 @@ One restoration attempt proceeds in this order:
 2. Perform bounded format dispatch and strict decode. Format 2 produces one
    closed version-2 composition plan. Format 1 produces one unresolved legacy
    plan and retains its exact canonical packet basis. A workspace-backed
-   version-1 plan with absent or non-Package focus, a recognized Type, Member,
-   or aggregate-Library active request, or any definition-v1 view carrying
+   version-1 plan with absent or non-Package focus, a recognized Library, Type,
+   Member, or aggregate-Library active request, or any definition-v1 view carrying
    `library` or `libraries`, or v1 query state without an exact lowerable
    Package facet, returns
    `LegacyCompatibilityRequired` now, before any Workspace, Root, Scope,
@@ -2177,8 +2179,9 @@ Implementation must add, at minimum:
   facet-specific query-owner migration whose descriptor consumes that scope;
   packet `l` without an exact Package facet must instead take the unchanged
   compatibility handoff.
-  Workspace-backed v1 plans with absent or non-Package focus, recognized Type,
-  Member, or aggregate-Library active requests, plus every definition-v1 plan
+  Workspace-backed v1 plans with absent or non-Package focus, recognized
+  Library, Type, Member, or aggregate-Library active requests, plus every
+  definition-v1 plan
   carrying `library` or `libraries` and every query-bearing plan without an
   exact lowerable Package facet, must return
   `LegacyCompatibilityRequired` before construction, retain their exact
