@@ -523,6 +523,9 @@ function harness() {
       cancelCurrentRequest: () => {},
       clearGraphSource: () => {},
     },
+    libraryApiDiff: {
+      cancelCurrentRequest: () => {},
+    },
     cancelFindingCensusRequest: () => {},
     memberDetailInspection: { invalidate: () => {} },
     persistRecentPackages: () => {},

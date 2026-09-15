@@ -22,6 +22,13 @@ import type {
 import type {
   BrowserPackageIntegrations as PackageIntegrations,
 } from "../src/facades/inspect-web-analysis.js";
+import type {
+  BrowserLibraryApiDiffResult,
+} from "../src/facades/inspect-web-metadata.js";
+import {
+  renderLibraryApiDiff,
+  type LibraryApiDiffState,
+} from "../src/library-api-diff.ts";
 import {
   fixtureFramework,
   galleryDownloadPath,
@@ -120,6 +127,12 @@ const brokenReferenceAssembly = locateFixtureAssembly(
 );
 const literalAssembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LITERALS_DLL",
+);
+const libraryDiffV1Assembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V1_DLL",
+);
+const libraryDiffV2Assembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V2_DLL",
 );
 const healthyAssemblyFileName = "DiffAsmLibA.dll";
 const brokenAssemblyFileName = "DiffAsmLibB.dll";
@@ -249,6 +262,24 @@ const manifestOnly: FixtureCoordinate = {
 // so the available case has an exact expected list rather than a shape probe.
 const healthyAssemblyName = "DiffAsmLibA";
 const expectedReferenceName = "System.Runtime";
+const libraryDiffPackageId = "InspectWeb.LibraryApiDiff";
+const libraryDiffAssemblyFileName = "LibraryApiDiffFixture.dll";
+const libraryDiffV1: FixtureCoordinate = {
+  packageId: libraryDiffPackageId,
+  version: "1.0.0",
+  archive: healthyNupkg(
+    libraryDiffV1Assembly,
+    libraryDiffAssemblyFileName,
+  ),
+};
+const libraryDiffV2: FixtureCoordinate = {
+  packageId: libraryDiffPackageId,
+  version: "2.0.0",
+  archive: healthyNupkg(
+    libraryDiffV2Assembly,
+    libraryDiffAssemblyFileName,
+  ),
+};
 
 const allFixtures: readonly FixtureCoordinate[] = [
   healthy,
@@ -258,6 +289,8 @@ const allFixtures: readonly FixtureCoordinate[] = [
   joinCoordinate,
   references,
   manifestOnly,
+  libraryDiffV1,
+  libraryDiffV2,
   ...scopeCoordinates,
 ];
 
@@ -292,7 +325,11 @@ class GalleryFixtureRegistry {
   readonly downloads = new Map<string, number>();
   private readonly archives = new Map<string, Buffer>();
   private readonly manifests = new Map<string, Buffer>();
-  private readonly versions = new Map<string, string>();
+  private readonly versions = new Map<string, string[]>();
+  private readonly registrations = new Map<string, {
+    readonly packageId: string;
+    readonly versions: string[];
+  }>();
   private readonly downloadKeys = new Map<string, string>();
 
   constructor(fixtures: readonly FixtureCoordinate[]) {
@@ -305,10 +342,17 @@ class GalleryFixtureRegistry {
         + `/${fixture.packageId.toLowerCase()}.${fixture.version}.nupkg`;
       this.archives.set(flatPath, fixture.archive);
       this.downloadKeys.set(flatPath, galleryDownloadPath(fixture.packageId, fixture.version));
-      this.versions.set(
-        `/v3-flatcontainer/${fixture.packageId.toLowerCase()}/index.json`,
-        fixture.version,
-      );
+      const indexPath =
+        `/v3-flatcontainer/${fixture.packageId.toLowerCase()}/index.json`;
+      const versions = this.versions.get(indexPath) ?? [];
+      if (!versions.includes(fixture.version)) versions.push(fixture.version);
+      this.versions.set(indexPath, versions);
+      const registrationPath =
+        `/v3/registration5-gz-semver2/${fixture.packageId.toLowerCase()}/index.json`;
+      this.registrations.set(registrationPath, {
+        packageId: fixture.packageId,
+        versions,
+      });
       if (fixture.manifest) {
         this.manifests.set(
           `/v3-flatcontainer/${fixture.packageId.toLowerCase()}/${fixture.version}`
@@ -323,8 +367,24 @@ class GalleryFixtureRegistry {
     return this.archives.get(pathname);
   }
 
-  versionIndexFor(pathname: string): string | undefined {
+  versionIndexFor(pathname: string): readonly string[] | undefined {
     return this.versions.get(pathname);
+  }
+
+  registrationFor(pathname: string): unknown {
+    const registration = this.registrations.get(pathname);
+    if (!registration) return undefined;
+    return {
+      items: [{
+        items: registration.versions.map(packageVersion => ({
+          catalogEntry: {
+            id: registration.packageId,
+            version: packageVersion,
+            listed: true,
+          },
+        })),
+      }],
+    };
   }
 
   manifestFor(pathname: string): Buffer | undefined {
@@ -381,12 +441,21 @@ async function installGalleryRoutes(
       });
       return;
     }
-    const indexVersion = registry.versionIndexFor(pathname);
-    if (indexVersion) {
+    const indexVersions = registry.versionIndexFor(pathname);
+    if (indexVersions) {
       await route.fulfill({
         status: 200,
         headers: { ...corsHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ versions: [indexVersion] }),
+        body: JSON.stringify({ versions: indexVersions }),
+      });
+      return;
+    }
+    const registration = registry.registrationFor(pathname);
+    if (registration) {
+      await route.fulfill({
+        status: 200,
+        headers: { ...corsHeaders, "content-type": "application/json" },
+        body: JSON.stringify(registration),
       });
       return;
     }
@@ -585,6 +654,112 @@ function referenceFailure(result: AssemblyReferenceResult): string {
   }
   return result;
 }
+
+test("Library API Diff preserves distinct carriage-return and newline Type identities", async ({
+  page,
+}) => {
+  const input = {
+    packageModel: {},
+    packageId: "Example.Package",
+    currentVersion: "2.0.0",
+    targetVersion: "1.0.0",
+    targetFramework: fixtureFramework,
+    compileAssetId: "lib/net11.0/Example.dll",
+  };
+  const endpoint = (packageVersion: string) => ({
+    packageId: input.packageId,
+    version: packageVersion,
+    framework: input.targetFramework,
+    asset: {
+      id: input.compileAssetId,
+      path: input.compileAssetId,
+      assemblyName: "Example",
+    },
+    assembly: {
+      name: "Example",
+      version: packageVersion,
+      culture: null,
+      publicKeyToken: null,
+    },
+    scope: "Public" as const,
+    isComplete: true,
+    issues: [],
+  });
+  const type = (identifier: string) => ({
+    documentIdentifier: identifier,
+    display: identifier,
+    state: "Diff" as const,
+    typeDefinitionChanged: false,
+    changedMemberCount: 0,
+    breakingCount: 0,
+    additiveCount: 0,
+    potentiallyBreakingCount: 0,
+    before: {
+      identifier,
+      namespace: "Example",
+      segments: ["A", "B"],
+      display: identifier,
+    },
+    after: {
+      identifier,
+      namespace: "Example",
+      segments: ["A", "B"],
+      display: identifier,
+    },
+  });
+  const result: BrowserLibraryApiDiffResult = {
+    schemaVersion: 1,
+    request: {
+      schemaVersion: 1,
+      packageId: input.packageId,
+      currentVersion: input.currentVersion,
+      targetVersion: input.targetVersion,
+      targetFramework: input.targetFramework,
+      compileAssetId: input.compileAssetId,
+    },
+    kind: "Succeeded",
+    value: {
+      libraryIdentifier: "Example",
+      libraryDisplay: "Example",
+      target: endpoint(input.targetVersion),
+      current: endpoint(input.currentVersion),
+      aggregate: {
+        changedTypeCount: 2,
+        addedTypeCount: 0,
+        removedTypeCount: 0,
+        changedMemberCount: 0,
+        breakingCount: 0,
+        additiveCount: 0,
+        potentiallyBreakingCount: 0,
+      },
+      types: [type("Example.A\rB"), type("Example.A\nB")],
+    },
+    unavailable: null,
+    rejected: null,
+    failureKind: null,
+    error: null,
+    diagnostic: null,
+    reason: null,
+  };
+  const state: LibraryApiDiffState = {
+    status: "ready",
+    input,
+    result,
+  };
+  const html = renderLibraryApiDiff(state, value => String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;"));
+
+  await page.setContent(html);
+  const rows = page.locator(".library-api-diff-type");
+  await expect(rows.nth(0))
+    .toHaveAttribute("data-before-type-id", "Example.A\rB");
+  await expect(rows.nth(1))
+    .toHaveAttribute("data-before-type-id", "Example.A\nB");
+});
 
 test.describe("Package Query website over real Wasm", () => {
   test("keeps blank input idle and exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
@@ -1291,6 +1466,73 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toContainText("1 direct reference");
     await expect(panel.locator("footer")).toContainText(healthyAssemblyFileName);
     await expect(panel).not.toContainText("Inspection failed");
+  });
+
+  test("renders the complete Library API Diff inventory and same-version empty neighbor", async ({
+    page,
+    context,
+  }) => {
+    const browserErrors: string[] = [];
+    page.on("console", message => {
+      if (message.type() === "error") browserErrors.push(message.text());
+    });
+    page.on("pageerror", error => {
+      browserErrors.push(`${error.name}: ${error.message}`);
+    });
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+
+    await page.goto(
+      `/index.html?package=${libraryDiffV2.packageId}`
+        + `&version=${libraryDiffV2.version}`
+        + `&framework=${fixtureFramework}#pkg`,
+    );
+    const libraryRow = page.locator(".library-list [data-lib-scope]").first();
+    await expect(libraryRow.or(page.locator(".load-error")))
+      .toBeVisible({ timeout: 180_000 });
+    if (await page.locator(".load-error").isVisible()) {
+      throw new Error(
+        `Production page startup failed: ${
+          await page.locator(".load-error").textContent() ?? "No details."}`
+          + `\nBrowser errors: ${browserErrors.join("\n") || "none"}`,
+      );
+    }
+    await libraryRow.click();
+    await chooseInspector(page, "data-library-lens", "compare");
+
+    const panel = page.locator("#inspector-panel");
+    await expect(panel.getByRole("heading", {
+      name: "Library API diff",
+      exact: true,
+    })).toBeVisible({ timeout: 60_000 });
+    await expect(panel.locator(".library-api-diff-status"))
+      .toContainText("Comparison complete", { timeout: 60_000 });
+    await expect(panel.locator(".library-api-diff-type")).toHaveCount(7);
+    await expect(panel).toContainText("LibraryApiDiffFixture.RemovedType");
+    await expect(panel).toContainText("LibraryApiDiffFixture.AddedType");
+    await expect(panel).toContainText(
+      "LibraryApiDiffFixture.TypeDefinitionOnly",
+    );
+    await expect(panel.locator(
+      '[data-before-type-id="LibraryApiDiffFixture.RemovedType"]',
+    )).toHaveAttribute("data-after-type-id", "");
+    await expect(panel.locator(
+      '[data-after-type-id="LibraryApiDiffFixture.AddedType"]',
+    )).toHaveAttribute("data-before-type-id", "");
+    await expect(panel.locator(".library-api-diff-type button")).toHaveCount(0);
+    expect(registry.downloadCount(libraryDiffV1)).toBe(1);
+    expect(registry.downloadCount(libraryDiffV2)).toBe(1);
+
+    await panel.locator("#library-api-diff-change-target").click();
+    const target = page.locator("#package-diff-target");
+    await expect(target).toBeVisible();
+    await target.selectOption("exact:2.0.0");
+    await page.locator(".library-list [data-lib-scope]").first().click();
+    await chooseInspector(page, "data-library-lens", "compare");
+    await expect(panel.locator(".library-api-diff-status"))
+      .toContainText("No changed Types", { timeout: 60_000 });
+    await expect(panel).toContainText("No public API changes");
+    await expect(panel.locator(".library-api-diff-type")).toHaveCount(0);
   });
 });
 

@@ -73,6 +73,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("resolvePackageDependencyVersion"),
   },
   metadata: {
+    cancelLibraryApiDiff: () =>
+      unexpected("cancelLibraryApiDiff"),
+    queryLibraryApiDiff: () =>
+      unexpected("queryLibraryApiDiff"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
     queryPlatformMemberDeclaration: () =>
@@ -234,6 +238,8 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   };
   let cleared = 0;
   let matchArguments: readonly unknown[] = [];
+  let libraryDiffArguments: readonly unknown[] = [];
+  let libraryDiffCancelArguments: readonly unknown[] = [];
   const state = fixture({
     package: {
       searchTypes: () => searchResult,
@@ -246,6 +252,20 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       matchPackageDependencyCoordinate: (...args) => {
         matchArguments = args;
         return { outcome: "Unique", candidateKey: "candidate" };
+      },
+    },
+    metadata: {
+      queryLibraryApiDiff: (...args) => {
+        libraryDiffArguments = args;
+        return contractViolation({
+          schemaVersion: 1,
+          kind: "Canceled",
+          reason: "test",
+        });
+      },
+      cancelLibraryApiDiff: (...args) => {
+        libraryDiffCancelArguments = args;
+        return { kind: "Requested", reason: "superseded" };
       },
     },
   });
@@ -267,6 +287,15 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     null,
     "[{\"key\":\"candidate\"}]",
   );
+  const libraryDiff = state.client.metadata.queryLibraryApiDiff(
+    "operation-1",
+    "{\"schemaVersion\":1}",
+  );
+  const libraryDiffCancellation =
+    state.client.metadata.cancelLibraryApiDiff(
+      "operation-1",
+      "superseded",
+    );
   await state.environment.flushAsync();
 
   assert.deepEqual(await sync, searchResult);
@@ -281,6 +310,23 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Dependency",
     null,
     "[{\"key\":\"candidate\"}]",
+  ]);
+  assert.deepEqual(await libraryDiff, {
+    schemaVersion: 1,
+    kind: "Canceled",
+    reason: "test",
+  });
+  assert.deepEqual(await libraryDiffCancellation, {
+    kind: "Requested",
+    reason: "superseded",
+  });
+  assert.deepEqual(libraryDiffArguments, [
+    "operation-1",
+    "{\"schemaVersion\":1}",
+  ]);
+  assert.deepEqual(libraryDiffCancelArguments, [
+    "operation-1",
+    "superseded",
   ]);
   assert.equal(cleared, 1);
   assert.deepEqual(state.diagnostics, []);
@@ -597,6 +643,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "searchTypes",
     ],
     metadata: [
+      "cancelLibraryApiDiff",
+      "queryLibraryApiDiff",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
       "queryPlatformMemberDeclaration",
@@ -651,7 +699,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 51);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 53);
 
   const state = fixture();
   const groups = [

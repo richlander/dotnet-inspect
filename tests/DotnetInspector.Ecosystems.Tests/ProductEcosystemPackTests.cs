@@ -11,7 +11,7 @@ public sealed class ProductEcosystemPackTests
     public void AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding()
     {
         Assert.Equal(
-            [false, false, false, true, false],
+            [false, false, false, true, false, false],
             EcosystemPackCatalog.Discover().Select(pack => pack.HasScanner));
         var selected = Assert.IsType<EcosystemScannerSelectionResult.Known>(
             EcosystemPackCatalog.SelectScanner(EcosystemPackIds.Aspire));
@@ -23,6 +23,7 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.MicrosoftExtensions,
                 EcosystemPackIds.AspNetCore,
                 EcosystemPackIds.AI,
+                EcosystemPackIds.Azure,
             },
             id => Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
                 EcosystemPackCatalog.SelectScanner(id)));
@@ -74,6 +75,12 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.AI,
                 "AI",
                 500,
+                packageSet: null),
+            azure => AssertPack(
+                azure,
+                EcosystemPackIds.Azure,
+                "Azure",
+                600,
                 packageSet: null));
     }
 
@@ -158,6 +165,19 @@ public sealed class ProductEcosystemPackTests
                     "Microsoft.Extensions.VectorData.Abstractions",
                     "Microsoft.Agents.AI",
                     "ModelContextProtocol",
+                ]),
+            azure => AssertKnowledge(
+                azure,
+                [
+                    "Azure",
+                    "Microsoft.Extensions.Azure",
+                ],
+                [
+                    "Microsoft.Extensions.Azure",
+                    "Azure.Identity",
+                    "Azure.Security.KeyVault.Secrets",
+                    "Azure.Storage.Blobs",
+                    "Azure.Messaging.ServiceBus",
                 ]));
 
         static void AssertKnowledge(
@@ -188,7 +208,8 @@ public sealed class ProductEcosystemPackTests
             aspire => Assert.Equal(
                 new PackageCoordinate("Aspire.Cli"),
                 Assert.Single(aspire.ToolPackages)),
-            ai => Assert.Empty(ai.ToolPackages));
+            ai => Assert.Empty(ai.ToolPackages),
+            azure => Assert.Empty(azure.ToolPackages));
     }
 
     [Fact]

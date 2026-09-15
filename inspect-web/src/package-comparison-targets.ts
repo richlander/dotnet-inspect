@@ -10,6 +10,36 @@ export interface ComparisonPackage {
 export type DiffTarget = { kind: "previous" } | { kind: "exact"; version: string };
 export type CloneTarget<T> = { kind: "workspace" } | { kind: "package"; package: T };
 
+export type EffectiveDiffTarget =
+  | { kind: "available"; version: string }
+  | { kind: "loading"; message: string }
+  | { kind: "unavailable"; message: string };
+
+export function resolveEffectiveDiffTarget(
+  diff: DiffTarget,
+  versions: PackageVersionState,
+): EffectiveDiffTarget {
+  if (diff.kind === "exact")
+    return { kind: "available", version: diff.version };
+  if (versions.status !== "available") {
+    if (versions.status === "failed")
+      return { kind: "unavailable", message: versions.message };
+    return {
+      kind: "loading",
+      message: "Reading available versions...",
+    };
+  }
+  const { previousVersion, previousVersionUnavailableReason } =
+    versions.inventory;
+  if (previousVersion !== null)
+    return { kind: "available", version: previousVersion };
+  return {
+    kind: "unavailable",
+    message: previousVersionUnavailableReason
+      ?? "No earlier listed version is available.",
+  };
+}
+
 export function createPackageComparisonTargets<T extends ComparisonPackage>(
   packages: () => readonly T[],
 ) {
@@ -68,12 +98,10 @@ export function diffTargetDescription(
 ): string {
   if (versions.status === "failed") return versions.message;
   if (diff.kind === "exact") return "Exact version";
-  if (versions.status !== "available") return "Reading available versions...";
-  const { previousVersion, previousVersionUnavailableReason } = versions.inventory;
-  return previousVersionUnavailableReason
-    ?? (previousVersion
-      ? "Previous listed release"
-      : "No earlier listed version is available.");
+  const target = resolveEffectiveDiffTarget(diff, versions);
+  return target.kind === "available"
+    ? "Previous listed release"
+    : target.message;
 }
 
 export interface ComparisonTargetView<T extends ComparisonPackage> {
