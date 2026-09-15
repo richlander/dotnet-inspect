@@ -40,7 +40,9 @@ using System.Text.Json;
     [("t", "terms"), ("b", "bounds"), ("s", "stages"), ("o", "order")];
 
 // What one tuple slot may hold.
-//   Identity    a key, dimension, or order reference: string, ≤ MaxIdentityBytes
+//   Identity    a key, dimension, or order reference: string, 1..MaxIdentityBytes
+//               UTF-8 bytes. An identity names something; an empty one names
+//               nothing and is refused as empty-identity.
 //   Text        a term value: string, ≤ MaxValueBytes, never interpreted
 //   Count       an integer 1..2147483647, spelled with no sign, leading zero,
 //               fraction, or exponent. That domain fits every host's native
@@ -358,6 +360,7 @@ string? SlotString(JsonElement e, Slot slot, out string value)
     if (e.ValueKind != JsonValueKind.String) return "bad-arity";
     try { value = e.GetString()!; }
     catch (InvalidOperationException) { return "unpaired-surrogate"; }   // lone surrogate escape
+    if (slot == Slot.Identity && value.Length == 0) return "empty-identity";
     int limit = slot switch { Slot.Identity => MaxIdentityBytes, Slot.Text => MaxValueBytes, _ => int.MaxValue };
     return Encoding.UTF8.GetByteCount(value) > limit ? "limit-exceeded" : null;
 }

@@ -1483,6 +1483,198 @@
       },
       "canonical": "{\"t\":[[\"k00\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k01\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k02\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k03\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k04\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k05\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k06\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k07\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k08\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k09\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k10\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k11\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k12\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k13\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k14\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k15\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k16\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k17\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k18\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k19\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k20\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k21\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k22\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"],[\"k23\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"]]}",
       "expectBytes": 3072
+    },
+    {
+      "name": "identity-term-key-at-maximum-ascii",
+      "description": "A 64-byte ASCII identity in the term-key slot is admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "t": [
+          [
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"eq\",\"v\"]]}"
+    },
+    {
+      "name": "identity-bound-dimension-at-maximum-ascii",
+      "description": "A 64-byte ASCII identity in the bound-dimension slot is admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "b": [
+          [
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            1
+          ]
+        ]
+      },
+      "canonical": "{\"b\":[[\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",1]]}"
+    },
+    {
+      "name": "identity-order-reference-at-maximum-ascii",
+      "description": "A 64-byte ASCII identity in the order-reference slot is admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"desc\"]]}"
+    },
+    {
+      "name": "identity-field-key-at-maximum-ascii",
+      "description": "A 64-byte ASCII identity in the field-key slot is admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}"
+    },
+    {
+      "name": "identity-term-key-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the term-key slot; bytes, not characters, are counted.",
+      "queryId": "row.query",
+      "intent": {
+        "t": [
+          [
+            "éééééééééééééééééééééééééééééééé",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"éééééééééééééééééééééééééééééééé\",\"eq\",\"v\"]]}"
+    },
+    {
+      "name": "identity-bound-dimension-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the bound-dimension slot; bytes, not characters, are counted.",
+      "queryId": "row.query",
+      "intent": {
+        "b": [
+          [
+            "éééééééééééééééééééééééééééééééé",
+            1
+          ]
+        ]
+      },
+      "canonical": "{\"b\":[[\"éééééééééééééééééééééééééééééééé\",1]]}"
+    },
+    {
+      "name": "identity-order-reference-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the order-reference slot; bytes, not characters, are counted.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "éééééééééééééééééééééééééééééééé",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"éééééééééééééééééééééééééééééééé\",\"desc\"]]}"
+    },
+    {
+      "name": "identity-field-key-at-maximum-multibyte",
+      "description": "Thirty-two two-byte scalars are exactly 64 bytes in the field-key slot; bytes, not characters, are counted.",
+      "queryId": "row.query",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "éééééééééééééééééééééééééééééééé",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"o\":[[\"base\",\"fields\",\"éééééééééééééééééééééééééééééééé\",\"asc\"]]}"
+    },
+    {
+      "name": "value-at-maximum-multibyte-on-the-wire",
+      "description": "Positive control for the vector above: 256 bytes in 128 characters is admissible and canonical.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"]]}"
+    },
+    {
+      "name": "count-bound-at-domain-maximum",
+      "description": "2147483647 in the bound position is the top of the Count domain and admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            2147483647
+          ]
+        ]
+      },
+      "canonical": "{\"b\":[[\"candidates\",2147483647]]}"
+    },
+    {
+      "name": "count-stage-at-domain-maximum",
+      "description": "2147483647 in the stage position is the top of the Count domain and admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "head",
+            2147483647
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"head\",2147483647]]}"
+    },
+    {
+      "name": "count-window-at-domain-maximum",
+      "description": "2147483647 in the window position is the top of the Count domain and admissible.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "window",
+            2147483647,
+            2147483647
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"window\",2147483647,2147483647]]}"
     }
   ],
   "encode-reject": [
@@ -2379,6 +2571,275 @@
         ]
       },
       "reject": "bad-integer"
+    },
+    {
+      "name": "identity-term-key-one-over-ascii-in-intent",
+      "description": "A 65-byte identity in the term-key slot is refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-bound-dimension-one-over-ascii-in-intent",
+      "description": "A 65-byte identity in the bound-dimension slot is refused on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            1
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-order-reference-one-over-ascii-in-intent",
+      "description": "A 65-byte identity in the order-reference slot is refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "desc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-field-key-one-over-ascii-in-intent",
+      "description": "A 65-byte identity in the field-key slot is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-term-key-one-over-multibyte-in-intent",
+      "description": "Thirty-two two-byte scalars plus one byte is 65 bytes in the term-key slot, though only 33 characters; refused on the intent side.",
+      "intent": {
+        "t": [
+          [
+            "ééééééééééééééééééééééééééééééééa",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-bound-dimension-one-over-multibyte-in-intent",
+      "description": "Thirty-two two-byte scalars plus one byte is 65 bytes in the bound-dimension slot, though only 33 characters; refused on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "ééééééééééééééééééééééééééééééééa",
+            1
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-order-reference-one-over-multibyte-in-intent",
+      "description": "Thirty-two two-byte scalars plus one byte is 65 bytes in the order-reference slot, though only 33 characters; refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "ééééééééééééééééééééééééééééééééa",
+            "desc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-field-key-one-over-multibyte-in-intent",
+      "description": "Thirty-two two-byte scalars plus one byte is 65 bytes in the field-key slot, though only 33 characters; refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "ééééééééééééééééééééééééééééééééa",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-term-key-empty-in-intent",
+      "description": "An empty identity in the term-key slot is refused on the intent side; an identity names something, and Identity is one to 64 bytes.",
+      "intent": {
+        "t": [
+          [
+            "",
+            "eq",
+            "v"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "identity-bound-dimension-empty-in-intent",
+      "description": "An empty identity in the bound-dimension slot is refused on the intent side; an identity names something, and Identity is one to 64 bytes.",
+      "intent": {
+        "b": [
+          [
+            "",
+            1
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "identity-order-reference-empty-in-intent",
+      "description": "An empty identity in the order-reference slot is refused on the intent side; an identity names something, and Identity is one to 64 bytes.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "",
+            "desc"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "identity-field-key-empty-in-intent",
+      "description": "An empty identity in the field-key slot is refused on the intent side; an identity names something, and Identity is one to 64 bytes.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "empty-identity"
+    },
+    {
+      "name": "count-bound-zero-in-intent",
+      "description": "A count of zero in the bound position is outside the Count domain on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-stage-zero-in-intent",
+      "description": "A count of zero in the stage position is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-zero-in-intent",
+      "description": "A count of zero in the window position is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            0,
+            0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-bound-over-domain-in-intent",
+      "description": "2147483648 in the bound position is outside the Count domain on the intent side.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            2147483648
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-stage-over-domain-in-intent",
+      "description": "2147483648 in the stage position is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            2147483648
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-over-domain-in-intent",
+      "description": "2147483648 in the window position is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            2147483648,
+            2147483648
+          ]
+        ]
+      },
+      "reject": "bad-integer"
     }
   ],
   "reject": [
@@ -2783,6 +3244,120 @@
       "description": "A lone low surrogate escape is refused.",
       "bytes": "{\"t\":[[\"k\",\"eq\",\"\\udc00\"]]}",
       "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "identity-term-key-one-over-ascii",
+      "description": "A 65-byte identity in the term-key slot is refused on the wire.",
+      "bytes": "{\"t\":[[\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"eq\",\"v\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-bound-dimension-one-over-ascii",
+      "description": "A 65-byte identity in the bound-dimension slot is refused on the wire.",
+      "bytes": "{\"b\":[[\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",1]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-order-reference-one-over-ascii",
+      "description": "A 65-byte identity in the order-reference slot is refused on the wire.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"desc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-field-key-one-over-ascii",
+      "description": "A 65-byte identity in the field-key slot is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-term-key-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the term-key slot; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"t\":[[\"ééééééééééééééééééééééééééééééééa\",\"eq\",\"v\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-bound-dimension-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the bound-dimension slot; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"b\":[[\"ééééééééééééééééééééééééééééééééa\",1]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-order-reference-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the order-reference slot; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"ééééééééééééééééééééééééééééééééa\",\"desc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-field-key-one-over-multibyte",
+      "description": "Sixty-five bytes in 33 characters in the field-key slot; refused on the wire. A character-counting host would admit it.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"ééééééééééééééééééééééééééééééééa\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "value-one-over-multibyte",
+      "description": "A 128-character two-byte value plus one byte is 257 bytes on the wire; a character-counting host would admit it.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééa\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "identity-term-key-empty",
+      "description": "An empty identity in the term-key slot is refused on the wire.",
+      "bytes": "{\"t\":[[\"\",\"eq\",\"v\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "identity-bound-dimension-empty",
+      "description": "An empty identity in the bound-dimension slot is refused on the wire.",
+      "bytes": "{\"b\":[[\"\",1]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "identity-order-reference-empty",
+      "description": "An empty identity in the order-reference slot is refused on the wire.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"\",\"desc\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "identity-field-key-empty",
+      "description": "An empty identity in the field-key slot is refused on the wire.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"\",\"asc\"]]}",
+      "reject": "empty-identity"
+    },
+    {
+      "name": "count-bound-zero",
+      "description": "A count of zero in the bound position is outside the Count domain on the wire.",
+      "bytes": "{\"b\":[[\"candidates\",0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-stage-zero",
+      "description": "A count of zero in the stage position is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"head\",0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-zero",
+      "description": "A count of zero in the window position is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"window\",0,0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-bound-over-domain",
+      "description": "2147483648 in the bound position is outside the Count domain on the wire.",
+      "bytes": "{\"b\":[[\"candidates\",2147483648]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-stage-over-domain",
+      "description": "2147483648 in the stage position is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"head\",2147483648]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-window-over-domain",
+      "description": "2147483648 in the window position is outside the Count domain on the wire.",
+      "bytes": "{\"s\":[[\"window\",2147483648,2147483648]]}",
+      "reject": "bad-integer"
     }
   ],
   "pair": [
