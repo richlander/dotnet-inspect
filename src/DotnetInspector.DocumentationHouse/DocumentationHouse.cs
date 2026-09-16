@@ -122,10 +122,31 @@ public static class DocumentationHouse
                 selectionWork);
         }
 
-        bool selectionIsPartial = contributions.Any(
-                static contribution =>
-                    contribution.Kind
-                        == CompiledXmlContributionKind.Partial);
+        bool selectionIsPartial = false;
+        bool selectionHasAbsence = false;
+        var candidateBuilder =
+            new List<CompiledXmlContribution>();
+        foreach (CompiledXmlContribution contribution in contributions)
+        {
+            switch (contribution.Kind)
+            {
+                case CompiledXmlContributionKind.Candidate:
+                    candidateBuilder.Add(contribution);
+                    break;
+                case CompiledXmlContributionKind.Absent:
+                    selectionHasAbsence = true;
+                    break;
+                case CompiledXmlContributionKind.Partial:
+                    selectionIsPartial = true;
+                    break;
+                case CompiledXmlContributionKind.Unavailable:
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown compiled XML contribution kind.");
+            }
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         if (DateTimeOffset.UtcNow >= plan.Deadline)
         {
@@ -145,12 +166,7 @@ public static class DocumentationHouse
         }
 
         CompiledXmlContribution[] candidates =
-            contributions
-                .Where(
-                    static contribution =>
-                        contribution.Kind
-                            == CompiledXmlContributionKind.Candidate)
-                .ToArray();
+            [.. candidateBuilder];
         CompiledXmlContribution? selected =
             candidates.Length == 0
                 ? null
@@ -165,10 +181,7 @@ public static class DocumentationHouse
         if (candidates.Length == 0)
         {
             DocumentationCompiledXmlAttempt attempt =
-                contributions.Any(
-                    static contribution =>
-                        contribution.Kind
-                            == CompiledXmlContributionKind.Absent)
+                selectionHasAbsence
                     ? new DocumentationCompiledXmlAttempt.Absent(
                         selected: null,
                         contributions)

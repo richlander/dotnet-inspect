@@ -526,6 +526,96 @@ public sealed class CompiledXmlDocumentationHouseTests
     }
 
     [Fact]
+    public async Task
+        DeadlineReachedDuringAbsenceClassification_IsIncomplete()
+    {
+        const int contributionCount = 4_000_000;
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync([1]);
+        DocumentationSubjectReference subject = Subject(library);
+        CompiledXmlContribution unavailable =
+            CompiledXmlContribution.Unavailable(
+                subject,
+                library.Reference,
+                library.Reference.ApiAssembly,
+                Source("unavailable"));
+        CompiledXmlContribution[] contributions =
+            Enumerable.Repeat(unavailable, contributionCount).ToArray();
+        DocumentationHouseRequest baselineRequest = Request(
+            subject,
+            contributions,
+            maximumContributions: contributionCount);
+        TimeSpan baselineTime = TimeSpan.MaxValue;
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            Stopwatch measurement = Stopwatch.StartNew();
+            DocumentationHouseOutcome baseline =
+                await DocumentationHouse.ExecuteAsync(
+                    baselineRequest,
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken);
+            measurement.Stop();
+            Assert.IsType<DocumentationHouseOutcome.Completed>(baseline);
+            baselineTime = TimeSpan.FromTicks(
+                Math.Min(
+                    baselineTime.Ticks,
+                    measurement.Elapsed.Ticks));
+        }
+
+        bool crossedDeadline = false;
+        for (double fraction = 0.95;
+            fraction >= 0.5;
+            fraction -= 0.05)
+        {
+            TimeSpan executionBudget =
+                TimeSpan.FromTicks(
+                    (long)(baselineTime.Ticks * fraction));
+            DateTimeOffset deadline =
+                DateTimeOffset.UtcNow.AddMilliseconds(250);
+            DocumentationHouseRequest request = Request(
+                subject,
+                contributions,
+                maximumContributions: contributionCount,
+                deadline: deadline);
+            while (deadline - DateTimeOffset.UtcNow > executionBudget)
+            {
+                Thread.SpinWait(10_000);
+            }
+
+            Stopwatch executionTime = Stopwatch.StartNew();
+            DocumentationHouseOutcome outcome =
+                await DocumentationHouse.ExecuteAsync(
+                    request,
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken);
+            executionTime.Stop();
+            if (executionTime.Elapsed
+                < executionBudget + TimeSpan.FromMilliseconds(2))
+            {
+                continue;
+            }
+
+            crossedDeadline = true;
+            DocumentationHouseOutcome.Incomplete incomplete =
+                Assert.IsType<DocumentationHouseOutcome.Incomplete>(
+                    outcome);
+            Assert.Equal(
+                DocumentationIncompleteBoundary.Deadline,
+                incomplete.Boundary);
+            Assert.Equal(
+                contributionCount,
+                incomplete.Work.ContributionsObserved);
+            Assert.Equal(0, incomplete.Work.CompiledXmlBytesObserved);
+            Assert.False(incomplete.Work.ParsedCompiledXml);
+            break;
+        }
+
+        Assert.True(
+            crossedDeadline,
+            $"No execution crossed its calibrated deadline; baseline was {baselineTime.TotalMilliseconds:F1} ms.");
+    }
+
+    [Fact]
     public async Task Cancellation_SettlesTransferredLeaseBeforePropagating()
     {
         byte[] xml = Xml(DeserializeIdentity, "selected");
