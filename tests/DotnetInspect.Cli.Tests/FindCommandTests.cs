@@ -1394,7 +1394,7 @@ public class FindCommandIntegrationTests
     }
 
     [Fact]
-    public void LiteralValueNamedTake_IsNotExecutionBound()
+    public void RetiredLiteralValueNamedTake_ReportsMigrationNotExecutionBound()
     {
         string[][] literalForms =
         [
@@ -1425,14 +1425,14 @@ public class FindCommandIntegrationTests
             var (exit, output, error) =
                 RunCli([.. arguments]);
 
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
             Assert.Contains(
-                "\"name\":\"Package\"",
-                output);
+                "'find --literal' is no longer valid",
+                error);
             Assert.DoesNotContain(
                 "--take requires",
-                output);
+                error);
         }
     }
 

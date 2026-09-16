@@ -6,6 +6,7 @@ namespace DotnetInspector.Packages;
 public enum PackageAcquisitionPopulationCompletionKind
 {
     ExactCoordinates,
+    ExactPackageComplete,
     PrefixExhausted,
     CandidateLimitReached,
     SourcePageLimitReached,
@@ -161,9 +162,11 @@ public sealed class PackageAcquisitionPopulation
         Failures.IsEmpty
         && Completion is (
             PackageAcquisitionPopulationCompletionKind.ExactCoordinates
+            or PackageAcquisitionPopulationCompletionKind.ExactPackageComplete
             or PackageAcquisitionPopulationCompletionKind.PrefixExhausted
             or PackageAcquisitionPopulationCompletionKind.CandidateLimitReached)
-        && (Completion
-                == PackageAcquisitionPopulationCompletionKind.PrefixExhausted
+        && (Completion is
+                PackageAcquisitionPopulationCompletionKind.ExactPackageComplete
+                or PackageAcquisitionPopulationCompletionKind.PrefixExhausted
             || Candidates.Length == RequestedCandidates);
 }

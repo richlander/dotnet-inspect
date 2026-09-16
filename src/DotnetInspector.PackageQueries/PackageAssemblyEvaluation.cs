@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 using Inspector.Artifacts.Workspaces;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -80,6 +81,40 @@ public sealed record PackageAssemblyArtifactFailure(
     ArtifactSetAdmissionFailureKind Kind,
     string DiagnosticCode);
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.InvalidSelection),
+    "invalidSelection")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.Contract),
+    "contract")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.EntryUnavailable),
+    "entryUnavailable")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.EntryByteLimit),
+    "entryByteLimit")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.ArtifactPublication),
+    "artifactPublication")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.NotAssembly),
+    "notAssembly")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.ProjectionRejected),
+    "projectionRejected")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.QueryRejected),
+    "queryRejected")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.SemanticRejection),
+    "semanticRejection")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.SemanticWorkLimit),
+    "semanticWorkLimit")]
+[JsonDerivedType(
+    typeof(PackageAssemblyFailureReason.CandidateCleanup),
+    "candidateCleanup")]
 public abstract record PackageAssemblyFailureReason
 {
     private protected PackageAssemblyFailureReason(PackageAssemblyFailureStage stage) =>
@@ -198,6 +233,19 @@ public static class PackageAssemblyEvaluationExceptionEvidence
     }
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageAssemblyEvaluationOutcome.Matched),
+    "matched")]
+[JsonDerivedType(
+    typeof(PackageAssemblyEvaluationOutcome.NoMatch),
+    "noMatch")]
+[JsonDerivedType(
+    typeof(PackageAssemblyEvaluationOutcome.NotApplicable),
+    "notApplicable")]
+[JsonDerivedType(
+    typeof(PackageAssemblyEvaluationOutcome.Failure),
+    "failure")]
 public abstract record PackageAssemblyEvaluationOutcome
 {
     private protected PackageAssemblyEvaluationOutcome(

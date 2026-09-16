@@ -1,0 +1,399 @@
+using System.Collections.Immutable;
+using System.Text.Json.Serialization;
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using ILInspector.Analysis;
+using InertText;
+using NuGetFetch;
+
+namespace DotnetInspector.PackageQueries;
+
+/// <summary>One package whose selected implementation library matched.</summary>
+public sealed record PackageAssemblySemanticQueryResult
+{
+    internal PackageAssemblySemanticQueryResult(
+        PackageAssemblySemanticFindCandidateOutcome.Matched outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+
+        CandidateOrdinal = outcome.CandidateOrdinal;
+        Coordinate = outcome.Coordinate;
+        Correspondence = outcome.Correspondence;
+        SelectedAsset = outcome.Evaluation.SelectedAsset
+            ?? throw new ArgumentException(
+                "A matched package requires selected-asset evidence.",
+                nameof(outcome));
+        Occurrences = outcome.Evaluation.Evidence.Occurrences;
+    }
+
+    public int CandidateOrdinal { get; }
+
+    public PackageSourceCoordinate Coordinate { get; }
+
+    public PackageAcquisitionCandidateCorrespondence Correspondence { get; }
+
+    public PackageAssemblySelectedAssetContext SelectedAsset { get; }
+
+    public PackageRootReacquisitionRequest RootRequest =>
+        SelectedAsset.Subject.RootRequest;
+
+    public ImmutableArray<StringLiteralUseOccurrence> Occurrences { get; }
+}
+
+/// <summary>
+/// Resource-free failure evidence for one package-query candidate acquisition.
+/// </summary>
+public sealed record PackageAssemblySemanticQueryAcquisitionFailure(
+    ImmutableArray<PackageAuthorityFailure> Failures,
+    ImmutableArray<InertString> NotFoundAuthorities)
+{
+    internal static PackageAssemblySemanticQueryAcquisitionFailure From(
+        PackageAssemblySemanticFindAcquisitionFailure evidence) =>
+        new(evidence.Failures, evidence.NotFoundAuthorities);
+}
+
+/// <summary>Why one admitted package failed semantic qualification.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageAssemblySemanticQueryFailureReason.Acquisition),
+    "acquisition")]
+[JsonDerivedType(
+    typeof(PackageAssemblySemanticQueryFailureReason.Evaluation),
+    "evaluation")]
+public abstract record PackageAssemblySemanticQueryFailureReason
+{
+    private protected PackageAssemblySemanticQueryFailureReason()
+    {
+    }
+
+    public sealed record Acquisition(
+        PackageAssemblySemanticQueryAcquisitionFailure Evidence)
+        : PackageAssemblySemanticQueryFailureReason;
+
+    public sealed record Evaluation(
+        PackageAssemblyEvaluationOutcome.Failure Evidence)
+        : PackageAssemblySemanticQueryFailureReason;
+}
+
+/// <summary>Why one admitted candidate did not enter semantic evaluation.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageAssemblySemanticQueryNonEvaluationReason.OperationDeadline),
+    "operationDeadline")]
+public abstract record PackageAssemblySemanticQueryNonEvaluationReason
+{
+    private protected PackageAssemblySemanticQueryNonEvaluationReason()
+    {
+    }
+
+    public sealed record OperationDeadline
+        : PackageAssemblySemanticQueryNonEvaluationReason
+    {
+        internal OperationDeadline(PackageSourceTimeout timeout)
+        {
+            ArgumentNullException.ThrowIfNull(timeout);
+            if (timeout.Kind != PackageSourceTimeoutKind.Operation)
+            {
+                throw new ArgumentException(
+                    "A semantic non-evaluation deadline must describe the complete operation.",
+                    nameof(timeout));
+            }
+
+            Timeout = timeout;
+        }
+
+        public PackageSourceTimeout Timeout { get; }
+    }
+}
+
+/// <summary>One terminal outcome for one admitted package candidate.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageAssemblySemanticQueryCandidateOutcome.Matched),
+    "matched")]
+[JsonDerivedType(
+    typeof(PackageAssemblySemanticQueryCandidateOutcome.NoMatch),
+    "noMatch")]
+[JsonDerivedType(
+    typeof(PackageAssemblySemanticQueryCandidateOutcome.NotApplicable),
+    "notApplicable")]
+[JsonDerivedType(
+    typeof(PackageAssemblySemanticQueryCandidateOutcome.Failure),
+    "failure")]
+[JsonDerivedType(
+    typeof(PackageAssemblySemanticQueryCandidateOutcome.NotEvaluated),
+    "notEvaluated")]
+public abstract record PackageAssemblySemanticQueryCandidateOutcome
+{
+    private protected PackageAssemblySemanticQueryCandidateOutcome(
+        int candidateOrdinal,
+        PackageSourceCoordinate coordinate,
+        PackageAcquisitionCandidateCorrespondence correspondence)
+    {
+        CandidateOrdinal = candidateOrdinal;
+        Coordinate = coordinate;
+        Correspondence = correspondence;
+    }
+
+    public int CandidateOrdinal { get; }
+
+    public PackageSourceCoordinate Coordinate { get; }
+
+    public PackageAcquisitionCandidateCorrespondence Correspondence { get; }
+
+    private protected PackageAssemblySemanticQueryCandidateOutcome(
+        int candidateOrdinal,
+        PackageAcquisitionCandidate candidate)
+        : this(
+            candidateOrdinal,
+            candidate?.Coordinate
+                ?? throw new ArgumentNullException(nameof(candidate)),
+            candidate.Correspondence)
+    {
+    }
+
+    public sealed record Matched : PackageAssemblySemanticQueryCandidateOutcome
+    {
+        internal Matched(PackageAssemblySemanticQueryResult result)
+            : base(
+                result.CandidateOrdinal,
+                result.Coordinate,
+                result.Correspondence) =>
+            Result = result;
+
+        public PackageAssemblySemanticQueryResult Result { get; }
+    }
+
+    public sealed record NoMatch : PackageAssemblySemanticQueryCandidateOutcome
+    {
+        internal NoMatch(
+            PackageAssemblySemanticFindCandidateOutcome.NoMatch outcome)
+            : base(
+                outcome.CandidateOrdinal,
+                outcome.Coordinate,
+                outcome.Correspondence) =>
+            Evaluation = outcome.Evaluation;
+
+        public PackageAssemblyEvaluationOutcome.NoMatch Evaluation { get; }
+    }
+
+    public sealed record NotApplicable
+        : PackageAssemblySemanticQueryCandidateOutcome
+    {
+        internal NotApplicable(
+            PackageAssemblySemanticFindCandidateOutcome.NotApplicable outcome)
+            : base(
+                outcome.CandidateOrdinal,
+                outcome.Coordinate,
+                outcome.Correspondence) =>
+            Evaluation = outcome.Evaluation;
+
+        public PackageAssemblyEvaluationOutcome.NotApplicable Evaluation
+        { get; }
+    }
+
+    public sealed record Failure : PackageAssemblySemanticQueryCandidateOutcome
+    {
+        internal Failure(
+            PackageAssemblySemanticFindCandidateOutcome.Failure outcome)
+            : base(
+                outcome.CandidateOrdinal,
+                outcome.Coordinate,
+                outcome.Correspondence)
+        {
+            Reason = outcome.Reason switch
+            {
+                PackageAssemblySemanticFindFailureReason.Acquisition
+                    acquisition =>
+                    new PackageAssemblySemanticQueryFailureReason.Acquisition(
+                        PackageAssemblySemanticQueryAcquisitionFailure.From(
+                            acquisition.Evidence)),
+                PackageAssemblySemanticFindFailureReason.Evaluation evaluation =>
+                    new PackageAssemblySemanticQueryFailureReason.Evaluation(
+                        evaluation.Evidence),
+                _ => throw new InvalidOperationException(
+                    "Unknown package assembly-semantic failure."),
+            };
+        }
+
+        public PackageAssemblySemanticQueryFailureReason Reason { get; }
+    }
+
+    public sealed record NotEvaluated
+        : PackageAssemblySemanticQueryCandidateOutcome
+    {
+        internal NotEvaluated(
+            int candidateOrdinal,
+            PackageAcquisitionCandidate candidate,
+            PackageAssemblySemanticQueryNonEvaluationReason reason)
+            : base(candidateOrdinal, candidate) =>
+            Reason = reason
+                ?? throw new ArgumentNullException(nameof(reason));
+
+        public PackageAssemblySemanticQueryNonEvaluationReason Reason { get; }
+    }
+
+    internal static PackageAssemblySemanticQueryCandidateOutcome From(
+        PackageAssemblySemanticFindCandidateOutcome outcome) =>
+        outcome switch
+        {
+            PackageAssemblySemanticFindCandidateOutcome.Matched matched =>
+                new Matched(new PackageAssemblySemanticQueryResult(matched)),
+            PackageAssemblySemanticFindCandidateOutcome.NoMatch noMatch =>
+                new NoMatch(noMatch),
+            PackageAssemblySemanticFindCandidateOutcome.NotApplicable
+                notApplicable =>
+                new NotApplicable(notApplicable),
+            PackageAssemblySemanticFindCandidateOutcome.Failure failure =>
+                new Failure(failure),
+            _ => throw new InvalidOperationException(
+                "Unknown package assembly-semantic candidate outcome."),
+        };
+}
+
+/// <summary>Completion facts over the package query's admitted population.</summary>
+public sealed record PackageAssemblySemanticQueryCompletion(
+    PackageAcquisitionPopulationCompletionKind Population,
+    bool IsRequestedPopulationComplete,
+    bool AllCandidatesHaveTerminalOutcomes,
+    bool HasFailures,
+    bool IsSemanticEvaluationComplete,
+    bool IsOperationDeadlineExpired)
+{
+    internal static PackageAssemblySemanticQueryCompletion From(
+        PackageAssemblySemanticFindCompletion completion,
+        PackageAcquisitionPopulation population) =>
+        new(
+            completion.Population,
+            completion.IsRequestedPopulationComplete,
+            completion.AllCandidatesCompleted,
+            completion.HasFailures || !population.Failures.IsEmpty,
+            completion.IsSemanticEvaluationComplete,
+            OperationDeadline(population) is not null);
+
+    internal static PackageSourceTimeout? OperationDeadline(
+        PackageAcquisitionPopulation population) =>
+        population.Failures
+            .Select(failure => failure.Failure)
+            .Where(failure =>
+                failure.Kind == PackageAuthorityFailureKind.Timeout
+                && failure.Timeout?.Kind
+                    == PackageSourceTimeoutKind.Operation)
+            .Select(failure => failure.Timeout)
+            .FirstOrDefault();
+}
+
+/// <summary>
+/// Completed package-grain semantic qualification over one admitted
+/// package population.
+/// </summary>
+public sealed class PackageAssemblySemanticQueryDocument
+{
+    internal PackageAssemblySemanticQueryDocument(
+        PackageAssemblySemanticFindDocument evidence)
+    {
+        ArgumentNullException.ThrowIfNull(evidence);
+
+        Population = evidence.Population;
+        CandidateOutcomes =
+        [
+            .. evidence.CandidateOutcomes.Select(
+                PackageAssemblySemanticQueryCandidateOutcome.From),
+        ];
+        Results =
+        [
+            .. CandidateOutcomes
+                .OfType<
+                    PackageAssemblySemanticQueryCandidateOutcome.Matched>()
+                .Select(outcome => outcome.Result),
+        ];
+        CandidateCount = evidence.CandidateCount;
+        EvaluatedCandidateCount = evidence.CandidateCount;
+        NotEvaluatedCount = 0;
+        MatchedPackageCount = Results.Length;
+        OccurrenceCount = evidence.OccurrenceCount;
+        SemanticMissCount = evidence.SemanticMissCount;
+        NotApplicableCount = evidence.NotApplicableCount;
+        FailureCount = evidence.FailureCount;
+        Completion =
+            PackageAssemblySemanticQueryCompletion.From(
+                evidence.Completion,
+                evidence.Population);
+    }
+
+    internal PackageAssemblySemanticQueryDocument(
+        PackageAcquisitionPopulation population,
+        PackageSourceTimeout operationDeadline)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        var reason =
+            new PackageAssemblySemanticQueryNonEvaluationReason
+                .OperationDeadline(operationDeadline);
+
+        Population = population;
+        CandidateOutcomes =
+        [
+            .. population.Candidates.Select(
+                (candidate, index) =>
+                    (PackageAssemblySemanticQueryCandidateOutcome)
+                    new PackageAssemblySemanticQueryCandidateOutcome
+                        .NotEvaluated(
+                            index + 1,
+                            candidate,
+                            reason)),
+        ];
+        Results = [];
+        CandidateCount = population.Candidates.Length;
+        EvaluatedCandidateCount = 0;
+        NotEvaluatedCount = CandidateCount;
+        MatchedPackageCount = 0;
+        OccurrenceCount = 0;
+        SemanticMissCount = 0;
+        NotApplicableCount = 0;
+        FailureCount = 0;
+        Completion = new(
+            population.Completion,
+            population.IsRequestedPopulationComplete,
+            AllCandidatesHaveTerminalOutcomes: true,
+            HasFailures: true,
+            IsSemanticEvaluationComplete: false,
+            IsOperationDeadlineExpired: true);
+    }
+
+    public PackageAcquisitionPopulation Population { get; }
+
+    public ImmutableArray<PackageAssemblySemanticQueryResult> Results { get; }
+
+    public ImmutableArray<PackageAssemblySemanticQueryCandidateOutcome>
+        CandidateOutcomes
+    { get; }
+
+    public int CandidateCount { get; }
+
+    public int EvaluatedCandidateCount { get; }
+
+    public int NotEvaluatedCount { get; }
+
+    public int MatchedPackageCount { get; }
+
+    public int OccurrenceCount { get; }
+
+    public int SemanticMissCount { get; }
+
+    public int NotApplicableCount { get; }
+
+    public int FailureCount { get; }
+
+    public PackageAssemblySemanticQueryCompletion Completion { get; }
+}
+
+/// <summary>
+/// Receives candidate outcomes established before terminal package-query
+/// settlement.
+/// </summary>
+public interface IPackageAssemblySemanticQueryNonterminalSink
+{
+    ValueTask ReportAsync(
+        PackageAssemblySemanticQueryCandidateOutcome outcome,
+        CancellationToken cancellationToken);
+}

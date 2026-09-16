@@ -35,8 +35,11 @@ host-neutral portable query intent and canonical payload codec are implemented b
 [#7093](https://github.com/richlander/dotnet-inspect/pull/7093); vocabulary
 resolution, Definitions query adoption, complete view binding, and the
 restoration coordinator defined here are not yet implemented.
-[#7087](https://github.com/richlander/dotnet-inspect/issues/7087) owns
-query-free packet-format-2 transposition. Issue
+The query-free packet-format-2 codec and transposition are implemented under
+[#7087](https://github.com/richlander/dotnet-inspect/issues/7087), preserving
+the leading Workspace row, nullable focus, complete direct-Package state, and
+dormant non-Package inventory while leaving query-bearing packets visibly
+unsupported until #6971. Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
 complete-restoration implementation that consumes #7047's typed
 schema-version dispatch and validation boundary; its first retained production
@@ -2569,11 +2572,10 @@ Definition records and product demos (this slice):
   without stale packet state, until Browser Definitions consumption binds the
   landed product facet IDs; and
 - **not yet:** Definitions and Browser binding to the landed View Facet
-  Registry, query-free packet format 2
-  ([#7087](https://github.com/richlander/dotnet-inspect/issues/7087)),
-  query-bearing packet projection, legacy lowering, per-coordinate view/query
-  binding, complete-restoration coordinator, CLI use of the codec/transposer for
-  executable `-W` ([#4647](https://github.com/richlander/dotnet-inspect/issues/4647)),
+  Registry, query-bearing packet projection, legacy lowering, per-coordinate
+  view/query binding, complete-restoration coordinator, CLI use of the
+  codec/transposer for executable `-W`
+  ([#4647](https://github.com/richlander/dotnet-inspect/issues/4647)),
   or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still
   uses package + `--caller-package` encoding).

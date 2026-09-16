@@ -415,7 +415,7 @@ the promotion boundary above. Each adopter owns its focused contract and
 gates. Existing diagnostic sections remain supported under their current owner
 until replacement coverage exists. Retire duplicated production after
 adoption; useful sections may remain thin views of shared evidence.
-The broader Compare path remains tracked by #5083.
+The broader Compare path remains tracked by #7213.
 
 Planned Release correctness gates must cover baseline preservation,
 same-invocation correspondence, complete/empty and bounded/non-available

@@ -80,6 +80,39 @@ public sealed class TypeNodeProviderTrustedArityTests
         Assert.Equal("MalformedMetadata", failure.Kind);
     }
 
+    [Fact]
+    public void SameModuleTypeReference_DefinitionIndexWorkIsSharedAcrossProviders()
+    {
+        using LocalReferenceFixture fixture =
+            BuildLocalReferenceFixture(definitionCount: 512);
+        int firstWork = 0;
+        TypeNode first = new TypeNodeProvider(
+            beforeMaterialize: amount => firstWork += amount)
+            .GetTypeFromReference(
+                fixture.Reader,
+                fixture.Reference,
+                rawTypeKind: 0x12);
+        int secondWork = 0;
+        TypeNode second = new TypeNodeProvider(
+            beforeMaterialize: amount => secondWork += amount)
+            .GetTypeFromReference(
+                fixture.Reader,
+                fixture.Reference,
+                rawTypeKind: 0x12);
+
+        Assert.Equal([1], Assert.IsType<NamedTypeNode>(first)
+            .MetadataName!.IntroducedTypeParameterCounts);
+        Assert.Equal([1], Assert.IsType<NamedTypeNode>(second)
+            .MetadataName!.IntroducedTypeParameterCounts);
+        Assert.True(
+            firstWork > 8_000,
+            $"first local TypeDef index build charged only {firstWork:N0} units");
+        Assert.True(
+            secondWork < firstWork / 4,
+            $"cached local TypeDef lookup charged {secondWork:N0} of "
+            + $"{firstWork:N0} first-build units");
+    }
+
     static (
         MetadataReader Reader,
         TypeDefinitionHandle Inner,
@@ -207,5 +240,85 @@ public sealed class TypeNodeProviderTrustedArityTests
         }
 
         throw new InvalidOperationException("Inner`1 was not found in the fixture.");
+    }
+
+    static LocalReferenceFixture BuildLocalReferenceFixture(
+        int definitionCount)
+    {
+        var metadata = new MetadataBuilder();
+        ModuleDefinitionHandle module = metadata.AddModule(
+            0,
+            metadata.GetOrAddString("LocalReferenceFixture.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("LocalReferenceFixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle reference = metadata.AddTypeReference(
+            module,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Referenced"));
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle referenced = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Referenced"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddGenericParameter(
+            referenced,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        for (int i = 0; i < definitionCount; i++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("Fillers"),
+                metadata.GetOrAddString($"Filler{i:D4}"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly).Serialize(image);
+        return new LocalReferenceFixture(image.ToArray(), reference);
+    }
+
+    sealed class LocalReferenceFixture : IDisposable
+    {
+        readonly PEReader _peReader;
+
+        internal LocalReferenceFixture(
+            byte[] image,
+            TypeReferenceHandle reference)
+        {
+            _peReader = new PEReader(
+                ImmutableCollectionsMarshal.AsImmutableArray(image));
+            Reader = _peReader.GetMetadataReader();
+            Reference = reference;
+        }
+
+        internal MetadataReader Reader { get; }
+        internal TypeReferenceHandle Reference { get; }
+
+        public void Dispose() => _peReader.Dispose();
     }
 }

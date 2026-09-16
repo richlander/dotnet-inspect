@@ -328,7 +328,7 @@ defines the Registry-owned facet vocabulary required by the Browser Compare
 experience in
 [Inspect Web Compare Experience](inspect-web-compare-experience.md), under the
 end-to-end tracker
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 
 The extension adds three subject-scoped descriptors:
 

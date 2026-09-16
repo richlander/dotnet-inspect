@@ -63,6 +63,54 @@ public class QueryDiscoveryTests
         Assert.Equal("integer", rootReach.GetProperty("value_kind").GetString());
     }
 
+    [Fact]
+    public async Task GraphLibrariesQuery_ExposesClusterWithoutAcquiringPair()
+    {
+        var result = await Run(
+            "graph",
+            "libraries",
+            "-Q",
+            "Call Sites",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement section = Assert.Single(
+            json.RootElement.GetProperty("sections").EnumerateArray());
+        Assert.Equal(
+            "Call Sites",
+            section.GetProperty("section").GetString());
+        JsonElement cluster = Assert.Single(
+            section.GetProperty("facets").EnumerateArray());
+        Assert.Equal(
+            "Cluster",
+            cluster.GetProperty("name").GetString());
+        Assert.Equal(
+            ["--where"],
+            cluster.GetProperty("operators")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            ["="],
+            cluster.GetProperty("comparisons")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            "--where \"Cluster=3\"",
+            cluster.GetProperty("example").GetString());
+
+        var companion = await Run(
+            "graph",
+            "libraries",
+            "-S",
+            "Query: Call Sites",
+            "--json");
+        Assert.Equal(0, companion.ExitCode);
+        Assert.Empty(companion.Error);
+        Assert.Equal(result.Output, companion.Output);
+    }
+
     [Theory]
     [InlineData("library", true)]
     [InlineData("type", false)]

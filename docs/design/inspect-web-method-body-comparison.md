@@ -102,7 +102,7 @@ the canonical location or history. A workspace/member navigation that replaces
 the launching context ends the dialog through existing surface disposal.
 Refresh and shared links restore ordinary inspection, not this transient pair.
 Portable/restorable comparison remains separate broader
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083) work.
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213) work.
 
 ### Physical endpoint and query handoff
 
