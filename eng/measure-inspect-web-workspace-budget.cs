@@ -44,6 +44,7 @@ static async Task<int> RunAsync(string[] args)
     PersistentCache.Initialize("inspect-web-workspace-budget-census", cachePath);
 
     BrowserPackageCacheStats limits = ReadLimits();
+    ValidatePackageEntryEnvelope(limits);
     PackageSetDescriptor packageSet = PackageSetCatalog.Lookup(
         PackageSetIds.MicrosoftExtensions) switch
     {
@@ -115,6 +116,20 @@ static BrowserPackageCacheStats ReadLimits()
         root.GetProperty("residentBytes").GetInt64(),
         root.GetProperty("maxResidentBytes").GetInt64(),
         root.GetProperty("maxWorkspaceRetainedImageBytes").GetInt64());
+}
+
+static void ValidatePackageEntryEnvelope(BrowserPackageCacheStats limits)
+{
+    int required = checked(
+        WorkspaceScopeLimits.DefaultMaxPackages * limits.MaxWorkspaces);
+    if (limits.MaxPackageEntries != required)
+    {
+        throw new InvalidOperationException(
+            $"The Browser package-entry budget is {limits.MaxPackageEntries}; "
+            + $"the {WorkspaceScopeLimits.DefaultMaxPackages}-package logical limit "
+            + $"across {limits.MaxWorkspaces} charged realizations requires exactly "
+            + $"{required} entries.");
+    }
 }
 
 static IReadOnlyDictionary<string, string> ReadPins(string path)
@@ -336,12 +351,31 @@ static void PrintSummary(
     string path,
     bool refresh)
 {
+    int replacementEntries = checked(demand.PackageEntries * 2);
+    long replacementArchiveBytes = checked(demand.ArchiveBytes * 2);
+    int chargedEntries = checked(demand.PackageEntries * limits.MaxWorkspaces);
+    long chargedArchiveBytes = checked(
+        demand.ArchiveBytes * limits.MaxWorkspaces);
+
     Console.WriteLine(
         $"{(refresh ? "Refreshed" : "Verified")} {path}");
     Console.WriteLine($"Scenario: {packageSet.Id.Value}");
     Console.WriteLine(
         $"Package entries: {demand.PackageEntries} of {limits.MaxPackageEntries} "
         + $"({Verdict(demand.PackageEntries, limits.MaxPackageEntries)})");
+    Console.WriteLine(
+        $"Package-entry envelope: {WorkspaceScopeLimits.DefaultMaxPackages} packages x "
+        + $"{limits.MaxWorkspaces} charged realizations = {limits.MaxPackageEntries}");
+    Console.WriteLine(
+        $"Atomic replacement witness: {replacementEntries} entries / "
+        + $"{FormatMiB(replacementArchiveBytes)} "
+        + $"({Verdict(replacementEntries, limits.MaxPackageEntries)} / "
+        + $"{Verdict(replacementArchiveBytes, limits.MaxResidentBytes)})");
+    Console.WriteLine(
+        $"Four-charge witness: {chargedEntries} entries / "
+        + $"{FormatMiB(chargedArchiveBytes)} "
+        + $"({Verdict(chargedEntries, limits.MaxPackageEntries)} / "
+        + $"{Verdict(chargedArchiveBytes, limits.MaxResidentBytes)})");
     Console.WriteLine(
         $"Archive bytes: {FormatMiB(demand.ArchiveBytes)} of "
         + $"{FormatMiB(limits.MaxResidentBytes)} "

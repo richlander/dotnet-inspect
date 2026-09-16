@@ -154,7 +154,7 @@ public class FindCommand
             {
                 // --fields/--columns name post-lowering vocabulary (computed table columns), so
                 // naming one opts into the lowered display view; plain --json keeps the typed
-                // result document (#3494). This combination used to fail closed (#3386) only
+                // root result array (#3494). This combination used to fail closed (#3386) only
                 // because the lowered JSON view did not exist yet.
                 if (IsColumnProjectionRequested(options))
                 {
@@ -710,4 +710,7 @@ public record class TypeSearchResult
 
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; set; }
+
+    [JsonIgnore]
+    public TypeDeclarationLocatorSectionCandidate? Location { get; set; }
 }

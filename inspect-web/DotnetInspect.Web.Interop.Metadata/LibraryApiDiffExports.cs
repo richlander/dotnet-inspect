@@ -214,7 +214,7 @@ public static partial class MetadataExports
 
         return BrowserLibraryApiDiffWireProjection.Project(
             request,
-            inspection.Content,
+            inspection,
             Context(targetParticipant),
             Context(currentParticipant));
     }

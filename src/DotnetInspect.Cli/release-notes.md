@@ -6,6 +6,11 @@
   coordinates, enabling configured HTTP and local Roots to round-trip through
   current destination authorization while preserving existing content and
   cache producer keys and legacy NuGet.org requests (#6946).
+- Routes eligible exact-Package and explicit-Platform type Find operations
+  through the Workspace declaration locator while preserving established
+  Markdown, tips, table formats, and root-array JSON. Internal Package
+  Type/Member handoff retains the selected implementation asset and compatible
+  target framework (#6844).
 - Adds a bounded, credential-free portable token to every Package Source
   producer identity for later exact package Root correspondence without
   carrying endpoint, path, or source authority (#6995).

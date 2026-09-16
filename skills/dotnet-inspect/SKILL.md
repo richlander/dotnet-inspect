@@ -14,7 +14,7 @@ Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, a
 
 | Goal | Command |
 | ---- | ------- |
-| Find an API | `find Pattern` includes platform/BCL types; add `--project path/to/project` when project references should be in scope. Use `find --literal "TEXT" --package Foo@version --tfm net10.0` instead to query 1-5 named packages' selected primary implementation assemblies; add `-v:n` for decoded `ldstr` use rows. `TEXT` is a case-sensitive ordinal substring, not a pattern. |
+| Find an API | `find Pattern` includes platform/BCL types; add `--project path/to/project` when project references should be in scope. Exact `--package Foo@version` or explicit `--platform Library` searches with `--tfm` use the Workspace locator internally while preserving Find's existing Markdown, tips, tables, and root-array JSON. Selected Package Type/Member handoff retains the exact implementation asset and compatible TFM. Use `find --literal "TEXT" --package Foo@version --tfm net10.0` instead to query 1-5 named packages' selected primary implementation assemblies; add `-v:n` for decoded `ldstr` use rows. `TEXT` is a case-sensitive ordinal substring, not a pattern. |
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
