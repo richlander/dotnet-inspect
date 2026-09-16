@@ -33,6 +33,7 @@ public sealed class MetadataSource : IDisposable
     MetadataReaderProvider? _pdbProvider;
     MetadataReader? _pdbReader;
     volatile bool _pdbProbed;
+    bool _suppliedPortablePdb;
     DecompilerSymbolSource _symbols = DecompilerSymbolSource.None;
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
@@ -234,6 +235,75 @@ public sealed class MetadataSource : IDisposable
             readSymbols: false,
             bindingPolicy,
             context);
+
+    /// <summary>
+    /// Opens a descriptor-backed assembly with only the caller-supplied
+    /// Portable PDB image. Embedded and adjacent symbols are never probed.
+    /// Invalid or inapplicable supplied content throws instead of silently
+    /// retrying without symbols.
+    /// </summary>
+    public static MetadataSource OpenWithSuppliedPortablePdb(
+        ResolvedAssemblyReference assembly,
+        ImmutableArray<byte> pdbImage,
+        IAssemblyBindingPolicy bindingPolicy,
+        MetadataContext? context = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        if (pdbImage.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "The supplied Portable PDB image must not be default or empty.",
+                nameof(pdbImage));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var validationMessages = new List<string>();
+        using (PdbContext validation =
+            PdbContext.OpenMetadataOnly(
+                assembly,
+                validationMessages.Add))
+        {
+            validation.LoadPdbFromStream(
+                new MemoryStream(
+                    pdbImage.ToArray(),
+                    writable: false),
+                pdbLocation: "Supplied");
+            if (!validation.HasPdb)
+            {
+                string detail = validationMessages.Count == 0
+                    ? "The supplied image is not an applicable Portable PDB."
+                    : string.Join(" ", validationMessages);
+                throw new InvalidDataException(detail);
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        MetadataSource? source = null;
+        try
+        {
+            source = OpenCore(
+                assembly,
+                externalPdbPath: null,
+                readSymbols: false,
+                bindingPolicy,
+                context);
+            cancellationToken.ThrowIfCancellationRequested();
+            source._pdbProvider =
+                MetadataReaderProvider.FromPortablePdbImage(pdbImage);
+            source._pdbReader =
+                source._pdbProvider.GetMetadataReader();
+            source._pdbProbed = true;
+            source._suppliedPortablePdb = true;
+            return source;
+        }
+        catch
+        {
+            source?.Dispose();
+            throw;
+        }
+    }
 
     /// <summary>
     /// Opens an immutable PE snapshot without reopening <paramref name="path"/>.
@@ -1475,12 +1545,28 @@ public sealed class MetadataSource : IDisposable
     MetadataReader? PdbReader()
     {
         if (_pdbProbed)
+        {
+            if (_suppliedPortablePdb
+                && _pdbReader is not null
+                && _symbols == DecompilerSymbolSource.None)
+            {
+                _symbols = DecompilerSymbolSource.External;
+            }
             return _pdbReader;
+        }
             
         lock (_pdbLock)
         {
             if (_pdbProbed)
+            {
+                if (_suppliedPortablePdb
+                    && _pdbReader is not null
+                    && _symbols == DecompilerSymbolSource.None)
+                {
+                    _symbols = DecompilerSymbolSource.External;
+                }
                 return _pdbReader;
+            }
 
             if (!_readSymbols)
             {
