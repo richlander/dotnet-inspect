@@ -273,7 +273,9 @@ internal static class NavigationEvaluation
                             : "The exact requested Type is no longer "
                                 + "available."),
                 incompleteInventory:
-                    incomplete ? library.Types : null);
+                    incomplete
+                        ? NavigationSnapshotDetachment.Detach(library.Types)
+                        : null);
         }
 
         if (basis.ActiveSubject == type)

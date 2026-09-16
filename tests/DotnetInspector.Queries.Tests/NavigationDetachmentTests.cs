@@ -55,6 +55,13 @@ public sealed class NavigationDetachmentTests
         Assert.NotNull(specimen.Completions[1].Result!.LensResolution!.DescendantRequest);
         Assert.NotNull(specimen.Completions[2].Result!.LensResolution!.DescendantRequest);
 
+        Assert.Equal(
+            NavigationOutcomeKind.Failed,
+            specimen.RetainedTypeFailure.Outcome.Kind);
+        Assert.IsType<NavigationInventoryEvidence.DetachedParticipantFailed>(
+            Assert.Single(
+                specimen.RetainedTypeFailure.IncompleteInventory!.Evidence));
+
         var evidence = Assert.IsType<NavigationInventoryEvidence.DetachedParticipantFailed>(
             Assert.Single(specimen.Failed.State.InstalledSnapshot.Inventory!.Types.Evidence));
         Assert.Equal(typeof(InvalidOperationException).FullName, evidence.Error.Type);
@@ -167,11 +174,36 @@ public sealed class NavigationDetachmentTests
                             new AssemblyContextSubject(libraries[0].Library.Participant.Assembly), error),
                     ]), [], Truncation: null);
                 var failedPackage = new NavigationPackageEvaluation(occurrence, binding, libraries, failure);
-                NavigationOperationInitialization failed = NavigationTransitions.Initialize(
-                    workspace.Identity, new(scope, failedPackage, (_, _) => availability), registry);
+                var failedFacts = new NavigationEvaluationFacts(
+                    scope,
+                    failedPackage,
+                    (_, _) => availability);
+                NavigationOperationInitialization failed =
+                    NavigationTransitions.Initialize(
+                        workspace.Identity,
+                        failedFacts,
+                        registry);
+                StructuralSubjectIdentity.TypeSubject retainedType =
+                    Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
+                        typeResult.State.InstalledSnapshot.ActiveSubject);
+                NavigationTransition publication =
+                    NavigationTransitions.PublishRetainedTypeAction(
+                        memberResult.State,
+                        memberResult.State.Publication,
+                        retainedType);
+                NavigationTransition retainedTypeBegin =
+                    NavigationTransitions.Begin(
+                        publication.State,
+                        publication.ActionPublication!.Action!);
+                NavigationEvaluationResult retainedTypeFailure =
+                    NavigationTransitions.Evaluate(
+                        retainedTypeBegin.Work!,
+                        new NavigationPreparation.Ready(failedFacts),
+                        registry);
                 return ValueTask.FromResult(new ArtifactSpecimen(
                     initialized, [libraryBegin, typeBegin, memberBegin],
-                    evaluations.ToImmutable(), [libraryResult, typeResult, memberResult], failed,
+                    evaluations.ToImmutable(), [libraryResult, typeResult, memberResult],
+                    retainedTypeFailure, failed,
                     new(registration), new(registration.ArtifactRegistration.Artifact), new(error)));
 
                 NavigationTransition Complete(NavigationTransition begun)
@@ -197,6 +229,7 @@ public sealed class NavigationDetachmentTests
         ImmutableArray<NavigationTransition> Beginnings,
         ImmutableArray<NavigationEvaluationResult> Evaluations,
         ImmutableArray<NavigationTransition> Completions,
+        NavigationEvaluationResult RetainedTypeFailure,
         NavigationOperationInitialization Failed,
         WeakReference Registration,
         WeakReference Artifact,
