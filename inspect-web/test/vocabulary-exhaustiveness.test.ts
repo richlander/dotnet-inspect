@@ -83,8 +83,8 @@ const widenings = [
   {
     vocabulary: "SpotlightScope",
     file: "spotlight.ts",
-    find: '  { id: "runtime", label: "Platform" },\n] as const;',
-    replace: '  { id: "runtime", label: "Platform" },\n  { id: "probe-spotlight-scope", label: "Probe" },\n] as const;',
+    find: '  { id: "members", label: "Members" },\n] as const;',
+    replace: '  { id: "members", label: "Members" },\n  { id: "probe-spotlight-scope", label: "Probe" },\n] as const;',
     token: "probe-spotlight-scope",
     dispatches: ["spotlightResults"],
   },

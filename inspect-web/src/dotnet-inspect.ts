@@ -420,7 +420,7 @@ import {
   platformLibraryRole, platformTargetKey, parsePlatformVersions, requireMatchingPlatformTarget,
   platformSupportsRuntimeAcquisition,
   platformAssemblyRequest, platformGraphLibraryForTarget,
-  platformLibraryMatchesDescriptor,
+  platformLibraryMatchesDescriptor, rankPlatformLibraryMatches,
   type PlatformNavigationState, type PlatformSubjectStatus,
 } from "./platform-subject.ts";
 import {
@@ -973,6 +973,8 @@ const initialState = {
   platformIndex: null,
   rootKind: "package" as "package" | "platform",
   platformSelection: null,
+  frameworkLibraryPresentation: null,
+  platformPresentedAsRoot: false,
   platformSlot: -1,
   platformCatalogStatus: { loading: false, error: "" },
   platformOpeningStatus: { loading: false, error: "" },
@@ -1136,6 +1138,11 @@ interface StateOverrides {
   workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
   platformSelection: PlatformNavigationState | null;
+  frameworkLibraryPresentation: {
+    tfm: string;
+    version: string;
+    libraryId: string;
+  } | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
   memberSource: SourceResultState;
@@ -1285,6 +1292,9 @@ CanonicalWorkspaceRestoreSnapshot {
     state: {
       ...state,
       platformSelection: state.platformSelection ? { ...state.platformSelection } : null,
+      frameworkLibraryPresentation: state.frameworkLibraryPresentation
+        ? { ...state.frameworkLibraryPresentation }
+        : null,
       platformCatalogStatus: { ...state.platformCatalogStatus },
       platformOpeningStatus: { ...state.platformOpeningStatus },
       packages,
@@ -1578,7 +1588,11 @@ function restoreRetainedWorkspaceSnapshot(
   Object.assign(state, hostState);
   activeWorkspaceUrl = snapshot.url;
   if (restoreUrl) {
-    workspaceLocation.replace(snapshot.url, history.state);
+    workspaceLocation.replace(
+      snapshot.url,
+      withPlatformRootParentHistory(
+        history.state,
+        navigationSnapshotHasPlatformRootParent(snapshot.navigation)));
   }
   persistRecentPackages();
   persistPlatformRecent();
@@ -1795,7 +1809,12 @@ function selectRetainedWorkspace(workspaceId: string): void {
   }
   try {
     if (!activateRetainedWorkspaceProjection(workspaceId, false)) return;
-    workspaceLocation.push(activeWorkspaceUrl ?? "/demos");
+    workspaceLocation.push(
+      activeWorkspaceUrl ?? "/demos",
+      withPlatformRootParentHistory(
+        history.state,
+        navigationSnapshotHasPlatformRootParent(
+          navigationHistory.snapshot())));
     render();
     restartRestoredWorkspaceSelectionData();
   } catch (error) {
@@ -2205,6 +2224,12 @@ function captureView(): WorkspaceView | null {
     platformLibrary: state.rootKind === "platform" && !state.atPackageRoot
       ? selectedLibraryShareKey() || null
       : null,
+    platformRootParent:
+      state.rootKind === "platform"
+      && !state.atPackageRoot
+      && pendingWorkspaceConstruction === null
+      && hasPlatformRootHistoryView(),
+    platformPresentedAsRoot: platformIsPresentedAsRoot(),
   };
 }
 
@@ -2252,6 +2277,13 @@ function applyView(view: WorkspaceView) {
     showToast(capacityError);
     return false;
   }
+  workspaceLocation.replace(
+    location.href,
+    withPlatformRootParentHistory(
+      history.state,
+      view.platformRootParent === true));
+  state.platformPresentedAsRoot =
+    view.platformPresentedAsRoot === true;
   if (view.rootKind !== "platform" && view.platform) {
     const target = state.platformIndex?.target(
       view.platform.tfm,
@@ -2440,6 +2472,7 @@ async function restorePlatformHistoryView(
     platformLibraryKey(row),
     row.pack,
     {
+      deferPlatformPresentation: true,
       scopeOnly: true,
       navigationSeq,
       tfm: view.platform?.tfm,
@@ -2514,6 +2547,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const retainedWorkspaceHistoryKey = "inspectWorkspaceId";
 const retainedWorkspaceHistorySessionKey = "inspectWorkspaceSession";
 const retainedWorkspaceHistorySessionId = crypto.randomUUID();
+const platformRootParentHistoryKey = "inspectPlatformRootParent";
 
 function retainedWorkspaceIdFromHistory(historyState: unknown): string | null {
   if (!isRecord(historyState)) return null;
@@ -2525,6 +2559,30 @@ function retainedWorkspaceIdFromHistory(historyState: unknown): string | null {
 
 function historyReferencesRetainedWorkspace(historyState: unknown): boolean {
   return retainedWorkspaceIdFromHistory(historyState) !== null;
+}
+
+function historyHasPlatformRootParent(historyState: unknown): boolean {
+  return isRecord(historyState)
+    && historyState[platformRootParentHistoryKey] === true;
+}
+
+function withPlatformRootParentHistory(
+  historyState: unknown,
+  present: boolean,
+): unknown {
+  if (present) {
+    return {
+      ...(isRecord(historyState) ? historyState : {}),
+      [platformRootParentHistoryKey]: true,
+    };
+  }
+  if (!isRecord(historyState)
+    || !(platformRootParentHistoryKey in historyState)) {
+    return historyState;
+  }
+  const next = { ...historyState };
+  delete next[platformRootParentHistoryKey];
+  return next;
 }
 
 function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
@@ -2914,7 +2972,6 @@ const spotlight = createSpotlight({
   packageSearchError: () =>
     spotlightPackageSearchError(state.spotlightPackageSearch),
   packageCount: () => state.packages.length,
-  activeFramework: () => state.package?.activeFramework || "",
   render,
   focusAfterDismiss: () =>
     restoreContentFrameFocusAfterDismiss(
@@ -3543,6 +3600,8 @@ function clearWorkspacePackages() {
   state.package = null;
   state.workspaceShareBasis = null;
   state.platformSelection = null;
+  state.frameworkLibraryPresentation = null;
+  state.platformPresentedAsRoot = false;
   state.platformSlot = -1;
   state.rootKind = "package";
   state.integrationMode = "integrations";
@@ -3757,6 +3816,16 @@ function activatePackage(
   pkg: AppPackage,
   { resetAccessibility = false }: { resetAccessibility?: boolean } = {},
 ) {
+  if (state.package?.isRuntimePack && state.package !== pkg) {
+    const library = selectedLibrary();
+    if (library) {
+      state.frameworkLibraryPresentation = {
+        tfm: state.package.activeFramework,
+        version: state.package.version,
+        libraryId: library.id,
+      };
+    }
+  }
   const changed = !packageIdentityEquals(state.package, pkg);
   state.workspaceSubjectOpen = false;
   state.package = pkg;
@@ -5262,11 +5331,15 @@ function inspectedSubjectPath(
       copyable: false,
     }];
   }
-  const path: SubjectPathSegment[] = [{
-    kind: state.rootKind,
-    label: state.rootKind === "platform" ? platformTargetLabel() : packageDisplayName(pkg),
-    copyable: true,
-  }];
+  const path: SubjectPathSegment[] = rootIsPresented()
+    ? [{
+        kind: state.rootKind,
+        label: state.rootKind === "platform"
+          ? platformTargetLabel()
+          : packageDisplayName(pkg),
+        copyable: true,
+      }]
+    : [];
   if (state.atPackageRoot) return path;
   const library = selectedLibraryName();
   if (library) {
@@ -5333,6 +5406,33 @@ function renderWorkspaceNavPane() {
   });
 }
 
+function hasPlatformRootHistoryView() {
+  return historyHasPlatformRootParent(history.state);
+}
+
+function platformIsPresentedAsRoot() {
+  return state.platformSelection !== null
+    && (state.platformPresentedAsRoot
+    || (pendingWorkspaceConstruction === null
+      && hasPlatformRootHistoryView()));
+}
+
+function rootIsPresented() {
+  return state.rootKind !== "platform"
+    || platformIsPresentedAsRoot();
+}
+
+function currentViewHasPlatformRootParent() {
+  return pendingWorkspaceConstruction === null
+    && hasPlatformRootHistoryView();
+}
+
+function navigationSnapshotHasPlatformRootParent(
+  snapshot: NavigationHistorySnapshot<WorkspaceView>,
+) {
+  return snapshot.stack[snapshot.index]?.view.platformRootParent === true;
+}
+
 function renderTypeNavPane(
   current: AppTypeSurface | null | undefined,
   visible: readonly AppTypeSurface[],
@@ -5349,7 +5449,11 @@ function renderTypeNavPane(
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
     library: selectedLibraryName(),
-    parentSubject: state.atLibraryRoot ? state.rootKind : "library",
+    parentSubject: state.atLibraryRoot
+      ? state.rootKind === "platform" && !currentViewHasPlatformRootParent()
+        ? null
+        : state.rootKind
+      : "library",
     filtersExpanded: state.typeFiltersExpanded,
     filterSummary: typeFilterSummary(),
     escapeHtml,
@@ -5381,8 +5485,13 @@ function renderScopeBar(
 ) {
   const sc = scope();
   const selected = selectedType();
+  const rootScopes: readonly WorkspaceScope[] =
+    state.rootKind === "platform"
+      && !currentViewHasPlatformRootParent()
+      ? []
+      : [state.rootKind];
   availableScopes ??= [
-    state.rootKind,
+    ...rootScopes,
     ...(selectedLibrary() ? ["library" as const] : []),
     ...(selected ? ["type" as const] : []),
     ...(selected && memberGroups(selected).length ? ["member" as const] : []),
@@ -5511,6 +5620,29 @@ function renderLibraryView() {
 
 function renderWorkspaceView() {
   if (state.packages.some(item => !item.isRuntimePack)) ensureWorkspaceOccurrenceView();
+  const presentPlatform = platformIsPresentedAsRoot();
+  const frameworkPackage = !presentPlatform && state.platformSelection
+    ? runtimePackageForTarget(state.platformSelection)
+    : null;
+  const currentFrameworkLibrary =
+    frameworkPackage && state.package === frameworkPackage
+      ? selectedLibrary()
+      : null;
+  const rememberedFrameworkLibrary =
+    frameworkPackage
+    && state.frameworkLibraryPresentation?.tfm === frameworkPackage.activeFramework
+    && state.frameworkLibraryPresentation.version === frameworkPackage.version
+      ? resolvePackageLibrary(
+          frameworkPackage.assemblies,
+          state.frameworkLibraryPresentation.libraryId)
+      : null;
+  const frameworkLibrary = currentFrameworkLibrary
+    ?? rememberedFrameworkLibrary
+    ?? (frameworkPackage
+      ? resolvePackageLibrary(
+          frameworkPackage.assemblies,
+          frameworkPackage.assemblyId)
+      : null);
   return renderWorkspaceViewPure({
     canAddPackage: state.engineReady && !state.loading && !state.error,
     savedWorkspaces: {
@@ -5520,7 +5652,17 @@ function renderWorkspaceView() {
     },
     occurrences: state.workspaceOccurrences?.occurrences ?? [],
     packages: state.packages,
-    platform: state.platformSelection,
+    platform: presentPlatform ? state.platformSelection : null,
+    frameworkLibraries: frameworkLibrary ? [{
+      name: frameworkLibrary.name,
+      assembly: frameworkLibrary.name,
+      pack: frameworkLibrary.platformPack ?? "",
+      version: frameworkPackage?.version ?? "",
+      framework: frameworkPackage?.activeFramework ?? "",
+      source: frameworkLibrary.platformPack === "aspnetcore.app"
+        ? "ASP.NET Core"
+        : ".NET",
+    }] : [],
     loading: state.workspaceOccurrenceLoading,
     error: state.workspaceOccurrenceError,
     escapeHtml,
@@ -7628,6 +7770,11 @@ async function openPlatformLensLibrary(
     return;
   }
   state.libraryScope = new Set([library.id]);
+  state.frameworkLibraryPresentation = {
+    tfm: originPackage.activeFramework,
+    version: originPackage.version,
+    libraryId: library.id,
+  };
   recordPlatformRecent(key, pack);
   state.atPackageRoot = false;
   state.atLibraryRoot = true;
@@ -7726,7 +7873,7 @@ function bindTypePanelEvents() {
     },
     onTypeNavBack: () => {
       if (state.atLibraryRoot && state.rootKind === "platform") {
-        showPlatformRoot();
+        if (hasPlatformRootHistoryView()) showPlatformRoot();
         return;
       }
       const focusGeneration = beginSpotlightNavigation();
@@ -8337,6 +8484,15 @@ function bindWorkspaceSubjectEvents() {
     onRemove: removeWorkspacePackageRow,
     onAddPackage: openWorkspacePackagePicker,
     onPlatform: showPlatformRoot,
+    onFrameworkLibrary: (assembly, pack, tfm, version) =>
+      observeAsync(
+        openPlatformLibrary(assembly, pack, {
+          deferPlatformPresentation: true,
+          inPlace: true,
+          tfm,
+          version,
+        }),
+        "Opening a framework Library"),
   });
 }
 
@@ -8768,13 +8924,19 @@ async function ensurePlatformCatalog(tfm: string, version?: string): Promise<Pla
   return target;
 }
 
-function installPlatformTarget(target: PlatformCatalogTarget) {
+function installPlatformTarget(
+  target: PlatformCatalogTarget,
+  presentAsRoot = true,
+) {
   const capacityError = platformCoordinateCapacityError();
   if (capacityError) throw new Error(capacityError);
   const basis = state.workspaceShareBasis;
   const packageModel = retainPlatformPackageForTarget(target);
   const previous = state.platformSelection;
+  if (previous?.tfm !== target.tfm || previous.version !== target.version)
+    state.frameworkLibraryPresentation = null;
   state.rootKind = "platform";
+  state.platformPresentedAsRoot = presentAsRoot;
   state.platformSelection = {
     tfm: target.tfm, version: target.version,
     includeAllLibraries: previous?.includeAllLibraries ?? false,
@@ -8998,11 +9160,7 @@ function platformLibraryRoster(query: string) {
     loaded: runtimeAssemblyIsResident(rt, row.assembly, row.pack),
     ranges: computeHighlightRanges(row.assembly, lower),
   }));
-  rows.sort((a, b) =>
-    (a.pack === b.pack ? 0 : a.pack === "netcore.app" ? -1 : 1)
-    || b.publicTypes - a.publicTypes
-    || a.assembly.localeCompare(b.assembly));
-  return rows;
+  return rankPlatformLibraryMatches(rows, lower);
 }
 
 // Which shared framework an assembly ships in. Product-supplied provenance from
@@ -9066,25 +9224,12 @@ function persistRecentPackages() {
   }
 }
 
-// Blends the four targets into one ordered result list, honouring the active scope chip.
-// In "all" each group is capped so every target stays visible; a focused scope shows a
-// deeper single-target list. Loaded packages rank ahead of NuGet discovery hits, which
-// exclude anything already open.
-function runtimeSpotlightResults(query: string): SpotlightResult[] {
+function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
   const results: SpotlightResult[] = [];
-  const target = selectedPlatformTarget();
-  results.push(target
-    ? { kind: "platform", tfm: target.tfm, version: target.version }
-    : { kind: "rtpack-suggest" });
-  // Index-first: the platform library roster needs no pack download. Selecting
-  // "Platform" instantly lists the CoreCLR + ASP.NET Core libraries the static
-  // index knows for the active framework, filterable by name.
   const roster = platformLibraryRoster(query);
   for (const lib of roster.filter(row => row.hasImplementation).slice(0, 200)) {
-    results.push({ ...lib, kind: "platform-lib" });
+    results.push({ ...lib, kind: "framework-lib" });
   }
-  // Once a pack is resident, blend its type/member matches so drilled-in
-  // platform content stays searchable alongside the library roster.
   if (platformSurfaceLoaded()) {
     const typeSource = query ? spotlightTypeMatches(query) : [];
     for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
@@ -9096,21 +9241,17 @@ function runtimeSpotlightResults(query: string): SpotlightResult[] {
       }
     }
   }
-  // Only when the static index is unavailable do we fall back to the old
-  // download-first prompt, so the scope is never empty and inert.
   return results;
 }
 
 function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
   const spotlightScope = state.spotlightScope;
-  // Exhaustive scope dispatch. "all" blends the package, type and member scopes, so those four
+  // Exhaustive scope dispatch. "all" blends the package, type and member scopes, so those
   // arms share the composed body below instead of each owning a renderer. Adding an entry to the
   // spotlight scope catalog offers it to users immediately, so it must fail compilation here
   // until it declares which of these shapes it is.
   switch (spotlightScope) {
-    case "runtime":
-      return runtimeSpotlightResults(query);
     case "commands":
       // `spotlight.ts` answers the command scope from the command palette and never delegates
       // here. Reaching this arm means that interception was removed, which is a wiring failure
@@ -9191,9 +9332,9 @@ function spotlightResults(): SpotlightResult[] {
   if ((all || spotlightScope === "members") && query) {
     for (const match of spotlightMemberMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "member" });
   }
-  // Offer the runtime pack when the user is clearly hunting a platform type but it isn't
-  // loaded yet — one gesture makes BCL types (TextWriter, String…) searchable session-wide.
-  if (all) results.push(...runtimeSpotlightResults(query).slice(0, 5));
+  if (all) {
+    results.push(...frameworkLibrarySpotlightResults(query).slice(0, 5));
+  }
   return results;
 }
 
@@ -9490,21 +9631,19 @@ function pickSpotlightResult(result: SpotlightResult) {
     case "member":
       observeAsync(pickSpotlightMember(result), "Opening a Spotlight member");
       break;
-    case "platform":
-      observeAsync(openPlatformSubject(result.tfm, result.version), "Opening Platform");
-      break;
-    case "rtpack-suggest":
-      observeAsync(openPlatformSubject(), "Opening Platform");
-      break;
-    case "platform-lib":
+    case "framework-lib":
       observeAsync(
         openPlatformLibrary(
           result.assembly,
           result.pack,
-          { inPlace: result.loaded === true, tfm: result.tfm, version: result.version }),
+          {
+            deferPlatformPresentation: true,
+            inPlace: result.loaded === true,
+            tfm: result.tfm,
+            version: result.version,
+          }),
         "Opening a platform library");
       break;
-    case "rtpack-status": break;
     case "type":
       observeAsync(pickSpotlight(result.pkg, result.type.id), "Opening a Spotlight type");
       break;
@@ -9585,6 +9724,7 @@ async function loadPackageFromSpotlight(
 
 // Only an exact catalog row creates demand for the shared Library inspection surface.
 interface OpenPlatformLibraryOptions {
+  deferPlatformPresentation?: boolean;
   scopeOnly?: boolean;
   inPlace?: boolean;
   navigationSeq?: number;
@@ -9598,6 +9738,7 @@ async function openPlatformLibrary(
   pack: string,
   options: OpenPlatformLibraryOptions = {},
 ) {
+  const deferPlatformPresentation = options.deferPlatformPresentation === true;
   const scopeOnly = options.scopeOnly === true;
   const createsWorkspace = !scopeOnly && options.inPlace !== true;
   const capacityError = createsWorkspace ? "" : platformCoordinateCapacityError();
@@ -9616,11 +9757,18 @@ async function openPlatformLibrary(
   const focusGeneration = documentFocusGeneration;
   const navigationSeq = options.navigationSeq ?? navigationSequence.begin();
   if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
+  const hasPlatformRootParent =
+    state.rootKind === "platform"
+    && state.atPackageRoot
+    && platformIsPresentedAsRoot();
   const tfm = options.tfm ?? platformScopeTfm();
   const version = options.version ?? state.platformSelection?.version;
   if (createsWorkspace) spotlight.reset();
   const construction = createsWorkspace
     ? captureWorkspaceConstructionSnapshots(navigationSeq)
+    : null;
+  const deferredRollbackSnapshot = deferPlatformPresentation && !construction
+    ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
   if (construction) prepareUnpublishedWorkspace();
   else spotlight.reset();
@@ -9634,14 +9782,16 @@ async function openPlatformLibrary(
     if (matches.length !== 1) throw new Error(`Platform library '${assembly}' is not uniquely available in this target.`);
     const row = matches[0]!;
     if (!row.hasImplementation) throw new Error(`${row.assembly} has no runtime implementation to inspect.`);
-    installPlatformTarget(target);
-    state.platformOpeningStatus = { loading: true, error: "" };
-    platformLibraryRetry = () => openPlatformLibrary(assembly, pack, {
-      ...options, tfm: target.tfm, version: target.version,
-    });
-    if (!scopeOnly) render();
+    if (!deferPlatformPresentation) {
+      installPlatformTarget(target);
+      state.platformOpeningStatus = { loading: true, error: "" };
+      platformLibraryRetry = () => openPlatformLibrary(assembly, pack, {
+        ...options, tfm: target.tfm, version: target.version,
+      });
+      if (!scopeOnly) render();
+    }
     startPlatformTargetWork(target);
-    let pkg = runtimePackPackage();
+    let pkg = runtimePackageForTarget(target);
     const alreadyLoaded = pkg?.assemblies.some(item => platformLibraryMatchesDescriptor(row, item));
     if (!alreadyLoaded) {
       const runtimeResult = await loadRuntimePackAssembly(
@@ -9656,13 +9806,19 @@ async function openPlatformLibrary(
     if (pkg.version !== target.version || pkg.activeFramework !== target.tfm) {
       throw new Error("The inspected Library does not match the selected Platform target.");
     }
-    if (!state.packages.includes(pkg)) retainPackageModel(pkg);
-    platformPackages.set(platformTargetKey(target), pkg);
     const libraries = pkg.assemblies.filter(item => platformLibraryMatchesDescriptor(row, item));
     if (libraries.length !== 1) throw new Error(`The Platform inspection did not return an exact descriptor for ${row.assembly}.`);
     const library = libraries[0]!;
+    platformPackages.set(platformTargetKey(target), pkg);
+    if (deferPlatformPresentation) installPlatformTarget(target, false);
+    if (!state.packages.includes(pkg)) retainPackageModel(pkg);
     activatePackage(pkg, { resetAccessibility: true });
     state.libraryScope = new Set([library.id]);
+    state.frameworkLibraryPresentation = {
+      tfm: target.tfm,
+      version: target.version,
+      libraryId: library.id,
+    };
     recordPlatformRecent(library.name, row.pack);
     state.platformOpeningStatus = { loading: false, error: "" };
     if (scopeOnly) return pkg;
@@ -9678,6 +9834,11 @@ async function openPlatformLibrary(
     state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
     resetMemberFilters();
+    if (!construction) {
+      workspaceLocation.replace(
+        location.href,
+        withPlatformRootParentHistory(history.state, hasPlatformRootParent));
+    }
     render();
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
@@ -9695,10 +9856,12 @@ async function openPlatformLibrary(
     return pkg;
   } catch (error) {
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
-    if (construction) {
+    const rollbackSnapshot = construction?.rollbackSnapshot
+      ?? deferredRollbackSnapshot;
+    if (rollbackSnapshot) {
       failWorkspaceCatalogAction(
-        `Could not open Platform Library: ${errorMessage(error)}`,
-        construction.rollbackSnapshot,
+        `${deferPlatformPresentation ? "Could not open Library" : "Could not open Platform Library"}: ${errorMessage(error)}`,
+        rollbackSnapshot,
         () => openPlatformLibrary(assembly, pack, { ...options, tfm, version }),
         focusWorkbenchSearchOrHeading);
       return undefined;
@@ -9761,6 +9924,18 @@ async function spotlightPlatformTypeIsAvailable(
   }
 }
 
+function activateSpotlightTypePackage(pkg: AppPackage) {
+  const platformRootParent =
+    pkg.source.kind === "platform"
+    && state.rootKind === "platform"
+    && platformIsPresentedAsRoot();
+  activatePackage(pkg);
+  state.platformPresentedAsRoot = platformRootParent;
+  workspaceLocation.replace(
+    location.href,
+    withPlatformRootParentHistory(history.state, platformRootParent));
+}
+
 async function pickSpotlightMember(
   result: Extract<SpotlightResult, { kind: "member" }>,
 ) {
@@ -9785,7 +9960,7 @@ async function pickSpotlightMember(
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
   state.home = false;
-  activatePackage(pkg);
+  activateSpotlightTypePackage(pkg);
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
   state.libraryScope = new Set([libraryKey(type)]);
@@ -9835,7 +10010,7 @@ async function pickSpotlight(
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
   state.home = false;
-  activatePackage(pkg);
+  activateSpotlightTypePackage(pkg);
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
   state.libraryScope = new Set([libraryKey(type)]);
@@ -11496,6 +11671,7 @@ async function restoreRetainedWorkspaceFromHistory(
       discardPendingWorkspaceConstruction();
       activeWorkspaceUrl = destination;
       workspaceLocation.replace(destination, history.state);
+      render({ synchronizeUrl: false });
     }
   } catch (error) {
     if (navigationSequence.isCurrent(navigationSeq)) {
@@ -11840,6 +12016,7 @@ function focusInspectionResult(navigationSeq: number): void {
 }
 
 function restorePackageRouteReturnFocus() {
+  if (pendingWorkspaceConstruction !== null) return;
   restorePackageQueryReturnFocus();
   restorePackageActivityReturnFocus();
   restorePackageQueryWorkspaceFocus();
@@ -15940,12 +16117,12 @@ async function restoreWorkspaceFromLocation(
           : "The shared workspace coordinates did not remain distinct after resolution."));
     return;
   }
-
   if (loadedPlatformTarget) {
-    installPlatformTarget(loadedPlatformTarget);
     if (loc.library) {
       const opened = await openPlatformLibrary(loc.library, loc.libraryPack ?? "", {
-        scopeOnly: true, navigationSeq,
+        deferPlatformPresentation: true,
+        scopeOnly: true,
+        navigationSeq,
         tfm: loadedPlatformTarget.tfm, version: loadedPlatformTarget.version,
       });
       if (!navigationSequence.isCurrent(navigationSeq)) return;
@@ -15958,6 +16135,7 @@ async function restoreWorkspaceFromLocation(
       if (failure) { failRestore(failure); return; }
       applyDeepLink(deep);
     } else {
+      installPlatformTarget(loadedPlatformTarget);
       if (loc.type || loc.memberAnchor || loc.memberSignature || loc.section || loc.lens || loc.libraryLens) {
         failRestore("A shared Platform inspection requires an exact Library.");
         return;

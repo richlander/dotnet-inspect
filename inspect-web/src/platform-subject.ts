@@ -74,6 +74,22 @@ export function platformInventory(
     .sort((a, b) => a.assembly.localeCompare(b.assembly) || a.pack.localeCompare(b.pack));
 }
 
+export function rankPlatformLibraryMatches<TRow extends PlatformAssemblyRow>(
+  rows: readonly TRow[],
+  query: string,
+): TRow[] {
+  const lower = query.trim().toLowerCase();
+  return [...rows].sort((a, b) => {
+    const exactDifference =
+      Number(b.assembly.toLowerCase() === lower)
+      - Number(a.assembly.toLowerCase() === lower);
+    return exactDifference
+      || (a.pack === b.pack ? 0 : a.pack === "netcore.app" ? -1 : 1)
+      || b.publicTypes - a.publicTypes
+      || a.assembly.localeCompare(b.assembly);
+  });
+}
+
 export function parsePlatformVersions(value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0
     || !value.every((item): item is string => typeof item === "string" && item.trim().length > 0)) {

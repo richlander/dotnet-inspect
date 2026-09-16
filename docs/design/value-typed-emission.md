@@ -543,8 +543,7 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    in the ordered IR; the same typed local represents the complete web across
    those blocks. This does not split live ranges, infer a join type, consume a
    control-flow edge, or expand the coercion domain. The independent
-   storage-rewrite invariant checks that preservation. Multi-store webs with
-   only one load retain their separate fold boundary, and incomplete direct-copy
+   storage-rewrite invariant checks that preservation. Incomplete direct-copy
    components still remain wholly on slots.
 
    The motivating witness is Microsoft.CodeAnalysis.CSharp 5.0.0,
@@ -559,9 +558,30 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    The two branch-prefix fixtures retain their measured OpcodeDiff: earlier
    structuring already duplicates the final return across the branch arms.
    That difference is not introduced or repaired by materialization. The
-   ordinary admission gates are PR-fast; existing nested-scope and
-   single-load-fold gates remain in force.
+   ordinary admission gates are PR-fast; existing nested-scope gates remain
+   in force.
    Production adoption is the unchanged shared CLI and Browser/Wasm pipeline.
+
+   Multiple stores with only one load are also settled storage, not evidence
+   of a pending expression fold. The earlier expression passes own those folds;
+   materialization neither folds nor moves their remaining stores. The blanket
+   multi-store/single-load veto is retired while the independent type, scope,
+   rendering, pending-swap, and atomic-copy boundaries remain.
+   The motivating witness is Microsoft.CodeAnalysis.Common 5.0.0,
+   `AnalyzerImageReference.Display`: its display/path fallback already renders
+   as assignments and an `if`, with an inner `??` expression. The complete
+   string-copy component becomes typed locals without changing those decisions.
+   `SingleLoadSlotMaterializationTests` gates that real witness, compiler-produced
+   fallback storage, and preservation of already-raised conditional, coalesce,
+   lazy-cache, and short-circuit consumer expressions. These admission
+   and fold gates are PR-fast. The slow native-RTS gate, owned by Deep Inspect
+   and the focused pre-merge selection, requires Exact for the four expression
+   folds. The fallback fixture retains its measured OpcodeDiff: earlier raising
+   already keeps its outer fallback as a branch. Paired product-artifact
+   compile-back preserves both original and recompiled streams; materialization
+   neither introduces nor repairs that existing difference. The shared default
+   pipeline adopts the change for CLI and Browser/Wasm; EH adoption is not part
+   of this storage slice.
 
    At materialization, a slot whose stores are all Boolean-valued may recover
    the Boolean identity of an integer-typed load consumed by a Boolean sink
