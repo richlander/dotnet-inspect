@@ -159,6 +159,20 @@ Metadata-owned
 the inverse requires the certified kickoff and execution identities, not a
 support MethodDef.
 
+For a production execution body with available Instructions exception-flow
+facts, request correlation additionally requires the exact composition join:
+
+```text
+StateMachineRelationship.MoveNext
+    == InstructionExceptionFlowFacts.Body.Method
+```
+
+This compares owner-issued MethodDef identity, not generated names, exception
+extents, clause ordinals, or object reference. A foreign body observation
+invalidates the request before recipe recognition. Missing or unavailable
+exception-flow evidence continues through the existing visible EH decline
+path rather than becoming a success-shaped absence.
+
 ### Body availability and post-build artifacts
 
 `Unmodified` describes pipeline state, not provenance. The snapshots contain

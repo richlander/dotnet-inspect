@@ -958,7 +958,7 @@ internal sealed partial class ClassicInverseLoweringProof
         DecompilerExceptionClauseImport[] imports =
         [
             .. index.SharedClauseImports.Where(imported =>
-                ReferenceEquals(imported.Facts, completion)),
+                imported.Facts.Id == completion.Id),
         ];
         if (imports is not [DecompilerExceptionClauseImport imported])
         {
@@ -1006,9 +1006,15 @@ internal sealed partial class ClassicInverseLoweringProof
             return false;
         }
 
-        InstructionExceptionRegion handler = AssertSharedRegion(
-            facts,
-            completion.HandlerRegion);
+        if (facts.GetRegion(completion.HandlerRegion) is not
+            InstructionExceptionFlowResult<
+                InstructionExceptionRegion>.Available availableHandler)
+        {
+            failure = "the completion catch handler identity is unavailable "
+                + "from the shared Instructions observation";
+            return false;
+        }
+        InstructionExceptionRegion handler = availableHandler.Value;
         List<StoreLocal> entries =
         [
             .. index.CaughtStores.Where(
@@ -1024,11 +1030,6 @@ internal sealed partial class ClassicInverseLoweringProof
         failure = null;
         return true;
     }
-
-    static InstructionExceptionRegion AssertSharedRegion(
-        InstructionExceptionFlowFacts facts,
-        InstructionExceptionRegionId id)
-        => facts.Regions.Single(region => region.Id == id);
 
     /// <summary>
     /// The planning view carries the same catch as structure. Its exact type,
