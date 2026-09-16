@@ -346,6 +346,12 @@ substrates, and inspection producers that will extend that space.
   and direct-library adapters bind resource-free source evidence to exact
   Library content references; Metadata, CSharpText, SourceHouse, Library
   ownership, and host presentation retain their focused authority.
+- `src/DotnetInspector.LibraryMetadata/` owns
+  [Library-Metadata correspondence](design/library-metadata-correspondence.md):
+  bounded Metadata extraction inside one exact Library API-content snapshot
+  and resource-free correspondence between the resulting `ApiSurface` and
+  that exact realized content. It composes Library borrowing and Metadata
+  extraction without redefining either.
 - The target
   [Library Ownership and Borrowing](design/library-ownership-and-borrowing.md)
   owner defines the shared lifetime seam beneath those Houses: one
