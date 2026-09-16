@@ -2486,16 +2486,17 @@ Definition records and product demos (this slice):
   `CompleteRestorationPreparationTests` gates resource-free version dispatch,
   exact plan association, normalized navigation-source membership and
   effective-target disambiguation, exact-null packet target identity, static
-  legacy lowering rejection before construction, absent query-owner migration,
-  and supersession.
+  legacy descendant/Library rejection, subscribed and filesystem-backed
+  Workspace rejection in the legacy lowerer before construction, absent
+  query-owner migration, and supersession.
   `CompleteRestorationExecutionTests` gates exact unpublished activation,
   duplicate logical Package Roots, subject-less Package recommendation,
   inactive facet rejection, inherited
   navigation-target occurrence selection, floating declaration-to-realized-
-  Root occurrence selection, canonical packet retention, invalid legacy member
-  keys, context and Scope failure, cancellation and exact authority-loss
-  classification, projection failure, late supersession, host cleanup, and
-  exact activation-object association.
+  Root occurrence selection, canonical packet retention, context and Scope
+  failure, cancellation and exact authority-loss classification, projection
+  failure, late supersession, host cleanup, and exact activation-object
+  association.
   The
   `workspace-definitions-complete-restoration` TLA+ model checks fresh
   Workspace identity, exact request/plan/Workspace association, ordered

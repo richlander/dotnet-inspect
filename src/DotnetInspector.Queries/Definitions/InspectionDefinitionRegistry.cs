@@ -385,7 +385,9 @@ public sealed class InspectionDefinitionRegistry
         string,
         PackageNavigationSource> ResolvePackageNavigationSources(
             WorkspaceDefinition workspace,
-            InspectionDefinitionRecord? navigation)
+            InspectionDefinitionRecord? navigation,
+            NavigationTargetMatchMode targetMatchMode =
+                NavigationTargetMatchMode.InheritOmitted)
     {
         if (navigation is null)
         {
@@ -401,7 +403,7 @@ public sealed class InspectionDefinitionRegistry
             ResolveNavigationSources(
                 workspace,
                 navigation,
-                NavigationTargetMatchMode.InheritOmitted);
+                targetMatchMode);
         return new ReadOnlyDictionary<
             string,
             PackageNavigationSource>(

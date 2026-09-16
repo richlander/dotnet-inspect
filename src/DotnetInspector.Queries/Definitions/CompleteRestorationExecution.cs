@@ -933,21 +933,16 @@ public static class CompleteRestorationCoordinator
 
         var legacy =
             (CompleteRestorationRecipe.LegacyDirectPackage)plan.Recipe;
-        ResolvedNavigation navigation =
-            legacy.Scenario.Navigation
-            ?? throw new InvalidOperationException(
-                "A direct-Package legacy recipe requires Navigation.");
-        ResolvedNavigationTab focused = navigation.FocusTab;
         if (!packageRequests.TryGetValue(
-            focused.Id,
+            legacy.FocusNavigationId,
             out PackageArtifactRootRequest legacyRequest))
         {
             throw new InvalidOperationException(
-                $"Prepared navigation row '{focused.Id}' has no exact Package "
-                    + "request.");
+                $"Prepared navigation row '{legacy.FocusNavigationId}' has no "
+                    + "exact Package request.");
         }
         PackageEvaluationResult legacyPackage = await EvaluatePackageAsync(
-            focused.Id,
+            legacy.FocusNavigationId,
             legacyRequest,
             workspace,
             scope,
@@ -1166,8 +1161,6 @@ public static class CompleteRestorationCoordinator
         NavigationPackageEvaluation package,
         CompleteRestorationExecutionOptions options)
     {
-        ResolvedScenario scenario = legacy.Scenario;
-        ViewDefinition? view = scenario.View;
         StructuralSubjectIdentity.WorkspaceSubject workspace =
             StructuralSubjectIdentity.ForWorkspace(
                 package.Occurrence.Occurrence.Identity.WorkspaceIdentity);
@@ -1176,152 +1169,17 @@ public static class CompleteRestorationCoordinator
                 workspace,
                 package.Occurrence.Occurrence);
         StructuralSubjectIdentity? subject =
-            view is null
-                || view.Type is null
-                    && view.MemberAnchor is null
-                    && view.MemberSignature is null
-                    && view.MemberKey is null
-                    && view.Lens is null
-                    && view.Section is null
+            legacy.Facet is null
                 ? null
                 : packageSubject;
         var context = new NavigationRetainedSubjectContext(packageSubject);
-
-        string? facet = null;
-        if (view?.Type is { } typeSelector)
-        {
-            NavigationSubjectInventory inventory =
-                NavigationWorkspaceSnapshotEvaluation.ClassifySubjectInventory(
-                    packageSubject,
-                    package);
-            if (inventory.Types.Evidence.Any(
-                static evidence =>
-                    evidence
-                        is not NavigationInventoryEvidence
-                            .ProjectedMemberIdentityFailure))
-            {
-                return LegacyFailure(
-                    "The legacy Type selector cannot be resolved exactly "
-                        + "because the acquired Type inventory is incomplete.");
-            }
-            NavigationTypeInventoryRow[] matches =
-            [
-                .. inventory.Libraries
-                    .SelectMany(static library => library.Types.Rows)
-                    .Where(type => LegacyTypeMatches(
-                        legacy.Source,
-                        typeSelector,
-                        type,
-                        package)),
-            ];
-            if (matches.Length != 1)
-            {
-                return LegacyFailure(
-                    matches.Length == 0
-                        ? "The legacy Type selector matched no acquired Type."
-                        : "The legacy Type selector is ambiguous.");
-            }
-
-            NavigationTypeInventoryRow type = matches[0];
-            subject = type.Subject;
-            context = new NavigationRetainedSubjectContext(
-                packageSubject,
-                type.Subject.Library,
-                type.Subject);
-            if (view.MemberAnchor is not null
-                || view.MemberSignature is not null)
-            {
-                NavigationMemberInventoryRow[] members =
-                [
-                    .. type.Members.Where(member =>
-                        member.ContainingType == type.Subject
-                        && member.Subject.DeclaringType == type.Subject
-                        && (view.MemberAnchor is { } anchor
-                            ? string.Equals(
-                                member.Subject.Identity.Member.Fingerprint,
-                                anchor,
-                                StringComparison.Ordinal)
-                            : string.Equals(
-                                member.Subject.Identity.Member
-                                    .CanonicalSignature,
-                                view.MemberSignature,
-                                StringComparison.Ordinal))),
-                ];
-                if (members.Length != 1)
-                {
-                    return LegacyFailure(
-                        members.Length == 0
-                            ? "The legacy Member selector matched no acquired "
-                                + "Member."
-                            : "The legacy Member selector is ambiguous.");
-                }
-
-                subject = members[0].Subject;
-                if (view.MemberKey is { } memberKey
-                    && !string.Equals(
-                        memberKey,
-                        $"{members[0].ProducerRow.Kind}:"
-                            + members[0].ProducerRow.Name,
-                        StringComparison.Ordinal))
-                {
-                    return LegacyFailure(
-                        "The legacy memberKey does not match the resolved "
-                            + "Member group.");
-                }
-                context = new NavigationRetainedSubjectContext(
-                    packageSubject,
-                    type.Subject.Library,
-                    type.Subject,
-                    members[0].Subject);
-            }
-            else if (view.MemberKey is not null)
-            {
-                return LegacyFailure(
-                    "A legacy memberKey requires memberAnchor or "
-                        + "memberSignature.");
-            }
-        }
-        else if (view?.MemberKey is not null)
-        {
-            return LegacyFailure(
-                "A legacy memberKey requires an exact Type and stable Member "
-                    + "selector.");
-        }
-
-        CompleteRestorationPreparation.LegacyFacetMapping mapped =
-            CompleteRestorationPreparation.LegacyRestorationLowering.MapFacet(
-                legacy.Source,
-                view,
-                subject?.Kind ?? StructuralSubjectKind.Package);
-        if (mapped.Failure is not null)
-            return LegacyFailure(mapped.Failure);
-        facet = mapped.Facet;
-        if (facet is "library.integrations"
-            or "library.opportunities"
-            or "library.analysis"
-            or "library.metadata")
-        {
-            if (package.Libraries.IsEmpty)
-            {
-                return LegacyFailure(
-                    "The legacy aggregate Library subject has no acquired "
-                        + "Libraries.");
-            }
-
-            var all = StructuralSubjectIdentity.ForAllLibraries(packageSubject);
-            subject = all;
-            context = new NavigationRetainedSubjectContext(
-                packageSubject,
-                all);
-        }
-
-        NavigationLensIdentity? lens = facet is null
+        NavigationLensIdentity? lens = legacy.Facet is null
             ? null
             : new NavigationLensIdentity(
                 subject
                     ?? throw new InvalidOperationException(
                         "A mapped legacy facet requires an exact subject."),
-                new ViewFacetId(facet));
+                new ViewFacetId(legacy.Facet));
         if (lens is not null)
         {
             NavigationSubjectInventory inventory =
@@ -1335,7 +1193,8 @@ public static class CompleteRestorationCoordinator
             if (resolution is NavigationLensActivationResult.Rejected)
             {
                 return LegacyFailure(
-                    $"Legacy facet '{facet}' is unknown or inapplicable.");
+                    $"Legacy facet '{legacy.Facet}' is unknown or "
+                        + "inapplicable.");
             }
         }
 
@@ -1343,54 +1202,6 @@ public static class CompleteRestorationCoordinator
             new NavigationInitialization(subject, context, lens),
             null);
     }
-
-    private static bool LegacyTypeMatches(
-        CompleteRestorationLegacySource source,
-        string selector,
-        NavigationTypeInventoryRow type,
-        NavigationPackageEvaluation package)
-    {
-        if (source is CompleteRestorationLegacySource.DefinitionV1)
-        {
-            return string.Equals(
-                selector,
-                type.Subject.Identity.Type.ToMetadataFullName(),
-                StringComparison.Ordinal);
-        }
-
-        string definitionId =
-            type.ProducerRow.DefinitionName?.ToEscapedFullName()
-            ?? type.ProducerRow.MetadataName
-            ?? type.ProducerRow.Name;
-        int duplicates = package.Surface.Assemblies.Assemblies
-            .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
-            .SelectMany(static entry => entry.Value.Surface.Types)
-            .Count(candidate =>
-                candidate.DefinitionName == type.ProducerRow.DefinitionName
-                && string.Equals(
-                    candidate.Namespace ?? "",
-                    type.ProducerRow.Namespace ?? "",
-                    StringComparison.Ordinal)
-                && string.Equals(
-                    candidate.MetadataName ?? candidate.Name,
-                    type.ProducerRow.MetadataName ?? type.ProducerRow.Name,
-                    StringComparison.Ordinal));
-        string key = duplicates > 1
-            ? $"{LibraryFor(type, package).Asset.AssemblyName}:"
-                + definitionId
-            : definitionId;
-        return string.Equals(selector, key, StringComparison.Ordinal);
-    }
-
-    private static NavigationLibraryEvaluation LibraryFor(
-        NavigationTypeInventoryRow type,
-        NavigationPackageEvaluation package) =>
-        package.Libraries.Single(
-            library =>
-                StructuralSubjectIdentity.ForLibrary(
-                    type.Subject.Library.Package,
-                    library.Library)
-                == type.Subject.Library);
 
     private static LegacyInitializationResult LegacyFailure(string message) =>
         new(

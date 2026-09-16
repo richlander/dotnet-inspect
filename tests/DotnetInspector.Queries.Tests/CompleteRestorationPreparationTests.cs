@@ -36,8 +36,7 @@ public sealed class CompleteRestorationPreparationTests
             new ViewDefinition(
                 InspectionDefinitionSchema.Version1,
                 "view",
-                lens: "api",
-                type: "System.Text.Json.JsonSerializer",
+                lens: "overview",
                 libraries: ["System.Text.Json"]));
         var authority = new TestIntentAuthority();
 
@@ -59,8 +58,7 @@ public sealed class CompleteRestorationPreparationTests
             new ViewDefinition(
                 InspectionDefinitionSchema.Version1,
                 "view",
-                lens: "api",
-                type: "System.Text.Json.JsonSerializer"));
+                lens: "overview"));
 
         var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
             WorkspaceDefinitionConsumer.PrepareRestoration(
@@ -74,7 +72,11 @@ public sealed class CompleteRestorationPreparationTests
         Assert.Equal(
             CompleteRestorationLegacySource.DefinitionV1,
             recipe.Source);
-        Assert.Equal("package", recipe.Scenario.Navigation!.FocusTabId);
+        Assert.Equal("package", recipe.FocusNavigationId);
+        Assert.Equal("package.overview", recipe.Facet);
+        Assert.Equal(
+            "package",
+            recipe.Definitions.Navigation!.Focus);
     }
 
     [Fact]
@@ -84,8 +86,154 @@ public sealed class CompleteRestorationPreparationTests
             new ViewDefinition(
                 InspectionDefinitionSchema.Version1,
                 "view",
-                lens: "API",
-                type: "System.Text.Json.JsonSerializer"));
+                lens: "API"));
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(
+            failed.Failure);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TypeAndMemberVersion1Definitions_FailBeforeConstruction(
+        bool member)
+    {
+        InspectionDefinitionRegistry registry = Version1Registry(
+            new ViewDefinition(
+                InspectionDefinitionSchema.Version1,
+                "view",
+                lens: "api",
+                type: "System.Text.Json.JsonSerializer",
+                memberAnchor: member ? "1dc14dd1fb" : null));
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(
+            failed.Failure);
+    }
+
+    [Fact]
+    public void SubscribedVersion1Workspace_FailsInLegacyLowerer()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new CatalogDefinition(
+            InspectionDefinitionSchema.Version1,
+            "catalog",
+            [
+                new CatalogGroupDefinition(
+                    "Runtime",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PlatformCoordinate(
+                            "runtime"),
+                    ]),
+            ]));
+        registry.Add(new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "package",
+                    members: [Package()]),
+                new WorkspaceContextDefinition(
+                    "runtime",
+                    subscribe: ":Runtime"),
+            ]));
+        registry.Add(new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "package",
+                    coordinate: Package()),
+                new NavigationTabDefinition(
+                    "runtime",
+                    subscribe: ":Runtime"),
+            ],
+            "package"));
+        registry.Add(new ViewDefinition(
+            InspectionDefinitionSchema.Version1,
+            "view",
+            lens: "overview"));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: "workspace",
+            context: "package",
+            view: "view",
+            navigation: "navigation"));
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(
+            failed.Failure);
+    }
+
+    [Theory]
+    [InlineData("project")]
+    [InlineData("local")]
+    [InlineData("directory")]
+    public void FilesystemVersion1Workspace_FailsInLegacyLowerer(
+        string coordinateKind)
+    {
+        DefinitionMemberCoordinate coordinate = coordinateKind switch
+        {
+            "project" =>
+                new DefinitionMemberCoordinate.ProjectCoordinate(
+                    "sample.csproj"),
+            "local" =>
+                new DefinitionMemberCoordinate.LocalCoordinate("sample.dll"),
+            "directory" =>
+                new DefinitionMemberCoordinate.DirectoryCoordinate(
+                    "artifacts"),
+            _ => throw new InvalidOperationException(),
+        };
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    members: [Package(), coordinate]),
+            ]));
+        registry.Add(new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "package",
+                    coordinate: Package()),
+                new NavigationTabDefinition(
+                    "source",
+                    coordinate: coordinate),
+            ],
+            "package"));
+        registry.Add(new ViewDefinition(
+            InspectionDefinitionSchema.Version1,
+            "view",
+            lens: "overview"));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            view: "view",
+            navigation: "navigation"));
 
         var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
             WorkspaceDefinitionConsumer.PrepareRestoration(

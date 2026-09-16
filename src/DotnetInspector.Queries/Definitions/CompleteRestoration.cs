@@ -78,8 +78,7 @@ public enum CompleteRestorationLegacySource
 }
 
 /// <summary>
-/// Resource-free recipe retained until metadata-dependent selectors can be
-/// resolved inside the exact fresh Workspace.
+/// Resource-free recipe retained until the exact fresh Workspace is built.
 /// </summary>
 public abstract record CompleteRestorationRecipe
 {
@@ -97,11 +96,20 @@ public abstract record CompleteRestorationRecipe
 
     public sealed record LegacyDirectPackage(
         CompleteRestorationLegacySource Source,
-        ResolvedScenario Scenario)
+        Version1ScenarioDefinitionSet Definitions,
+        string FocusNavigationId,
+        string? Facet)
         : CompleteRestorationRecipe
     {
-        public ResolvedScenario Scenario { get; } =
-            Scenario ?? throw new ArgumentNullException(nameof(Scenario));
+        public Version1ScenarioDefinitionSet Definitions { get; } =
+            Definitions ?? throw new ArgumentNullException(nameof(Definitions));
+
+        public string FocusNavigationId { get; } =
+            string.IsNullOrWhiteSpace(FocusNavigationId)
+                ? throw new ArgumentException(
+                    "A legacy recipe requires a focused navigation id.",
+                    nameof(FocusNavigationId))
+                : FocusNavigationId;
     }
 }
 
@@ -553,61 +561,12 @@ public static class CompleteRestorationPreparation
                         new CompleteRestorationRecipe.Version2(
                             version2.Definitions),
                         committedPackages));
-            case InspectionDefinitionScenarioPreparationResult.Version1 version1
-                when version1.Scenario.WorkspacePlan is not null:
-                if (version1.Scenario.Query is not null)
-                {
-                    return new CompleteRestorationPreparationResult.Failed(
-                        authority.Identity,
-                        request,
-                        new CompleteRestorationFailure.LegacyLoweringFailed(
-                            "Definition schema version 1 query presets require "
-                                + "a registered query-owner migration."));
-                }
-                if (version1.Scenario.Navigation is not { } navigation
-                    || navigation.FocusTab.Coordinate
-                        is not WorkspaceMemberCoordinate.PackageMember)
-                {
-                    return new CompleteRestorationPreparationResult.Failed(
-                        authority.Identity,
-                        request,
-                        new CompleteRestorationFailure.LegacyLoweringFailed(
-                            "Complete restoration requires a focused direct-"
-                                + "Package schema version 1 navigation."));
-                }
-                if (version1.Scenario.View?.Libraries.Count > 0)
-                {
-                    return new CompleteRestorationPreparationResult.Failed(
-                        authority.Identity,
-                        request,
-                        new CompleteRestorationFailure.LegacyLoweringFailed(
-                            "Definition schema version 1 Library scope "
-                                + "requires a registered query-owner "
-                                + "migration."));
-                }
-                if (LegacyRestorationLowering.ValidateStatic(
-                        source,
-                        version1.Scenario.View)
-                    is { } staticFailure)
-                {
-                    return new CompleteRestorationPreparationResult.Failed(
-                        authority.Identity,
-                        request,
-                        new CompleteRestorationFailure.LegacyLoweringFailed(
-                            staticFailure));
-                }
-                return new CompleteRestorationPreparationResult.Ready(
-                    new CompleteRestorationPlan(
-                        authority.Identity,
-                        request,
-                        version1.Scenario.WorkspacePlan,
-                        new CompleteRestorationRecipe.LegacyDirectPackage(
-                            source,
-                            version1.Scenario),
-                        ResolvedPackageSources(
-                            version1.Scenario.Navigation)));
-            case InspectionDefinitionScenarioPreparationResult.Version1:
-                return FailedWorkspaceFree(authority.Identity, request);
+            case InspectionDefinitionScenarioPreparationResult.Version1 version1:
+                return PrepareVersion1(
+                    version1.Definitions,
+                    authority.Identity,
+                    request,
+                    source);
             default:
                 throw new InvalidOperationException(
                     "Unknown definition preparation result.");
@@ -620,115 +579,133 @@ public static class CompleteRestorationPreparation
 
     internal static class LegacyRestorationLowering
     {
-        internal static string? ValidateStatic(
-            CompleteRestorationLegacySource source,
+        internal static LegacyFacetMapping MapPackageFacet(
             ViewDefinition? view)
         {
-            bool hasMemberAnchor = view?.MemberAnchor is not null;
-            bool hasMemberSignature = view?.MemberSignature is not null;
-            if (view?.MemberKey is not null
-                && !hasMemberAnchor
-                && !hasMemberSignature)
+            if (view?.Libraries.Count > 0)
             {
-                return "A legacy memberKey requires memberAnchor or "
-                    + "memberSignature.";
+                return new(
+                    null,
+                    "Definition schema version 1 Library scope requires a "
+                        + "registered query-owner migration.");
             }
 
-            StructuralSubjectKind subject =
-                hasMemberAnchor || hasMemberSignature
-                    ? StructuralSubjectKind.Member
-                    : view?.Type is not null
-                        ? StructuralSubjectKind.Type
-                        : StructuralSubjectKind.Package;
-            return MapFacet(source, view, subject).Failure;
-        }
-
-        internal static LegacyFacetMapping MapFacet(
-            CompleteRestorationLegacySource source,
-            ViewDefinition? view,
-            StructuralSubjectKind subject)
-        {
-            string? lens = view?.Lens;
-            string? section = view?.Section;
-            if (subject is StructuralSubjectKind.Member)
+            if (view?.Type is not null)
             {
-                if (lens is not null
-                    && lens is not "api"
-                    and not "metadata"
-                    and not "source")
-                {
-                    return new(null, "The legacy parent Type lens is invalid.");
-                }
-
-                return (source, section) switch
-                {
-                    (_, null) =>
-                        new("member.overview", null),
-                    (CompleteRestorationLegacySource.PacketV1, "overview") =>
-                        new("member.overview", null),
-                    (CompleteRestorationLegacySource.PacketV1, "call-graph") =>
-                        new("member.call-graph", null),
-                    (CompleteRestorationLegacySource.PacketV1, "facts") =>
-                        new("member.facts", null),
-                    (CompleteRestorationLegacySource.PacketV1, "source") =>
-                        new("member.source", null),
-                    (CompleteRestorationLegacySource.PacketV1, "annotated") =>
-                        new("member.annotated-source", null),
-                    (CompleteRestorationLegacySource.DefinitionV1, "Call Graph") =>
-                        new("member.call-graph", null),
-                    _ => new(null, $"Unknown legacy Member section '{section}'."),
-                };
+                string subject = view.MemberAnchor is not null
+                    || view.MemberSignature is not null
+                    || view.MemberKey is not null
+                        ? "Member"
+                        : "Type";
+                return new(
+                    null,
+                    $"Legacy {subject} active requests are not supported by "
+                        + "complete restoration.");
             }
 
-            if (subject is StructuralSubjectKind.Type)
-            {
-                if (section is not null)
-                {
-                    if (lens is not null)
-                    {
-                        return new(
-                            null,
-                            "A legacy Type view cannot carry both lens and "
-                                + "section.");
-                    }
-                    return source
-                            is CompleteRestorationLegacySource.DefinitionV1
-                        && section == "Methods"
-                        ? new("type.api", null)
-                        : new(
-                            null,
-                            $"Unknown legacy Type section '{section}'.");
-                }
-
-                return lens switch
-                {
-                    null => new(null, null),
-                    "api" => new("type.api", null),
-                    "metadata" => new("type.metadata", null),
-                    "source" => new("type.source", null),
-                    _ => new(null, $"Unknown legacy Type lens '{lens}'."),
-                };
-            }
-
-            if (section is not null)
+            if (view?.Section is not null)
             {
                 return new(
                     null,
                     "A legacy Package view cannot carry a member section.");
             }
 
-            return lens switch
+            return view?.Lens switch
             {
                 null => new(null, null),
                 "overview" => new("package.overview", null),
                 "dependencies" => new("package.dependencies", null),
-                "integrations" => new("library.integrations", null),
-                "opportunities" => new("library.opportunities", null),
-                "analysis" => new("library.analysis", null),
-                "metadata" => new("library.metadata", null),
-                _ => new(null, $"Unknown legacy Package lens '{lens}'."),
+                "integrations"
+                    or "opportunities"
+                    or "analysis"
+                    or "metadata"
+                    or "library:overview"
+                    or "library:compare"
+                    or "library:references"
+                    or "library:integrations"
+                    or "library:analysis"
+                    or "library:metadata" =>
+                        new(
+                            null,
+                            "Legacy Library active requests are not supported "
+                                + "by complete restoration."),
+                _ => new(
+                    null,
+                    $"Unknown legacy Package lens '{view!.Lens}'."),
             };
         }
+    }
+
+    private static CompleteRestorationPreparationResult PrepareVersion1(
+        Version1ScenarioDefinitionSet definitions,
+        CompleteRestorationIntentIdentity intent,
+        CompleteRestorationRequestBasis request,
+        CompleteRestorationLegacySource source)
+    {
+        if (definitions.Workspace is not { } workspace)
+            return FailedWorkspaceFree(intent, request);
+        if (definitions.Query is not null)
+        {
+            return LegacyFailure(
+                intent,
+                request,
+                "Definition schema version 1 query presets require a "
+                    + "registered query-owner migration.");
+        }
+        if (definitions.Navigation is not { } navigation)
+        {
+            return LegacyFailure(
+                intent,
+                request,
+                "Complete restoration requires a focused direct-Package "
+                    + "schema version 1 navigation.");
+        }
+
+        LegacyFacetMapping mapped =
+            LegacyRestorationLowering.MapPackageFacet(definitions.View);
+        if (mapped.Failure is not null)
+            return LegacyFailure(intent, request, mapped.Failure);
+
+        NavigationTargetMatchMode targetMatchMode =
+            source is CompleteRestorationLegacySource.PacketV1
+                ? NavigationTargetMatchMode.Exact
+                : NavigationTargetMatchMode.InheritOmitted;
+        IReadOnlyDictionary<string, PackageNavigationSource> packageSources =
+            InspectionDefinitionRegistry.ResolvePackageNavigationSources(
+                workspace,
+                navigation,
+                targetMatchMode);
+        if (!packageSources.ContainsKey(navigation.Focus))
+        {
+            return LegacyFailure(
+                intent,
+                request,
+                "Complete restoration requires a focused direct-Package "
+                    + "schema version 1 navigation.");
+        }
+
+        WorkspacePlan workspacePlan;
+        try
+        {
+            workspacePlan =
+                InspectionDefinitionRegistry.CreateWorkspacePlan(workspace);
+        }
+        catch (InspectionDefinitionException failure)
+        {
+            return LegacyFailure(intent, request, failure.Message);
+        }
+
+        return new CompleteRestorationPreparationResult.Ready(
+            new CompleteRestorationPlan(
+                intent,
+                request,
+                workspacePlan,
+                new CompleteRestorationRecipe.LegacyDirectPackage(
+                    source,
+                    definitions,
+                    navigation.Focus,
+                    mapped.Facet),
+                packageSources));
     }
 
     private static CompleteRestorationPreparationResult FailedWorkspaceFree(
@@ -741,37 +718,14 @@ public static class CompleteRestorationPreparation
                 "Workspace-free scenarios do not enter complete Workspace "
                     + "restoration."));
 
-    private static IReadOnlyDictionary<
-        string,
-        PackageNavigationSource>
-        ResolvedPackageSources(ResolvedNavigation navigation) =>
-        new ReadOnlyDictionary<
-            string,
-            PackageNavigationSource>(
-                navigation.Tabs
-                    .Where(tab =>
-                        tab.Coordinate
-                            is WorkspaceMemberCoordinate.PackageMember
-                        && tab.ContextIndex is not null
-                        && tab.MemberIndex is not null)
-                    .ToDictionary(
-                        static tab => tab.Id,
-                        static tab =>
-                        {
-                            var package =
-                                (WorkspaceMemberCoordinate.PackageMember)
-                                    tab.Coordinate;
-                            return new PackageNavigationSource(
-                                tab.ContextIndex!.Value,
-                                tab.MemberIndex!.Value,
-                                new DefinitionMemberCoordinate
-                                    .PackageCoordinate(
-                                        package.PackageId,
-                                        package.Version,
-                                        package.Framework,
-                                        package.RuntimeIdentifier));
-                        },
-                        StringComparer.Ordinal));
+    private static CompleteRestorationPreparationResult LegacyFailure(
+        CompleteRestorationIntentIdentity intent,
+        CompleteRestorationRequestBasis request,
+        string message) =>
+        new CompleteRestorationPreparationResult.Failed(
+            intent,
+            request,
+            new CompleteRestorationFailure.LegacyLoweringFailed(message));
 
     private static CompleteRestorationPreparationResult? NonCurrent(
         ICompleteRestorationIntentAuthority authority,

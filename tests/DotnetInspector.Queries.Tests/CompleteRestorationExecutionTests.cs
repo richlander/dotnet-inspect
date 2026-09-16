@@ -314,15 +314,14 @@ public sealed class CompleteRestorationExecutionTests
     }
 
     [Fact]
-    public async Task DefinitionV1_ResolvesExactTypeAndRegistryFacet()
+    public async Task DefinitionV1_ResolvesPackageOverviewFacet()
     {
         PackageFixture package = await SystemTextJsonPackageAsync();
         InspectionDefinitionRegistry registry = Version1PackageRegistry(
             new ViewDefinition(
                 InspectionDefinitionSchema.Version1,
                 "view",
-                lens: "api",
-                type: "System.Text.Json.JsonSerializer"));
+                lens: "overview"));
         var authority = new TestIntentAuthority();
         var preparation =
             Assert.IsType<CompleteRestorationPreparationResult.Ready>(
@@ -349,175 +348,17 @@ public sealed class CompleteRestorationExecutionTests
             Assert.IsType<CompleteRestorationResolvedState.Legacy>(
                 activated.Workspace.Snapshot.Resolved);
         Assert.Equal(
-            StructuralSubjectKind.Type,
+            StructuralSubjectKind.Package,
             legacy.Initialization.Subject!.Kind);
         Assert.Equal(
-            "type.api",
+            "package.overview",
             legacy.Initialization.Lens!.Facet.Value);
         Assert.Equal(
-            StructuralSubjectKind.Type,
+            StructuralSubjectKind.Package,
             activated.Workspace.Snapshot.Navigation.State.Snapshot
                 .ActiveSubject.Kind);
 
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task DefinitionV1_ResolvesExactMemberAndPairedKey(
-        bool useAnchor)
-    {
-        const string signature =
-            "M:System.Text.Json.JsonSerializer.Serialize<TValue>"
-            + "(TValue,System.Text.Json.JsonSerializerOptions?)";
-        PackageFixture package = await SystemTextJsonPackageAsync();
-        InspectionDefinitionRegistry registry = Version1PackageRegistry(
-            new ViewDefinition(
-                InspectionDefinitionSchema.Version1,
-                "view",
-                lens: "api",
-                type: "System.Text.Json.JsonSerializer",
-                memberAnchor: useAnchor ? "1dc14dd1fb" : null,
-                memberSignature: useAnchor ? null : signature,
-                memberKey: "method:Serialize"));
-        var authority = new TestIntentAuthority();
-        var preparation =
-            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
-                WorkspaceDefinitionConsumer.PrepareRestoration(
-                    registry,
-                    "scenario",
-                    authority));
-        var host = new TestHost();
-        using var client = new HttpClient(new RejectingHandler());
-
-        CompleteRestorationResult<InspectionWorkspace> result =
-            await WorkspaceDefinitionConsumer.RestoreAsync(
-                preparation,
-                authority,
-                host,
-                Options(client, package.Store),
-                TestContext.Current.CancellationToken);
-
-        if (result
-            is CompleteRestorationResult<InspectionWorkspace>.Failed failed)
-        {
-            Assert.Fail(
-                $"{failed.Failure.GetType().Name}: "
-                    + failed.Failure.Message);
-        }
-        var activated = Assert.IsType<
-            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
-        var legacy =
-            Assert.IsType<CompleteRestorationResolvedState.Legacy>(
-                activated.Workspace.Snapshot.Resolved);
-        var member =
-            Assert.IsType<StructuralSubjectIdentity.MemberSubject>(
-                legacy.Initialization.Subject);
-        Assert.Equal("1dc14dd1fb", member.Identity.Member.Fingerprint);
-        Assert.Equal(
-            member,
-            legacy.Initialization.Context!.Member);
-        Assert.Equal(
-            "member.overview",
-            legacy.Initialization.Lens!.Facet.Value);
-
-        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
-    }
-
-    [Fact]
-    public async Task DefinitionV1_ResolvesAggregateLibraryFacet()
-    {
-        PackageFixture package = await SystemTextJsonPackageAsync();
-        InspectionDefinitionRegistry registry = Version1PackageRegistry(
-            new ViewDefinition(
-                InspectionDefinitionSchema.Version1,
-                "view",
-                lens: "metadata"));
-        var authority = new TestIntentAuthority();
-        var preparation =
-            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
-                WorkspaceDefinitionConsumer.PrepareRestoration(
-                    registry,
-                    "scenario",
-                    authority));
-        var host = new TestHost();
-        using var client = new HttpClient(new RejectingHandler());
-
-        CompleteRestorationResult<InspectionWorkspace> result =
-            await WorkspaceDefinitionConsumer.RestoreAsync(
-                preparation,
-                authority,
-                host,
-                Options(client, package.Store),
-                TestContext.Current.CancellationToken);
-
-        var activated = Assert.IsType<
-            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
-        var legacy =
-            Assert.IsType<CompleteRestorationResolvedState.Legacy>(
-                activated.Workspace.Snapshot.Resolved);
-        var all =
-            Assert.IsType<StructuralSubjectIdentity.AllLibrariesSubject>(
-                legacy.Initialization.Subject);
-        Assert.Equal(all, legacy.Initialization.Context!.Library);
-        Assert.Equal(
-            "library.metadata",
-            legacy.Initialization.Lens!.Facet.Value);
-
-        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
-    }
-
-    [Fact]
-    public async Task DefinitionV1_IncompleteTypeInventoryFailsExactLowering()
-    {
-        PackageFixture package = await SystemTextJsonPackageAsync();
-        InspectionDefinitionRegistry registry = Version1PackageRegistry(
-            new ViewDefinition(
-                InspectionDefinitionSchema.Version1,
-                "view",
-                lens: "api",
-                type: "System.Text.Json.JsonSerializer"));
-        var authority = new TestIntentAuthority();
-        var preparation =
-            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
-                WorkspaceDefinitionConsumer.PrepareRestoration(
-                    registry,
-                    "scenario",
-                    authority));
-        var host = new TestHost();
-        using var client = new HttpClient(new RejectingHandler());
-        CompleteRestorationExecutionOptions options =
-            Options(client, package.Store) with
-            {
-                PackageSurfaceLimits = new ApiSurfaceProjectionLimits(
-                    maxParticipants: 1,
-                    maxTypes: 1,
-                    maxMembers: 100_000,
-                    maxInspectionFailures: 1_000,
-                    maxTypeForwarders: 10_000,
-                    maxMetadataRows: 1_000_000,
-                    maxRetainedTextCharacters: 8_000_000),
-            };
-
-        CompleteRestorationResult<InspectionWorkspace> result =
-            await WorkspaceDefinitionConsumer.RestoreAsync(
-                preparation,
-                authority,
-                host,
-                options,
-                TestContext.Current.CancellationToken);
-
-        var failed = Assert.IsType<
-            CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
-        var lowering =
-            Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(
-                failed.Failure);
-        Assert.Contains(
-            "Type inventory is incomplete",
-            lowering.Message,
-            StringComparison.Ordinal);
-        Assert.True(host.CloseReport!.Succeeded);
     }
 
     [Fact]
@@ -1074,44 +915,6 @@ public sealed class CompleteRestorationExecutionTests
     }
 
     [Fact]
-    public async Task Version2WithoutNavigation_ActivatesWorkspaceRecommendation()
-    {
-        byte[] assembly = await File.ReadAllBytesAsync(
-            typeof(CompleteRestorationExecutionTests).Assembly.Location,
-            TestContext.Current.CancellationToken);
-        var authority = new TestIntentAuthority();
-        var preparation =
-            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
-                WorkspaceDefinitionConsumer.PrepareRestoration(
-                    WorkspaceWithoutNavigationRegistry(assembly),
-                    "scenario",
-                    authority));
-        var host = new TestHost();
-        using var client = new HttpClient(new RejectingHandler());
-
-        CompleteRestorationResult<InspectionWorkspace> result =
-            await WorkspaceDefinitionConsumer.RestoreAsync(
-                preparation,
-                authority,
-                host,
-                Options(client, assembly),
-                TestContext.Current.CancellationToken);
-
-        var activated = Assert.IsType<
-            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
-        var resolved =
-            Assert.IsType<CompleteRestorationResolvedState.Version2>(
-                activated.Workspace.Snapshot.Resolved);
-        Assert.Empty(resolved.States);
-        Assert.Null(resolved.ActiveStateIndex);
-        Assert.Equal(
-            StructuralSubjectKind.Workspace,
-            activated.Workspace.Snapshot.Navigation.State.Snapshot
-                .ActiveSubject.Kind);
-        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
-    }
-
-    [Fact]
     public async Task EmptyVersion1View_UsesCoordinateRecommendation()
     {
         PackageFixture package = await SystemTextJsonPackageAsync();
@@ -1295,34 +1098,6 @@ public sealed class CompleteRestorationExecutionTests
             context: "context",
             view: "view",
             navigation: "navigation"));
-        return registry;
-    }
-
-    private static InspectionDefinitionRegistry
-        WorkspaceWithoutNavigationRegistry(byte[] assembly)
-    {
-        string digest = Convert.ToHexString(
-            SHA256.HashData(assembly)).ToLowerInvariant();
-        var registry = new InspectionDefinitionRegistry();
-        registry.Add(new WorkspaceDefinition(
-            InspectionDefinitionSchema.Version2,
-            "workspace",
-            [
-                new WorkspaceContextDefinition(
-                    "context",
-                    members:
-                    [
-                        new DefinitionMemberCoordinate.EmbeddedCoordinate(
-                            "queries-tests",
-                            digest,
-                            "DotnetInspector.Queries.Tests"),
-                    ]),
-            ]));
-        registry.Add(new ScenarioDefinition(
-            InspectionDefinitionSchema.Version2,
-            "scenario",
-            workspace: "workspace",
-            context: "context"));
         return registry;
     }
 
