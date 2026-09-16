@@ -13,7 +13,7 @@
       "targets": [
         "CSharpText",
         "Inspector.Resources",
-        "DotnetInspector.RowSelection",
+        "DotnetInspector.QueryEngine",
         "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
         "InertText",

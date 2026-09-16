@@ -120,6 +120,7 @@ test("an unstarted query renders the composing empty state", () => {
   assert.match(html, /Package ID or prefix/);
   assert.match(html, /terminal <code>\*<\/code>/);
   assert.doesNotMatch(html, /Feeling lucky|Gallery filters|package-query-discover/);
+  assert.doesNotMatch(html, /role="tablist"|data-query-mode/);
   assert.doesNotMatch(html, /maxlength=/);
 });
 
