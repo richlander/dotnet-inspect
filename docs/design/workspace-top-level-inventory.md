@@ -9,8 +9,9 @@ Workspace adoption of the
 It is **unimplemented and unverified**.
 
 The operator approved one host-neutral inventory with direct CLI and Inspect
-Web adoption. This document owns that inventory only. It consumes, without
-redefining:
+Web adoption, and required the command experience to work from both an
+already-realized Workspace and a Workspace packet. This document owns that
+inventory only. It consumes, without redefining:
 
 - Package membership, occurrence identity, order, and realization state from
   [Workspace Scope](workspace-scope-and-expansion.md);
@@ -81,12 +82,13 @@ infer top-level Package membership from `WorkspacePlan.Contexts`.
 
 The CLI and Inspect Web therefore share one semantic operation without
 pretending that their construction inputs are the same. The CLI adapts its
-explicit Package inputs and registrations into one ephemeral coordinator
-candidate. Inspect Web uses its existing Definitions-owned restoration recipe
-and realization host. Construction, acquisition, Scope publication, candidate
-completion, cutover, admission, cancellation, retirement, and settlement keep
-their existing owner-issued outcomes and cleanup contracts outside the
-inventory envelope.
+explicit Package inputs and registrations, or a Definitions-owned Workspace
+packet restoration recipe, into one ephemeral coordinator candidate. Inspect
+Web uses its existing Definitions-owned restoration recipe and realization
+host. Construction, acquisition, Scope publication, candidate completion,
+cutover, admission, cancellation, retirement, and settlement keep their
+existing owner-issued outcomes and cleanup contracts outside the inventory
+envelope.
 
 The query validates that the Scope snapshot carries the same
 `WorkspaceScopeRevision` as the `WorkspaceDefinitionSnapshot`. Production
@@ -94,6 +96,43 @@ operation admission should make a mismatch unreachable, but the query boundary
 still checks the association it depends on. The operation is a finite
 in-memory projection over already detached snapshot facts and has no
 asynchronous work or cancellation boundary of its own.
+
+### CLI construction routes
+
+The `workspace` command has two mutually exclusive top-level construction
+routes:
+
+1. **Explicit construction.** CLI Package and registration options form one
+   `WorkspacePlan` plus the explicit Package-membership construction inputs
+   needed by the current invocation.
+2. **Packet restoration.** One canonical Workspace packet is decoded and
+   lowered by Workspace Definitions into its `WorkspacePlan` and complete
+   restoration recipe.
+
+Both routes populate and admit one ephemeral realized Workspace through the
+same owner operations before calling
+`WorkspaceTopLevelInventoryOperation`. The inventory query cannot distinguish
+which construction route produced its admitted authority, and equal realized
+definition/scope state produces equal inventory content.
+
+A packet is inert input, not acquisition authority. Packet decode, migration,
+Registry resolution, source authorization, acquisition, Scope publication,
+Navigation restoration, projection, cancellation, and cleanup retain the
+typed outcomes and ordering defined by Workspace Definitions and their owning
+services. Failure before operation admission does not become an inventory
+`Unavailable` result.
+
+The CLI owner defines the packet option spelling and its exact option
+compatibility. The packet cannot be combined with direct top-level construction
+options that would ambiguously replace its membership or registrations.
+Inventory-only controls such as output format and kind filter apply after
+either construction route. A later focused CLI design must decide whether
+descendant Navigation options may refine the packet's restored active subject
+without changing the inventory basis.
+
+Accepting a packet does not create an inventory-specific packet format. The
+command consumes the existing complete Workspace packet and the same
+Definitions-owned restoration pipeline used by other hosts.
 
 ## Terminal outcomes
 
@@ -428,22 +467,28 @@ Implementation proceeds as independently reviewable slices:
    entry family, entry key, selection receipt, kind filter, pure snapshot
    query, and admitted L2 operation.
 2. **CLI adoption.** Construct one ephemeral realization through
-   `WorkspaceRealizationCoordinator`, keeping explicit Package membership
-   separate from `WorkspacePlan`; preserve every owner-issued acquisition,
-   Scope publication, activation, admission, cancellation, retirement, and
-   settlement outcome. Replace Package-only row reconstruction with the shared
-   operation, add focused registration/filter controls, render through Markout,
-   and preserve exact Package occurrence drill-down through the receipt.
+   `WorkspaceRealizationCoordinator` from either explicit construction inputs
+   or one Workspace packet restoration recipe, keeping explicit Package
+   membership separate from `WorkspacePlan`; preserve every owner-issued
+   packet, migration, acquisition, Scope publication, activation, admission,
+   cancellation, retirement, and settlement outcome. Replace Package-only row
+   reconstruction with the shared operation, add focused
+   registration/filter/packet controls, render through Markout, and preserve
+   exact Package occurrence drill-down through the receipt.
 3. **Inspect Web adoption.** Consume the admitted operation from
    `BrowserWorkspaceRealizationHost`, render the same semantic document in the
    existing Workspace surface, and bind actions through retained managed
    authority and the selection receipt.
 
-The first implementation slice must state whether the existing Workspace
-Definition packet can project the inventory request. Until a portable
-projection owner adopts any missing request state, the envelope returns a
-specific `InspectionShare.NonProjectable` reason rather than inventing a
-parallel share format.
+Packet input and result Share are separate concerns. A valid packet can restore
+and inventory a Workspace even when the inventory request, such as a kind
+filter, cannot yet be projected into a packet. The first implementation slice
+must state whether the existing Workspace Definition packet can project that
+request state. Until a portable projection owner adopts any missing state, the
+envelope returns a specific `InspectionShare.NonProjectable` reason rather than
+inventing a parallel share format. A packet-sourced result retains its exact
+canonical input packet when the complete result request is projectable under
+the Workspace Definitions contract.
 
 Required gates use Release configuration and include:
 
@@ -457,8 +502,10 @@ Required gates use Release configuration and include:
 - serializer shape and round-trip tests for every outcome, entry, Package
   state, preparation, and diagnostic arm, with exact expected fields;
 - CLI output tests for the real mixed Workspace, structured formats, filtering,
-  overlaps, failed Package entries, Package occurrence drill-down, and every
-  coordinator failure or cleanup stage the CLI newly orchestrates; and
+  overlaps, failed Package entries, Package occurrence drill-down, direct and
+  packet-restored semantic equivalence, invalid packet and incompatible-option
+  failures, and every coordinator failure or cleanup stage the CLI newly
+  orchestrates; and
 - Browser managed-host and browser-runtime tests showing the same mixed
   inventory, filter semantics, receipt-bound actions, and stale-action
   rejection.
