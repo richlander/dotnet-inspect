@@ -42,7 +42,7 @@
 //   dotnet run eng/check-decompiler-gate.cs -- <results.xml> <execution.jsonl> \
 //       <known-red.txt> <expected-classes.txt> <discovery.jsonl> [--partial]
 //
-// Produce the discovery listing with the *same* preset as the run, so the two
+// Produce the discovery receipt with the *same* preset as the run, so the two
 // cannot drift:
 //   dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
 //       --gate-discovery-receipt discovery.jsonl --gate pre-merge \
