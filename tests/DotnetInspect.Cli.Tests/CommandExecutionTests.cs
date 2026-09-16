@@ -20321,6 +20321,37 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Find_LocatorMixedPatternsPreservePatternOrderBeforeLimit()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.Serialization,JsonSerializer",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--tips",
+            "q",
+            "-n",
+            "1");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Showing prefix matches",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            "System.Text.Json.Serialization.JsonAttribute",
+            row.GetProperty("full_name").GetString());
+        Assert.Equal("Glob", row.GetProperty("match").GetString());
+    }
+
+    [Fact]
     public async Task Find_IncompleteLocatorMarkdownPreservesResultsView()
     {
         var (exit, output, error) = await RunAppAsync(

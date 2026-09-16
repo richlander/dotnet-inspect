@@ -315,12 +315,14 @@ contributes results:
 
 Exact and glob rows carry similarity `1.0`; partial rows carry their computed
 score; `NotFound` carries no score. Multiple patterns classify independently,
-so one candidate may legitimately appear under more than one pattern.
+so one candidate may legitimately appear under more than one pattern. Their
+direct or namespace-prefix groups remain in input-pattern order; similarity
+groups and misses follow those primary groups in their own input-pattern order.
 
-The row list does not currently promise a global presentation order. Direct
-matches preserve source and inventory order, but consumers must use `Pattern`,
-`Match`, and `Similarity` rather than infer classification or quality from list
-position.
+The row list does not otherwise promise a global presentation order. Direct
+and namespace-prefix matches preserve source and inventory order, but consumers
+must use `Pattern`, `Match`, and `Similarity` rather than infer classification
+or quality from list position.
 
 ## Limits and work
 

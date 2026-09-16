@@ -168,7 +168,9 @@ internal static class TypeSearchService
             return [];
         }
 
-        var results = new List<TypeFindResult>();
+        var primaryResults =
+            new List<TypeFindResult>?[patterns.Length];
+        var deferredResults = new List<TypeFindResult>();
         var misses =
             new List<(
                 int Index,
@@ -199,17 +201,19 @@ internal static class TypeSearchService
                 continue;
             }
 
+            var classified = new List<TypeFindResult>();
             AddClassifiedResults(
-                results,
+                classified,
                 pattern,
                 TypeMatcher.IsTypeGlobPattern(pattern)
                     ? MatchKind.Glob
                     : MatchKind.Exact,
                 candidates);
+            primaryResults[index] = classified;
         }
 
         if (misses.Count == 0)
-            return results;
+            return [.. primaryResults.SelectMany(static rows => rows!)];
 
         var prefixRequests =
             misses
@@ -283,7 +287,8 @@ internal static class TypeSearchService
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
 
-        foreach ((_, string pattern, bool directComplete) in misses)
+        foreach ((int patternIndex, string pattern, bool directComplete)
+            in misses)
         {
             bool usesPrefixFallback =
                 IsPrefixFallbackEligible(pattern);
@@ -302,11 +307,13 @@ internal static class TypeSearchService
                         static candidate => candidate.FullName);
                 if (options.Limit is { } prefixLimit)
                     selected = selected.Take(prefixLimit);
+                var classified = new List<TypeFindResult>();
                 AddClassifiedResults(
-                    results,
+                    classified,
                     prefixPattern,
                     MatchKind.Glob,
                     selected);
+                primaryResults[patternIndex] = classified;
                 continue;
             }
 
@@ -336,7 +343,7 @@ internal static class TypeSearchService
                             .DistinctBy(
                                 static candidate => candidate.FullName))
                     {
-                        results.Add(
+                        deferredResults.Add(
                             ToFindResult(
                                 pattern,
                                 MatchKind.Partial,
@@ -365,7 +372,7 @@ internal static class TypeSearchService
                 && prefixIsComplete
                 && censusIsComplete)
             {
-                results.Add(
+                deferredResults.Add(
                     new TypeFindResult
                     {
                         Pattern = pattern,
@@ -374,7 +381,13 @@ internal static class TypeSearchService
             }
         }
 
-        return results;
+        return
+        [
+            .. primaryResults
+                .Where(static rows => rows is not null)
+                .SelectMany(static rows => rows!),
+            .. deferredResults,
+        ];
     }
 
     private static IOrderedEnumerable<TypeSearchResult>
