@@ -715,7 +715,7 @@ public static class CommittedScenarioSelectorResolver
             selector.Culture,
             selector.PublicKeyToken);
 
-    private static bool MatchesCoordinate(
+    internal static bool MatchesCoordinate(
         DefinitionMemberCoordinate.PackageCoordinate requested,
         WorkspacePackageDescriptor actual)
     {

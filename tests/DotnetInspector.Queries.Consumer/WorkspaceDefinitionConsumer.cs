@@ -44,4 +44,32 @@ public static class WorkspaceDefinitionConsumer
             workspace,
             scope,
             packageFacts);
+
+    public static CompleteRestorationPreparationResult PrepareRestoration(
+        InspectionDefinitionRegistry registry,
+        string scenarioId,
+        ICompleteRestorationIntentAuthority authority) =>
+        CompleteRestorationPreparation.FromDefinition(
+            registry,
+            scenarioId,
+            authority);
+
+    public static CompleteRestorationPreparationResult PrepareRestoration(
+        string packet,
+        ICompleteRestorationIntentAuthority authority) =>
+        CompleteRestorationPreparation.FromPacket(packet, authority);
+
+    public static ValueTask<CompleteRestorationResult<TActivation>>
+        RestoreAsync<TActivation>(
+            CompleteRestorationPreparationResult preparation,
+            ICompleteRestorationIntentAuthority authority,
+            ICompleteRestorationHost<TActivation> host,
+            CompleteRestorationExecutionOptions options,
+            CancellationToken cancellationToken = default) =>
+        CompleteRestorationCoordinator.RestoreAsync(
+            preparation,
+            authority,
+            host,
+            options,
+            cancellationToken);
 }
