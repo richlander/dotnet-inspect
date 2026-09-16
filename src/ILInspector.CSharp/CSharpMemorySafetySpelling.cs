@@ -289,6 +289,15 @@ internal static class CSharpMemorySafetySpelling
                 return Refuse(
                     "the property accessor accessibility combination is not representable in C#.");
             }
+            if (type.Kind == "struct"
+                && type.IsReadOnly
+                && !member.IsStatic
+                && accessors.Any(
+                    static accessor => accessor.Kind == "set"))
+            {
+                return Refuse(
+                    "an instance property setter is not representable in a readonly struct declaration.");
+            }
             if (!PropertyDeclarationModifiersAreRepresentable(type, member))
             {
                 return Refuse(

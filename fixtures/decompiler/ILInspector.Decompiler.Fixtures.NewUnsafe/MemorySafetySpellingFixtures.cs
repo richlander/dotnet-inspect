@@ -52,6 +52,17 @@ public struct MemorySafetyReadonlyPropertyFixture
     public readonly int Value => _value;
 }
 
+public readonly struct MemorySafetyReadonlySetterPropertyFixture
+{
+    public int Value
+    {
+        get => 0;
+        set { }
+    }
+
+    public static int StaticValue { get; set; }
+}
+
 [StructLayout(LayoutKind.Explicit, Pack = 2, Size = 16)]
 public struct MemorySafetyExplicitLayoutFixture
 {

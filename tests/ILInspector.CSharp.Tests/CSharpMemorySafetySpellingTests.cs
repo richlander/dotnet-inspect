@@ -670,6 +670,62 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Fact]
+    public void SingleDeclarationOutcomeRejectsReadonlyStructInstanceSetter()
+    {
+        ApiType type = Type(
+            MemorySafetyRulesState.Updated,
+            kind: "struct");
+        type.IsReadOnly = true;
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "readonly struct",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeAcceptsReadonlyStructStaticSetter()
+    {
+        ApiType type = Type(
+            MemorySafetyRulesState.Updated,
+            kind: "struct");
+        type.IsReadOnly = true;
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.IsStatic = true;
+
+        CSharpMemberDeclarationOutcome.Rendered rendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.Rendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Equal(
+            "public static int Value { get; set; }",
+            rendered.Declaration.Text);
+    }
+
+    [Fact]
     public void SingleDeclarationOutcomeRejectsIncomparableAccessorAccessibility()
     {
         ApiType type = Type(MemorySafetyRulesState.Updated);

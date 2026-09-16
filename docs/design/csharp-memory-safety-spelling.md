@@ -227,7 +227,9 @@ narrower:
   requires every represented accessor to be affirmatively non-explicit.
   Property modifier admission also preserves the declaring type's
   abstract/sealed/static constraints and rejects private virtual, abstract, or
-  override declarations.
+  override declarations. A readonly struct's non-static property with a setter
+  is unavailable because lowering body-bearing accessors to semicolon accessors
+  would create an illegal auto-property; static properties remain eligible.
   MethodDef `Static` must agree with the accessor signature's instance bit,
   which must in turn agree with the PropertyDef signature. A `required`
   property must be an instance member of a class or struct, must have a setter,

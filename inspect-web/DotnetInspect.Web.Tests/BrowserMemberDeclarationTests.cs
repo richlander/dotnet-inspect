@@ -29,6 +29,8 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetySpellingFixture";
     const string ReadonlyPropertyType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReadonlyPropertyFixture";
+    const string ReadonlySetterPropertyType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReadonlySetterPropertyFixture";
     const string ExplicitLayoutType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitLayoutFixture";
     const string AccessorType =
@@ -111,6 +113,19 @@ public sealed class BrowserMemberDeclarationTests
             Assert.True(
                 readonlyProperty.SignatureModel.Accessors.Single()
                     .SignatureMatchesProperty);
+            ApiType extractedReadonlySetterType = Assert.Single(
+                extractedSurface.Types,
+                candidate => candidate.FullName == ReadonlySetterPropertyType);
+            Assert.True(extractedReadonlySetterType.IsReadOnly);
+            ApiMember readonlySetterProperty = Assert.Single(
+                extractedReadonlySetterType.Members,
+                candidate => candidate.Name == "Value");
+            Assert.Contains(
+                readonlySetterProperty.SignatureModel!.Accessors,
+                accessor => accessor.Kind == "set");
+            Assert.All(
+                readonlySetterProperty.SignatureModel.Accessors,
+                accessor => Assert.False(accessor.IsReadOnly));
             ApiType extractedImplicitType = Assert.Single(
                 extractedSurface.Types,
                 candidate => candidate.FullName == ImplicitPropertyType);
@@ -232,6 +247,30 @@ public sealed class BrowserMemberDeclarationTests
             Assert.IsType<string>(readonlyPropertyDeclaration.Unavailable),
             StringComparison.OrdinalIgnoreCase);
         Assert.False(readonlyPropertyDeclaration.Compatibility);
+
+        JsonElement readonlySetterPropertyType =
+            Type(surfaceDocument.RootElement, ReadonlySetterPropertyType);
+        BrowserMemberDeclaration readonlySetterPropertyDeclaration =
+            await Declaration(
+                readonlySetterPropertyType,
+                Member(readonlySetterPropertyType, "Value"));
+        Assert.Null(readonlySetterPropertyDeclaration.Text);
+        Assert.Contains(
+            "readonly struct",
+            Assert.IsType<string>(
+                readonlySetterPropertyDeclaration.Unavailable),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(readonlySetterPropertyDeclaration.Compatibility);
+
+        BrowserMemberDeclaration readonlyStaticPropertyDeclaration =
+            await Declaration(
+                readonlySetterPropertyType,
+                Member(readonlySetterPropertyType, "StaticValue"));
+        Assert.Equal(
+            "public static int StaticValue { get; set; }",
+            Assert.IsType<string>(readonlyStaticPropertyDeclaration.Text));
+        Assert.Null(readonlyStaticPropertyDeclaration.Unavailable);
+        Assert.False(readonlyStaticPropertyDeclaration.Compatibility);
 
         JsonElement explicitLayoutType =
             Type(surfaceDocument.RootElement, ExplicitLayoutType);
