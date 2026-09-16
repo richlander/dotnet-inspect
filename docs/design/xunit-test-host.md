@@ -319,6 +319,16 @@ without changing the suite's exact line census, bounded projection, text
 comparison, movement, line-ending, final-terminator, or implementation-diff
 relation evidence.
 
+`HarnessReportDiff.Tests` is the twenty-seventh migrated adopter. Its direct
+execution remains unfiltered. This path reuses the pinned outcome-level host
+gate without changing the suite's stored-report identity, metric comparability,
+residue endpoint, schema incompatibility, corpus-population, or Markdown, TSV,
+and JSONL rendering evidence. The migration also retires a hard-coded corpus
+snapshot schema assertion: input-derived corpus-path evidence gates schema
+preservation and incompatibility, while separate corpus evidence gates
+unknown-population refusal without coupling the suite to a mutable baseline
+version.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
