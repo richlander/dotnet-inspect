@@ -724,7 +724,7 @@ public static class PlatformHouseLibraryRealizer
             _ => false,
         };
 
-    static bool ExceedsBudget(
+    internal static bool ExceedsBudget(
         PlatformHouseConsumedWork consumed,
         PlatformHouseRequest request) =>
         consumed.SourceOperations > request.Work.MaxSourceOperations
@@ -742,7 +742,7 @@ public static class PlatformHouseLibraryRealizer
                 || consumed.TargetComparisons
                     > selecting.Work.MaxComparisons);
 
-    static PlatformLibraryRealizationResult Rejected(
+    internal static PlatformLibraryRealizationResult Rejected(
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
         PlatformHouseRejectionKind kind,
@@ -793,7 +793,7 @@ public static class PlatformHouseLibraryRealizer
             new PlatformLibraryRealizationReceipt(receipt));
     }
 
-    static PlatformLibraryRealizationResult Incomplete(
+    internal static PlatformLibraryRealizationResult Incomplete(
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
         string evidenceName)
@@ -814,7 +814,39 @@ public static class PlatformHouseLibraryRealizer
             new PlatformLibraryRealizationReceipt(receipt));
     }
 
-    static PlatformTargetSettlement TargetSettlement(
+    internal static PlatformLibraryRealizationResult Failed(
+        PlatformHouseRequest request,
+        PlatformHouseConsumedWork consumedWork,
+        IEnumerable<PlatformSourceContribution> contributions,
+        IEnumerable<PlatformHouseFailureKind> failures,
+        bool cancellationObserved,
+        string evidenceName)
+    {
+        ArgumentNullException.ThrowIfNull(contributions);
+        var settlements = contributions.Select(
+                contribution => new PlatformSourceSettlement(
+                    contribution,
+                    PlatformSourceSettlementDisposition.OutcomeRelevant))
+            .ToArray();
+        var termination = new PlatformHouseTermination.Failed(
+            PlatformHouseTerminalEvidenceIdentity.Create(evidenceName),
+            failures,
+            cancellationObserved);
+        var receipt = new PlatformHouseReceipt(
+            request.Snapshot,
+            TargetSettlement(request.Target),
+            settlements,
+            consumedWork,
+            termination: termination);
+        return new PlatformLibraryRealizationResult.Terminal(
+            new PlatformHouseOutcome<
+                PlatformLibraryRealizationValue>.Failed(
+                    termination,
+                    receipt),
+            new PlatformLibraryRealizationReceipt(receipt));
+    }
+
+    internal static PlatformTargetSettlement TargetSettlement(
         PlatformTargetDemand demand) =>
         demand is PlatformTargetDemand.Exact exact
             ? new PlatformTargetSettlement.Exact(exact)
