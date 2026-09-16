@@ -1361,7 +1361,7 @@ meaning from formatted text. Mode changes, route exit, replacement, and
 explicit cancellation stop active work; explicit cancellation retains already
 admitted rows. Saved reports and notifications are not part of this surface.
 The focused contract is
-[The Package Changes experience](../docs/design/package-changes-experience.md).
+[The Package Activity experience](../docs/design/package-activity-experience.md).
 
 The Package Query scenarios in `browser/package-adoption.spec.ts` drive the published
 production page through the existing real-Wasm package-adoption harness.
