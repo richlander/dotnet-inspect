@@ -73,6 +73,11 @@ public sealed class WorkspacePackageRootAcquisitionTests
         Assert.Equal(PackageCompileAssetSelectionStatus.Selected,
             acquired.Root.Root.AssetSelection.Status);
         Assert.Single(acquired.Root.Root.AssetSelection.Assets);
+        PackageRootReacquisitionRequest request =
+            acquired.Root.CreateReacquisitionRequest();
+        Assert.Equal(Framework, request.CompileTargetFramework);
+        Assert.Equal("net8.0", request.SelectionTargetFramework);
+        Assert.True(request.UsesCompatibleImplementationSelection);
     }
 
     [Fact]

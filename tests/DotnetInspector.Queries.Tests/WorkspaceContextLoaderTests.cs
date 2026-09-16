@@ -128,6 +128,41 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task PackageRootBinding_UsesRealizedCompatibleImplementation()
+    {
+        await using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ($"lib/net8.0/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store) with
+                {
+                    IncludePackageRootBindings = true,
+                },
+                TestContext.Current.CancellationToken));
+
+        PackageRootBinding root = Assert.Single(loaded.PackageRoots);
+        Assert.Equal(Framework, root.Coordinate.Framework);
+        Assert.Equal("net8.0", root.Root.AssetSelection.TargetFramework);
+        PackageRootReacquisitionRequest request =
+            root.CreateReacquisitionRequest();
+        Assert.Equal(Framework, request.CompileTargetFramework);
+        Assert.Equal("net8.0", request.SelectionTargetFramework);
+        Assert.True(request.UsesCompatibleImplementationSelection);
+    }
+
+    [Fact]
     public async Task PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants()
     {
         await using var workspace = new InspectionWorkspace();

@@ -818,6 +818,12 @@ public static class CompleteRestorationCoordinator
                         : "has multiple realized Package declarations.");
             }
 
+            string? compileTarget =
+                PackageArtifactRootRequest.NormalizeFramework(
+                    source.EffectiveCoordinate.Framework);
+            string? runtimeIdentifier =
+                PackageArtifactRootRequest.NormalizeRuntime(
+                    source.EffectiveCoordinate.RuntimeIdentifier);
             PackageRootBinding[] bindings =
             [
                 .. contexts[source.ContextIndex].PackageRoots.Where(
@@ -827,12 +833,12 @@ public static class CompleteRestorationCoordinator
                             PackageArtifactRootRequest.From(binding);
                         return request.Coordinate == realized[0]
                             && string.Equals(
-                                request.SelectionTargetFramework,
-                                source.EffectiveCoordinate.Framework,
+                                request.CompileTargetFramework,
+                                compileTarget,
                                 StringComparison.Ordinal)
                             && string.Equals(
                                 request.SelectionRuntimeIdentifier,
-                                source.EffectiveCoordinate.RuntimeIdentifier,
+                                runtimeIdentifier,
                                 StringComparison.Ordinal);
                     }),
             ];

@@ -178,6 +178,82 @@ public sealed class CompleteRestorationExecutionTests
     }
 
     [Fact]
+    public async Task CompatiblePackageTarget_RestoresSelectedImplementation()
+    {
+        PackageFixture package = await SystemTextJsonPackageAsync();
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    Version2PackageRegistryForFramework("net10.0"),
+                    "scenario",
+                    authority));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, package.Store),
+                TestContext.Current.CancellationToken);
+
+        var activated = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
+        WorkspacePackageDescriptor restored =
+            Assert.Single(
+                activated.Workspace.Snapshot.Scope.Packages)
+                .Occurrence.Package;
+        Assert.Equal("net10.0", restored.Coordinate.Framework);
+        Assert.Equal("net9.0", restored.SelectedTargetFramework);
+        Assert.Equal(
+            StructuralSubjectKind.Package,
+            activated.Workspace.Snapshot.Navigation.State.Snapshot
+                .ActiveSubject.Kind);
+
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
+    public async Task NormalizedPlatformTarget_RetainsPackageRootAssociation()
+    {
+        const string framework = "net8.0-windows10.0.19041.0";
+        PackageFixture package = await SystemTextJsonPackageAsync();
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    Version2PackageRegistryForFramework(framework),
+                    "scenario",
+                    authority));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, package.Store),
+                TestContext.Current.CancellationToken);
+
+        var activated = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
+        WorkspacePackageDescriptor restored =
+            Assert.Single(
+                activated.Workspace.Snapshot.Scope.Packages)
+                .Occurrence.Package;
+        Assert.Equal(framework, restored.Coordinate.Framework);
+        Assert.Equal(
+            StructuralSubjectKind.Package,
+            activated.Workspace.Snapshot.Navigation.State.Snapshot
+                .ActiveSubject.Kind);
+
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
     public async Task PacketV1_RetainsCanonicalPacketAfterExactRestoration()
     {
         PackageFixture package = await SystemTextJsonPackageAsync();
@@ -1278,6 +1354,56 @@ public sealed class CompleteRestorationExecutionTests
                         new PortableSubjectRequest.Package(),
                         new PortableRetainedSubjectContext.Package(),
                         facet: "package.overview"),
+            ]));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            view: "view",
+            navigation: "navigation"));
+        return registry;
+    }
+
+    private static InspectionDefinitionRegistry
+        Version2PackageRegistryForFramework(string framework)
+    {
+        var package = new DefinitionMemberCoordinate.PackageCoordinate(
+            "System.Text.Json",
+            "9.0.4",
+            framework);
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version2,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    framework,
+                    members: [package]),
+            ]));
+        registry.Add(new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version2,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "package",
+                    coordinate: package,
+                    framework: framework),
+            ],
+            "package"));
+        registry.Add(new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition(
+                    "package",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package(),
+                    facet: "package.overview"),
             ]));
         registry.Add(new ScenarioDefinition(
             InspectionDefinitionSchema.Version2,

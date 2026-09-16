@@ -416,11 +416,36 @@ public sealed class PackageRootBinding
         string? displayPackageId = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
-        ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetFramework);
-        PackageRootBinding exact = CreateFromResolved(
+        return CreateFromResolvedWithCompatibleSelection(
             payload,
             requestedTargetFramework,
-            displayPackageId);
+            displayPackageId,
+            payload.ProducerKey,
+            producer: null);
+    }
+
+    internal static PackageRootBinding
+        CreateFromResolvedWithCompatibleSelection(
+            AcquiredPackagePayload payload,
+            string requestedTargetFramework,
+            string? displayPackageId,
+            string coordinateProducer,
+            PackageProducerIdentity? producer)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetFramework);
+        ArgumentException.ThrowIfNullOrWhiteSpace(coordinateProducer);
+        PackageRootBinding exact = producer is null
+            ? CreateFromResolved(
+                payload,
+                requestedTargetFramework,
+                displayPackageId)
+            : CreateFromResolved(
+                payload,
+                requestedTargetFramework,
+                displayPackageId,
+                coordinateProducer,
+                producer);
         if (exact.Root.AssetSelection.Status
                 is not PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
         {
@@ -445,8 +470,8 @@ public sealed class PackageRootBinding
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
-            payload.ProducerKey,
-            sourceProducer: null,
+            coordinateProducer,
+            producer,
             sourceProducerAlias: null,
             payload.Coordinate.Framework,
             compatibleSelection.TargetFramework,

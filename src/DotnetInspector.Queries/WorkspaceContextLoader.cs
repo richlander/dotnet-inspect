@@ -248,18 +248,11 @@ public static class WorkspaceContextLoader
         if (acquisition.Failure is { } failure)
             return new WorkspacePackageRootAcquisitionOutcome.Failed([failure]);
 
-        AcquiredPackagePayload payload = acquisition.Payload!;
-        WorkspacePackageRootAcquisitionOutcome binding =
-            BindPackageRoot(member, payload, framework!);
-        if (binding is WorkspacePackageRootAcquisitionOutcome.Acquired acquired
-            && acquired.Root.Root.AssetSelection.Status
-                == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
-            && PackageAssetSelector.Select(payload.Content, framework!, rid)
-                is PackageAssetSelection.Selected compatible)
-        {
-            return BindPackageRoot(member, payload, compatible.Universe.TargetFramework);
-        }
-        return binding;
+        return BindPackageRoot(
+            member,
+            acquisition.Payload!,
+            framework!,
+            useCompatibleImplementationSelection: true);
     }
 
     /// <summary>
@@ -2360,6 +2353,7 @@ public static class WorkspaceContextLoader
                     (WorkspaceMemberCoordinate.PackageMember)member,
                     acquired,
                     framework,
+                    useCompatibleImplementationSelection: true,
                     coordinateProducer,
                     sourceProducer);
             if (binding is WorkspacePackageRootAcquisitionOutcome.Failed failed)
@@ -2388,13 +2382,22 @@ public static class WorkspaceContextLoader
         WorkspaceMemberCoordinate.PackageMember member,
         AcquiredPackagePayload acquired,
         string framework,
+        bool useCompatibleImplementationSelection,
         string? coordinateProducer = null,
         PackageProducerIdentity? sourceProducer = null)
     {
         try
         {
             return new WorkspacePackageRootAcquisitionOutcome.Acquired(
-                sourceProducer is null
+                useCompatibleImplementationSelection
+                    ? PackageRootBinding
+                        .CreateFromResolvedWithCompatibleSelection(
+                            acquired,
+                            framework,
+                            member.PackageId,
+                            coordinateProducer ?? acquired.ProducerKey,
+                            sourceProducer)
+                : sourceProducer is null
                     ? PackageRootBinding.CreateFromResolved(
                         acquired,
                         framework,
