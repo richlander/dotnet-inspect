@@ -41,6 +41,7 @@ import {
 import {
   prismCSharp,
 } from "../src/prism-csharp.ts";
+import type { InertString } from "../src/facades/inspect-web-source.d.ts";
 import {
   validateDocument,
 } from "../src/document-model.ts";
@@ -49,6 +50,13 @@ import { sampleDocument as sampleDocumentFixture } from "../../prototypes/annota
 const fixture: unknown = sampleDocumentFixture;
 validateDocument(fixture);
 const sampleDocument: AnnotatedSourceDocument = fixture;
+
+function inertString(value: string): InertString {
+  // Browser fixtures model values after the generated JSON boundary.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as InertString;
+}
+
 const objectStart = sampleDocument.text.indexOf("new object()");
 const documentWithTighterGeneric: AnnotatedSourceDocument = {
   ...sampleDocument,
@@ -141,7 +149,7 @@ const result: AnnotatedSourceResult = {
       unavailableReason: null,
     },
   },
-  provenance: "browser-gate product fixture",
+  provenance: inertString("browser-gate product fixture"),
   contextLimitation: null,
 };
 const model = createAnnotatedSourceViewerModel(result);

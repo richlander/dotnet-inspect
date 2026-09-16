@@ -1,3 +1,7 @@
+declare const inertStringBrand: unique symbol;
+export type InertString = string & {
+    readonly [inertStringBrand]: "InertString";
+};
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
@@ -9,7 +13,7 @@ export type JsonValueKind = number;
 export interface BrowserAnnotatedSource {
     readonly document: unknown;
     readonly viewerCatalog: BrowserAnnotatedSourceViewerCatalog;
-    readonly provenance: string;
+    readonly provenance: InertString;
     readonly contextLimitation: string | null;
 }
 export interface BrowserAnnotatedSourceCapabilityAvailability {
@@ -190,7 +194,7 @@ export interface BrowserMethodBodyTargetsResult {
 }
 export interface BrowserSource {
     readonly provider: string;
-    readonly provenance: string;
+    readonly provenance: InertString;
     readonly url: string | null;
     readonly pdbSourceLimitation: string | null;
     readonly text: string;
@@ -285,3 +289,4 @@ export declare function queryMethodBodyComparison(operationId: string, requestJs
 export declare function queryMethodBodyComparisonTargets(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserMethodBodyTargetsResult>;
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryTypeSource(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserTypeSourceResult>;
+export {};
