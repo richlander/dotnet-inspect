@@ -335,9 +335,11 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Use `-T q` to suppress tips in script-oriented commands.
 
-Positional `depends <type>` additionally supports the presence-only
-`--envelope` service-output selector. It implies JSON and is not currently
-available to asset-mode `depends`, Discover, Count, or any other command.
+Positional `depends <type>` and ordinary single-Library API `diff` additionally
+support the presence-only `--envelope` service-output selector. It implies
+JSON; unprojected `--json` emits the same Content without the service frame.
+Asset-mode `depends`, other Diff modes, Discover, Count, and other commands
+have not adopted this transport.
 
 | Goal | Flags |
 | ---- | ----- |
@@ -612,6 +614,22 @@ intended for website Compare. This includes single-Library packages, platform
 libraries, and local DLL pairs. `--type` narrows the complete comparison;
 `--all` widens its API scope. The endpoints must be versions of the same
 logical Library (assembly name, culture, and public-key token).
+
+On this route, unprojected `--json` serializes the complete
+`LibraryApiDiffOutcome`, replacing the former `{changes: ...}` presentation
+view. Use `--envelope` for that same Content plus Share and diagnostics;
+`--compact` controls whitespace for either complete JSON boundary, not projected
+or other Diff operations. For example:
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --envelope --compact
+```
+
+Envelope output accepts `--all`, but rejects Type/classification filters,
+section selection, explicit verbosity, row/line windows, and non-API modes.
+Explicitly projected JSON, such as `-S Changes --json`, retains its existing
+presentation schema. Share is explicitly non-projectable for comparison
+endpoints; it is not a replay URL.
 
 Changes without a compatibility classification remain visible under
 **Other API Changes**, or as `unclassified` rows in detailed output. They are

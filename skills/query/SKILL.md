@@ -41,17 +41,23 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
-Positional `depends <type>` alone supports presence-only `--envelope`. It
+Positional `depends <type>` and single-Library API `diff` support presence-only
+`--envelope`. It
 implies JSON and emits the complete service value with
 `schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
-Its `content` is semantically identical to the owner-issued camelCase
+For dependencies, `content` is semantically identical to the owner-issued camelCase
 `TypeDependencySectionResult` selected by unprojected `depends <type> --json`;
 whitespace and property order may differ. `--compact`, `--depth`, and semantic
 relationship row selection remain available. Presentation formats,
 Discover/schema/effective modes, `-S`, explicit `-v`, Count, field/column or
 scalar projection, decoration, and rendered-line clipping are incompatible.
-Asset-mode `depends`, other commands, and `--evidence-envelope` remain
-unadopted.
+For Library API Diff, unprojected `--json` and envelope `content` both serialize
+the complete `LibraryApiDiffOutcome` using result kind `library-api-diff`.
+`--all` and `--compact` remain admitted; Type/classification filters, sections,
+explicit verbosity, row/line controls, and non-API modes are incompatible with
+envelope output. Explicitly projected Diff JSON retains its presentation
+schema. Load `skill compatibility` for outcome and scope details.
+Asset-mode `depends`, other commands, and `--evidence-envelope` remain unadopted.
 
 On `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a
