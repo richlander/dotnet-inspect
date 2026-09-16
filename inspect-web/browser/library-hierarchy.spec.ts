@@ -2408,7 +2408,7 @@ test("Platform mismatched catalog does not relabel the installed inventory", asy
 });
 
 test("Spotlight offers NuGet and .NET Library System.Text.Json destinations without a Platform choice", async ({ page }) => {
-  await installFacades(page, surface, [], "ready", "ready", {});
+  await installFacades(page, surface, [], "ready", "ready", { libraryPending: true });
   await page.route("https://azuresearch-usnc.nuget.org/query?**", route => route.fulfill({
     contentType: "application/json", body: JSON.stringify({ data: [{ id: "System.Text.Json", version: "11.0.0-preview.7" }] }),
   }));
@@ -2422,8 +2422,26 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
   await expect(page.getByRole("button", { name: "Platform", exact: true })).toHaveCount(0);
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");
   await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(page.locator(".platform-workspace")).toHaveCount(0);
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.getByText("Opening the selected Library...")).toHaveCount(0);
+  await releaseFacade(page, "finish-platform-library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+});
+
+test("Spotlight framework Library failure stays outside Platform presentation", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", { libraryFailure: true });
+  await page.goto("/");
+  const search = page.getByRole("combobox");
+  await search.fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(page.locator(".platform-workspace")).toHaveCount(0);
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator(".query-notice-text")).toContainText(
+    "Could not open Library: Library offline",
+  );
+  await expect(page.locator(".query-notice-text")).not.toContainText("Platform Library");
 });
 
 test("Platform Library parent, history and refresh retain the exact target without choosing a Type", async ({ page }) => {

@@ -3273,10 +3273,10 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
     /if \(!pkg\) throw new Error\(runtimeResult\.failureMessage[\s\S]*state\.platformOpeningStatus = \{ loading: false, error: `Could not open Platform Library:[\s\S]*platformLibraryRetry = options\.retryAction/);
   assert.match(
     platformLibraryLoad,
-    /const createsWorkspace = !scopeOnly && options\.inPlace !== true;[\s\S]*if \(createsWorkspace && !canPublishRetainedWorkspace\(\)\)[\s\S]*const construction = createsWorkspace\s*\? captureWorkspaceConstructionSnapshots\(navigationSeq\)\s*: null;\s*if \(construction\) prepareUnpublishedWorkspace\(\);/);
+    /const createsWorkspace = !scopeOnly && options\.inPlace !== true;[\s\S]*if \(createsWorkspace && !canPublishRetainedWorkspace\(\)\)[\s\S]*const construction = createsWorkspace\s*\? captureWorkspaceConstructionSnapshots\(navigationSeq\)\s*: null;[\s\S]*if \(construction\) prepareUnpublishedWorkspace\(\);/);
   assert.match(
     platformLibraryLoad,
-    /catch \(error\) \{[\s\S]*if \(construction\) \{\s*failWorkspaceCatalogAction\([\s\S]*construction\.rollbackSnapshot,\s*\(\) => openPlatformLibrary\(assembly, pack, \{ \.\.\.options, tfm, version \}\),\s*focusWorkbenchSearchOrHeading\);[\s\S]*return undefined;/);
+    /catch \(error\) \{[\s\S]*const rollbackSnapshot = construction\?\.rollbackSnapshot[\s\S]*if \(rollbackSnapshot\) \{\s*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,\s*\(\) => openPlatformLibrary\(assembly, pack, \{ \.\.\.options, tfm, version \}\),\s*focusWorkbenchSearchOrHeading\);[\s\S]*return undefined;/);
   assert.match(
     platformLibraryLoad,
     /if \(construction\) \{\s*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return undefined;\s*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
@@ -3411,7 +3411,7 @@ test("Spotlight keeps loaded framework Library navigation in place", () => {
     /loaded: runtimeAssemblyIsResident\(rt, row\.assembly, row\.pack\)/);
   assert.match(
     picker,
-    /openPlatformLibrary\(\s*result\.assembly,\s*result\.pack,\s*\{ inPlace: result\.loaded === true, tfm: result\.tfm, version: result\.version \}\)/);
+    /openPlatformLibrary\(\s*result\.assembly,\s*result\.pack,\s*\{[\s\S]*deferPlatformPresentation: true,[\s\S]*inPlace: result\.loaded === true,[\s\S]*tfm: result\.tfm,[\s\S]*version: result\.version/);
   assert.match(picker, /case "framework-lib":/);
   assert.doesNotMatch(picker, /case "platform":|case "rtpack-suggest":/);
   assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
@@ -4271,7 +4271,10 @@ test("Platform Library entry from demos publishes only after selection and resto
     /render\(\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return undefined;\s*if \(construction\) \{\s*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return undefined;\s*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\);/);
   assert.match(
     openLibrary,
-    /if \(construction\) \{\s*failWorkspaceCatalogAction\([\s\S]*construction\.rollbackSnapshot,[\s\S]*focusWorkbenchSearchOrHeading\);\s*return undefined;/);
+    /const rollbackSnapshot = construction\?\.rollbackSnapshot[\s\S]*if \(rollbackSnapshot\) \{\s*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,[\s\S]*focusWorkbenchSearchOrHeading\);\s*return undefined;/);
+  assert.match(
+    openLibrary,
+    /if \(deferPlatformPresentation\) installPlatformTarget\(target\);/);
   assert.doesNotMatch(openLibrary, /beginDemoNavigation|cancelDemoNavigation/);
 });
 

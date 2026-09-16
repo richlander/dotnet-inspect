@@ -9225,7 +9225,12 @@ function pickSpotlightResult(result: SpotlightResult) {
         openPlatformLibrary(
           result.assembly,
           result.pack,
-          { inPlace: result.loaded === true, tfm: result.tfm, version: result.version }),
+          {
+            deferPlatformPresentation: true,
+            inPlace: result.loaded === true,
+            tfm: result.tfm,
+            version: result.version,
+          }),
         "Opening a platform library");
       break;
     case "type":
@@ -9308,6 +9313,7 @@ async function loadPackageFromSpotlight(
 
 // Only an exact catalog row creates demand for the shared Library inspection surface.
 interface OpenPlatformLibraryOptions {
+  deferPlatformPresentation?: boolean;
   scopeOnly?: boolean;
   inPlace?: boolean;
   navigationSeq?: number;
@@ -9321,6 +9327,7 @@ async function openPlatformLibrary(
   pack: string,
   options: OpenPlatformLibraryOptions = {},
 ) {
+  const deferPlatformPresentation = options.deferPlatformPresentation === true;
   const scopeOnly = options.scopeOnly === true;
   const createsWorkspace = !scopeOnly && options.inPlace !== true;
   const capacityError = createsWorkspace ? "" : platformCoordinateCapacityError();
@@ -9345,6 +9352,9 @@ async function openPlatformLibrary(
   const construction = createsWorkspace
     ? captureWorkspaceConstructionSnapshots(navigationSeq)
     : null;
+  const deferredRollbackSnapshot = deferPlatformPresentation && !construction
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
   if (construction) prepareUnpublishedWorkspace();
   else spotlight.reset();
   try {
@@ -9357,14 +9367,16 @@ async function openPlatformLibrary(
     if (matches.length !== 1) throw new Error(`Platform library '${assembly}' is not uniquely available in this target.`);
     const row = matches[0]!;
     if (!row.hasImplementation) throw new Error(`${row.assembly} has no runtime implementation to inspect.`);
-    installPlatformTarget(target);
-    state.platformOpeningStatus = { loading: true, error: "" };
-    platformLibraryRetry = () => openPlatformLibrary(assembly, pack, {
-      ...options, tfm: target.tfm, version: target.version,
-    });
-    if (!scopeOnly) render();
+    if (!deferPlatformPresentation) {
+      installPlatformTarget(target);
+      state.platformOpeningStatus = { loading: true, error: "" };
+      platformLibraryRetry = () => openPlatformLibrary(assembly, pack, {
+        ...options, tfm: target.tfm, version: target.version,
+      });
+      if (!scopeOnly) render();
+    }
     startPlatformTargetWork(target);
-    let pkg = runtimePackPackage();
+    let pkg = runtimePackageForTarget(target);
     const alreadyLoaded = pkg?.assemblies.some(item => platformLibraryMatchesDescriptor(row, item));
     if (!alreadyLoaded) {
       const runtimeResult = await loadRuntimePackAssembly(
@@ -9379,11 +9391,12 @@ async function openPlatformLibrary(
     if (pkg.version !== target.version || pkg.activeFramework !== target.tfm) {
       throw new Error("The inspected Library does not match the selected Platform target.");
     }
-    if (!state.packages.includes(pkg)) retainPackageModel(pkg);
-    platformPackages.set(platformTargetKey(target), pkg);
     const libraries = pkg.assemblies.filter(item => platformLibraryMatchesDescriptor(row, item));
     if (libraries.length !== 1) throw new Error(`The Platform inspection did not return an exact descriptor for ${row.assembly}.`);
     const library = libraries[0]!;
+    platformPackages.set(platformTargetKey(target), pkg);
+    if (deferPlatformPresentation) installPlatformTarget(target);
+    if (!state.packages.includes(pkg)) retainPackageModel(pkg);
     activatePackage(pkg, { resetAccessibility: true });
     state.libraryScope = new Set([library.id]);
     recordPlatformRecent(library.name, row.pack);
@@ -9418,10 +9431,12 @@ async function openPlatformLibrary(
     return pkg;
   } catch (error) {
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
-    if (construction) {
+    const rollbackSnapshot = construction?.rollbackSnapshot
+      ?? deferredRollbackSnapshot;
+    if (rollbackSnapshot) {
       failWorkspaceCatalogAction(
-        `Could not open Platform Library: ${errorMessage(error)}`,
-        construction.rollbackSnapshot,
+        `${deferPlatformPresentation ? "Could not open Library" : "Could not open Platform Library"}: ${errorMessage(error)}`,
+        rollbackSnapshot,
         () => openPlatformLibrary(assembly, pack, { ...options, tfm, version }),
         focusWorkbenchSearchOrHeading);
       return undefined;
