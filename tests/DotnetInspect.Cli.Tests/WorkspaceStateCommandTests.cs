@@ -521,9 +521,10 @@ public sealed class WorkspaceStateCommandTests
     private static string CreateMaximumJson()
     {
         const string prefix =
-            "{\"f\":1,\"t\":[[\":Platform\",null,null,null]],"
-            + "\"g\":[[0]],\"a\":0,\"x\":0,\"l\":[\"";
-        const string suffix = "\"]}";
+            "{\"f\":2,\"t\":[[\"P\",null,\"net10.0\",null]],"
+            + "\"g\":[[0]],\"a\":null,\"x\":0,\"v\":["
+            + "{\"t\":null,\"u\":{\"k\":\"workspace\"},\"f\":\"";
+        const string suffix = "\"},{\"t\":0}]}";
         return prefix
             + new string(
                 'A',
