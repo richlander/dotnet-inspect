@@ -442,6 +442,8 @@ public static class PlatformDependencyManifestReader
                 PlatformDependencyManifest>.Succeeded(
                     new PlatformDependencyManifest(
                         runtimeTargetName,
+                        libraryCount,
+                        assetCount,
                         Array.AsReadOnly(assets.ToArray())));
         }
         catch (ManifestBudgetException ex)
