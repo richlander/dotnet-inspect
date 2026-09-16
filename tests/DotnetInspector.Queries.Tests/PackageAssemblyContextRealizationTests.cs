@@ -562,6 +562,61 @@ public sealed class PackageAssemblyContextRealizationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void CompatibleSelectionWithoutImplementationUniverse_PreservesExactRoot(
+        bool resolved)
+    {
+        const string packageId = "root.only.compatible";
+        var content = new InMemoryPackageContent(
+            Archive(("README.md", [])),
+            fromCache: false,
+            producerKey: "tests");
+        PackageRootBinding binding;
+        if (resolved)
+        {
+            var payload = new AcquiredPackagePayload(
+                new ResolvedPackageCoordinate(
+                    packageId,
+                    "1.0.0",
+                    Framework,
+                    runtimeIdentifier: null,
+                    [PackageSource.NuGetOrg],
+                    wasFloating: false),
+                content,
+                "tests",
+                PackagePayloadOrigin.Download);
+            binding =
+                PackageRootBinding.CreateFromResolvedWithCompatibleSelection(
+                    payload,
+                    Framework);
+        }
+        else
+        {
+            var payload = new AcquiredPackageSourcePayload(
+                PackageSourceCoordinate.Create(packageId, "1.0.0"),
+                content,
+                "tests",
+                PackagePayloadOrigin.Download);
+            binding =
+                PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                    payload,
+                    Framework);
+        }
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            binding.Root.AssetSelection.Status);
+        Assert.Equal(Framework, binding.Root.RequestedTargetFramework);
+        Assert.False(binding.UsesCompatibleImplementationSelection);
+        PackageRootReacquisitionRequest request =
+            binding.CreateReacquisitionRequest();
+        Assert.Equal(Framework, request.CompileTargetFramework);
+        Assert.Equal(Framework, request.SelectionTargetFramework);
+        Assert.False(request.UsesCompatibleImplementationSelection);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void CompatibleAmbiguousImplementationLayout_RemainsInvalid(
         bool resolved)
     {

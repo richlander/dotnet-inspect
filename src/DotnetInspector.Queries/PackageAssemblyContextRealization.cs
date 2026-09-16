@@ -279,7 +279,7 @@ public sealed class PackageRootBinding
                 out PackageCompileAssetSelection? compatibleSelection)
                 is false)
         {
-            compatibleSelection = exact.Root.AssetSelection;
+            return exact;
         }
 
         string? acquisitionFramework =
@@ -460,7 +460,7 @@ public sealed class PackageRootBinding
                 out PackageCompileAssetSelection? compatibleSelection)
                 is false)
         {
-            compatibleSelection = exact.Root.AssetSelection;
+            return exact;
         }
 
         return Create(
