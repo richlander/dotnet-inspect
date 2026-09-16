@@ -1,4 +1,5 @@
 using ILInspector.DecompilerHarness;
+using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -32,6 +33,32 @@ public class NestedTargetLookupTests
         // The fix: the nested type is now part of the identity surface a delta
         // row is matched against, threaded through its declaring type.
         Assert.Contains(Inner, collectible);
+    }
+
+    [Fact]
+    public async Task RaisedChangedMethodPath_ReachesNestedTypeIdentity()
+    {
+        using var source = MetadataSource.Open(FixtureAssembly);
+        var candidate = Assert.Single(
+            IrImporter.GetStableSampleCandidates(source, int.MaxValue),
+            candidate => candidate.TypeName == Inner
+                && candidate.MethodName == "InnerAdd");
+        string signature = CorpusMethodIdentity.SignatureText(candidate.Build(source).Signature);
+
+        var result = Assert.Single(
+            await FidelityCheck.EvaluateChangedMethodTargetsForTesting(
+                [FixtureAssembly],
+                [
+                    new FidelityCheck.CompileBackTarget(
+                        FixtureAssembly,
+                        candidate.TypeName,
+                        candidate.MethodName,
+                        candidate.Overload,
+                        signature),
+                ]));
+
+        Assert.NotEqual("target-method-not-found", result.Detail);
+        Assert.Equal(FidelityCheck.CaptureMode.ProductArtifact, result.Capture);
     }
 
     [Fact]
