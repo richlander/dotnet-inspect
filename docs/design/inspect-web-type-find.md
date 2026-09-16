@@ -172,12 +172,12 @@ is not relabeled as Package evidence.
 
 PR #7202 does not supply a locator-candidate Type action and explicitly declines
 production adoption of the staged Platform activation path. The focused
-[framework declaration activation
-prerequisite](https://github.com/richlander/dotnet-inspect/issues/7242) must
-issue a Browser-local exact framework Library/Type action or typed non-success
-without introducing a Platform user concept or pretending that shared
-Navigation contains a Platform structural subject. #6851 must not implement
-that missing owner contract locally.
+[framework declaration activation](inspect-web-framework-declaration-activation.md)
+prerequisite [#7242](https://github.com/richlander/dotnet-inspect/issues/7242)
+must issue a Browser-local exact framework Library/Type action or typed
+non-success without introducing a Platform user concept or pretending that
+shared Navigation contains a Platform structural subject. #6851 must not
+implement that missing owner contract locally.
 
 ## Candidate and activation association
 
@@ -213,9 +213,10 @@ occurrence. Zero or several matches produce typed non-success. No coordinate,
 assembly simple name, target framework, path, or ordinal substitutes for the
 complete join.
 
-A framework row consumes #7242's separate exact action result. Other source
-arms remain typed-unavailable until their source owner supplies an equivalent
-Browser activation contract.
+A framework row consumes
+[framework declaration activation](inspect-web-framework-declaration-activation.md)'s
+separate exact action result. Other source arms remain typed-unavailable until
+their source owner supplies an equivalent Browser activation contract.
 
 Each activation association is captured with Spotlight's complete activation
 basis, including the active Workspace, relevant Scope and registration

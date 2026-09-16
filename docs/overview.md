@@ -533,6 +533,13 @@ substrates, and inspection producers that will extend that space.
   resident reverse locator, shared visibility and Sections projection,
   Spotlight destination activation, and Navigation authority without
   redefining them.
+- [Inspect Web framework declaration
+  activation](design/inspect-web-framework-declaration-activation.md) owns the
+  exact Browser-local association from one active-Workspace framework
+  declaration occurrence to an opaque Library or Type action and detached
+  effect. It consumes Platform realization, Metadata identity, resident
+  locator evidence, and active-realization authority without adding Platform
+  subjects to shared Navigation.
 - [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
   session-local Package Diff baseline, inheritance during subject navigation,
   and target-setting controls. Clone candidate scope has transferred to the
