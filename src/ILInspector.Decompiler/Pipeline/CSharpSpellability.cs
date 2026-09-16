@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Reflection;
 using CSharpText;
 using ILInspector.Metadata;
 
@@ -55,6 +56,20 @@ internal static class CSharpSpellability
             && host.TypeShapes.GetValueOrDefault(CoercionRendering.NamedDefinition(type)) == TypeShape.ValueType
             && !IsByRefLikeType(type, host)
             && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+
+    public static bool CanSpellGenericParameterStorageType(TypeRef type, IrFunction host)
+    {
+        if (type.Kind is not (TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter)
+            || !CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value))
+            return false;
+
+        var parameters = type.Kind == TypeRefKind.MethodGenericParameter
+            ? host.Signature.GenericParameters : host.DeclaringTypeParameters;
+        return !parameters.IsDefaultOrEmpty
+            && parameters.Where(parameter => parameter.Index == type.GenericParameterIndex).ToArray()
+                is [{ Attributes: var attributes }]
+            && (attributes & GenericParameterAttributes.AllowByRefLike) == 0;
+    }
 
     public static bool CanSpellExplicitParameterType(
         TypeRef type,

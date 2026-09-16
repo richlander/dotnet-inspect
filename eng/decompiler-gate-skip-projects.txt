@@ -87,13 +87,13 @@ fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures
 src/DotnetInspect.Cli
 src/DotnetInspector.Ecosystems
-src/DotnetInspector.Libraries
 src/DotnetInspector.LibraryMetadata
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.PlatformHouse
 src/DotnetInspector.PlatformHouse.Execution
 src/DotnetInspector.PlatformHouse.Execution.Installed
+src/DotnetInspector.PlatformHouse.Execution.Packages
 src/DotnetInspector.PlatformHouse.Installed
 src/DotnetInspector.PlatformHouse.Packages
 src/DotnetInspector.Platforms.Installed
