@@ -861,6 +861,8 @@ is removable or that copying source is safe. The section remains outside the
 default and bare `-S` views.
 
 Use the pair-wide cluster ordinal to reopen one component as exact calls:
+Run `dotnet-inspect graph libraries -Q "Call Sites"` to discover the predicate
+and its supported operator without inspecting a pair.
 
 ```bash
 dotnet-inspect graph libraries \
@@ -871,7 +873,7 @@ dotnet-inspect graph libraries \
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll \
-  --cluster 3
+  --where "Cluster=3"
 ```
 
 The drill-down names every source member, source token, target member, target

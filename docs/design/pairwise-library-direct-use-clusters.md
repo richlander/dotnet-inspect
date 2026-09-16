@@ -208,13 +208,23 @@ unchanged exact call-site table. Normal section discovery, row windows, Count,
 table, TSV, JSONL, JSON, Markdown, and plain-text lowering apply through the
 existing generated Markout context.
 
-`--cluster N` is the drill-down gesture for one pair-wide cluster ordinal. It
-restricts every requested section to that cluster's retained occurrences;
-without `-S`, the result is the ordinary exact call-site table for that
-cluster. The selected cluster row remaps `Call Site Rows` to its scoped
+`--where "Cluster=N"` is the drill-down gesture for one pair-wide cluster
+ordinal. `Cluster` is a typed equality predicate over the logical pair
+occurrences, applied before section projection rather than parsed from rendered
+rows. It restricts every requested section to that cluster's retained
+occurrences; without `-S`, the result is the ordinary exact call-site table for
+that cluster. The selected cluster row remaps `Call Site Rows` to its scoped
 one-based call table, so the cluster summary and detail document agree. An
 unavailable ordinal fails visibly, and an unobserved ordinal in incomplete
 evidence is not reported as a proved absence.
+
+The predicate accepts exactly one positive integer ordinal and only the
+equality operator. A dedicated `--cluster` flag is intentionally not minted:
+the ordinal is existing typed row data, not a new coordinate currency. This
+follows [Output shapes](output-shapes.md#coordinate-carriers-sit-before-the-ladder),
+which prefers a section, category, or `--where` predicate before adding a
+carrier. `graph libraries -Q "Call Sites"` and the other three projection
+names expose the same `Cluster` binding without inspecting the library pair.
 
 `AssemblyPairDirectUseClusterProjection.ScopeToObservedCluster` owns the
 host-neutral transformation from a complete-pair projection to that
@@ -233,7 +243,7 @@ dotnet-inspect graph libraries \
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll \
-  --cluster 3
+  --where "Cluster=3"
 ```
 
 The second command exposes exact source and target members and tokens, call

@@ -122,11 +122,15 @@ public sealed class InspectionGraphCommandTests
             ]);
 
         Assert.Empty(result.Errors);
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--where");
         Assert.DoesNotContain(
             result.CommandResult.Command.Options,
             option => option.Name is "--depth"
                 or "--direction"
-                or "--relationship");
+                or "--relationship"
+                or "--cluster");
     }
 
     [Fact]
@@ -346,8 +350,8 @@ public sealed class InspectionGraphCommandTests
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--cluster",
-                        "3",
+                        "--where",
+                        "Cluster=3",
                         "--jsonl",
                     ])
                 .InvokeAsync());
@@ -402,8 +406,8 @@ public sealed class InspectionGraphCommandTests
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--cluster",
-                        "3",
+                        "--where",
+                        "Cluster=3",
                     ])
                 .InvokeAsync());
         Assert.Equal(0, human.ExitCode);
@@ -434,8 +438,8 @@ public sealed class InspectionGraphCommandTests
                         consumer,
                         "--library",
                         provider,
-                        "--cluster",
-                        "1",
+                        "--where",
+                        "Cluster=1",
                         "--jsonl",
                     ])
                 .InvokeAsync());
@@ -491,8 +495,8 @@ public sealed class InspectionGraphCommandTests
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--cluster",
-                        "3",
+                        "--where",
+                        "Cluster=3",
                         "-S",
                         "*",
                         "--json",
@@ -544,8 +548,8 @@ public sealed class InspectionGraphCommandTests
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--cluster",
-                        "99",
+                        "--where",
+                        "Cluster=99",
                     ])
                 .InvokeAsync());
 
@@ -568,8 +572,8 @@ public sealed class InspectionGraphCommandTests
                     [
                         "graph",
                         "libraries",
-                        "--cluster",
-                        "1",
+                        "--where",
+                        "Cluster=1",
                         "-D",
                     ])
                 .InvokeAsync());
@@ -577,7 +581,7 @@ public sealed class InspectionGraphCommandTests
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "--cluster cannot be combined with -D/--discover.",
+            "--where Cluster=... cannot be combined with -D/--discover.",
             captured.Error);
     }
 
@@ -590,15 +594,78 @@ public sealed class InspectionGraphCommandTests
                     [
                         "graph",
                         "libraries",
-                        "--cluster",
-                        "0",
+                        "--where",
+                        "Cluster=0",
                     ])
                 .InvokeAsync());
 
         Assert.Equal(1, captured.ExitCode);
-        Assert.Contains("--cluster", captured.Output);
+        Assert.Empty(captured.Output);
         Assert.Contains(
-            "--cluster must be a positive integer.",
+            "Field 'Cluster' requires a positive integer ordinal.",
+            captured.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        "Cluster!=3",
+        "Field 'Cluster' in graph libraries supports only = predicates.")]
+    [InlineData(
+        "Cluster=3",
+        "graph libraries accepts exactly one --where Cluster=... predicate.")]
+    public async Task LibrariesCommand_RejectsInvalidClusterPredicates(
+        string predicate,
+        string expected)
+    {
+        string[] arguments =
+            predicate == "Cluster=3"
+                ?
+                [
+                    "graph",
+                    "libraries",
+                    "--where",
+                    predicate,
+                    "--where",
+                    predicate,
+                ]
+                :
+                [
+                    "graph",
+                    "libraries",
+                    "--where",
+                    predicate,
+                ];
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(arguments)
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(expected, captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RejectsUnsupportedWhereField()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--where",
+                        "SourceMember=Run",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Field 'SourceMember' is not queryable by graph libraries.",
+            captured.Error);
+        Assert.Contains(
+            "Use --where \"Cluster=<positive ordinal>\".",
             captured.Error);
     }
 

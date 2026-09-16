@@ -92,7 +92,7 @@ public static class LibraryCallUseCommand
             && options.Discover is not null)
         {
             CommandError.Write(
-                "--cluster cannot be combined with -D/--discover.");
+                "--where Cluster=... cannot be combined with -D/--discover.");
             return 1;
         }
 
