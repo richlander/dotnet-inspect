@@ -760,21 +760,26 @@ both derive from the same evidence-enabled execution, as specified by
 [Output Shapes](output-shapes.md#envelope-transport).
 
 Asset-mode dependency inspection registers `result_kind`
-`asset-dependencies` at `schema_version` `1`. The baseline form binds
-`content` to the source-generated `DependencyInspectionJsonContext` metadata
-for `DependencyInspectionContent`; the enriched form retains that exact
-binding and additionally binds `evidence` to the same context's
+`asset-dependencies` at `schema_version` `1` for the Debug evidence capability.
+The baseline form binds `content` to the source-generated
+`DependencyInspectionJsonContext` metadata for
+`DependencyInspectionContent`; the enriched form retains that exact binding
+and additionally binds `evidence` to the same context's
 `DependencyInspectionEvidenceDocument` metadata. Both forms use the same
 framing pair because Evidence presence is an admitted form of one registered
 contract, not another result kind. A different Content or incompatible
 Content/Evidence schema requires the Output Shapes version transition rather
 than reuse of `asset-dependencies` version `1`.
 
-The same `DependencyInspectionContent` metadata supplies ordinary unprojected
-`--json` for this adopted route. Explicitly lowered or projected JSON remains a
-host presentation that may accompany the evidence sidecar when otherwise
-admitted, but it cannot replace `content` in `--envelope` or shape the
-attachment.
+This adoption admits the baseline form only when paired with
+`--evidence-envelope`; standalone asset-mode `--envelope` remains unadopted.
+Ordinary asset-mode `--json`, with or without the sidecar, retains the existing
+`DependsAssetDocument` serializer, including selected-section presence and row
+windows. It is a named host presentation, not attachment Content. The sidecar
+and paired baseline instead serialize `DependencyInspectionContent` without
+post-service shaping. A later public standalone-envelope adoption must resolve
+the differing ordinary JSON schema under Output Shapes rather than silently
+reuse this Debug-only compatibility exception.
 
 The Debug Browser/Wasm consumer receives the same closed evidence type and
 the same `DependencyInspectionContent`, then renders an owner-selected
@@ -801,6 +806,9 @@ pathological fixtures. They cover:
 - exact `asset-dependencies` version `1` framing for baseline and enriched
   forms, rejection of a missing or mismatched registration, and round-trip of
   both concrete source-generated serializers; and
+- parsed-wire equality for existing `DependsAssetDocument` JSON with and
+  without the sidecar, including selected-section presence and row windows;
+  rejection of standalone asset-mode `--envelope`; and
 - matching runtime JSON and generated Browser/Wasm types for the complete
   closed enrichment.
 

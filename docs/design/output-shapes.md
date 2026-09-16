@@ -226,6 +226,16 @@ any differing machine schema, classify and disclose that change under
 same Content contract in both JSON modes. Unadopted routes retain their current
 contracts.
 
+Debug evidence-attachment adoption alone is not public baseline-envelope
+adoption. An evidence adopter may bind baseline framing for the paired
+`--envelope --evidence-envelope` Debug path while leaving standalone
+`--envelope` unadopted and preserving the route's existing ordinary `--json`
+contract. That scoped compatibility path must name and gate the retained
+ordinary JSON serializer; attachment Content still uses the owner-issued
+Content serializer. A later public standalone-envelope adoption must resolve
+the ordinary JSON alignment under the rule above rather than inherit this
+Debug-only exception.
+
 The #6719 path has locked the CLI contract and adopted the common transport
 with type dependencies. Exercising Library API Diff as the second content kind
 remains. The wider CLI and Browser adoption remains in
@@ -302,7 +312,9 @@ Content and Evidence retain their owners' named properties, discriminators,
 native value kinds, optionality, ordering, and contained-text serialization.
 Each registration binds their concrete typed serializers; transport does not
 apply a second casing, enum, null-omission, or display-text conversion to their
-output. In particular, both JSON modes use the same Content serializer.
+output. Public baseline adoption uses the same Content serializer for
+unprojected `--json` and `--envelope`; the scoped Debug attachment exception
+above may retain a named ordinary JSON presentation serializer.
 A value without an established named serialization contract is an adoption
 gap, not permission to emit tuple positions, `Item1`/`Item2`, an empty object,
 or a host-authored substitute. The adopting owner must settle that gap before
@@ -350,7 +362,7 @@ Serialization never recaptures evidence or projects Share.
 | Input or modifier | With `--envelope` | With `--evidence-envelope <path>` |
 | --- | --- | --- |
 | The other envelope option | Admit: baseline envelope to stdout and enrichment to the file. | Admit the paired destinations. |
-| `--json` | Reject competing primary JSON boundaries. | Admit ordinary Content JSON on stdout. |
+| `--json` | Reject competing primary JSON boundaries. | Retain the route's ordinary JSON contract on stdout. |
 | Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
 | `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
 | `--share[=url\|packet]` | Preserve its existing stderr and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. |
