@@ -19,8 +19,9 @@ The implementation is staged without changing the ten-step count:
 
 Step 5a is implemented by `PackagePlatformSource` in
 `DotnetInspector.Platforms.Packages` and `PackagePlatformHouseAdapter` in
-`DotnetInspector.PlatformHouse.Packages`. Step 5b remains pending; the adapter
-does not advertise an implementation capability.
+`DotnetInspector.PlatformHouse.Packages`. Step 5b is implemented by the same
+source and adapter; the adapter advertises independently authorized discovery,
+reference, and implementation capabilities.
 
 The first consumers are the CLI and Browser/Wasm production hosts through
 Workspace adoption in step 8 and production-host adoption in step 9. This step
@@ -449,6 +450,14 @@ support closure. For `DotNetRuntime`, the root is
 `Microsoft.NETCore.App` at an exact compatible version and therefore require
 the corresponding .NET runtime pack.
 
+Version 1 deliberately closes that graph at these two known families:
+`DotNetRuntime` is a leaf, while `AspNetCore` may name at most one
+`Microsoft.NETCore.App` support framework. Any other or transitive framework
+dependency is rejected rather than interpreted as a new package mapping.
+Support-package selection applies the manifest's roll-forward policy over a
+complete, bounded package-version inventory in the exact target-framework
+band.
+
 Each framework's same-named `runtimeconfig.json` and `deps.json` is read from:
 
 ```text
@@ -570,8 +579,9 @@ exception.
 
 ## Evidence gates
 
-`PackagePlatformSourceTests` and `PackagePlatformHouseAdapterTests` implement
-the step 5a Release gates in
+`PackagePlatformSourceTests`,
+`PackageImplementationPlatformSourceTests`, and
+`PackagePlatformHouseAdapterTests` implement the step 5 Release gates in
 `tests/DotnetInspector.PlatformHouse.Packages.Tests`:
 
 ```bash
@@ -605,20 +615,23 @@ The step 5b Release gates additionally prove:
 
 - RID-specific package mapping;
 - runtime manifest acquisition through package content;
-- `AspNetCore` support closure through the exact .NET runtime pack;
+- `AspNetCore` support closure and bounded roll-forward selection through the
+  exact compatible .NET runtime pack;
 - manifest-defined membership rather than broad DLL scanning;
 - framework, manifest, logical-coordinate, assembly-identity, and digest
   correspondence;
 - collision, missing-member, incompatible-closure, malformed-manifest, and
-  work-limit outcomes; and
+- work-limit outcomes;
+- distinct timeout and cancellation behavior; and
 - equal CLI-capable filesystem and Browser/Wasm in-memory realization.
 
 The normal solution build, dependency-policy evaluator, CI routing gate, and
 project-graph tests enforce the dependency direction. Minimized fixtures are
 the ordinary CI gate. The pinned
-`GalleryReferencePackDiscoveryRealizationAndDetachedLifetime` real-package gate
-is tagged `Speed=Slow` and runs in daily Deep Inspect; removing the filter
-above runs it locally as well.
+`GalleryReferencePackDiscoveryRealizationAndDetachedLifetime` and
+`GalleryAspNetRuntimeClosureAndDetachedLifetime` real-package gates are tagged
+`Speed=Slow` and run in daily Deep Inspect; removing the filter above runs them
+locally as well.
 
 ## Production adoption and retirement
 
@@ -677,6 +690,20 @@ source-substrate demonstration, not a CLI Find or TypeScript call site.
 Workspace locator admission and both production hosts remain the named later
 adoptions. In particular, acquiring this pack does not yet add a reference
 observation to the resident locator.
+
+The same adapter now exposes exact implementation realization:
+
+```csharp
+var result = await adapter.RealizeImplementationAsync(
+    exactRequest,
+    "linux-x64",
+    root.IssueOperationLease(cancellationToken));
+```
+
+For ASP.NET Core, the returned live source value owns detached immutable
+snapshots for both the root runtime pack and its manifest-selected .NET runtime
+support pack. The paired House contribution retains only resource-free source
+correspondence.
 
 ### Package-backed reference target
 
