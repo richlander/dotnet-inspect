@@ -13,6 +13,8 @@ Tracking:
   summary projections;
 - [#6694](https://github.com/richlander/dotnet-inspect/issues/6694) — typed
   Markout serialization;
+- [#7253](https://github.com/richlander/dotnet-inspect/issues/7253) —
+  deterministic direct-use clusters over this result;
 - [#6313](https://github.com/richlander/dotnet-inspect/issues/6313) — broader
   feature-relationship experience.
 
@@ -298,6 +300,11 @@ This L1 contract does not include:
 - automatic feature naming or clustering;
 - breadth, depth, leverage, or importance scores;
 - package, project, or network acquisition.
+
+[Pairwise Library Direct-Use Clusters](pairwise-library-direct-use-clusters.md)
+separately owns a deterministic occurrence-backed partition over this result.
+That partition does not change this query's evidence, completion, or semantic
+non-claims.
 
 `depends` continues to own dependency and reference traversal. Top Leverage
 continues to describe internal call-graph importance. Performance Triage
