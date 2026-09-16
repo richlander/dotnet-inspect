@@ -64,7 +64,7 @@ namespace ILInspector.Metadata.Tests
             MemberSearchResult result = Assert.Single(
                 results,
                 candidate => candidate.DeclaringType
-                    == typeof(MemberSearchProbeIndexerFixture).FullName);
+                    == typeof(MemberSearchProbeIndexerAlias).FullName);
             Assert.Equal("this[]", result.Pattern);
             Assert.Equal("Item", result.MemberName);
             Assert.False(result.IsGlob);
@@ -135,7 +135,7 @@ namespace ILInspector.Metadata.Tests
         public int MemberSearchProbeShared() => 4;
     }
 
-    public sealed class MemberSearchProbeIndexerFixture
+    public sealed class MemberSearchProbeIndexerAlias
     {
         public int this[int index] => index;
     }
