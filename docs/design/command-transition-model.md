@@ -204,6 +204,31 @@ rules. Result owners retain their schemas, ordering, completeness, and
 non-success cases. The pattern defines how commands declare and compose those
 contracts.
 
+### Complexity basis and analogous designs
+
+Three dimensions are the smallest model that explains the current tensions
+without making syntax or rendering accidental semantics:
+
+- the same Library spelling can currently change the Type command's positional
+  grammar;
+- one Package location and one Library location can each produce either a
+  focused answer or a child census;
+- multi-package Package inspection supports a substantially smaller operation
+  set than unary Package inspection; and
+- output can reduce a vector to one displayed row without changing what the
+  operation returned.
+
+Collapsing any two dimensions loses a required distinction. Location count
+cannot determine result count, result count cannot identify the result family,
+and rendered shape cannot define either.
+
+`kubectl get` is an analogous noun-oriented surface: namespace and resource
+scope are separate from whether an exact resource name or a list is requested.
+`ripgrep` and `git grep` are analogous multi-location searches: several paths
+contribute search scope while the result remains one match collection. These
+tools support separating location scope from result cardinality; their syntax
+and resource models are evidence, not authority for this CLI.
+
 ### Coordinate fields, result selection, and filtering
 
 Command planning keeps five roles distinct:
