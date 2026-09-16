@@ -2634,6 +2634,36 @@ test("a direct Spotlight framework Library remains a Library after package activ
   await expect(page.locator(".inspected-target")).not.toContainText("Second.Package");
 });
 
+test("Workspace retains an in-place framework Library selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await page.goto("/");
+  await page.getByRole("combobox").fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "integrations",
+    "Integrations",
+  );
+  await page.locator('[data-integration-mode="opportunities"]').click();
+  const picker = page.locator(
+    ".library-opportunities-controls .platform-library-select",
+  );
+  await picker.selectOption("System.Facade");
+  await expect(picker).toHaveValue("System.Facade");
+
+  await page.locator('[data-application-scope="workspace"]').click();
+  const frameworkLibrary =
+    page.locator("[data-workspace-framework-library]");
+  await expect(frameworkLibrary).toContainText("System.Facade");
+  await expect(frameworkLibrary)
+    .toHaveAttribute("data-workspace-framework-library", "System.Facade");
+  await frameworkLibrary.click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+});
+
 test("Platform Library parent, history and refresh retain the exact target without choosing a Type", async ({ page }) => {
   await openPlatform(page);
   const platformLocation = page.url();

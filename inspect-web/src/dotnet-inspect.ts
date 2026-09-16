@@ -973,6 +973,7 @@ const initialState = {
   platformIndex: null,
   rootKind: "package" as "package" | "platform",
   platformSelection: null,
+  frameworkLibraryPresentation: null,
   platformPresentedAsRoot: false,
   platformSlot: -1,
   platformCatalogStatus: { loading: false, error: "" },
@@ -1137,6 +1138,11 @@ interface StateOverrides {
   workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
   platformSelection: PlatformNavigationState | null;
+  frameworkLibraryPresentation: {
+    tfm: string;
+    version: string;
+    libraryId: string;
+  } | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
   memberSource: SourceResultState;
@@ -1286,6 +1292,9 @@ CanonicalWorkspaceRestoreSnapshot {
     state: {
       ...state,
       platformSelection: state.platformSelection ? { ...state.platformSelection } : null,
+      frameworkLibraryPresentation: state.frameworkLibraryPresentation
+        ? { ...state.frameworkLibraryPresentation }
+        : null,
       platformCatalogStatus: { ...state.platformCatalogStatus },
       platformOpeningStatus: { ...state.platformOpeningStatus },
       packages,
@@ -3591,6 +3600,7 @@ function clearWorkspacePackages() {
   state.package = null;
   state.workspaceShareBasis = null;
   state.platformSelection = null;
+  state.frameworkLibraryPresentation = null;
   state.platformPresentedAsRoot = false;
   state.platformSlot = -1;
   state.rootKind = "package";
@@ -3806,6 +3816,16 @@ function activatePackage(
   pkg: AppPackage,
   { resetAccessibility = false }: { resetAccessibility?: boolean } = {},
 ) {
+  if (state.package?.isRuntimePack && state.package !== pkg) {
+    const library = selectedLibrary();
+    if (library) {
+      state.frameworkLibraryPresentation = {
+        tfm: state.package.activeFramework,
+        version: state.package.version,
+        libraryId: library.id,
+      };
+    }
+  }
   const changed = !packageIdentityEquals(state.package, pkg);
   state.workspaceSubjectOpen = false;
   state.package = pkg;
@@ -5604,11 +5624,25 @@ function renderWorkspaceView() {
   const frameworkPackage = !presentPlatform && state.platformSelection
     ? runtimePackageForTarget(state.platformSelection)
     : null;
-  const frameworkLibrary = frameworkPackage
-    ? resolvePackageLibrary(
-        frameworkPackage.assemblies,
-        frameworkPackage.assemblyId)
-    : null;
+  const currentFrameworkLibrary =
+    frameworkPackage && state.package === frameworkPackage
+      ? selectedLibrary()
+      : null;
+  const rememberedFrameworkLibrary =
+    frameworkPackage
+    && state.frameworkLibraryPresentation?.tfm === frameworkPackage.activeFramework
+    && state.frameworkLibraryPresentation.version === frameworkPackage.version
+      ? resolvePackageLibrary(
+          frameworkPackage.assemblies,
+          state.frameworkLibraryPresentation.libraryId)
+      : null;
+  const frameworkLibrary = currentFrameworkLibrary
+    ?? rememberedFrameworkLibrary
+    ?? (frameworkPackage
+      ? resolvePackageLibrary(
+          frameworkPackage.assemblies,
+          frameworkPackage.assemblyId)
+      : null);
   return renderWorkspaceViewPure({
     canAddPackage: state.engineReady && !state.loading && !state.error,
     savedWorkspaces: {
@@ -7736,6 +7770,11 @@ async function openPlatformLensLibrary(
     return;
   }
   state.libraryScope = new Set([library.id]);
+  state.frameworkLibraryPresentation = {
+    tfm: originPackage.activeFramework,
+    version: originPackage.version,
+    libraryId: library.id,
+  };
   recordPlatformRecent(key, pack);
   state.atPackageRoot = false;
   state.atLibraryRoot = true;
@@ -8894,6 +8933,8 @@ function installPlatformTarget(
   const basis = state.workspaceShareBasis;
   const packageModel = retainPlatformPackageForTarget(target);
   const previous = state.platformSelection;
+  if (previous?.tfm !== target.tfm || previous.version !== target.version)
+    state.frameworkLibraryPresentation = null;
   state.rootKind = "platform";
   state.platformPresentedAsRoot = presentAsRoot;
   state.platformSelection = {
@@ -9773,6 +9814,11 @@ async function openPlatformLibrary(
     if (!state.packages.includes(pkg)) retainPackageModel(pkg);
     activatePackage(pkg, { resetAccessibility: true });
     state.libraryScope = new Set([library.id]);
+    state.frameworkLibraryPresentation = {
+      tfm: target.tfm,
+      version: target.version,
+      libraryId: library.id,
+    };
     recordPlatformRecent(library.name, row.pack);
     state.platformOpeningStatus = { loading: false, error: "" };
     if (scopeOnly) return pkg;
