@@ -518,6 +518,12 @@ substrates, and inspection producers that will extend that space.
   require a fresh curated Workspace. It consumes Scope, registration,
   Navigation, Platform, source, and host-publication outcomes without
   redefining them.
+- [Inspect Web Type Find](design/inspect-web-type-find.md) owns the
+  Browser-specific active-Workspace Type discovery operation, typed candidate
+  presentation, and exact candidate-to-activation association. It consumes the
+  resident reverse locator, shared visibility and Sections projection,
+  Spotlight destination activation, and Navigation authority without
+  redefining them.
 - [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
   session-local Package Diff baseline, inheritance during subject navigation,
   and target-setting controls. Clone candidate scope has transferred to the
