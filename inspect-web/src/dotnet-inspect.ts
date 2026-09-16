@@ -10836,6 +10836,7 @@ function openProductDemos(): void {
   }
   state.home = false;
   state.credits = false;
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -11291,6 +11292,7 @@ function goHome() {
     render();
     return;
   }
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -11308,6 +11310,7 @@ function openCredits() {
   }
   navigationSequence.begin();
   state.loading = false;
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -11440,6 +11443,7 @@ function openDiagnosticsRoute() {
   navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   state.credits = false;
   state.home = false;
@@ -11483,6 +11487,7 @@ function replaceDiagnosticsWithHome() {
     render();
     return;
   }
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -11600,11 +11605,18 @@ function resetPackageQueryState() {
   const fresh = initialQueryState();
   state.packageQueryState.request = fresh.request;
   state.packageQueryState.outcome = fresh.outcome;
+  state.packageQueryState.termDraft = fresh.termDraft ?? null;
+  state.packageQueryState.termEdits = fresh.termEdits ?? [];
   state.packageQueryInspection = null;
   state.packageQueryMode = "packages";
   packageChangesController.reset();
   packageQueryViewport = null;
   packageChangesViewport = null;
+}
+
+function discardPackageQueryTermEditors() {
+  state.packageQueryState.termDraft = null;
+  state.packageQueryState.termEdits = [];
 }
 
 function resetPackageQueryAnnouncements() {
@@ -11734,8 +11746,7 @@ async function selectWorkspaceApplicationScope() {
 
 function closePackageQueryRoute() {
   navigationSequence.begin();
-  state.packageQueryState.termDraft = null;
-  state.packageQueryState.termEdits = [];
+  discardPackageQueryTermEditors();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
   if (state.packageQueryOpenedFromApp) {
@@ -11954,6 +11965,7 @@ async function openPackageQueryRow(
   }
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   const navigationSeq = navigationSequence.begin();
   const { rollbackSnapshot, retainedSnapshot } =
@@ -16255,6 +16267,7 @@ async function navigateInAppUrl(url: URL) {
   }
   const focusWorkspaceAfterQuery = state.packageQueryOpen;
   if (focusWorkspaceAfterQuery) {
+    discardPackageQueryTermEditors();
     state.packageQueryOpen = false;
     packageQueryController.cancel();
     packageChangesController.cancel("disposed");
@@ -16824,6 +16837,7 @@ window.addEventListener("popstate", () => {
     diagnosticsDestinationFocusPending = false;
     diagnosticsDestinationFocusGeneration = null;
     clearNavigationError();
+    discardPackageQueryTermEditors();
     state.packageQueryOpen = false;
     packageQueryController.cancel();
     packageChangesController.cancel("disposed");
@@ -16854,6 +16868,7 @@ window.addEventListener("popstate", () => {
   }
   state.loading = false;
   if (state.packageQueryOpen || leftPackageQueryHandoff) {
+    discardPackageQueryTermEditors();
     state.packageQueryOpen = false;
     packageQueryHandoffNavigationSeq = null;
     packageQueryController.cancel();

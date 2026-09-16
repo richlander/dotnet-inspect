@@ -1028,6 +1028,13 @@ test.describe("Package Query website over real Wasm", () => {
     await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
     await expect(rows).toHaveText([injection.packageId]);
 
+    await firstValue.fill("Microsoft.Extensions.Logging");
+    await page.locator(".brand").click();
+    await expect(page.locator(".home-search")).toBeVisible();
+    await page.goBack();
+    await expect(firstValue)
+      .toHaveValue("Microsoft.Extensions.DependencyInjection");
+
     await page.locator('[data-query-term-add="depends"]').click();
     await page.locator("[data-query-term-draft-value]")
       .fill("Microsoft.Extensions.Hosting");
