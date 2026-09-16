@@ -679,10 +679,30 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    unspellable or out-of-scope constructions remain deferred. Admission
    consumes existing metadata facts; it does not acquire dependencies or
    infer assignability, boxing, covariance, or generic constraints.
+   Named value storage follows the same exact-type rule when the imported
+   definition is a known value type, the complete type is spellable, and the
+   type is not byref-like. This includes ordinary structs and their
+   constructed generic forms, including nullable values. No struct conversion,
+   nullable lifting, boxing, width/sign conversion, or storage alias is
+   inferred: every producer must already have the testified nominal type.
+   The rewrite preserves each value-copy occurrence and each existing boxed
+   operand rather than moving a read across a mutation. Unknown definitions,
+   managed references, bare generic parameters and ref-like lifetime cases
+   remain outside this admission; the existing numeric domain is unchanged.
+   Microsoft.CodeAnalysis 5.0.0
+   `Collections.RoslynImmutableInterlocked.VolatileRead` motivates this
+   category: its `ImmutableArray<T>` read must remain before the memory barrier.
+   `ValueSlotMaterializationTests` gates the real read, compiler-produced
+   ordinary/nullable/generic value storage, copy-before-mutation, typed boxing,
+   exact width/sign boundaries, incomplete copies, and the retained swap.
+   Its slow compile-back gate exercises the compiler-produced family in
+   Release; the existing independent storage invariant checks ordered
+   producer and occurrence preservation, not whole-method equivalence.
+   Adoption is through the unchanged shared CLI and Browser/Wasm pipeline.
    Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy
    boundaries remain in force. No value or control-flow edge moves.
-   A reference carrier already recognized by the later swap raiser stays on slots
+   An exact-storage carrier already recognized by the later swap raiser stays on slots
    until that raiser consumes it; materialization must not turn an existing
    tuple swap back into assignments. This reuses the swap owner's matcher and
    preserves its existing named-local boundary.

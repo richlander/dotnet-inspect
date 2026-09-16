@@ -1389,6 +1389,58 @@ test.describe("Package Activity website over real Wasm", () => {
 test.describe("artifact-backed package scope adoption over real Wasm", () => {
   test.describe.configure({ timeout: 240_000 });
 
+  test("opens a search-hidden exact coordinate without fallback", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    let searchRequests = 0;
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      searchRequests++;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 0, data: [] }),
+      });
+    });
+
+    await page.goto("/");
+    let search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("InspectWeb.Adoption.Missing@9.9.9");
+    await page.locator(
+      '[data-sl-pkg-load="InspectWeb.Adoption.Missing"]',
+    ).click();
+    await expect(page.locator(".query-notice"))
+      .toContainText("InspectWeb.Adoption.Missing", { timeout: 180_000 });
+    expect(searchRequests).toBe(0);
+
+    await page.goto("/");
+    search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill(`${healthy.packageId}@${healthy.version}`);
+    const exact = page.locator(
+      `[data-sl-pkg-load="${healthy.packageId}"]`,
+    );
+    await expect(exact).toContainText("exact coordinate · listed or unlisted");
+    await exact.click();
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    await expect.poll(() => new URL(page.url()).searchParams.get("package"))
+      .toBe(healthy.packageId);
+    await expect(page.getByTitle(
+      `${healthy.packageId}@${healthy.version}`,
+      { exact: true },
+    )).toBeVisible();
+    await expect(page.getByTitle(fixtureFramework, { exact: true }))
+      .toBeVisible();
+    expect(searchRequests).toBe(0);
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
+
   test("drives the production opening, join, occurrence, and rejection contracts", async ({
     page,
     context,
@@ -1774,6 +1826,25 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 
 test.describe("bounded network-backed two-host demo", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  test("opens an unlisted package through visible exact-coordinate search", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("WrongTurn@0.1.14");
+    const exact = page.locator('[data-sl-pkg-load="WrongTurn"]');
+    await expect(exact)
+      .toContainText("0.1.14 · exact coordinate · listed or unlisted");
+    await exact.click();
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText("WrongTurn", { timeout: 180_000 });
+    await expect(page.getByTitle("WrongTurn@0.1.14", { exact: true }))
+      .toBeVisible();
+    await expect(page.getByTitle("net11.0", { exact: true })).toBeVisible();
+  });
 
   test("opens ordinary and pathological packages over the real Gallery CDN", async ({
     page,
