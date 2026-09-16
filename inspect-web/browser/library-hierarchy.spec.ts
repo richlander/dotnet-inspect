@@ -2786,6 +2786,27 @@ test("catalog-only Platform retains its Workspace identity and canonical URL acr
   await expect(page).toHaveURL(platformLocation);
 });
 
+test("retained Workspace switching preserves a real Platform Library parent", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await openPlatform(page);
+  await page.getByRole("button", { name: /System.Facade Facade/ }).click();
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
+
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.locator("[data-workspace-switch]").click();
+
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
+});
+
 test("restored Platform failure retries its own Library request", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem(
     "inspect-recent-packages",

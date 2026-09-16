@@ -1548,7 +1548,11 @@ function restoreRetainedWorkspaceSnapshot(
   Object.assign(state, hostState);
   activeWorkspaceUrl = snapshot.url;
   if (restoreUrl) {
-    workspaceLocation.replace(snapshot.url, history.state);
+    workspaceLocation.replace(
+      snapshot.url,
+      withPlatformRootParentHistory(
+        history.state,
+        navigationSnapshotHasPlatformRootParent(snapshot.navigation)));
   }
   persistRecentPackages();
   persistPlatformRecent();
@@ -1765,7 +1769,12 @@ function selectRetainedWorkspace(workspaceId: string): void {
   }
   try {
     if (!activateRetainedWorkspaceProjection(workspaceId, false)) return;
-    workspaceLocation.push(activeWorkspaceUrl ?? "/demos");
+    workspaceLocation.push(
+      activeWorkspaceUrl ?? "/demos",
+      withPlatformRootParentHistory(
+        history.state,
+        navigationSnapshotHasPlatformRootParent(
+          navigationHistory.snapshot())));
     render();
     restartRestoredWorkspaceSelectionData();
   } catch (error) {
@@ -5298,6 +5307,12 @@ function renderWorkspaceNavPane() {
 
 function hasPlatformRootHistoryView() {
   return historyHasPlatformRootParent(history.state);
+}
+
+function navigationSnapshotHasPlatformRootParent(
+  snapshot: NavigationHistorySnapshot<WorkspaceView>,
+) {
+  return snapshot.stack[snapshot.index]?.view.platformRootParent === true;
 }
 
 function renderTypeNavPane(

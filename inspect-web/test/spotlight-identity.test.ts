@@ -3683,7 +3683,7 @@ test("browser history reuses available identities and publishes only unavailable
     /const workspaceModalContextIsAvailable = \(\) =>\s*pendingWorkspaceConstruction === null/);
   assert.match(
     appSource,
-    /function restoreRetainedWorkspaceSnapshot\([\s\S]*activeWorkspaceUrl = snapshot\.url;\s*if \(restoreUrl\) \{\s*workspaceLocation\.replace\(snapshot\.url, history\.state\)[\s\S]*function selectRetainedWorkspace\(workspaceId: string\)[\s\S]*activateRetainedWorkspaceProjection\(workspaceId, false\)[\s\S]*workspaceLocation\.push\(activeWorkspaceUrl \?\? "\/demos"\)[\s\S]*function deleteRetainedWorkspace\(workspaceId: string\)[\s\S]*restoreRetainedWorkspaceSnapshot\(transition\.activatedSnapshot\)/);
+    /function restoreRetainedWorkspaceSnapshot\([\s\S]*activeWorkspaceUrl = snapshot\.url;\s*if \(restoreUrl\) \{\s*workspaceLocation\.replace\(\s*snapshot\.url,\s*withPlatformRootParentHistory\(\s*history\.state,\s*navigationSnapshotHasPlatformRootParent\(snapshot\.navigation\)\)\)[\s\S]*function selectRetainedWorkspace\(workspaceId: string\)[\s\S]*activateRetainedWorkspaceProjection\(workspaceId, false\)[\s\S]*workspaceLocation\.push\(\s*activeWorkspaceUrl \?\? "\/demos",\s*withPlatformRootParentHistory\(\s*history\.state,\s*navigationSnapshotHasPlatformRootParent\(\s*navigationHistory\.snapshot\(\)\)\)\)[\s\S]*function deleteRetainedWorkspace\(workspaceId: string\)[\s\S]*restoreRetainedWorkspaceSnapshot\(transition\.activatedSnapshot\)/);
 });
 
 test("same-origin links retain different-coordinate Workspaces", () => {
