@@ -247,7 +247,7 @@ public static class WorkspaceSharePacketTransposer
         registry.Add(view);
         registry.Add(scenario);
         return AssertVersion2(
-            registry.PrepareScenario(ScenarioId));
+            registry.PreparePacketScenario(ScenarioId));
     }
 
     private static WorkspaceContextDefinition[] ToWorkspaceContexts(
