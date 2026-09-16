@@ -116,6 +116,21 @@ public sealed record DecompilerOptions
     public EnumCaseLabelOrder EnumCaseLabelOrder { get; init; } = EnumCaseLabelOrder.Alphabetical;
 
     public static DecompilerOptions Default { get; } = new();
+
+    internal static DecompilerOptions FromPrinterOptions(PrinterOptions? options)
+        => options is null ? Default : new()
+        {
+            ReadableLocalNames = options.ReadableLocalNames,
+            PreferFrameworkTypeImports = true,
+            WrapExpressionBodyArrow = options.WrapExpressionBodyArrow,
+            WrapSplittableExpressions = options.WrapSplittableExpressions,
+            DisableOneLinerWrapping = options.DisableOneLinerWrapping,
+            QualifyFieldAccess = options.QualifyFieldAccess,
+            QualifyPropertyAccess = options.QualifyPropertyAccess,
+            QualifyMethodAccess = options.QualifyMethodAccess,
+            QualifyEventAccess = options.QualifyEventAccess,
+            EnumCaseLabelOrder = options.EnumCaseLabelOrder,
+        };
 }
 
 /// <summary>
@@ -297,6 +312,12 @@ public static class DiagnosticIds
     /// remains available, but cannot claim Full fidelity.
     /// </summary>
     public const string ExceptionFactsUnavailable = "DEC0017";
+
+    /// <summary>An explicit service input or composition boundary failed.</summary>
+    public const string ServiceInputFailure = "DEC0018";
+
+    /// <summary>The caller-supplied top-level body projection budget was exhausted.</summary>
+    public const string CompositionBudgetExceeded = "DEC0019";
 }
 
 /// <summary>

@@ -1561,7 +1561,7 @@ public partial class CommandExecutionTests
                     member,
                     "void M() { }",
                     ILInspector.Decompiler
-                        .MemberBodyProductionStatus.Failed);
+                        .CSharpDecompilationStatus.Failed);
         var cases = new[]
         {
             new MemberOptions { JsonOutput = true },
