@@ -5698,6 +5698,7 @@ public class PackageCommand
             SelectDefault = options.SelectDefault,
             Columns = options.Columns,
             Fields = options.Fields,
+            FieldsExplicitlySet = options.FieldsExplicitlySet,
             Schema = options.Schema,
             Count = options.Count,
             OutputPath = options.OutputPath,

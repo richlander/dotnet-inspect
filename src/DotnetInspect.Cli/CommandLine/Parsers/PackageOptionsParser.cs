@@ -248,6 +248,8 @@ public static class PackageOptionsParser
             SelectDefault = opts.ParseSelectDefault(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
+            FieldsExplicitlySet =
+                parseResult.GetResult(opts.Fields) is { Implicit: false },
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
             Rows = showPluralVersions
