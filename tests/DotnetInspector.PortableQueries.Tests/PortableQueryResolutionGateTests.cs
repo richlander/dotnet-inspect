@@ -468,6 +468,73 @@ public sealed class PortableQueryResolutionGateTests
     }
 
     /// <summary>
+    /// Collapse preserves the question. A duplicate collapses only inside one
+    /// composition context, because that is the only place idempotence holds.
+    /// </summary>
+    /// <remarks>
+    /// Two plain conjuncts asking the same thing ask it once, and so do two
+    /// members of one combining family, since <c>A OR A</c> is <c>A</c>. Across
+    /// contexts it fails: an ungrouped term beside a family member with the same
+    /// predicate is <c>A AND (A OR B)</c>, and collapsing the member leaves
+    /// <c>A AND B</c> — a narrower question than the one asked, silently
+    /// returned as though it resolved.
+    /// </remarks>
+    [Fact]
+    public void CollapseNarrowsNoQuery()
+    {
+        var vocabulary = new TestVocabulary { CollapsesDuplicates = true };
+
+        // v1 AND (v1 OR v2). Every term is part of the question.
+        TestPlan plan = Resolve(
+            vocabulary,
+            Intent(terms:
+            [
+                Term(TestVocabulary.ToolAliasKey, "v1"),
+                Term(TestVocabulary.ToolKey, "v1"),
+                Term(TestVocabulary.ToolKey, "v2"),
+            ])).Plan;
+
+        Assert.Equal(
+            ["alias-tool=v1", "tool=v1", "tool=v2"],
+            plan.Resolved.Terms
+                .Select(term => $"{term.Term.Key}={term.Term.Value}")
+                .Order()
+                .ToArray());
+
+        // Inside one context it still collapses: the same family member twice
+        // under two spellings the binder folds together is one member.
+        TestPlan inside = Resolve(
+            vocabulary,
+            Intent(terms:
+            [
+                Term(TestVocabulary.DependsKey, "Serilog"),
+                Term(TestVocabulary.DependsKey, "serilog"),
+            ])).Plan;
+        Assert.Single(inside.Resolved.Terms);
+
+        // And a vocabulary that refuses duplicates still refuses that one,
+        // while the cross-context case is not a duplicate for it either.
+        var refusing = new TestVocabulary();
+        Assert.Equal(
+            PortableQueryFailureReason.DuplicateAfterBinding,
+            Resolve(
+                refusing,
+                Intent(terms:
+                [
+                    Term(TestVocabulary.DependsKey, "Serilog"),
+                    Term(TestVocabulary.DependsKey, "serilog"),
+                ])).Failure.Reason);
+        Assert.True(Resolve(
+            refusing,
+            Intent(terms:
+            [
+                Term(TestVocabulary.ToolAliasKey, "v1"),
+                Term(TestVocabulary.ToolKey, "v1"),
+                Term(TestVocabulary.ToolKey, "v2"),
+            ])).IsResolved);
+    }
+
+    /// <summary>
     /// A failure is the same failure whichever way the intent reached the
     /// resolver: built directly, or encoded and decoded first.
     /// </summary>

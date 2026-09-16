@@ -68,6 +68,14 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
     /// </remarks>
     public const string DependenciesAliasKey = "alias-dependencies";
 
+    /// <summary>
+    /// An ungrouped key binding where a combining-family member binds, and
+    /// sorting before it. The requested expression is then
+    /// <c>v1 AND (v1 OR v2)</c>, which a collapse across contexts would narrow
+    /// to <c>v1 AND v2</c>.
+    /// </summary>
+    public const string ToolAliasKey = "alias-tool";
+
     /// <summary>A key whose presence narrows the candidate dimension's range.</summary>
     public const string ContentKey = "content";
 
@@ -139,6 +147,13 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
             {
                 // Its own key, and no family — but the same predicate.
                 PredicateKey = DependenciesKey,
+            },
+            ToolAliasKey => new TestKey(
+                ToolAliasKey,
+                [PortableQueryOperator.Equal],
+                value => value is "v1" or "v2" ? value : null)
+            {
+                PredicateKey = ToolKey,
             },
             ContentKey => new TestKey(
                 ContentKey,

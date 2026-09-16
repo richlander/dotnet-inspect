@@ -145,7 +145,16 @@ public static class PortableQueryResolver
         private PortableQueryFailure? ResolveTerms(CancellationToken cancellationToken)
         {
             var families = new Dictionary<string, PortableQueryFamilyKind>(StringComparer.Ordinal);
-            var predicates = new HashSet<string>(StringComparer.Ordinal);
+
+            // Keyed by composition context, not by predicate alone. Collapse
+            // rests on idempotence, and idempotence holds only inside one
+            // context: two plain conjuncts asking the same thing ask it once,
+            // and so do two members of one combining family, because A OR A is
+            // A. Across contexts it does not hold — a plain conjunct beside a
+            // family member with the same predicate is A AND (A OR B), and
+            // dropping the member leaves A AND B, which is a narrower question
+            // than the one that was asked.
+            var predicates = new HashSet<(string? Family, string Predicate)>();
             int index = 0;
 
             foreach (PortableQueryTerm term in PortableQueryModel.InSemanticOrder(intent.Terms))
@@ -184,7 +193,7 @@ public static class PortableQueryResolver
                 // contradiction that member contradicts would then resolve.
                 if (key.Family is { } declared) families[declared] = key.FamilyKind;
 
-                if (!predicates.Add(binding.PredicateIdentity))
+                if (!predicates.Add((key.Family, binding.PredicateIdentity)))
                 {
                     if (!vocabulary.CollapsesDuplicateBindings)
                         return Failure(PortableQueryFailureReason.DuplicateAfterBinding, at, term.Key);
