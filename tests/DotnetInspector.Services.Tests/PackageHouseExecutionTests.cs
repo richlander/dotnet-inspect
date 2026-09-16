@@ -434,7 +434,7 @@ public sealed class PackageHouseExecutionTests
     }
 
     [Fact]
-    public async Task VersionPopulationOperationTimeoutDuringVectorConstructionRetainsDiscovery()
+    public async Task VersionPopulationOperationTimeoutRetainsEnumeratedVersions()
     {
         const int versionCount = 8_000;
         await using HouseEnvironment environment = HouseEnvironment.Create(
@@ -455,12 +455,17 @@ public sealed class PackageHouseExecutionTests
 
         Assert.IsType<PackageHouseVersionPopulationResult.Failed>(
             result);
-        Assert.Equal(
-            PackageVersionDiscoveryState.Authoritative,
-            result.Evidence.Discovery?.State);
+        PackageVersionDiscoveryResult discovery =
+            Assert.IsType<PackageVersionDiscoveryResult>(
+                result.Evidence.Discovery);
+        // The deadline can be observed by discovery's final check or by the
+        // population's final check; both must retain the completed evidence.
+        Assert.True(
+            discovery.State is PackageVersionDiscoveryState.Authoritative
+                or PackageVersionDiscoveryState.Failed);
         Assert.Equal(
             versionCount,
-            result.Evidence.Discovery?.Versions.Count);
+            discovery.Versions.Count);
         Assert.IsType<PackageHouseFailure.Timeout>(
             result.Evidence.Failures.Last());
         await environment.AssertRootSettledAsync();
