@@ -12,6 +12,12 @@ public sealed class ResourceOwnershipFlowTests
         new("fixture.declared-resource");
     static readonly ResourceKindIdentity DeclaredKind =
         new("fixture.declared-resource.buffer");
+    static readonly ResourceKindIdentity SecondaryKind =
+        new("fixture.secondary-resource.buffer");
+    static readonly ResourceEffectModelIdentity ValueModelIdentity =
+        new("fixture.value-resource");
+    static readonly ResourceKindIdentity ValueKind =
+        new("fixture.value-resource.buffer");
 
     static string CallerPath =>
         FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
@@ -87,7 +93,9 @@ public sealed class ResourceOwnershipFlowTests
 
         ResourceOwnershipMethodEvidence release =
             index.ResourceOwnership.Single(candidate =>
-                candidate.Method.Name == "Release");
+                candidate.Method.Name == "Release"
+                && candidate.Method.DeclaringType.Name
+                    == "DeclaredResourceApi");
         ResourceOwnershipUse use =
             Assert.Single(
                 Assert.Single(release.Parameters).Uses);
@@ -278,12 +286,187 @@ public sealed class ResourceOwnershipFlowTests
                 Assert.Single(acquisition.Uses).Kind));
     }
 
+    [Fact]
+    public void ValueAuthorityRequiresTheSameProducingOccurrence()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(ValueResourceModel()),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("ReleaseAcrossValueAuthorities"),
+                    MethodToken("ReleaseThroughSameValueAuthority"),
+                });
+
+        ResourceOwnershipMethodEvidence wrong =
+            index.ResourceOwnership.Single(candidate =>
+                candidate.Method.Name
+                    == "ReleaseAcrossValueAuthorities");
+        ResourceAcquisitionOwnership wrongAcquisition =
+            Assert.Single(wrong.Acquisitions);
+        Assert.DoesNotContain(
+            wrongAcquisition.Uses,
+            use => use.Kind == ResourceOwnershipUseKind.Released);
+
+        ResourceOwnershipMethodEvidence same =
+            index.ResourceOwnership.Single(candidate =>
+                candidate.Method.Name
+                    == "ReleaseThroughSameValueAuthority");
+        ResourceAcquisitionOwnership sameAcquisition =
+            Assert.Single(same.Acquisitions);
+        Assert.Equal(
+            ResourceOwnershipUseKind.Released,
+            Assert.Single(sameAcquisition.Uses).Kind);
+        Assert.Equal(
+            sameAcquisition.Authority!.PhysicalInvocation,
+            Assert.Single(sameAcquisition.Uses)
+                .Authority!.PhysicalInvocation);
+    }
+
+    [Fact]
+    public void AtomicConflictKeepsWithheldRootsIncomplete()
+    {
+        ResourceEffectModelDefinition normal =
+            DeclaredReleaseModel(
+                new("fixture.conflict.normal"),
+                DeclaredKind,
+                new ResourceEffectCompletion.NormalReturn());
+        ResourceEffectModelDefinition entry =
+            DeclaredReleaseModel(
+                new("fixture.conflict.entry"),
+                DeclaredKind,
+                new ResourceEffectCompletion.Entry());
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(
+                    ArrayPoolResourceEffectModel.Definition(),
+                    normal,
+                    entry),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("RentAndReturnThroughHelper"),
+                    MethodToken("ReleaseDeclaredParameter"),
+                });
+
+        ResourceOwnershipMethodEvidence pooled =
+            index.ResourceOwnership.Single(candidate =>
+                candidate.Method.Name
+                    == "RentAndReturnThroughHelper");
+        Assert.False(pooled.IsComplete);
+        Assert.Empty(pooled.Acquisitions);
+        Assert.Contains(
+            pooled.Limits,
+            limit => limit.Kind
+                == ResourceOwnershipFlowLimitKind.ResolutionConflict
+                && limit.ILOffset is null);
+
+        ResourceOwnershipMethodEvidence conflicting =
+            index.ResourceOwnership.Single(candidate =>
+                candidate.Method.Name == "ReleaseDeclaredParameter");
+        Assert.False(conflicting.IsComplete);
+        Assert.Contains(
+            conflicting.Limits,
+            limit => limit.Kind
+                == ResourceOwnershipFlowLimitKind.ResolutionConflict
+                && limit.ILOffset is not null);
+    }
+
+    [Fact]
+    public void ParameterRetainsEveryCompatibleKindSpecificRelease()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(
+                    DeclaredResourceModel(),
+                    DeclaredReleaseModel(
+                        new("fixture.secondary-resource"),
+                        SecondaryKind,
+                        new ResourceEffectCompletion.NormalReturn())),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("ReleaseDeclaredParameter"),
+                });
+
+        ResourceOwnershipMethodEvidence evidence =
+            Assert.Single(index.ResourceOwnership);
+        Assert.True(evidence.IsComplete);
+        ResourceOwnershipUse[] releases =
+        [
+            .. Assert.Single(evidence.Parameters).Uses
+                .Where(use =>
+                    use.Kind == ResourceOwnershipUseKind.Released),
+        ];
+        Assert.Equal(2, releases.Length);
+        Assert.Equal(
+            new HashSet<ResourceKindIdentity>
+            {
+                DeclaredKind,
+                SecondaryKind,
+            },
+            releases.Select(use =>
+                Assert.Single(use.Effect!.ResourceKinds).Identity)
+                .ToHashSet());
+    }
+
+    [Fact]
+    public void UnsupportedReleaseOnlyLimitsApplicableResourceKinds()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(
+                    DeclaredResourceModel(),
+                    DeclaredReleaseModel(
+                        new("fixture.secondary-resource"),
+                        SecondaryKind,
+                        new ResourceEffectCompletion.Entry())),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("HoldDistinctResources"),
+                    MethodToken("ReleaseDeclaredParameter"),
+                });
+
+        ResourceOwnershipMethodEvidence acquisition =
+            index.ResourceOwnership.Single(candidate =>
+                candidate.Method.Name == "HoldDistinctResources");
+        Assert.True(acquisition.IsComplete);
+        Assert.Equal(
+            ResourceOwnershipUseKind.Released,
+            Assert.Single(
+                acquisition.Acquisitions.Single(candidate =>
+                    candidate.ResourceKind.Identity
+                        == DeclaredKind).Uses).Kind);
+
+        ResourceOwnershipMethodEvidence parameter =
+            index.ResourceOwnership.Single(candidate =>
+                candidate.Method.Name == "ReleaseDeclaredParameter");
+        Assert.False(parameter.IsComplete);
+        ResourceOwnershipUse released = Assert.Single(
+            Assert.Single(parameter.Parameters).Uses,
+            use => use.Kind == ResourceOwnershipUseKind.Released);
+        Assert.Equal(
+            DeclaredKind,
+            Assert.Single(released.Effect!.ResourceKinds).Identity);
+        Assert.Contains(
+            parameter.Limits,
+            limit => limit.Kind
+                == ResourceOwnershipFlowLimitKind.UnsupportedEffect);
+    }
+
     static ResourceEffectModelDefinition DeclaredResourceModel()
     {
-        var assembly = new ResourceAssemblySelector(
-            "ILInspector.Analysis.ResourceOwnershipApiFixtures",
-            publicKeyToken: null,
-            ResourceAssemblyVersionPolicy.Any);
+        ResourceAssemblySelector assembly = FixtureAssembly();
         ResourceTypeExpression.Named api = new(
             assembly,
             "DeclaredOwnership",
@@ -334,20 +517,142 @@ public sealed class ResourceOwnershipFlowTests
             ]);
     }
 
+    static ResourceEffectModelDefinition ValueResourceModel()
+    {
+        ResourceTypeExpression.Named pool = new(
+            FixtureAssembly(),
+            "DeclaredOwnership",
+            [new ResourceTypeNameSegment("ValueResourcePool", 0)],
+            []);
+        ResourceTypeExpression array =
+            new ResourceTypeExpression.SzArray(CoreType("Byte"));
+        ResourceKindReference kind = new(ValueKind, []);
+        return new(
+            ResourceEffectLanguageIdentity.Version1,
+            ValueModelIdentity,
+            [
+                new ResourceKindDefinition(
+                    ValueKind,
+                    arity: 0,
+                    [Provenance(
+                        ValueModelIdentity,
+                        "resource",
+                        0)]),
+            ],
+            [],
+            [
+                new ResourceEffectTypedDeclaration(
+                    Member(
+                        pool,
+                        "Create",
+                        parameters: [],
+                        pool),
+                    new ResourceEffect.Authority(
+                        kind,
+                        new ResourceEffectLocation.Return(),
+                        new ResourceAuthorityKey.Value()),
+                    [Provenance(
+                        ValueModelIdentity,
+                        "authority",
+                        1)]),
+                new ResourceEffectTypedDeclaration(
+                    Member(
+                        pool,
+                        "Acquire",
+                        parameters: [CoreType("Int32")],
+                        array,
+                        isStatic: false),
+                    new ResourceEffect.Acquire(
+                        kind,
+                        new ResourceEffectLocation.Return(),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        new ResourceEffectLocation.Receiver(),
+                        Lender: null),
+                    [Provenance(
+                        ValueModelIdentity,
+                        "acquire",
+                        2)]),
+                new ResourceEffectTypedDeclaration(
+                    Member(
+                        pool,
+                        "Release",
+                        parameters: [array],
+                        CoreType("Void"),
+                        isStatic: false),
+                    new ResourceEffect.Release(
+                        new ResourceEffectLocation.Parameter(0),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        kind,
+                        new ResourceEffectLocation.Receiver(),
+                        Observation: null),
+                    [Provenance(
+                        ValueModelIdentity,
+                        "release",
+                        3)]),
+            ]);
+    }
+
+    static ResourceEffectModelDefinition DeclaredReleaseModel(
+        ResourceEffectModelIdentity modelIdentity,
+        ResourceKindIdentity kindIdentity,
+        ResourceEffectCompletion completion)
+    {
+        ResourceTypeExpression.Named api = new(
+            FixtureAssembly(),
+            "DeclaredOwnership",
+            [new ResourceTypeNameSegment("DeclaredResourceApi", 0)],
+            []);
+        ResourceTypeExpression array =
+            new ResourceTypeExpression.SzArray(CoreType("Byte"));
+        ResourceKindReference kind = new(kindIdentity, []);
+        return new(
+            ResourceEffectLanguageIdentity.Version1,
+            modelIdentity,
+            [
+                new ResourceKindDefinition(
+                    kindIdentity,
+                    arity: 0,
+                    [Provenance(
+                        modelIdentity,
+                        "resource",
+                        0)]),
+            ],
+            [],
+            [
+                new ResourceEffectTypedDeclaration(
+                    Member(
+                        api,
+                        "Release",
+                        parameters: [array],
+                        CoreType("Void")),
+                    new ResourceEffect.Release(
+                        new ResourceEffectLocation.Parameter(0),
+                        completion,
+                        kind,
+                        Correspondence: null,
+                        Observation: null),
+                    [Provenance(
+                        modelIdentity,
+                        "release",
+                        1)]),
+            ]);
+    }
+
     static ResourceEffectTargetSelector Member(
         ResourceTypeExpression.Named declaringType,
         string name,
         ImmutableArray<ResourceTypeExpression> parameters,
-        ResourceTypeExpression returnType) =>
+        ResourceTypeExpression returnType,
+        bool isStatic = true) =>
         new ResourceEffectTargetSelector.Member(
             new ResourceEffectMemberSelector(
                 declaringType,
                 name,
                 ResourceEffectMemberKind.Method,
-                isStatic: true,
+                isStatic,
                 genericArity: 0,
                 ResourceEffectCallingConvention.Default,
-                hasThis: false,
+                hasThis: !isStatic,
                 explicitThis: false,
                 [
                     .. parameters.Select(type =>
@@ -356,6 +661,12 @@ public sealed class ResourceOwnershipFlowTests
                             ResourceEffectRefKind.Value)),
                 ],
                 returnType));
+
+    static ResourceAssemblySelector FixtureAssembly() =>
+        new(
+            "ILInspector.Analysis.ResourceOwnershipApiFixtures",
+            publicKeyToken: null,
+            ResourceAssemblyVersionPolicy.Any);
 
     static ResourceTypeExpression.Named CoreType(string name) =>
         new(
@@ -371,12 +682,18 @@ public sealed class ResourceOwnershipFlowTests
     static ResourceDeclarationProvenance Provenance(
         string source,
         int ordinal) =>
+        Provenance(ModelIdentity, source, ordinal);
+
+    static ResourceDeclarationProvenance Provenance(
+        ResourceEffectModelIdentity modelIdentity,
+        string source,
+        int ordinal) =>
         new(
-            ModelIdentity,
+            modelIdentity,
             ResourceDeclarationAuthority.ProductShipped,
             new InertString(
                 TextPolicy.Field,
-                $"fixture.declared-resource.{source}"),
+                $"{modelIdentity.Value}.{source}"),
             ordinal);
 
     static ResourceEffectAdmission Admit(

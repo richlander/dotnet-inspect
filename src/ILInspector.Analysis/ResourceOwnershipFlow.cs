@@ -344,7 +344,7 @@ internal static class ResourceOwnershipFlow
                 continue;
             }
 
-            ReleaseMatch? release = null;
+            ImmutableArray<ReleaseMatch> releases = [];
             bool releaseIncomplete = false;
             bool? ClassifyRelease(int operationOffset, int parameterIndex)
             {
@@ -368,11 +368,13 @@ internal static class ResourceOwnershipFlow
                     atCall,
                     effects,
                     context);
-                release = match.Match;
+                releases = match.Matches;
                 releaseIncomplete = match.IsIncomplete;
-                return match.IsIncomplete
-                    ? null
-                    : match.Match is not null;
+                return !match.Matches.IsEmpty
+                    ? true
+                    : match.IsIncomplete
+                        ? null
+                        : false;
             }
 
             ArrayPoolUseClassifier.UseClassification classification =
@@ -386,19 +388,31 @@ internal static class ResourceOwnershipFlow
             switch (classification.Kind)
             {
                 case ArrayPoolUseClassifier.UseKind.Release:
-                    if (release is null)
+                    if (releases.IsEmpty)
                     {
                         complete = false;
                         break;
                     }
-                    uses.Add(
-                        new(
-                            ResourceOwnershipUseKind.Released,
-                            classification.OperationOffset,
-                            release.Call,
-                            release.ParameterIndex,
-                            release.Effect,
-                            release.Authority));
+                    foreach (ReleaseMatch release in releases)
+                    {
+                        uses.Add(
+                            new(
+                                ResourceOwnershipUseKind.Released,
+                                classification.OperationOffset,
+                                release.Call,
+                                release.ParameterIndex,
+                                release.Effect,
+                                release.Authority));
+                    }
+                    if (releaseIncomplete)
+                    {
+                        complete = false;
+                        limits.Add(
+                            new(
+                                ResourceOwnershipFlowLimitKind
+                                    .UnsupportedEffect,
+                                classification.OperationOffset));
+                    }
                     break;
                 case ArrayPoolUseClassifier.UseKind.Store:
                     uses.Add(
@@ -464,6 +478,8 @@ internal static class ResourceOwnershipFlow
             effects,
         MethodBodyAnalysisContext context)
     {
+        var matches = ImmutableArray.CreateBuilder<ReleaseMatch>();
+        bool incomplete = false;
         foreach (ResolvedResourceEffect effect in atCall)
         {
             if (effect.Effect is not ResourceEffect.Release release
@@ -472,13 +488,6 @@ internal static class ResourceOwnershipFlow
                 || source.Index != parameterIndex)
             {
                 continue;
-            }
-
-            if (release.When
-                    is not ResourceEffectCompletion.NormalReturn
-                || release.Observation is not null)
-            {
-                return new(null, IsIncomplete: true);
             }
 
             ResolvedResourceKindReference? releaseKind =
@@ -493,6 +502,14 @@ internal static class ResourceOwnershipFlow
                 continue;
             }
 
+            if (release.When
+                    is not ResourceEffectCompletion.NormalReturn
+                || release.Observation is not null)
+            {
+                incomplete = true;
+                continue;
+            }
+
             if (!TryResolveAuthority(
                     context,
                     call,
@@ -501,7 +518,8 @@ internal static class ResourceOwnershipFlow
                     effects,
                     out ResolvedResourceEffect? authority))
             {
-                return new(null, IsIncomplete: true);
+                incomplete = true;
+                continue;
             }
             if (acquisitionAuthority is not null
                 && (authority is null
@@ -512,16 +530,15 @@ internal static class ResourceOwnershipFlow
                 continue;
             }
 
-            return new(
+            matches.Add(
                 new(
                     call,
                     parameterIndex,
                     effect,
-                    authority),
-                IsIncomplete: false);
+                    authority));
         }
 
-        return new(null, IsIncomplete: false);
+        return new(matches.ToImmutable(), incomplete);
     }
 
     static bool TryResolveAuthority(
@@ -620,10 +637,27 @@ internal static class ResourceOwnershipFlow
 
     static bool SameAuthority(
         ResolvedResourceEffect left,
-        ResolvedResourceEffect right) =>
-        left.ResourceKinds.SequenceEqual(right.ResourceKinds)
-        && left.AuthorityKeyArguments.SequenceEqual(
-            right.AuthorityKeyArguments);
+        ResolvedResourceEffect right)
+    {
+        if (!left.ResourceKinds.SequenceEqual(right.ResourceKinds)
+            || left.Effect is not ResourceEffect.Authority leftAuthority
+            || right.Effect is not ResourceEffect.Authority rightAuthority)
+        {
+            return false;
+        }
+
+        return (leftAuthority.Key, rightAuthority.Key) switch
+        {
+            (ResourceAuthorityKey.Value, ResourceAuthorityKey.Value) =>
+                left.PhysicalInvocation.Equals(
+                    right.PhysicalInvocation),
+            (ResourceAuthorityKey.Singleton,
+                ResourceAuthorityKey.Singleton) =>
+                left.AuthorityKeyArguments.SequenceEqual(
+                    right.AuthorityKeyArguments),
+            _ => false,
+        };
+    }
 
     static bool IsDirectInvocation(DirectCall call) =>
         call.Kind is CallKind.Call
@@ -641,7 +675,7 @@ internal static class ResourceOwnershipFlow
         ResolvedResourceEffect? Authority);
 
     readonly record struct ReleaseMatchOutcome(
-        ReleaseMatch? Match,
+        ImmutableArray<ReleaseMatch> Matches,
         bool IsIncomplete);
 
     sealed class ResolutionView
@@ -793,6 +827,10 @@ internal static class ResourceOwnershipFlow
             else if (outcome
                 is ResourceEffectResolutionOutcome.Conflict conflict)
             {
+                global.Add(
+                    new(
+                        ResourceOwnershipFlowLimitKind
+                            .ResolutionConflict));
                 foreach (ResourceEffectConflict item in conflict.Conflicts)
                 {
                     AddLimit(

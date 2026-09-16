@@ -231,6 +231,26 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int ReleaseAcrossValueAuthorities()
+    {
+        ValueResourcePool first = ValueResourcePool.Create();
+        ValueResourcePool second = ValueResourcePool.Create();
+        byte[] value = first.Acquire(16);
+        second.Release(value);
+        return value.Length;
+    }
+
+    public static int ReleaseThroughSameValueAuthority()
+    {
+        ValueResourcePool pool = ValueResourcePool.Create();
+        byte[] value = pool.Acquire(16);
+        pool.Release(value);
+        return value.Length;
+    }
+
+    public static void ReleaseDeclaredParameter(byte[] value) =>
+        DeclaredResourceApi.Release(value);
+
     public static BindingOutcome BindOccurrenceReferences()
     {
         var owner = new BindingOwner<byte>();

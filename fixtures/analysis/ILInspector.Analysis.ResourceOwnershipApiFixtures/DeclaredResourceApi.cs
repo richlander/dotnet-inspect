@@ -23,3 +23,14 @@ public static class DeclaredResourceApi
 
     static int s_probe;
 }
+
+public sealed class ValueResourcePool
+{
+    public static ValueResourcePool Create() => new();
+
+    public byte[] Acquire(int length) => new byte[length];
+
+    public void Release(byte[] value)
+    {
+    }
+}
