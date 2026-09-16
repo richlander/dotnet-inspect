@@ -9,8 +9,9 @@
 # the runner's own discovery listing; see check-decompiler-gate.cs.
 #
 # This file is not maintained by hand against the preset: GateExpectedClassesTests
-# asserts it matches the `pre-merge` preset's -class arguments exactly, so a class
-# added to the preset without being added here fails, and so does the reverse.
+# asserts it matches the `pre-merge` preset's --filter-class arguments exactly,
+# so a class added to the preset without being added here fails, and so does the
+# reverse.
 ILInspector.Decompiler.Tests.ByteNeutralityGateTests
 ILInspector.Decompiler.Tests.ByteDivergentGateTests
 ILInspector.Decompiler.Tests.SkeletonEmitTests
@@ -19,3 +20,4 @@ ILInspector.Decompiler.Tests.NestedTargetLookupTests
 ILInspector.DecompilerHarness.AuthoredRebuildFidelityTests
 ILInspector.Decompiler.Tests.AnnotatedCompileBackFailureTests
 ILInspector.Decompiler.Tests.GateExpectedClassesTests
+ILInspector.Decompiler.Tests.MtpGateReceiptTests

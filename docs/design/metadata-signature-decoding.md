@@ -401,7 +401,7 @@ dotnet run -c Release eng/prepare-signature-decode-corpus.cs -- \
   <preview-6-dotnet-root> <new-corpus-directory>
 DOTNET_INSPECT_SIGNATURE_CORPUS=<corpus-directory> \
   dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- \
-  -method '*PinnedCorpus_DecodesEverySignatureWithinProductionBudgets'
+  --filter-method '*PinnedCorpus_DecodesEverySignatureWithinProductionBudgets'
 ```
 
 The manifest records every logical input and content hash. A tier fingerprint is

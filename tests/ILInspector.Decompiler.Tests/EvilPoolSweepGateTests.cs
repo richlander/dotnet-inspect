@@ -1553,9 +1553,9 @@ public class EvilPoolSweepGateTests
             RedirectStandardError = true,
         };
         startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
-        startInfo.ArgumentList.Add("-method");
+        startInfo.ArgumentList.Add("--filter-method");
         startInfo.ArgumentList.Add(RunLockGateMethod);
-        startInfo.ArgumentList.Add("-noColor");
+        startInfo.ArgumentList.Add("--no-ansi");
         startInfo.Environment[RunLockWorkerModeEnvironmentVariable] = mode;
         startInfo.Environment[RunLockWorkerResultEnvironmentVariable] = resultPath;
         return startInfo;
