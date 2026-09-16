@@ -24,17 +24,15 @@ const packageSets = [{
   order: 10,
 }];
 
-test("view renders the product catalog and a keyboard-addressable Packages | Activity peer selector", () => {
+test("view renders the routed Package Activity product catalog", () => {
   const html = renderPackageChangesView({
     state: initialPackageChangesState(),
     packageSets,
     escapeHtml,
   });
 
-  assert.match(html, /role="tablist" aria-label="Query mode"/);
-  assert.match(html, /data-query-mode="packages"/);
-  assert.match(html, /data-query-mode="changes" aria-selected="true"/);
-  assert.match(html, />Activity<\/button>/);
+  assert.doesNotMatch(html, /role="tablist"/);
+  assert.doesNotMatch(html, /data-query-mode/);
   assert.match(html, />Package Activity<\/h1>/);
   assert.match(html, /value="package-set\.product-issued"/);
   assert.match(html, /Product-issued set/);

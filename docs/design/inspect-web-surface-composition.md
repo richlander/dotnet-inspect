@@ -119,7 +119,8 @@ This document consumes, without redefining:
   [Inspect Web Navigation
   Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip);
   and
-- the Query/Workspace application-scope inventory, selection, and interaction
+- the Query/Activity/Workspace application-scope inventory, selection, and
+  interaction
   owned by
   [Inspect Web Navigation
   Presentation](inspect-web-navigation-presentation.md#application-scope-strip).
@@ -179,7 +180,7 @@ contain its own horizontal scope-control pressure.
 The persistent shell is two non-wrapping page-level rows:
 
 ```text
-row one: [product] [Query | Workspace] [subject and inspector region]
+row one: [product] [Query | Activity | Workspace] [subject and inspector region]
          [Back | Forward] [Search] [Application menu]
 row two: [inspected target: minmax(0, 1fr)]
          [working-surface actions, when supplied]
@@ -196,10 +197,11 @@ a narrower width. History then disappears before the subject and inspector
 groups adapt from complete tablists to their current-label choosers.
 
 The application-scope strip uses a distinct quiet treatment and may be removed
-at constrained widths only after focus has left it. Query remains reachable
-through Spotlight's global keyboard entry and Workspace through hierarchical
-drill-out or a return action. The standalone `/query` surface does not render
-this strip; its visible heading and route-specific Back action orient it.
+at constrained widths only after focus has left it. Query and Activity remain
+reachable through Spotlight's global keyboard entry, and Workspace through
+hierarchical drill-out or a return action. The standalone `/query` and
+`/activity` surfaces do not render this strip; their visible headings and
+route-specific Back actions orient them.
 
 The subject and inspector region has `min-width: 0`. Its preferred allocation
 is large enough to expose complete common inventories, but exact pixel
@@ -1261,6 +1263,20 @@ result is committed by
 success leaves `/query` for the inspection destination, and failure keeps the
 query route, rows, and request intact.
 
+### Package Activity
+
+Package Activity is the routed `/activity` working surface beside `/query`. It
+has no package tab, peer-mode selector, or active inspection coordinate.
+[The Package Activity experience](package-activity-experience.md) owns its
+product-issued package-set scope, interval, progressive rows, cancellation,
+typed completion, bounded DOM, and session-local state.
+
+The page header contains the product home link and `Back`, not the
+`Query`/`Activity`/`Workspace` application-scope buttons. Its level-one heading
+is `Package Activity`; direct load and refresh start from the session-local
+initial state. In-app entry, Back, and Forward use the same route-history and
+focus pattern as Package Query without merging the two surfaces.
+
 ### Compare
 
 Compare uses one full-area working surface at Library, Type, and Member. The
@@ -1857,6 +1873,22 @@ with the absence of a synthesized `Default feed` control.
    then browser-history entry/return, the visible `Back` action, and
    post-transition focus per
    [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return).
+
+### Package Activity route
+
+1. Open Package Activity and confirm that `/activity` renders one level-one
+   `Package Activity` heading, the product-issued package-set selector, the
+   interval and result-bound controls, and `Run report`.
+2. Confirm that neither `/activity` nor `/query` renders the retired
+   `Packages | Activity` peer selector.
+3. Direct-load and refresh `/activity`, then enter it from the application
+   scope and Spotlight. Confirm Browser Back and Forward restore the routed
+   destination and proportional focus.
+4. Start a report, leave the route, and confirm active Worker work is canceled
+   while admitted rows and failures remain available when the route is reopened.
+5. At desktop and narrow widths, confirm the form, Cancel, Back, progress,
+   coverage, failures, and bounded row window remain visible and keyboard
+   reachable without page-level horizontal overflow.
 
 ### Data and diagnostics
 
