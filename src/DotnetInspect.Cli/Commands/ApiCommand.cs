@@ -3162,8 +3162,8 @@ public class ApiCommand
             var projectionManifest = new RenderedSectionManifest();
             MergeCallGraphRenderedFields(
                 projectionManifest,
-                view,
-                callGraphRendered: true);
+                view.MemberCode?.CallGraphRenderedFieldEvidence.GraphFields
+                    ?? CallGraphRenderedFieldEvidence.Empty.GraphFields);
             if (!DiagnoseProjection(
                     projectionManifest,
                     options,
@@ -3211,13 +3211,13 @@ public class ApiCommand
         {
             var renderedWriter = new StringWriter { NewLine = "\n" };
             RenderedSectionManifest projectionManifest;
-            bool callGraphRendered = false;
+            IEnumerable<CallGraphField> callGraphRenderedFields = [];
             if (ApiOutputFormatter.ShouldRenderSectionedTabularView(type, options))
             {
                 var writerOpts = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
                 OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                callGraphRendered =
-                    CallGraphEdgeTableSurvivesProjection(view, writerOpts);
+                callGraphRenderedFields =
+                    GetCallGraphEdgeTableRenderedFields(view, writerOpts);
                 OutputFormatter.WriteTable(renderedWriter, !options.NoHeader,
                     (writer, formatter) =>
                     {
@@ -3303,8 +3303,7 @@ public class ApiCommand
 
             MergeCallGraphRenderedFields(
                 projectionManifest,
-                view,
-                callGraphRendered);
+                callGraphRenderedFields);
             if (!DiagnoseProjection(
                     projectionManifest,
                     options,
@@ -3350,10 +3349,11 @@ public class ApiCommand
                 manifestFormatter.Manifest;
             MergeCallGraphRenderedFields(
                 projectionManifest,
-                view,
                 options.PlainText
                 || options.EmbeddedMermaid
-                || CallGraphEdgeTableSurvivesProjection(view, writerOptions));
+                    ? view.MemberCode?.CallGraphRenderedFieldEvidence.GraphFields
+                        ?? CallGraphRenderedFieldEvidence.Empty.GraphFields
+                    : GetCallGraphEdgeTableRenderedFields(view, writerOptions));
 
             if (options.Columns is { Length: > 0 }
                 && options.Fields is { Length: > 0 })
@@ -3410,44 +3410,58 @@ public class ApiCommand
 
     private static void MergeCallGraphRenderedFields(
         RenderedSectionManifest manifest,
-        TypeView view,
-        bool callGraphRendered)
+        IEnumerable<CallGraphField> fields)
     {
-        if (callGraphRendered
-            && view.MemberCode?.CallGraphRenderedFields is { Count: > 0 } fields)
-        {
-            manifest.RecordFields(SectionNames.CallGraph, fields);
-        }
+        manifest.RecordFields(
+            SectionNames.CallGraph,
+            fields.SelectMany(CallGraphFieldSelection.NamesFor));
     }
 
-    private static bool CallGraphEdgeTableSurvivesProjection(
+    private static IEnumerable<CallGraphField> GetCallGraphEdgeTableRenderedFields(
         TypeView view,
         MarkoutWriterOptions writerOptions)
     {
-        if (view.MemberCode?.CallGraph is not { } graph)
-            return false;
+        if (view.MemberCode is not
+            {
+                CallGraph: { } graph,
+                CallGraphRenderedFieldEvidence: { } evidence,
+            })
+        {
+            return [];
+        }
 
         MarkoutProjection? projection = writerOptions.Projection;
         if (projection?.IncludeColumns is null)
-            return true;
+            return evidence.GraphFields;
 
         var table = GraphLowering.ToEdgeTable(graph);
         if (!projection.TryResolveColumns(
                 table.Headers.AsSpan(),
                 out ColumnProjectionResolution resolution))
         {
-            return false;
+            return [];
         }
 
-        return resolution.ColumnMap.Any(index =>
+        bool includesFrom = resolution.ColumnMap.Any(index =>
             index >= 0
             && index < table.Headers.Length
-            && (table.Headers[index].Equals(
-                    "From",
-                    StringComparison.OrdinalIgnoreCase)
-                || table.Headers[index].Equals(
-                    "To",
-                    StringComparison.OrdinalIgnoreCase)));
+            && table.Headers[index].Equals(
+                "From",
+                StringComparison.OrdinalIgnoreCase));
+        bool includesTo = resolution.ColumnMap.Any(index =>
+            index >= 0
+            && index < table.Headers.Length
+            && table.Headers[index].Equals(
+                "To",
+                StringComparison.OrdinalIgnoreCase));
+
+        return (includesFrom, includesTo) switch
+        {
+            (true, true) => evidence.GraphFields,
+            (true, false) => evidence.FromFields,
+            (false, true) => evidence.ToFields,
+            _ => [],
+        };
     }
 
     private static async Task<int> PrintApiProjectionAsync(TypeView view, ApiOptions options)

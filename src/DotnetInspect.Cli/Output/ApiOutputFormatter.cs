@@ -1711,11 +1711,8 @@ public static class ApiOutputFormatter
                                     analysisInspection.CallGraphBodyIndexes)
                                 : null);
                 memberCode.CallGraph = graphOutput.Graph;
-                memberCode.CallGraphRenderedFields =
-                [
-                    .. graphOutput.DataFields.SelectMany(
-                        CallGraphFieldSelection.NamesFor),
-                ];
+                memberCode.CallGraphRenderedFieldEvidence =
+                    graphOutput.RenderedFieldEvidence;
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph)

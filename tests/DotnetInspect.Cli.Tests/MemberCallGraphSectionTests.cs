@@ -869,6 +869,44 @@ public class MemberCallGraphSectionTests
     }
 
     [Theory]
+    [InlineData("*r*", true)]
+    [InlineData("*t*", false)]
+    [Trait("Speed", "Slow")]
+    public async Task CallGraphSection_EndpointProjectionUsesOnlyVisibleNodeEvidence(
+        string columns,
+        bool fieldHasNoData)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["Loop"],
+            Columns = [columns],
+            Rows = RowWindow.Head(1),
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        if (fieldHasNoData)
+        {
+            Assert.Contains("Note: 1 field has no data: Loop", result.Error);
+            Assert.DoesNotContain("loop", result.Output);
+        }
+        else
+        {
+            Assert.Empty(result.Error);
+            Assert.Contains("loop", result.Output);
+        }
+    }
+
+    [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
     [Trait("Speed", "Slow")]

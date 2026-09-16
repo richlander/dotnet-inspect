@@ -7,9 +7,21 @@ namespace DotnetInspect.Cli.Output;
 internal readonly record struct CallGraphOpportunityAnnotations(
     int AsyncAlternatives);
 
+internal readonly record struct CallGraphRenderedFieldEvidence(
+    IReadOnlySet<CallGraphField> GraphFields,
+    IReadOnlySet<CallGraphField> FromFields,
+    IReadOnlySet<CallGraphField> ToFields)
+{
+    internal static CallGraphRenderedFieldEvidence Empty { get; } =
+        new(
+            new HashSet<CallGraphField>(),
+            new HashSet<CallGraphField>(),
+            new HashSet<CallGraphField>());
+}
+
 internal readonly record struct CallGraphSectionOutput(
     Markout.Graph Graph,
-    IReadOnlySet<CallGraphField> DataFields);
+    CallGraphRenderedFieldEvidence RenderedFieldEvidence);
 
 /// <summary>
 /// Turns the format-neutral <see cref="CallGraphProjection"/> into the generic
@@ -120,21 +132,29 @@ internal static class CallGraphSectionAdapter
                 });
         }
 
-        var dataFields = new HashSet<CallGraphField>();
+        var graphFields = new HashSet<CallGraphField>();
+        var fromFields = new HashSet<CallGraphField>();
+        var toFields = new HashSet<CallGraphField>();
         if (hasFieldProjection && requestedFields is { Count: > 0 })
         {
-            var evidenceNodeIds = new HashSet<int>();
+            var fromEvidenceNodeIds = new HashSet<int>();
+            var toEvidenceNodeIds = new HashSet<int>();
             foreach (CallGraphRow row in evidenceRows ?? selectedRows)
             {
-                evidenceNodeIds.Add(row.Edge.From);
-                evidenceNodeIds.Add(row.Edge.To);
+                fromEvidenceNodeIds.Add(row.Edge.From);
+                toEvidenceNodeIds.Add(row.Edge.To);
             }
-            if (includeFocusInEvidence)
-                evidenceNodeIds.Add(projection.Focus.Id);
 
             foreach (CallGraphNode node in projection.Nodes)
             {
-                if (!evidenceNodeIds.Contains(node.Id))
+                bool isFromEvidence = fromEvidenceNodeIds.Contains(node.Id);
+                bool isToEvidence = toEvidenceNodeIds.Contains(node.Id);
+                bool isGraphEvidence =
+                    isFromEvidence
+                    || isToEvidence
+                    || includeFocusInEvidence
+                    && node.Id == projection.Focus.Id;
+                if (!isGraphEvidence)
                     continue;
 
                 foreach (CallGraphField field in requestedFields)
@@ -146,7 +166,11 @@ internal static class CallGraphSectionAdapter
                             out CallGraphOpportunityAnnotations opportunities)
                         && OpportunityAnnotation(opportunities, field) is not null)
                     {
-                        dataFields.Add(field);
+                        graphFields.Add(field);
+                        if (isFromEvidence)
+                            fromFields.Add(field);
+                        if (isToEvidence)
+                            toFields.Add(field);
                     }
                 }
             }
@@ -157,7 +181,10 @@ internal static class CallGraphSectionAdapter
                 nodes,
                 edges,
                 focusKey: Key(projection.Focus.Id)),
-            dataFields);
+            new CallGraphRenderedFieldEvidence(
+                graphFields,
+                fromFields,
+                toFields));
     }
 
     // The projection's dense ids are the node identity. They are opaque to Markout and never
