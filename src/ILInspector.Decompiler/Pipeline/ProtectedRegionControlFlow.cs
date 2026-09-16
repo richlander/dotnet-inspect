@@ -12,26 +12,11 @@ public static class ProtectedRegionControlFlow
 {
     public static bool CanRaiseLeave(Leave leave)
     {
-        if (TryGetSharedTransfer(
-                leave,
-                out IrFunction? function,
-                out InstructionExceptionFlowFacts facts,
-                out InstructionNormalTransfer transfer))
-        {
-            HashSet<InstructionExceptionRegionId> raisable =
-                RaisableRegionsLeft(facts, transfer);
-            return raisable.Count > 0
-                && HasAssociatedRegionBelow(
-                    leave,
-                    function!,
-                    function!,
-                    facts,
-                    transfer,
-                    raisable);
-        }
-
-        return UsesSyntheticCompatibility(function)
-            && CanRaiseSyntheticLeave(leave);
+        IrFunction? function = OwningFunction(leave);
+        return CanRaiseLeave(
+            leave,
+            function,
+            function);
     }
 
     /// <summary>
@@ -39,10 +24,33 @@ public static class ProtectedRegionControlFlow
     /// structured association below the candidate construct.
     /// </summary>
     public static bool CanRaiseLeave(Leave leave, IrNode exclusiveBoundary)
+        => CanRaiseLeave(
+            leave,
+            OwningFunction(leave),
+            exclusiveBoundary);
+
+    /// <summary>
+    /// Evaluates a detached structuring candidate against its production
+    /// function's evidence. Cloning preserves source offsets and exact
+    /// structured associations but intentionally does not preserve a parent
+    /// link to the function.
+    /// </summary>
+    internal static bool CanRaiseDetachedLeave(
+        Leave leave,
+        IrFunction evidenceOwner)
+        => CanRaiseLeave(
+            leave,
+            evidenceOwner,
+            exclusiveBoundary: null);
+
+    static bool CanRaiseLeave(
+        Leave leave,
+        IrFunction? function,
+        IrNode? exclusiveBoundary)
     {
         if (TryGetSharedTransfer(
                 leave,
-                out IrFunction? function,
+                function,
                 out InstructionExceptionFlowFacts facts,
                 out InstructionNormalTransfer transfer))
         {
@@ -58,17 +66,20 @@ public static class ProtectedRegionControlFlow
                     raisable);
         }
 
-        return UsesSyntheticCompatibility(function)
-            && CanRaiseSyntheticLeave(leave, exclusiveBoundary);
+        if (!UsesSyntheticCompatibility(function))
+            return false;
+
+        return exclusiveBoundary is null
+            ? CanRaiseSyntheticLeave(leave)
+            : CanRaiseSyntheticLeave(leave, exclusiveBoundary);
     }
 
     static bool TryGetSharedTransfer(
         Leave leave,
-        out IrFunction? function,
+        IrFunction? function,
         out InstructionExceptionFlowFacts facts,
         out InstructionNormalTransfer transfer)
     {
-        function = OwningFunction(leave);
         facts = null!;
         transfer = null!;
 
@@ -179,7 +190,7 @@ public static class ProtectedRegionControlFlow
 
     static bool HasAssociatedRegionBelow(
         Leave leave,
-        IrNode exclusiveBoundary,
+        IrNode? exclusiveBoundary,
         IrFunction function,
         InstructionExceptionFlowFacts facts,
         InstructionNormalTransfer transfer,
@@ -242,7 +253,9 @@ public static class ProtectedRegionControlFlow
             matched |= raisable.Contains(region);
         }
 
-        return false;
+        return exclusiveBoundary is null
+            && matched
+            && !invalidAssociation;
     }
 
     static IrFunction? OwningFunction(IrNode node)

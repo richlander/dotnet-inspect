@@ -128,7 +128,10 @@ constructs below the caller's candidate boundary. Equal ranges, node kinds, or
 an association from a different body observation do not substitute for that
 identity. Missing or stale production evidence declines and reports `DEC0017`;
 detached or non-Metadata Layer 0 trees retain the explicit structural
-compatibility path.
+compatibility path. `StructuringPass` carries the production function's
+evidence owner into its detached validation/build clones, whose source offsets
+and exact structured associations remain the projection currency; clone
+detachment alone never selects Layer 0 compatibility.
 
 ## Nine-step adoption plan
 

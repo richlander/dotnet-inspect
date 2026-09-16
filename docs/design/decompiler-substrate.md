@@ -51,7 +51,9 @@ current structured projection; it does not infer membership from structured
 node kinds. Its boundary-aware atom limits that projection walk to constructs
 below the candidate boundary. Equal extents and foreign body observations do
 not match. The consuming pass still owns target and loop identity. Explicit
-synthetic Layer 0 trees retain structural compatibility.
+synthetic Layer 0 trees retain structural compatibility. Detached
+`StructuringPass` candidates carry their production function's evidence owner,
+so clone detachment does not make a production leave synthetic.
 
 ## Boundaries and roadmap
 

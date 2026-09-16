@@ -97,6 +97,30 @@ public class ProtectedRegionControlFlowTests
     }
 
     [Fact]
+    public void DetachedStructuringCandidate_UsesExplicitProductionEvidence()
+    {
+        var (function, tryCatch, _, _) =
+            StructuredProtectedContinues();
+        TryCatch detached = Assert.IsType<TryCatch>(tryCatch.Clone());
+        Leave detachedLeave = Assert.Single(
+            detached.TryBody.Descendants.OfType<Leave>());
+
+        Assert.Null(detached.Parent);
+        Assert.True(ProtectedRegionControlFlow.CanRaiseDetachedLeave(
+            detachedLeave,
+            function));
+
+        function.ClearImportedExceptionFacts();
+
+        Assert.False(ProtectedRegionControlFlow.CanRaiseDetachedLeave(
+            detachedLeave,
+            function));
+        Assert.Contains(
+            "no correlated Instructions evidence",
+            function.ExceptionFactFailure);
+    }
+
+    [Fact]
     public void Raise_RejectsSameRangeFromAnotherBodyObservation()
     {
         var (function, tryCatch, tryLeave, _) =

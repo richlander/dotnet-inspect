@@ -187,7 +187,9 @@ try/catch `Leave` transfers use regions actually left by `NormalTransferAt`;
 the current projection requires exact structured associations, with the
 bounded predicate limited to associations below the candidate boundary.
 Missing correlation and same-range foreign-body identity decline visibly. Its
-synthetic cases preserve the explicit Layer 0 compatibility path.
+synthetic cases preserve the explicit Layer 0 compatibility path, while its
+detached-clone case proves that production structuring candidates retain their
+function evidence owner.
 `ProtectedContinueRecoveryTests` gates the production `ForLoopPass` adoption
 outcome. These gates do not verify the later classic-async correspondence or
 return-timing consumer migrations.
