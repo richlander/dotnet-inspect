@@ -44,7 +44,7 @@ public class MemberSearchServiceTests
                     && r.Library == "CopiedMemberAssembly");
             Assert.Equal("method", result.Kind);
             Assert.Equal(typeof(MemberSearchServiceTests).FullName, result.DeclaringType);
-            Assert.Equal(MatchKind.Exact, result.Match);
+            Assert.Equal(MemberFindMatchKind.Exact, result.Match);
             Assert.Equal(Path.GetFileName(directory), result.Source);
             Assert.Null(result.SourceVersion);
         }
@@ -82,7 +82,7 @@ public class MemberSearchServiceTests
             Assert.NotEmpty(search.Rows);
             Assert.All(
                 search.Rows,
-                r => Assert.Equal(MatchKind.Glob, r.Match));
+                r => Assert.Equal(MemberFindMatchKind.Glob, r.Match));
             Assert.Contains(
                 search.Rows,
                 r => r.Member == SearchTargetMemberName);
