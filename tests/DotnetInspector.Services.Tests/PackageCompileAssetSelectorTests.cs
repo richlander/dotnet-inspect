@@ -417,7 +417,32 @@ public class PackageCompileAssetSelectorTests : IDisposable
     public void CompatibleImplementation_UsesRidOnlyImplementationAsSurface()
     {
         IPackageContent content = InMemory(
+            "runtimes/linux-x64/lib/net9.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.SelectForCompatibleImplementation(
+                content,
+                "Example",
+                "net10.0",
+                "net9.0",
+                "linux-x64");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal("net9.0", selection.TargetFramework);
+        Assert.Equal(
+            ["runtimes/linux-x64/lib/net9.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+        Assert.Same(
+            Assert.Single(selection.Assets),
+            Assert.Single(selection.ImplementationAssets));
+    }
+
+    [Fact]
+    public void CompatibleImplementation_UsesRidImplementationWhenReferenceHasNoLibrarySurface()
+    {
+        IPackageContent content = InMemory(
             "lib/net8.0/Example.dll",
+            "ref/net9.0/Example.dll",
             "runtimes/linux-x64/lib/net9.0/Example.dll");
 
         PackageCompileAssetSelection selection =
@@ -442,7 +467,6 @@ public class PackageCompileAssetSelectorTests : IDisposable
     public void CompatibleImplementation_RidOnlyHonorsEmptyReferenceGroup()
     {
         IPackageContent content = InMemory(
-            "lib/net8.0/Example.dll",
             "ref/net8.0/_._",
             "runtimes/linux-x64/lib/net9.0/Example.dll");
 

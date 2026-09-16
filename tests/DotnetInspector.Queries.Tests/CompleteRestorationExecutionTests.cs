@@ -216,10 +216,14 @@ public sealed class CompleteRestorationExecutionTests
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
     }
 
-    [Fact]
-    public async Task CompatibleRidPackageTarget_RestoresSelectedImplementation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompatibleRidPackageTarget_RestoresSelectedImplementation(
+        bool includeNeutralReference)
     {
-        PackageFixture package = await CompatibleRidPackageAsync();
+        PackageFixture package =
+            await CompatibleRidPackageAsync(includeNeutralReference);
         var authority = new TestIntentAuthority();
         var preparation =
             Assert.IsType<CompleteRestorationPreparationResult.Ready>(
@@ -260,6 +264,8 @@ public sealed class CompleteRestorationExecutionTests
             StructuralSubjectKind.Package,
             activated.Workspace.Snapshot.Navigation.State.Snapshot
                 .ActiveSubject.Kind);
+        Assert.NotEmpty(
+            activated.Workspace.Snapshot.Navigation.State.Snapshot.Libraries);
 
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
     }
@@ -1731,7 +1737,8 @@ public sealed class CompleteRestorationExecutionTests
         return new(store);
     }
 
-    private static async Task<PackageFixture> CompatibleRidPackageAsync()
+    private static async Task<PackageFixture> CompatibleRidPackageAsync(
+        bool includeNeutralReference)
     {
         const string url = "https://api.nuget.org/v3/index.json";
         byte[] assembly = await File.ReadAllBytesAsync(
@@ -1740,9 +1747,16 @@ public sealed class CompleteRestorationExecutionTests
         string assemblyName =
             Path.GetFileName(
                 typeof(CompleteRestorationExecutionTests).Assembly.Location);
-        byte[] content = Archive(
-            ($"lib/net8.0/{assemblyName}", assembly),
-            ($"runtimes/linux-x64/lib/net9.0/{assemblyName}", assembly));
+        List<(string Path, byte[] Content)> entries =
+        [
+            ($"runtimes/linux-x64/lib/net9.0/{assemblyName}", assembly),
+        ];
+        if (includeNeutralReference)
+        {
+            entries.Add(($"lib/net8.0/{assemblyName}", assembly));
+            entries.Add(($"ref/net9.0/{assemblyName}", assembly));
+        }
+        byte[] content = Archive([.. entries]);
         var store = new InMemoryPackageStore();
         await store.CommitAsync(
             "System.Text.Json",

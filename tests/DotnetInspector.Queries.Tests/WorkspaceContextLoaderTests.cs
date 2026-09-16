@@ -170,7 +170,6 @@ public sealed partial class WorkspaceContextLoaderTests
         IPackageStore store = await CachedStoreAsync(
             Version,
             Archive(
-                ($"lib/net8.0/{assemblyName}", File.ReadAllBytes(TargetPath)),
                 ($"runtimes/linux-x64/lib/net9.0/{assemblyName}",
                     File.ReadAllBytes(TargetPath))));
         using var client = new HttpClient(new FailingHandler());

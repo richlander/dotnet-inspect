@@ -510,6 +510,55 @@ public sealed class PackageAssemblyContextRealizationTests
             binding.Root.AssetSelection.ImplementationAssets.Select(asset => asset.Path));
     }
 
+    [Fact]
+    public void ResolvedPackageRootBinding_RidOnlySameTargetReacquiresCompatibleSelection()
+    {
+        const string packageId = "rid.only.reacquired";
+        var content = new InMemoryPackageContent(
+            Archive(
+                ("runtimes/linux-x64/lib/net9.0/Rid.Only.dll", [0x01])),
+            fromCache: false,
+            producerKey: "tests");
+        var payload = new AcquiredPackagePayload(
+            new ResolvedPackageCoordinate(
+                packageId,
+                "1.0.0",
+                "net9.0",
+                "linux-x64",
+                [PackageSource.NuGetOrg],
+                wasFloating: false),
+            content,
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding initial =
+            PackageRootBinding.CreateFromResolvedWithCompatibleSelection(
+                payload,
+                "net9.0");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                initial.CreateReacquisitionRequest().Encode(),
+                out PackageRootReacquisitionRequest? request));
+
+        PackageRootBinding reopened =
+            Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                PackageRootAcquisition.BindReacquired(
+                    request,
+                    new AcquiredPackageSourcePayload(
+                        PackageSourceCoordinate.Create(packageId, "1.0.0"),
+                        content,
+                        "tests",
+                        PackagePayloadOrigin.Download))).Binding;
+
+        Assert.True(request.UsesCompatibleImplementationSelection);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.Selected,
+            reopened.Root.AssetSelection.Status);
+        Assert.Equal(
+            ["runtimes/linux-x64/lib/net9.0/Rid.Only.dll"],
+            reopened.Root.AssetSelection.Assets.Select(asset => asset.Path));
+        Assert.Equal(request, reopened.CreateReacquisitionRequest());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

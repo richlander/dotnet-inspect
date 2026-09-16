@@ -208,8 +208,9 @@ public static class PackageCompileAssetSelector
             runtimeIdentifier,
             requestedTargetFramework);
         if (selection.Status
-                is not PackageCompileAssetSelectionStatus
-                    .NoMatchingTargetFramework)
+                is not (PackageCompileAssetSelectionStatus.NoCompileAssets
+                    or PackageCompileAssetSelectionStatus
+                        .NoMatchingTargetFramework))
         {
             return selection;
         }

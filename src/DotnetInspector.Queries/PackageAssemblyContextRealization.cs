@@ -265,8 +265,8 @@ public sealed class PackageRootBinding
             payload,
             requestedTargetFramework,
             displayPackageId: displayPackageId);
-        if (exact.Root.AssetSelection.Status
-                is not PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+        if (!NeedsCompatibleImplementationSelection(
+                exact.Root.AssetSelection))
         {
             return exact;
         }
@@ -446,8 +446,8 @@ public sealed class PackageRootBinding
                 displayPackageId,
                 coordinateProducer,
                 producer);
-        if (exact.Root.AssetSelection.Status
-                is not PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+        if (!NeedsCompatibleImplementationSelection(
+                exact.Root.AssetSelection))
         {
             return exact;
         }
@@ -504,8 +504,7 @@ public sealed class PackageRootBinding
                     packageId,
                     compileTargetFramework,
                     request.SelectionRuntimeIdentifier);
-            return exactSelection.Status
-                    is PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
+            return NeedsCompatibleImplementationSelection(exactSelection)
                 && TrySelectCompatibleCompileAssets(
                     content,
                     packageId,
@@ -524,6 +523,11 @@ public sealed class PackageRootBinding
             selectionTargetFramework,
             request.SelectionRuntimeIdentifier);
     }
+
+    static bool NeedsCompatibleImplementationSelection(
+        PackageCompileAssetSelection selection) =>
+        selection.Status is PackageCompileAssetSelectionStatus.NoCompileAssets
+            or PackageCompileAssetSelectionStatus.NoMatchingTargetFramework;
 
     static bool TrySelectCompatibleCompileAssets(
         IPackageContent content,
