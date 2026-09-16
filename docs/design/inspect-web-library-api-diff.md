@@ -5,7 +5,7 @@
 This document defines the focused Browser composition for
 [#6423](https://github.com/richlander/dotnet-inspect/issues/6423), within the
 Compare experience tracked by
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 Complete baseline delivery is tracked by
 [#7178](https://github.com/richlander/dotnet-inspect/issues/7178).
 
@@ -15,8 +15,8 @@ The normative claim is:
 > that retained Package model's effective Diff target to publish one
 > request-associated, complete public-API changed-Type inventory from the
 > shared Library API diff document and its complete service envelope,
-> preserving exact endpoint and Type identity and every typed non-success
-> outcome.
+> preserving exact endpoint, Type, and Type-local changed-Member identity and
+> every typed non-success outcome.
 
 This document owns only the Browser request, operation association, bounded
 wire projection, and Library-root presentation. It does not own package
@@ -180,21 +180,26 @@ The Browser wire result retains:
   Metadata inspection-failure evidence;
 - aggregate changed-Type, changed-member, and compatibility counts;
 - every producer-ordered changed Type;
-- exact nullable Before and After Type identities; and
+- exact nullable Before and After Type identities;
+- every Type-local changed-Member relation, preserving its global pair kind,
+  local Before/After/Both role, exact nullable endpoint identities, and
+  complete member anchors; and
 - type-definition and compact compatibility counts.
 
-The wire projection is all-or-nothing. The displayed inventory admits at most
-10,000 changed Types and a 6,000,000-character retained Type-text budget.
-The **entire result**, including native Content, Share, and diagnostics, must
-fit the ordinary Worker's 16,777,216-character and 524,288-collection-entry
-limits, reserving its one-element result tuple. Collection accounting follows
-the serialized value: each object contributes its property count plus one,
-each array its length plus one, and contained objects and arrays contribute
-recursively. Character accounting uses the Worker's `JSON.stringify`
-representation, not managed JSON escaping. The complete baseline can therefore
-reject a result whose
-displayed inventory alone would fit. Exceeding any bound produces typed
-`Rejected`; it never returns a truncated successful inventory or baseline.
+The wire projection is all-or-nothing. The Browser inventory admits at most
+10,000 changed Types and a 6,000,000-character retained Type-and-Member-text
+budget. The **entire result**, including native Content, Share, and
+diagnostics, must fit the ordinary Worker's 16,777,216-character and
+524,288-collection-entry limits, reserving its one-element result tuple.
+Collection accounting follows the serialized value: each object contributes
+its property count plus one, each array its length plus one, and contained
+objects and arrays contribute recursively. Character accounting uses the
+Worker's `JSON.stringify` representation, not managed JSON escaping. The
+complete baseline is admitted before the repeated Browser inventory is built,
+so an oversized producer result rejects without first duplicating every member
+identity. A baseline that fits can still produce a final result that rejects
+after view projection. Exceeding any bound produces typed `Rejected`; it never
+returns a truncated successful inventory or baseline.
 
 A Browser transport rejection omits both `inspection` and endpoint evidence
 from its rejection arm, retains the accepted bounded request and exact
@@ -240,6 +245,10 @@ Rows retain exact Before and After Type identifiers in the DOM projection.
 This first Library adopter does not make them interactive because Type Compare
 is not yet delivered. It does not fake sticky drill-down by mutating Type and
 lens state independently, and it does not open an in-place detail region.
+The generated Browser contract also retains each row's complete Type-local
+changed-Member inventory so the later Type Compare adopter can render and
+activate exact members without parsing display text or re-running the Library
+comparison.
 The later Type Compare slice consumes the product-owned atomic descendant
 subject-and-lens activation from
 [#6490](https://github.com/richlander/dotnet-inspect/issues/6490).
@@ -273,7 +282,7 @@ The published Browser demo uses the deterministic `LibraryApiDiff.V1` and
 
 | Gate | Adoption evidence |
 | --- | --- |
-| Release `BrowserLibraryApiDiffOperationTests` | Real V1-to-V2 and same-version results, exact asset mismatch, typed non-success, bounds, cancellation, and generated JSON shape. |
+| Release `BrowserLibraryApiDiffOperationTests` | Real V1-to-V2 and same-version results, exact Type-local changed-Member identities and moved-member roles, exact asset mismatch, typed non-success, member-heavy bounds, cancellation, and generated JSON shape. |
 | Release `BrowserLibraryApiDiffEnvelopeParityTests` (Slow) | Authentic System.Text.Json 9.0.0-to-10.0.0 Library comparison: Browser Content, Share, and diagnostics agree with the shared terminal. |
 | Release `ProductionFacadeContextTests` and `generate-inspect-web-engine-facade.sh --check` | Existing Metadata facade exports and compiler-derived TypeScript transport. |
 | Node Library API Diff tests | Target resolution, request association, complete row rendering, exact identities, non-success, and stale completion suppression. |
