@@ -195,26 +195,21 @@ owner:
 2. [Diff History inspection](diff-history.md) resolves the baseline source
    Member once and issues its detached exact declaration, kind, and stable
    `FindingSubject` receipt;
-3. #7248 invokes this query first through internal exact same-cell
-   correspondence for the detached baseline observation, then through one
-   bounded reporter-bound source/destination PackageHouse cell pair per later
-   checkpoint after exact-binding that same receipt in the pair-local
-   Workspace; every invocation reuses the receipt's `FindingSubject`;
-4. Diff History evaluates its chosen checkpoints serially and joins detached
+3. [#7337](https://github.com/richlander/dotnet-inspect/issues/7337) supplies
+   Queries-owned detached coordinate-correspondence evidence;
+4. #7248 owns bounded baseline/checkpoint execution, invokes this query for
+   exact matched Members, and returns resource-free evaluation evidence;
+5. Diff History evaluates its chosen checkpoints serially and joins detached
    sparse node and correspondence-edge evidence;
-5. the subject CLI and Browser/Wasm consume the same shared
+6. the subject CLI and Browser/Wasm consume the same shared
    `InspectionEnvelope<TContent>` terminal; and
-6. the standalone `timeline` implementation is removed without compatibility.
+7. the standalone `timeline` implementation is removed without compatibility.
 
 Diff History separately owns the now-locked baseline-required receipt, direct
 seed-to-checkpoint correspondence across gaps, transition classification,
-Count, and detached output retention or streaming. The Workspace-local source
-Member produced by each exact pair binding does not survive that pair, while
-the baseline-issued `FindingSubject` remains unchanged across observations.
-That owner invokes this query only for exact correspondence; it separately
-projects strict declaration absence to `SubjectAbsent` and binding,
-correspondence, or operational non-success to Finding failure for both the
-internal baseline correspondence and later checkpoint correspondence.
+Count, and detached output retention or streaming. #7248 owns how the receipt
+is bound and how matched Analysis or non-success is projected for one bounded
+evaluation; #7337 owns the detached correspondence evidence.
 
 ## Evidence
 

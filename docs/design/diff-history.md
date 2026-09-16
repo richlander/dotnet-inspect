@@ -46,10 +46,9 @@ The subsequent decision in
 exact-Member Analysis source receipt consumed by bounded cell-pair execution.
 The first population Version in caller-directed order is the mandatory source.
 One selector resolution captures its exact declaration coordinate and kind;
-every checkpoint then binds that same detached receipt in its own bounded pair
-and corresponds directly from the resulting pair-local source Member. History
-never scans later Versions for a replacement seed or chains declaration
-identity through an intervening checkpoint.
+every checkpoint is then evaluated directly from that same detached receipt.
+History never scans later Versions for a replacement seed or chains
+declaration identity through an intervening checkpoint.
 
 The subsequent user-approved revision makes `--at` target selection, not an
 operation-enabling switch. It supersedes the earlier requirement for an
@@ -320,28 +319,18 @@ The `analysis.allocation`, `analysis.call-site`, and `analysis.unsafety`
 producers require one exact Member. For those producers, the first population
 Version in caller-directed order is the designated source. Resolve the Member
 selector exactly once in that selected source cell and issue one typed,
-resource-free source receipt. The receipt atomically binds:
+resource-free source receipt. The receipt atomically identifies the exact
+prepared source cell and exact selected declaration, including its declaration
+kind and one stable `FindingSubject`. It is the only seed currency accepted by
+later evaluations.
 
-- the exact population Version and prepared PackageHouse cell address;
-- the source observation's exact `PackageCompileAsset` and
-  `AssemblyReferenceIdentity`;
-- the exact `MetadataTypeDefinitionName` and `MemberAnchor` selected in that
-  Library; and
-- the correspondence-ready `ApiDeclarationKind`, formed once from the
-  source-selection `MemberTargetKind` under the existing Queries mapping; and
-- one History-owned `FindingSubject`, issued from that same exact Type and
-  Member selection for unchanged use by every matched-Analysis invocation.
-
-These fields come from one source selection and cannot be independently
-substituted. Receipt construction binds the `FindingSubject` to the selected
-declaration; callers do not supply an independently derived per-Workspace or
-per-Version subject. Its identity key does not incorporate a Workspace,
-metadata token, display ordinal, or destination Version. The receipt is
-detached structural binding evidence, not package opening authority. In
-particular,
-`StructuralSubjectIdentity.MemberSubject` is not the portable seed: it remains
-associated with its issuing live Workspace and is never supplied to a
-different Workspace.
+The receipt is detached identity and association evidence, not package opening
+authority or a live structural subject. Its Finding-subject key is stable
+across the History population and does not depend on a Workspace, metadata
+token, display ordinal, or destination Version. Receipt construction, exact
+binding to a later bounded execution, and validation of that association are
+separate owner contracts; consumers may not reconstruct or reinterpret the
+receipt from display text.
 
 If source selection is absent, ambiguous, refused, or failed, History has no
 Analysis seed. Preserve that native source-selection non-success and do not
@@ -355,86 +344,41 @@ the operation publishes no `DiffHistoryOutcome`. A separately owner-typed
 timeout, acquisition failure, or other operational non-success retains that
 owner's native outcome and is not relabeled as caller cancellation.
 
-The bounded #7248 composition has one baseline form and one checkpoint form.
-The baseline form executes the exact prepared source cell, performs the one
-selector resolution above, and issues the receipt while its source Workspace
-is live. To consume the existing matched-Member Analysis query, it invokes
-strict API coordinate correspondence internally with that same source
-observation as both endpoints and with the resolved pair-local `MemberSubject`
-and declaration kind. An exact internal self-correspondence feeds native
-Analysis for the baseline Member with the receipt's `FindingSubject`. It is
-producer-adapter evidence only: History publishes the detached baseline Finding
-observation and receipt, not a same-Version declaration edge.
+The source Version contributes the baseline evaluation for the issued receipt
+but no same-Version declaration edge. Every other selected checkpoint is
+evaluated directly from that same receipt. The bounded evaluation owner returns
+one resource-free result containing:
 
-Diff History applies its Finding projection to non-exact internal baseline
-correspondence before the Workspace closes:
+- the evaluated Version and producer;
+- the selected producer's `FindingInspection<T>`;
+- owner-issued detached declaration-relationship evidence that distinguishes
+  exact, complete destination absence, ambiguity, refusal, and failure; and
+- enough provenance and failure evidence to interpret the evaluation after all
+  live resources close.
 
-- strict declaration absence produces
-  `FindingInspection<T>.Absent(SubjectAbsent)` with the native absence detail;
-  and
-- ambiguous, refused, or failed correspondence produces
-  `FindingInspection<T>.Failed` with the receipt's `FindingSubject`, the
-  selected producer's descriptor, and the native non-success detail.
+The relation evidence is not a live `ApiCoordinateCorrespondenceResult` and
+retains no Workspace-local subject or package observation. Queries owns that
+detached evidence under
+[#7337](https://github.com/richlander/dotnet-inspect/issues/7337); #7248 owns
+bounded baseline/checkpoint execution, receipt binding, matched Analysis,
+Finding projection, and cleanup. This owner consumes those results and does not
+restate either component's construction, lifetime, absence classification, or
+failure algorithm.
 
-The baseline evaluation retains that internal correspondence evidence beside
-the projected inspection but does not publish it as a declaration self-edge.
-Baseline Analysis non-success after exact correspondence preserves the matched
-query's native inspection. None of these outcomes erases a successfully issued
-receipt or prevents later independent checkpoints. The baseline Workspace
-closes before its detached result is published.
-
-For every other selected checkpoint, the checkpoint form executes the exact
-prepared source and destination cells in one fresh bounded Workspace. It
-exact-binds the same detached source receipt against that source cell,
-producing a new Workspace-local `MemberSubject` associated with the pair's
-source observation, and invokes strict API coordinate correspondence with the
-receipt's stored `ApiDeclarationKind`. Exact destination Analysis reuses the
-receipt's same `FindingSubject` value unchanged; it never derives a subject
-from pair-local or destination-local state.
-
-Exact binding is not another selector resolution. It does not parse display
-text, replay an ordinal or digest, infer declaration kind from `MemberAnchor`,
-or accept a different source cell, Library asset or assembly, Type, or Member.
-A mismatch returns typed source-binding non-success and destination Analysis
-does not run. Each pair closes before its detached result is published; History
-retains no source Workspace or Workspace-local `MemberSubject` between
-checkpoints. Peak live endpoints therefore remain one source/destination pair,
-independent of population length.
-
-Each exact, absent, ambiguous, refused, or failed result is one
-source-to-checkpoint declaration edge. A non-exact edge does not stop later
-independent checkpoints, and a later direct exact edge may establish that the
-seeded declaration is present again. It does not bridge through or derive
-identity from the intervening gap.
-
-Diff History owns the checkpoint evaluation projection from binding and
-correspondence evidence to the selected producer's `FindingInspection<T>`:
-
-- exact source binding plus exact correspondence invokes the matched-Member
-  Analysis query and preserves its native inspection;
-- exact source binding plus strict declaration absence produces
-  `FindingInspection<T>.Absent(SubjectAbsent)` with the native absence detail;
-- ambiguous, refused, or failed correspondence produces
-  `FindingInspection<T>.Failed` with that Finding subject, the selected
-  producer's descriptor, and the native non-success detail; and
-- any source-rebinding non-success produces `FindingInspection<T>.Failed`,
-  because failure to re-establish the exact source is not evidence that the
-  destination subject is absent.
-
-The checkpoint record retains the native source-binding outcome and, when
-binding succeeded, the native correspondence edge beside this projection.
-History does not relabel ambiguity, refusal, or failure as subject absence.
-Caller cancellation remains terminal and produces no projection. Unevaluated
-Versions remain population-minus-evaluations and do not receive a fabricated
+A non-exact relationship does not stop later independent checkpoints, and a
+later direct exact relationship may establish that the seeded declaration is
+present again. It does not bridge through or derive identity from the
+intervening gap. Ambiguity, refusal, or failure remains non-success rather than
+subject absence. Caller cancellation remains terminal. Unevaluated Versions
+remain population-minus-evaluations and do not receive a fabricated
 `FindingInspection<T>`.
 
 Checkpoint-to-checkpoint declaration chaining is not admitted. In particular,
 History does not make a later destination the source for the next edge, replay
 the source display ordinal in each Version, infer identity from adjacent array
-positions, or infer continuity from Finding keys. The bounded cell-pair
-consumer in #7248 receives this owner-issued source receipt, binds it only to
-the exact prepared source cell, and returns native edge evidence. It does not
-choose or reinterpret the seed.
+positions, or infer continuity from Finding keys. The bounded consumer in #7248
+receives this owner-issued source receipt and returns the detached evaluation
+contract above. It does not choose or reinterpret the seed.
 
 History-only inputs require `--history`; in particular, `--at` must not
 silently change endpoint Diff or Count into correlation. History rejects
@@ -455,11 +399,8 @@ requested Count result defined below. The Document preserves:
   source-selection outcome, never a Workspace-local structural subject;
 - each completed evaluation's version address, provenance, resolved subject,
   producer, and native Finding inspection;
-- the baseline's internal correspondence evidence when source selection
-  succeeded, never represented as a declaration self-edge;
-- each exact-Member checkpoint's native source-binding outcome;
-- native source-to-checkpoint declaration correspondence edges for exact-Member
-  Analysis when source binding succeeded;
+- owner-issued resource-free declaration-relationship evidence for each
+  exact-Member checkpoint, with no baseline self-edge;
 - native census correlation and, when requested, exact-identity tracks;
 - native comparison evidence joined to its exact evaluated endpoints;
 - the Type/Member Changed Versions cohort, with its destination/predecessor
@@ -799,45 +740,26 @@ The implementation slices must supply Release gates for:
 - baseline Member selection exactly once, with absent, ambiguous, refused,
   and failed source outcomes preventing destination Analysis rather than
   selecting a later same-named or same-ordinal seed;
-- baseline execution producing one detached native Finding observation through
-  exact internal same-cell correspondence, publishing no same-Version
-  declaration edge, and retaining that observation after its Workspace closes;
-- internal baseline exact correspondence preserving matched Analysis, strict
-  absence projecting to `SubjectAbsent`, and ambiguous, refused, or failed
-  correspondence projecting to Finding failure while retaining the internal
-  evidence without a declaration self-edge;
-- baseline correspondence or Analysis non-success remaining visible without
-  erasing a valid receipt or preventing later independent checkpoints;
-- baseline and checkpoint matched-Analysis invocations reusing the receipt's
-  same `FindingSubject`, with equal subject keys across at least three detached
-  observations and successful exact-identity Finding correlation;
-- rejection of receipt construction from an independently supplied
-  `FindingSubject`, and no subject key dependence on Workspace identity,
-  metadata token, display ordinal, or destination Version;
-- at least three checkpoints whose two non-source pairs re-execute the exact
-  source cell, exact-bind the same detached receipt into different pair-local
-  Workspaces, consume its stored declaration kind, and never replay the
-  selector, ordinal, or digest;
-- refusal before correspondence or destination Analysis when any source cell,
-  Library asset or assembly, Type, Member, or declaration-kind association does
-  not match the atomically issued receipt;
-- caller cancellation during source selection, checkpoint correspondence, or
-  destination Analysis terminating History after required cleanup, propagating
-  the caller token, and publishing no History outcome;
-- direct source-to-checkpoint exact and non-exact declaration edges, including
-  a later exact edge after an intervening gap without checkpoint chaining or
-  transitive identity;
-- exact correspondence preserving matched Analysis, strict declaration absence
-  projecting to `SubjectAbsent`, and ambiguous, refused, or failed
-  correspondence projecting to Finding failure while retaining the native
-  edge;
-- source-rebinding non-success producing Finding failure rather than
-  destination absence, retaining the native binding outcome, and allowing
-  later independent checkpoints to run;
+- one resource-free receipt atomically identifying the selected source cell,
+  declaration, kind, and stable Finding subject, with no dependence on
+  Workspace identity, metadata token, display ordinal, or destination Version;
+- one detached baseline evaluation for the receipt, with no same-Version
+  declaration edge, and the same receipt supplied unchanged to every later
+  selected checkpoint;
+- caller cancellation returned from a bounded consumer terminating History
+  after required cleanup, propagating the caller token, and publishing no
+  History outcome;
+- resource-free exact, complete-absence, ambiguous, refused, and failed
+  declaration-relationship evidence supplied by the owning consumers, with
+  each completed evaluation retaining its native Finding inspection;
+- direct source-to-checkpoint relationships, including a later exact result
+  after an intervening gap without checkpoint chaining, transitive identity,
+  selector replay, or replacement-seed search;
 - an exact → absent → exact three-checkpoint history producing comparable
   removal and reappearance transitions and correct Changed Versions/Count,
-  while a source-binding mismatch makes affected Count evidence insufficient
-  rather than omitting the evaluated checkpoint or inventing absence;
+  while ambiguous, refused, or failed evidence makes affected Count evidence
+  insufficient rather than omitting the evaluated checkpoint or inventing
+  absence;
 - consecutive Finding transitions consuming those direct-edge-qualified
   observations without manufacturing declaration correspondence;
 - endpoint-only, endpoint-plus-checkpoint, and endpoint-plus-midpoint sampling,
@@ -878,5 +800,5 @@ The implementation slices must supply Release gates for:
 These new gates are **unverified** in this design-only slice. Deterministic
 contract cases belong in PR-fast suites; real-package/exhaustive cases are
 classified under the test-cost policy. No new concurrent protocol or retained
-Workspace lifecycle is specified: each pair uses the existing ephemeral
-Workspace lifetime and the Browser owner retains its model.
+Workspace lifecycle is specified; existing component and Browser lifetime
+owners retain their models.
