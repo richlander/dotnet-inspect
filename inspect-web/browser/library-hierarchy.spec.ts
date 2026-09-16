@@ -235,6 +235,7 @@ interface PackageLoadingFixture {
   failFrameworkOnce?: string;
   failVersionOnce?: string;
   versions?: readonly string[];
+  activityCatalogFailure?: boolean;
 }
 
 // Exercise the production composition root and bindings with deterministic facade
@@ -500,6 +501,9 @@ async function installFacades(
         };
       }
       export function listPackageActivityPackageSets() {
+        if (packageLoading.activityCatalogFailure) {
+          throw new Error("Package Activity catalog offline");
+        }
         return {
           version: 1,
           packageSets: [{
@@ -2342,6 +2346,33 @@ test("Activity Back restores focus on the Demos route", async ({ page }) => {
   await expect(page).toHaveURL(/\/demos$/);
   await expect(page.getByRole("heading", { name: "Demos", exact: true }))
     .toBeFocused();
+});
+
+test("Activity catalog failure focuses the visible route heading", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {},
+    { activityCatalogFailure: true },
+  );
+  await page.goto("/activity");
+
+  await expect(page.locator(".query-navigation-error"))
+    .toContainText("Package Activity catalog offline");
+  await expect(page.locator("#package-changes-package-set")).toBeDisabled();
+  await expect(page.getByRole("heading", {
+    name: "Package Activity",
+    exact: true,
+  })).toBeFocused();
 });
 
 async function openPlatform(page: Page, options: PlatformFixture = {}) {

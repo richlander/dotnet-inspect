@@ -11752,8 +11752,13 @@ function focusPackageQueryInput() {
 
 function focusPackageActivityInput() {
   afterCurrentNavigationFrame(() => {
-    document.querySelector<HTMLElement>(
-      "#package-changes-package-set")?.focus();
+    const packageSet = document.querySelector<HTMLSelectElement>(
+      "#package-changes-package-set");
+    if (packageSet && !packageSet.disabled) {
+      packageSet.focus();
+      if (document.activeElement === packageSet) return;
+    }
+    focusLevelOneHeading();
   });
 }
 
