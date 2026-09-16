@@ -473,8 +473,15 @@ public sealed class PackageHouseExecutionTests
         Assert.Equal(
             versionCount,
             discovery.Versions.Count);
-        Assert.IsType<PackageHouseFailure.Timeout>(
-            result.Evidence.Failures.Last());
+        PackageHouseFailure.Timeout timeout =
+            Assert.IsType<PackageHouseFailure.Timeout>(
+                result.Evidence.Failures.Last());
+        Assert.Equal(
+            PackageHouseTimeoutKind.Operation,
+            timeout.Kind);
+        Assert.Equal(
+            request.Operation.OperationTimeout,
+            timeout.Duration);
         await environment.AssertRootSettledAsync();
     }
 
