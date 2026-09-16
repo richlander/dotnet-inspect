@@ -354,6 +354,8 @@ public sealed class PackageAssemblyQueryOutputTests
             PackageAcquisitionPopulationCompletionKind.CandidateLimitReached,
             document.Population.Completion);
         Assert.Equal(5, document.CandidateCount);
+        Assert.Equal(2, document.MatchedCandidateCount);
+        Assert.Equal(4, document.OccurrenceCount);
         Assert.Single(view.Matches!);
         Assert.Equal(
             [
@@ -369,6 +371,11 @@ public sealed class PackageAssemblyQueryOutputTests
         Assert.Equal(1, view.FailureCount);
         Assert.False(view.IsComplete);
         Assert.NotNull(view.Description);
+        Assert.StartsWith(
+            "Showing 1 of 4 decoded string literal uses; "
+            + "2 of 5 package candidates matched.",
+            view.Description,
+            StringComparison.Ordinal);
         Assert.Contains(
             "wider prefix was not exhausted",
             view.Description,

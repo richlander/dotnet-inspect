@@ -99,11 +99,16 @@ public static class PackageAssemblyQuerySections
         PackageAssemblySemanticFindDocument document,
         int matchRows)
     {
-        string lead = matchRows == 0
+        string lead = document.OccurrenceCount == 0
             ? "No matching decoded string literal uses were reported."
-            : $"{Count(matchRows)} decoded string literal uses in "
-                + $"{Count(document.MatchedCandidateCount)} of "
-                + $"{Count(document.CandidateCount)} package candidates.";
+            : matchRows == document.OccurrenceCount
+                ? $"{Count(matchRows)} decoded string literal uses; "
+                    + $"{Count(document.MatchedCandidateCount)} of "
+                    + $"{Count(document.CandidateCount)} package candidates matched."
+                : $"Showing {Count(matchRows)} of "
+                    + $"{Count(document.OccurrenceCount)} decoded string literal uses; "
+                    + $"{Count(document.MatchedCandidateCount)} of "
+                    + $"{Count(document.CandidateCount)} package candidates matched.";
         string population = document.Population.Completion switch
         {
             PackageAcquisitionPopulationCompletionKind.CandidateLimitReached =>
