@@ -2290,6 +2290,210 @@ public class OutputFormatterTests
             formatter.Manifest.GetFields("Other Section"));
         Assert.Contains("Methods", otherFields);
         Assert.DoesNotContain("Kind", otherFields);
+        Assert.Contains(
+            "Kind",
+            formatter.Manifest.GetRenderedNames("field"));
+        Assert.True(formatter.Manifest.HasAnyData);
+    }
+
+    [Fact]
+    public void RenderManifestFormatter_CapturesRootFieldTableData()
+    {
+        var schema = new DocumentSchema()
+            .Add("API Info", "field", "Version");
+        var formatter = new RenderManifestFormatter(schema, "API Info");
+        formatter.BeginDocument(MarkoutWriterOptions.Default);
+
+        formatter.BeginTable(
+            TextWriter.Null,
+            ["Field", "Value"],
+            MarkoutWriterOptions.Default);
+        formatter.WriteRow(TextWriter.Null, ["Version", "1.0.0"]);
+        formatter.EndTable(TextWriter.Null, skippedRows: 0);
+
+        Assert.Contains(
+            "Version",
+            formatter.Manifest.GetRenderedNames(
+                "field",
+                ["API Info"]));
+        Assert.Equal(
+            ["Field", "Value"],
+            formatter.Manifest.GetRenderedNames(
+                "column",
+                ["API Info"]).Order());
+    }
+
+    [Fact]
+    public void RenderManifestFormatter_UsesFieldColumnIdentityAfterReordering()
+    {
+        var schema = new DocumentSchema()
+            .Add("API Info", "field", "Version", "Owners");
+        var formatter = new RenderManifestFormatter(schema, "API Info");
+        formatter.BeginDocument(MarkoutWriterOptions.Default);
+
+        formatter.BeginTable(
+            TextWriter.Null,
+            ["Value", "Field"],
+            MarkoutWriterOptions.Default);
+        formatter.WriteRow(TextWriter.Null, ["1.0.0", "Version"]);
+        formatter.EndTable(TextWriter.Null, skippedRows: 0);
+
+        IReadOnlySet<string> fields = formatter.Manifest.GetRenderedNames(
+            "field",
+            ["API Info"]);
+        Assert.Contains("Version", fields);
+        Assert.DoesNotContain("1.0.0", fields);
+        Assert.DoesNotContain("Owners", fields);
+    }
+
+    [Fact]
+    public void RenderManifestFormatter_ZeroRowTableDeclaresColumnsWithoutData()
+    {
+        var schema = new DocumentSchema()
+            .Add("Methods", "column", "Name", "Signature");
+        var formatter = new RenderManifestFormatter(schema);
+        formatter.BeginDocument(MarkoutWriterOptions.Default);
+        formatter.FormatHeading(TextWriter.Null, 2, "Methods", context: null);
+        formatter.FormatTable(
+            TextWriter.Null,
+            ["Name", "Signature"],
+            [],
+            skippedRows: 0,
+            MarkoutWriterOptions.Default);
+
+        Assert.Equal(
+            ["Name", "Signature"],
+            formatter.Manifest.GetTableColumns("Methods")!.Order());
+        Assert.Empty(
+            formatter.Manifest.GetRenderedNames(
+                "column",
+                ["Methods"]));
+        Assert.False(formatter.Manifest.HasAnyData);
+    }
+
+    [Fact]
+    public void RenderManifestFormatter_UnionsRepeatedTablesAndTracksDataColumns()
+    {
+        var schema = new DocumentSchema()
+            .Add("Methods", "column", "Name", "Signature", "Source");
+        var formatter = new RenderManifestFormatter(schema);
+        formatter.BeginDocument(MarkoutWriterOptions.Default);
+        formatter.FormatHeading(TextWriter.Null, 2, "Methods", context: null);
+        formatter.FormatTable(
+            TextWriter.Null,
+            ["Name", "Signature"],
+            [["Run", "void Run()"]],
+            skippedRows: 0,
+            MarkoutWriterOptions.Default);
+        formatter.FormatHeading(TextWriter.Null, 2, "Methods", context: null);
+        formatter.FormatTable(
+            TextWriter.Null,
+            ["Name", "Source"],
+            [["Stop", ""]],
+            skippedRows: 0,
+            MarkoutWriterOptions.Default);
+
+        Assert.Equal(
+            ["Name", "Signature", "Source"],
+            formatter.Manifest.GetTableColumns("Methods")!.Order());
+        Assert.Equal(
+            ["Name", "Signature"],
+            formatter.Manifest.GetRenderedNames(
+                "column",
+                ["Methods"]).Order());
+    }
+
+    [Fact]
+    public void RenderManifestFormatter_ScopesSameNamedFieldsBySection()
+    {
+        var schema = new DocumentSchema()
+            .Add("First", "field", "Status")
+            .Add("Second", "field", "Status");
+        var formatter = new RenderManifestFormatter(schema);
+        formatter.BeginDocument(MarkoutWriterOptions.Default);
+        formatter.FormatHeading(TextWriter.Null, 2, "First", context: null);
+        formatter.FormatFields(
+            TextWriter.Null,
+            [new MarkoutField("Status", "available")],
+            bold: false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Second", context: null);
+
+        Assert.Contains(
+            "Status",
+            formatter.Manifest.GetRenderedNames(
+                "field",
+                ["First"]));
+        Assert.DoesNotContain(
+            "Status",
+            formatter.Manifest.GetRenderedNames(
+                "field",
+                ["Second"]));
+    }
+
+    [Fact]
+    public void RenderManifestFormatter_CanonicalizesMachineColumnNames()
+    {
+        var schema = new DocumentSchema()
+            .Add(
+                "Member Index",
+                "column",
+                new SchemaItem(
+                    "Canonical Signature",
+                    "column",
+                    "CanonicalSignature"));
+        var formatter = new RenderManifestFormatter(
+            schema,
+            "Member Index");
+        formatter.BeginDocument(new MarkoutWriterOptions
+        {
+            TableMode = MarkoutTableMode.Tsv
+        });
+        formatter.BeginTable(
+            TextWriter.Null,
+            ["canonical_signature"],
+            MarkoutWriterOptions.Default);
+        formatter.WriteRow(
+            TextWriter.Null,
+            ["M:System.String.get_Length"]);
+        formatter.EndTable(TextWriter.Null, skippedRows: 0);
+
+        Assert.Contains(
+            "Canonical Signature",
+            formatter.Manifest.GetRenderedNames(
+                "column",
+                ["Member Index"]));
+    }
+
+    [Fact]
+    public void RenderManifestFormatter_RootScopeIgnoresSyntheticHeading()
+    {
+        var schema = new DocumentSchema()
+            .Add("Classes", "column", "Type");
+        var formatter = new RenderManifestFormatter(
+            schema,
+            "Classes");
+        formatter.BeginDocument(MarkoutWriterOptions.Default);
+        formatter.FormatHeading(
+            TextWriter.Null,
+            2,
+            "Types",
+            context: null);
+        formatter.FormatTable(
+            TextWriter.Null,
+            ["Type"],
+            [["System.String"]],
+            skippedRows: 0,
+            MarkoutWriterOptions.Default);
+
+        Assert.Contains(
+            "Type",
+            formatter.Manifest.GetRenderedNames(
+                "column",
+                ["Classes"]));
+        Assert.Empty(
+            formatter.Manifest.GetRenderedNames(
+                "column",
+                ["Types"]));
     }
 
     [Fact]

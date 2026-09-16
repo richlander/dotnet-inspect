@@ -9537,16 +9537,27 @@ public partial class CommandExecutionTests
     [InlineData(new[] { "-S", "@Surface", "--columns", "Value" }, "| Value |")]
     // A document-level field, which survives whichever section is selected.
     [InlineData(new[] { "-S", "Classes", "--fields", "Types" }, "Types:")]
+    // A flattened table retains the selected section's identity even when its view heading is
+    // the generic table title.
+    [InlineData(new[] { "-S", "Classes", "--columns", "Type", "--tsv", "--rows", "1" }, "System.")]
+    [InlineData(new[] { "--columns", "Type,Members", "--table", "--rows", "1" }, "System.")]
     // Unmatched against the section, but the section's own table is not field-projected, so this
     // renders exactly as it did before and must keep exiting 0.
     [InlineData(new[] { "-S", "Classes", "--fields", "NoSuchField" }, "## Classes")]
     public async Task Type_Listing_LegitimateProjections_SurviveTheEmptyRenderGate(string[] args, string expected)
     {
-        var (exit, output, _) = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             ["type", "--platform", "System.Text.Json", .. args, "--tips", "q"]);
 
         Assert.Equal(0, exit);
         Assert.Contains(expected, output, StringComparison.Ordinal);
+        if (!args.Contains("NoSuchField", StringComparer.Ordinal))
+        {
+            Assert.DoesNotContain(
+                "has no data",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>
@@ -9869,11 +9880,11 @@ public partial class CommandExecutionTests
     [InlineData("--columns")]
     public async Task Type_Listing_ApiInfo_ReportsUnmatchedProjectionsLikeTheRestOfTheView(string flag)
     {
-        // The first version of the fact-table routing wrote straight to the console and returned,
-        // skipping ProjectionDiagnostics.DiagnoseRendered -- so `--fields Value` produced NO output
-        // and exit 0. That is the same success-shaped-wrong-answer failure the routing exists to
-        // fix, reintroduced one layer down, and no assertion about correct projections could see
-        // it. The bar is parity with the per-kind sections beside it.
+        // The first version of the fact-table routing wrote straight to the console and returned
+        // without projection diagnostics, so `--fields Value` produced NO output and exit 0.
+        // That is the same success-shaped-wrong-answer failure the routing exists to fix,
+        // reintroduced one layer down, and no assertion about correct projections could see it.
+        // The bar is parity with the per-kind sections beside it.
         //
         // Parity is asserted as the INVARIANT rather than as equal exit codes, because the two
         // sections legitimately differ in outcome: an unmatched --fields empties the `API Info`
@@ -25513,14 +25524,19 @@ public partial class CommandExecutionTests
         {
             var actual = await RunAppAsync(
                 "package", packagePath, "--columns", "Field,*", "--table", "--tips", "q");
+            var wildcard = await RunAppAsync(
+                "package", packagePath, "--columns", "Fie*", "--tsv", "--tips", "q");
             var expected = await RunAppAsync(
                 "package", packagePath, "--columns", "Field,Value", "--table", "--tips", "q");
 
             Assert.Equal(0, actual.Exit);
+            Assert.Equal(0, wildcard.Exit);
             Assert.Equal(0, expected.Exit);
             Assert.Empty(actual.Error);
+            Assert.Empty(wildcard.Error);
             Assert.Empty(expected.Error);
             Assert.Equal(expected.Output, actual.Output);
+            Assert.StartsWith("field\n", wildcard.Output);
         }
         finally
         {
@@ -25539,10 +25555,20 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--fields", "Authors", "--tips", "q");
+            var mixed = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package Info",
+                "--fields", "Version",
+                "--columns", "Value",
+                "--tsv",
+                "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains("| Authors | tests |", output);
+            Assert.Equal(0, mixed.Exit);
+            Assert.Empty(mixed.Error);
+            Assert.Contains("1.0.0", mixed.Output);
         }
         finally
         {

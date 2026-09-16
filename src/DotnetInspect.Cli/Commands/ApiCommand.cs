@@ -1775,12 +1775,32 @@ public class ApiCommand
                                 writerOptions);
                         },
                         options.Rows);
-                ProjectionDiagnostics.DiagnoseRendered(
-                    options.Fields ?? options.Columns,
-                    sectionRows);
-                if (!TryReportEmptyProjection(
-                        sectionRows,
-                        options))
+                RenderedSectionManifest sectionManifest =
+                    OutputFormatter.CaptureProjectedTableManifest(
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Columns,
+                        options.Fields,
+                        (writer, formatter, writerOptions) =>
+                        {
+                            writerOptions.IncludeSections =
+                                [section];
+                            MarkoutSerializer.Serialize(
+                                view,
+                                writer,
+                                formatter,
+                                ApiViewContext.Default,
+                                writerOptions);
+                        },
+                        ApiViewContext.Default
+                            .GetSchemaInfo<CliApiSurface>()!
+                            .ToDocumentSchema(),
+                        options.Rows,
+                        rootSection: section);
+                if (!DiagnoseProjection(
+                        sectionManifest,
+                        options,
+                        sections: [section]))
                 {
                     return 1;
                 }
@@ -1790,18 +1810,32 @@ public class ApiCommand
 
             if (ApiOutputFormatter.ShouldRenderSurfaceFactTableView(options))
             {
-                // Deliberately the same machinery as the fall-through below -- projection,
-                // diagnostics, and row limiting all included -- differing only in WHAT is
-                // serialized. Writing straight to the console here instead skipped
-                // DiagnoseRendered, so `--fields Value` produced empty output and exit 0 while
-                // the same projection against `Type Info` and `Library Info` reported that the
-                // field does not exist.
                 var factRows = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
                     options.Columns, options.Fields,
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(view.ApiInfo!, writer, formatter, ApiViewContext.Default, writerOptions));
-                ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
-                if (!TryReportEmptyProjection(factRows, options))
+                RenderedSectionManifest factManifest =
+                    OutputFormatter.CaptureProjectedTableManifest(
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Columns,
+                        options.Fields,
+                        (writer, formatter, writerOptions) =>
+                            MarkoutSerializer.Serialize(
+                                view.ApiInfo!,
+                                writer,
+                                formatter,
+                                ApiViewContext.Default,
+                                writerOptions),
+                        ApiViewContext.Default
+                            .GetSchemaInfo<CliApiSurface>()!
+                            .ToDocumentSchema(),
+                        options.Rows,
+                        rootSection: SectionNames.ApiInfo);
+                if (!DiagnoseProjection(
+                        factManifest,
+                        options,
+                        sections: [SectionNames.ApiInfo]))
                     return 1;
                 Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
                 return successExitCode;
@@ -1812,8 +1846,31 @@ public class ApiCommand
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions));
-            ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
-            if (!TryReportEmptyProjection(rendered, options))
+            RenderedSectionManifest tableManifest =
+                OutputFormatter.CaptureProjectedTableManifest(
+                    options.Tsv,
+                    options.Jsonl,
+                    options.Columns,
+                    options.Fields,
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(
+                            tableView,
+                            writer,
+                            formatter,
+                            ApiViewContext.Default,
+                            writerOptions),
+                    ApiViewContext.Default
+                        .GetSchemaInfo<CliApiSurface>()!
+                        .ToDocumentSchema(),
+                    options.Rows,
+                    rootSection: options.IncludeSections is { Count: 1 }
+                        ? options.IncludeSections.Single()
+                        : null,
+                    lockRootScope: true);
+            if (!DiagnoseProjection(
+                    tableManifest,
+                    options,
+                    sections: options.IncludeSections))
                 return 1;
             Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
         }
@@ -1821,6 +1878,39 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+            DocumentSchema schema = ApiViewContext.Default
+                .GetSchemaInfo<CliApiSurface>()!
+                .ToDocumentSchema();
+            RenderedSectionManifest manifest = RenderManifestFormatter.Capture(
+                view,
+                ApiViewContext.Default,
+                writerOptions,
+                schema);
+            if (options.Columns is { Length: > 0 }
+                && options.Fields is { Length: > 0 })
+            {
+                var fieldOptions = options with { Columns = null };
+                MarkoutWriterOptions fieldWriterOptions =
+                    ApiOutputFormatter.BuildWriterOptions(
+                        api,
+                        fieldOptions);
+                fieldWriterOptions.RowWindow =
+                    RowWindow.ToMarkout(options.Rows);
+                manifest.MergeFieldsFrom(
+                    RenderManifestFormatter.Capture(
+                        view,
+                        ApiViewContext.Default,
+                        fieldWriterOptions,
+                        schema));
+            }
+
+            if (!DiagnoseProjection(
+                    manifest,
+                    options,
+                    schema,
+                    options.IncludeSections))
+                return 1;
+
             if (options.PlainText)
             {
                 // Buffered rather than written straight to the console so the empty-render gate
@@ -1829,8 +1919,6 @@ public class ApiCommand
                 var plain = new StringWriter();
                 MarkoutSerializer.Serialize(view, plain, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
                 var plainText = plain.ToString();
-                if (!TryReportEmptyProjection(plainText, options))
-                    return 1;
                 Console.Out.Write(plainText);
             }
             else
@@ -1839,8 +1927,6 @@ public class ApiCommand
                 MarkoutSerializer.Serialize(
                     view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
                 var markdown = markdownWriter.ToString().TrimEnd();
-                if (!TryReportEmptyProjection(markdown, options))
-                    return 1;
                 OutputFormatter.WriteLfLine(Console.Out, markdown);
             }
         }
@@ -1995,12 +2081,6 @@ public class ApiCommand
     /// that survives regardless of which section is selected. The candidates below include the
     /// product-owned fact-table columns when API Info is selected.
     /// </remarks>
-    private static bool TryReportEmptyProjection(
-        string rendered,
-        ApiOptions options,
-        DocumentSchema? schema = null)
-        => TryReportEmptyProjection(!string.IsNullOrWhiteSpace(rendered), options, schema);
-
     private static bool ProjectionIncludesSection(
         DocumentSchema schema,
         string section,
@@ -2060,33 +2140,7 @@ public class ApiCommand
         // and never a field, so `-S "API Info" --fields Type` would otherwise be validated by an
         // unrelated section's column and silently succeed while printing nothing. `--fields` can
         // only be satisfied by a field and `--columns` only by a column.
-        var candidates = new List<string>();
-        if (string.Equals(
-                wantedKind,
-                "column",
-                StringComparison.OrdinalIgnoreCase)
-            && options.IncludeSections?.Contains(SectionNames.ApiInfo) == true)
-        {
-            candidates.Add("Field");
-            candidates.Add("Value");
-        }
-
-        foreach (var section in schema.SectionNames)
-        {
-            foreach (var item in schema.Discover(section) ?? [])
-            {
-                if (!string.Equals(item.Kind, wantedKind, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                // Name only, never StableName. The stable name is the schema's internal
-                // identifier and markout does not project by it -- `--fields Assembly`, the
-                // stable name of `Library`, renders nothing on base and on head. Accepting it
-                // here would let a name the user cannot actually project by satisfy the gate
-                // (found by MAI-Code). Of the whole schema only `Library`/`Assembly`,
-                // `TFM`/`Tfm`, and `Target Library`/`TargetLibrary` differ at all.
-                candidates.Add(item.Name);
-            }
-        }
+        List<string> candidates = GetProjectionCandidates(schema, options, wantedKind);
 
         // Matched by markout's own projection matcher rather than by set membership, because
         // projection names may be wildcards: `--fields "Ver*"` legitimately selects `Version`,
@@ -2102,6 +2156,67 @@ public class ApiCommand
         var kind = options.Fields is { Length: > 0 } ? "fields" : "columns";
         CommandError.Write($"No {kind} matched projection: {string.Join(", ", names)}");
         return false;
+    }
+
+    internal static bool DiagnoseProjection(
+        RenderedSectionManifest manifest,
+        ApiOptions options,
+        DocumentSchema? schema = null,
+        IReadOnlyCollection<string>? sections = null)
+    {
+        string[]? requested = options.Fields ?? options.Columns;
+        if (requested is not { Length: > 0 })
+            return true;
+
+        schema ??= ApiViewContext.Default
+            .GetSchemaInfo<CliApiSurface>()!
+            .ToDocumentSchema();
+        string wantedKind = options.Fields is { Length: > 0 }
+            ? "field"
+            : "column";
+
+        ProjectionDiagnostics.DiagnoseProjected(
+            requested,
+            manifest,
+            schema,
+            wantedKind,
+            sections,
+            fieldSectionsAsColumns: true);
+
+        return TryReportEmptyProjection(
+            manifest.HasAnyData,
+            options,
+            schema);
+    }
+
+    private static List<string> GetProjectionCandidates(
+        DocumentSchema schema,
+        ApiOptions options,
+        string wantedKind)
+    {
+        var candidates = new List<string>();
+        if (string.Equals(
+                wantedKind,
+                "column",
+                StringComparison.OrdinalIgnoreCase)
+            && options.IncludeSections?.Contains(SectionNames.ApiInfo) == true)
+        {
+            candidates.Add("Field");
+            candidates.Add("Value");
+        }
+
+        foreach (string section in schema.SectionNames)
+        {
+            foreach (var item in schema.Discover(section) ?? [])
+            {
+                if (!string.Equals(item.Kind, wantedKind, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                candidates.Add(item.Name);
+            }
+        }
+
+        return candidates;
     }
 
     // ===== Method Source Resolution =====
@@ -3036,6 +3151,7 @@ public class ApiCommand
 
         if (options.Tabular)
         {
+            RenderedSectionManifest projectionManifest;
             if (ApiOutputFormatter.ShouldRenderSectionedTabularView(type, options))
             {
                 var writerOpts = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
@@ -3049,6 +3165,47 @@ public class ApiCommand
                             explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                         markoutWriter.Flush();
                     }, options.Rows);
+
+                writerOpts.RowWindow = RowWindow.ToMarkout(options.Rows);
+                var formatter = new RenderManifestFormatter(
+                    GetTypeDocumentSchema(options));
+                formatter.BeginDocument(writerOpts);
+                var manifestWriter = new MarkoutWriter(
+                    TextWriter.Null,
+                    formatter,
+                    writerOpts);
+                ApiOutputFormatter.SerializeTypeDocument(
+                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, manifestWriter);
+                manifestWriter.Flush();
+                projectionManifest = formatter.Manifest;
+                if (options.Columns is { Length: > 0 }
+                    && options.Fields is { Length: > 0 })
+                {
+                    MarkoutWriterOptions fieldWriterOptions =
+                        ApiOutputFormatter.BuildTypeWriterOptions(
+                            type,
+                            options with { Columns = null });
+                    OutputFormatter.ConfigureTableWriterOptions(
+                        fieldWriterOptions,
+                        options.Tsv,
+                        options.Jsonl);
+                    fieldWriterOptions.RowWindow =
+                        RowWindow.ToMarkout(options.Rows);
+                    var fieldFormatter = new RenderManifestFormatter(
+                        GetTypeDocumentSchema(options));
+                    fieldFormatter.BeginDocument(fieldWriterOptions);
+                    var fieldManifestWriter = new MarkoutWriter(
+                        TextWriter.Null,
+                        fieldFormatter,
+                        fieldWriterOptions);
+                    ApiOutputFormatter.SerializeTypeDocument(
+                        view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                        explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, fieldManifestWriter);
+                    fieldManifestWriter.Flush();
+                    projectionManifest.MergeFieldsFrom(
+                        fieldFormatter.Manifest);
+                }
             }
             else
             {
@@ -3058,7 +3215,32 @@ public class ApiCommand
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions),
                     options.Rows);
+                projectionManifest = OutputFormatter.CaptureProjectedTableManifest(
+                    options.Tsv,
+                    options.Jsonl,
+                    options.Columns,
+                    options.Fields,
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(
+                            tableView,
+                            writer,
+                            formatter,
+                            ApiViewContext.Default,
+                            writerOptions),
+                    GetTypeDocumentSchema(options),
+                    options.Rows,
+                    options.IncludeSections is { Count: 1 }
+                        ? options.IncludeSections.Single()
+                        : null,
+                    lockRootScope: true);
             }
+
+            if (!DiagnoseProjection(
+                    projectionManifest,
+                    options,
+                    GetTypeDocumentSchema(options),
+                    options.IncludeSections))
+                return 1;
         }
         else
         {

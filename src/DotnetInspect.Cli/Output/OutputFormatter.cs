@@ -139,6 +139,45 @@ public static class OutputFormatter
         RowWindow? maxRows = null) =>
         output.Write(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize, maxRows));
 
+    internal static RenderedSectionManifest CaptureProjectedTableManifest(
+        bool tsv,
+        bool jsonl,
+        string[]? columns,
+        string[]? fields,
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
+        DocumentSchema schema,
+        RowWindow? maxRows = null,
+        string? rootSection = null,
+        bool lockRootScope = false)
+    {
+        RenderedSectionManifest manifest = Capture(columns, fields);
+        if (columns is { Length: > 0 }
+            && fields is { Length: > 0 })
+        {
+            manifest.MergeFieldsFrom(Capture(null, fields));
+        }
+
+        return manifest;
+
+        RenderedSectionManifest Capture(
+            string[]? captureColumns,
+            string[]? captureFields)
+        {
+            var writerOptions = CreateProjectedWriterOptions(
+                captureColumns,
+                captureFields,
+                maxRows);
+            ConfigureTableWriterOptions(writerOptions, tsv, jsonl);
+            var formatter = new RenderManifestFormatter(
+                schema,
+                rootSection,
+                lockRootScope);
+            formatter.BeginDocument(writerOptions);
+            serialize(TextWriter.Null, formatter, writerOptions);
+            return formatter.Manifest;
+        }
+    }
+
     /// <summary>
     /// Renders a view as the lowered JSON view: the same section and projection decisions the
     /// table formats honor, emitted as JSON instead of Markdown/TSV/JSONL (dotnet-inspect#3494).
@@ -417,7 +456,7 @@ public static class OutputFormatter
             InspectionContext.Default,
             BuildPackageDocumentWriterOptions(result, options, pipeline));
 
-    private static MarkoutWriterOptions BuildPackageDocumentWriterOptions(
+    internal static MarkoutWriterOptions BuildPackageDocumentWriterOptions(
         InspectionResult result,
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
