@@ -483,12 +483,15 @@ public static class IrImporter
     /// <summary>
     /// Evaluates a deterministic hash-ranked sample of method bodies from the
     /// assembly. An optional predicate filters metadata candidates before
-    /// ranking. Returns candidates that can be built in parallel.
+    /// ranking, and an optional identity suffix distinguishes candidates for a
+    /// caller-specific population without changing other stable samples.
+    /// Returns candidates that can be built in parallel.
     /// </summary>
     public static IEnumerable<StableSampleCandidate> GetStableSampleCandidates(
         MetadataSource source,
         int sampleSize,
-        Func<StableSampleCandidate, bool>? predicate = null)
+        Func<StableSampleCandidate, bool>? predicate = null,
+        Func<StableSampleCandidate, string?>? stableIdentitySuffix = null)
     {
         var reader = source.Reader;
         var candidates = new List<MethodCandidate>();
@@ -516,6 +519,11 @@ public static class IrImporter
                 if (predicate is not null && !predicate(stableCandidate))
                     continue;
                 string key = StableSampleKey(reader, typeDef, method, typeName, memberName);
+                if (stableIdentitySuffix?.Invoke(stableCandidate)
+                    is { Length: > 0 } suffix)
+                {
+                    key += "|" + suffix;
+                }
                 candidates.Add(new MethodCandidate(
                     typeDefHandle,
                     methodHandle,
@@ -616,8 +624,6 @@ public static class IrImporter
             methodName,
             signature.ReturnType.ToDisplayString(),
             signature.Header.IsInstance ? "instance" : "static",
-            signature.GenericParameterCount.ToString(
-                System.Globalization.CultureInfo.InvariantCulture),
             string.Join(",", signature.ParameterTypes.Select(type => type.ToDisplayString())));
     }
 

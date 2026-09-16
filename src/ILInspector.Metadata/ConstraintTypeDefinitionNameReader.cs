@@ -1,0 +1,177 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+
+namespace ILInspector.Metadata;
+
+internal static class ConstraintTypeDefinitionNameReader
+{
+    internal static IReadOnlyList<MetadataTypeDefinitionName>? Read(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext context)
+    {
+        try
+        {
+            ConstraintShape shape = handle.Kind switch
+            {
+                HandleKind.TypeDefinition => Named(
+                    MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        (TypeDefinitionHandle)handle)),
+                HandleKind.TypeReference => Named(
+                    MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        (TypeReferenceHandle)handle)),
+                HandleKind.TypeSpecification =>
+                    GuardedProviderDecode.TypeSpec(
+                        reader,
+                        (TypeSpecificationHandle)handle,
+                        Provider.Instance,
+                        (GenericContext?)context,
+                        ConstraintShape.Unavailable),
+                _ => ConstraintShape.Unavailable,
+            };
+            return shape.IsAvailable && shape.IsConstraintType
+                ? [.. shape.DefinitionNames.Distinct()]
+                : null;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
+        {
+            return null;
+        }
+    }
+
+    static ConstraintShape Named(
+        MetadataTypeDefinitionNameReadResult result) =>
+        result is MetadataTypeDefinitionNameReadResult.Read read
+            ? ConstraintShape.Named(read.Name)
+            : ConstraintShape.Unavailable;
+
+    readonly record struct ConstraintShape(
+        bool IsAvailable,
+        bool IsConstraintType,
+        ImmutableArray<MetadataTypeDefinitionName> DefinitionNames)
+    {
+        internal static ConstraintShape EmptyConstraint { get; } =
+            new(true, true, []);
+
+        internal static ConstraintShape NonConstraint { get; } =
+            new(true, false, []);
+
+        internal static ConstraintShape Unavailable { get; } =
+            new(false, false, []);
+
+        internal static ConstraintShape Named(
+            MetadataTypeDefinitionName name) =>
+            new(true, true, [name]);
+    }
+
+    sealed class Provider :
+        ISignatureTypeProvider<ConstraintShape, GenericContext?>
+    {
+        internal static Provider Instance { get; } = new();
+
+        public ConstraintShape GetPrimitiveType(PrimitiveTypeCode typeCode) =>
+            ConstraintShape.NonConstraint;
+
+        public ConstraintShape GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind) =>
+            Named(MetadataTypeDefinitionNameReader.Read(reader, handle));
+
+        public ConstraintShape GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind) =>
+            Named(MetadataTypeDefinitionNameReader.Read(reader, handle));
+
+        public ConstraintShape GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind) =>
+            GuardedProviderDecode.TypeSpec(
+                reader,
+                handle,
+                this,
+                context,
+                ConstraintShape.Unavailable);
+
+        public ConstraintShape GetSZArrayType(
+            ConstraintShape elementType) =>
+            elementType.IsAvailable
+                ? elementType with { IsConstraintType = false }
+                : elementType;
+
+        public ConstraintShape GetArrayType(
+            ConstraintShape elementType,
+            ArrayShape shape) =>
+            elementType.IsAvailable
+                ? elementType with { IsConstraintType = false }
+                : elementType;
+
+        public ConstraintShape GetByReferenceType(
+            ConstraintShape elementType) =>
+            elementType.IsAvailable
+                ? elementType with { IsConstraintType = false }
+                : elementType;
+
+        public ConstraintShape GetPointerType(
+            ConstraintShape elementType) =>
+            elementType.IsAvailable
+                ? elementType with { IsConstraintType = false }
+                : elementType;
+
+        public ConstraintShape GetPinnedType(
+            ConstraintShape elementType) =>
+            elementType.IsAvailable
+                ? elementType with { IsConstraintType = false }
+                : elementType;
+
+        public ConstraintShape GetGenericInstantiation(
+            ConstraintShape genericType,
+            ImmutableArray<ConstraintShape> typeArguments)
+        {
+            if (!genericType.IsAvailable
+                || !genericType.IsConstraintType
+                || typeArguments.Any(argument => !argument.IsAvailable))
+            {
+                return ConstraintShape.Unavailable;
+            }
+
+            var definitions =
+                ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
+            definitions.AddRange(genericType.DefinitionNames);
+            foreach (ConstraintShape argument in typeArguments)
+                definitions.AddRange(argument.DefinitionNames);
+            return new(
+                IsAvailable: true,
+                IsConstraintType: true,
+                definitions.ToImmutable());
+        }
+
+        public ConstraintShape GetGenericTypeParameter(
+            GenericContext? context,
+            int index) =>
+            ConstraintShape.EmptyConstraint;
+
+        public ConstraintShape GetGenericMethodParameter(
+            GenericContext? context,
+            int index) =>
+            ConstraintShape.EmptyConstraint;
+
+        public ConstraintShape GetFunctionPointerType(
+            MethodSignature<ConstraintShape> signature) =>
+            ConstraintShape.Unavailable;
+
+        public ConstraintShape GetModifiedType(
+            ConstraintShape modifier,
+            ConstraintShape unmodifiedType,
+            bool isRequired) =>
+            unmodifiedType;
+    }
+}

@@ -482,12 +482,12 @@ public class TypeParameter
     public IReadOnlyList<TypeParameterConstraint>? StructuredConstraints { get; set; }
 
     /// <summary>
-    /// Exact definition identities referenced by type constraints. An empty list
-    /// means the constraints reference no named definitions; null means exact
-    /// identities were unavailable.
+    /// Exact definition names referenced by type constraints. An empty list
+    /// means the constraints reference no named definitions; null means the
+    /// constraint shape or an exact definition name was unavailable.
     /// </summary>
     [JsonIgnore]
-    public IReadOnlyList<ApiTypeReferenceIdentity>? ConstraintTypeReferences
+    public IReadOnlyList<MetadataTypeDefinitionName>? ConstraintTypeDefinitionNames
         { get; set; }
 
     /// <summary>

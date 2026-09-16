@@ -81,9 +81,9 @@ public static class CSharpMemberArtifactEligibility
             }
 
             if (constraints.Any(constraint => constraint.IsTypeName)
-                && (parameter.ConstraintTypeReferences is null
-                    || !ReferencesAreRepresentable(
-                        parameter.ConstraintTypeReferences)))
+                && (parameter.ConstraintTypeDefinitionNames is null
+                    || parameter.ConstraintTypeDefinitionNames.Any(
+                        name => !IsRepresentable(name))))
             {
                 return false;
             }

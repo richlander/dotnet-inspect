@@ -2336,8 +2336,9 @@ public static class ApiSurfaceExtractor
             };
             beforeRetain?.Invoke(typeParam.Name);
             var structured = new List<TypeParameterConstraint>();
-            var constraintTypeReferences = new List<ApiTypeReferenceIdentity>();
-            bool constraintTypeReferencesAvailable = true;
+            var constraintTypeDefinitionNames =
+                new List<MetadataTypeDefinitionName>();
+            bool constraintTypeDefinitionNamesAvailable = true;
 
             var attrs = param.Attributes;
             if (includeVariance && GenericConstraintKeywords.VarianceKeyword(attrs) is { } variance)
@@ -2368,24 +2369,24 @@ public static class ApiSurfaceExtractor
             foreach (var constraintHandle in param.GetConstraints())
             {
                 var constraint = reader.GetGenericParameterConstraint(constraintHandle);
-                TypeNode? constraintTypeNode = null;
                 string constraintTypeName = ResolveRequiredTypeName(
                     reader,
                     constraint.Type,
                     context,
                     beforeRetain,
-                    beforeDecodeWork,
-                    node => constraintTypeNode = node);
+                    beforeDecodeWork);
                 if (constraintTypeName is "System.ValueType" or "System.Object")
                     continue;
-                if (constraintTypeNode is null || constraintTypeNode.IsDegraded)
+                if (ConstraintTypeDefinitionNameReader.Read(
+                        reader,
+                        constraint.Type,
+                        context) is not { } definitionNames)
                 {
-                    constraintTypeReferencesAvailable = false;
+                    constraintTypeDefinitionNamesAvailable = false;
                 }
                 else
                 {
-                    constraintTypeReferences.AddRange(
-                        constraintTypeNode.ReferencedTypes());
+                    constraintTypeDefinitionNames.AddRange(definitionNames);
                 }
                 var formatted = FormatConstraintType(
                     reader,
@@ -2415,8 +2416,9 @@ public static class ApiSurfaceExtractor
             }
 
             typeParam.StructuredConstraints = structured;
-            typeParam.ConstraintTypeReferences = constraintTypeReferencesAvailable
-                ? [.. constraintTypeReferences.Distinct()]
+            typeParam.ConstraintTypeDefinitionNames =
+                constraintTypeDefinitionNamesAvailable
+                ? [.. constraintTypeDefinitionNames.Distinct()]
                 : null;
             typeParam.TypeKind = TypeParameterKindClassifier.Classify(
                 reader,
@@ -6015,15 +6017,11 @@ public static class ApiSurfaceExtractor
             foreach (TypeParameterConstraint constraint in parameter.StructuredConstraints)
                 AddText(ref count, constraint.Value);
         }
-        if (parameter.ConstraintTypeReferences is not null)
+        if (parameter.ConstraintTypeDefinitionNames is not null)
         {
-            foreach (ApiTypeReferenceIdentity reference
-                in parameter.ConstraintTypeReferences)
-            {
-                AddText(ref count, reference.Assembly);
-                AddText(ref count, reference.FullName);
-                AddText(ref count, reference.DefinitionName);
-            }
+            foreach (MetadataTypeDefinitionName name
+                in parameter.ConstraintTypeDefinitionNames)
+                AddText(ref count, name);
         }
     }
 

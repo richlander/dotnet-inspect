@@ -305,7 +305,11 @@ static class FidelityCheck
                                  targetApiIndex)
                              && MetadataMemberSignatureShape.Create(
                                  reader,
-                                 candidate.MethodHandle).Shape is not null))
+                                 candidate.MethodHandle).Shape is not null,
+                         candidate => "generic-arity:"
+                             + reader.GetMethodDefinition(candidate.MethodHandle)
+                                 .GetGenericParameters().Count.ToString(
+                                     System.Globalization.CultureInfo.InvariantCulture)))
             {
                 var signatureShape = MetadataMemberSignatureShape.Create(
                     reader,
