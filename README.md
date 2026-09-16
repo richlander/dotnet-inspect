@@ -875,9 +875,11 @@ dotnet-inspect graph libraries \
 ```
 
 The drill-down names every source member, source token, target member, target
-token, call kind, evidence method, and IL offset in that cluster. Continue from
-those identities with ordinary `member` inspection or `library --il-offset`;
-the cluster remains structural evidence rather than a source-inlining verdict.
+token, call kind, evidence method, evidence token, and IL offset in that
+cluster. Use source and target identities for ordinary `member` inspection.
+Use the evidence token with the IL offset for `library --il-offset`, because a
+compiler-generated physical body can differ from the attributed source member.
+The cluster remains structural evidence rather than a source-inlining verdict.
 
 ```bash
 dotnet-inspect member "<SourceType>" \
@@ -891,7 +893,7 @@ dotnet-inspect member "<TargetType>" \
   -S @Source
 
 dotnet-inspect library ./Consumer.dll \
-  --il-offset "<SourceToken>+<ILOffset>"
+  --il-offset "<EvidenceToken>+<ILOffset>"
 ```
 
 ### Workspace sharing and built-in guidance

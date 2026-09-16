@@ -408,12 +408,72 @@ public sealed class InspectionGraphCommandTests
                 .InvokeAsync());
         Assert.Equal(0, human.ExitCode);
         Assert.Contains(
-            "| Source Member | Source Token | Target Member | Target Token |",
+            "| Source Member | Source Token | Target Member | Target Token | Call | Evidence Method | Evidence Token | IL Offset |",
             human.Output);
         Assert.Contains(
-            "| Shared.Entry.RunTwice() | 0x06000004 | Target.GenericApi.Echo(T) | 0x0600000B |",
+            "| Shared.Entry.RunTwice() | 0x06000004 | Target.GenericApi.Echo(T) | 0x0600000B | call | Shared.Entry.RunTwice() | 0x06000004 | 0x0001 |",
             human.Output);
         Assert.Empty(human.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ClusterUsesEvidenceTokenForIlHandoff()
+    {
+        string consumer =
+            FixtureCatalog.AnalysisAsyncSiblingFriend.AssemblyPath();
+        string provider = Path.Combine(
+            Path.GetDirectoryName(consumer)!,
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.dll");
+        var cluster = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        consumer,
+                        "--library",
+                        provider,
+                        "--cluster",
+                        "1",
+                        "--jsonl",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, cluster.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(
+            cluster.Output.Trim());
+        JsonElement call = document.RootElement;
+        string sourceToken =
+            call.GetProperty("source_token").GetString()!;
+        string evidenceToken =
+            call.GetProperty("evidence_token").GetString()!;
+        string ilOffset =
+            call.GetProperty("il_offset").GetString()!;
+        Assert.NotEqual(sourceToken, evidenceToken);
+        Assert.Contains(
+            "MoveNext",
+            call.GetProperty("evidence_method").GetString());
+        Assert.Contains(
+            "Pairwise call-use evidence is incomplete.",
+            cluster.Error);
+
+        var location = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "library",
+                        consumer,
+                        "--il-offset",
+                        $"{evidenceToken}+{ilOffset}",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, location.ExitCode);
+        Assert.Contains("## Context: Callsite", location.Output);
+        Assert.Contains("MoveNext", location.Output);
+        Assert.Contains("callvirt", location.Output);
+        Assert.Empty(location.Error);
     }
 
     [Fact]

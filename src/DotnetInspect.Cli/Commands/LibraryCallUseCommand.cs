@@ -54,6 +54,7 @@ public static class LibraryCallUseCommand
         "Target Token",
         "Call",
         "Evidence Method",
+        "Evidence Token",
         "IL Offset",
     ];
 

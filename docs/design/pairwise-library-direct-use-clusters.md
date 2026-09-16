@@ -237,9 +237,11 @@ dotnet-inspect graph libraries \
 ```
 
 The second command exposes exact source and target members and tokens, call
-kind, evidence method, and IL offset. Those typed member identities are the
-handoff to ordinary `member` or `library --il-offset` inspection; cluster
-selection does not add a parallel source, decompilation, or call-graph host.
+kind, evidence method and token, and IL offset. Source and target identities
+hand off to ordinary `member` inspection. The evidence token and IL offset hand
+off to `library --il-offset`, because compiler-generated physical evidence
+bodies can differ from attributed source methods. Cluster selection does not
+add a parallel source, decompilation, or call-graph host.
 
 ## Explicit non-goals
 
