@@ -93,9 +93,7 @@ public sealed class InspectionDefinitionRegistry
                 $"Scenario '{scenarioId}' uses schema version 2 and requires portable selector resolution.");
         }
 
-        return ResolveVersion1Scenario(
-            scenario,
-            NavigationTargetMatchMode.InheritOmitted);
+        return ResolveVersion1Scenario(scenario);
     }
 
     /// <summary>
@@ -154,8 +152,7 @@ public sealed class InspectionDefinitionRegistry
     }
 
     private ResolvedScenario ResolveVersion1Scenario(
-        ScenarioDefinition scenario,
-        NavigationTargetMatchMode targetMatchMode)
+        ScenarioDefinition scenario)
     {
         WorkspaceDefinition? workspace = null;
         WorkspacePlan? workspacePlan = null;
@@ -234,10 +231,7 @@ public sealed class InspectionDefinitionRegistry
                     $"Scenario '{scenario.Id}' references unknown navigation '{scenario.Navigation}'.");
             }
 
-            navigation = ResolveNavigation(
-                navigationDefinition,
-                workspace,
-                targetMatchMode);
+            navigation = ResolveNavigation(navigationDefinition);
         }
 
         // Cross-kind reference guard: a scenario field must not resolve to the wrong kind.
@@ -1057,19 +1051,10 @@ public sealed class InspectionDefinitionRegistry
                 .ToArray());
 
     private static ResolvedNavigation ResolveNavigation(
-        NavigationDefinition navigation,
-        WorkspaceDefinition? workspace,
-        NavigationTargetMatchMode targetMatchMode)
+        NavigationDefinition navigation)
     {
         var tabs = new List<ResolvedNavigationTab>(navigation.Tabs.Count);
         var seenIds = new HashSet<string>(StringComparer.Ordinal);
-        IReadOnlyDictionary<string, ResolvedNavigationSource>? sources =
-            workspace is null
-                ? null
-                : ResolveNavigationSources(
-                    workspace,
-                    navigation,
-                    targetMatchMode);
         foreach (var tab in navigation.Tabs)
         {
             if (!seenIds.Add(tab.Id))
@@ -1087,13 +1072,11 @@ public sealed class InspectionDefinitionRegistry
             tabs.Add(new ResolvedNavigationTab(
                 tab.Id,
                 DefinitionCoordinateLowering.ToWorkspaceMember(
-                    sources?[tab.Id].EffectiveCoordinate
-                        ?? tab.Coordinate),
-                sources?[tab.Id].Framework ?? tab.Framework,
-                sources?[tab.Id].RuntimeIdentifier
-                    ?? tab.RuntimeIdentifier,
-                sources?[tab.Id].ContextIndex,
-                sources?[tab.Id].MemberIndex));
+                    tab.Coordinate),
+                tab.Framework,
+                tab.RuntimeIdentifier,
+                contextIndex: null,
+                memberIndex: null));
         }
 
         var focusIndex = tabs.FindIndex(tab => tab.Id == navigation.Focus);
