@@ -60,6 +60,8 @@ Related docs:
 - [Rendering Model](rendering-model.md) defines verbosity and alternate lenses.
 - [Method Body Inspection](method-body-inspection.md) defines the shared member
   and IL-coordinate query model.
+- [Find assembly-semantic query](find-assembly-semantic-query.md) owns decoded
+  string-literal occurrence results.
 - [Workspace registration and call-graph focal
   length](workspace-registration-and-call-graph-scope.md) owns inert
   exact-Library and package-prefix registration.
@@ -308,10 +310,12 @@ resolution.
 
 Multi-coordinate operations select one result identity family for the
 invocation. `find` returns a Type vector or a Member vector according to its
-selected mode, never an untyped mixture. Package Query returns a Package
-vector. A typed sum may be one result identity family when the owning schema
-defines its closed cases; Workspace inventory uses that approach rather than
-returning unrelated objects in one bare collection.
+selected ordinary search mode, never an untyped mixture. Assembly-semantic
+`find --literal` instead retains its owner-issued decoded-literal occurrence
+family. Package Query returns a Package vector. A typed sum may be one result
+identity family when the owning schema defines its closed cases; Workspace
+inventory uses that approach rather than returning unrelated objects in one
+bare collection.
 
 Semantic result cardinality is not the rendered
 [Document → Table → Vector → Scalar](output-shapes.md) ladder. One scalar
@@ -333,6 +337,7 @@ The target primary result contracts are:
 | `type` inspection | One | Type | Scalar or vector, selected by gesture |
 | `member` inspection | One | Member | Scalar or vector, selected by gesture |
 | `find` | Multiple | Type or Member, selected by mode | Vector |
+| `find --literal` | Multiple | Assembly-semantic occurrence | Vector |
 | `package query` | Multiple | Package | Vector |
 | `workspace` inventory | Multiple top-level inputs; no implied evaluation | Workspace inventory entry | Vector |
 
@@ -393,7 +398,7 @@ precedent:
 | Package-backed `library` can emit several Libraries, including all-TFM populations. | Inventory those Library occurrences through Workspace or a package-owned child census; [#7222](https://github.com/richlander/dotnet-inspect/issues/7222) makes `library` select one exact Library Result. |
 | A bare `.dll` Library value can change the Type command's positional interpretation. | [#7220](https://github.com/richlander/dotnet-inspect/issues/7220) gives the Type positional slot one stable role and requires explicit coordinate fields. |
 | `workspace` accepts repeatable Packages and renders an ordered Package inventory. | [#7219](https://github.com/richlander/dotnet-inspect/issues/7219) owns the focused typed top-level Package, package-prefix, and exact-Library inventory adoption. |
-| `find` and Package Query resolve plural source populations. | Preserve their operation-owned multi-coordinate inputs and homogeneous result modes. |
+| Ordinary `find`, assembly-semantic `find --literal`, and Package Query resolve plural source populations. | Preserve their operation-owned multi-coordinate inputs and owner-issued homogeneous result modes. |
 
 This is an intentional CLI transition. Adopting commands must follow
 [CLI change classification](cli-change-classification.md), update help and
