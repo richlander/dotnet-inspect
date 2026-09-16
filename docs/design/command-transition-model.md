@@ -455,13 +455,13 @@ package System.Text.Json@10.0.0 Markout@0.35.2
          top-level inputs
 
 Workspace top-level inputs
-  1  Package        System.Text.Json@10.0.0
-  2  Package        Markout@0.35.2
-  3  PackagePrefix  Microsoft.Extensions.
-  4  ExactLibrary   ./System.Text.Json.dll
+  Package        System.Text.Json@10.0.0
+  Package        Markout@0.35.2
+  PackagePrefix  Microsoft.Extensions.
+  ExactLibrary   ./System.Text.Json.dll
 
 Workspace inventory, filter Kind = ExactLibrary
-  4  ExactLibrary   ./System.Text.Json.dll
+  ExactLibrary   ./System.Text.Json.dll
 ```
 
 Drill-down then returns to one coordinate. The exact package-relative Library
