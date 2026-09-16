@@ -142,7 +142,8 @@ census. Any diagnostic for the requested method makes that producer census
 Image rejection, invalid association, unavailable implementation pairing,
 method correspondence non-success, Analysis image failure, malformed Metadata,
 and Analysis diagnostics remain visible `Failed` inspections. Cancellation
-propagates with the caller token and is not an outcome arm.
+is observed during body Analysis and again before result publication,
+propagates with the caller token, and is not an outcome arm.
 
 ## Lifetime and closure
 
@@ -216,6 +217,7 @@ Focused gates run in `DotnetInspector.Queries.Tests` in Release:
 | Native producers | `NativeFindingProducersPreserveKeysAndEmptyCensuses` exercises allocation, call-site, and unsafety projections. |
 | Strict non-success | `MethodCorrespondenceNonSuccessRemainsFailed` preserves native absent, ambiguous, and failed status. |
 | Real package shape | `AvaloniaRefLibMatchUsesImplementationRole` exercises the pinned Avalonia 11.3.14 to 12.1.2 forwarded `MultiBinding` constructor through the actual defining `Avalonia.Base` `ref`/`lib` pair. |
+| Analysis cancellation | `MethodAnalysis_CancellationDuringAnalysisPropagatesCallerToken` blocks inside Analysis binding resolution, cancels the caller token, and proves the same token escapes rather than becoming an artifact failure or Finding outcome. |
 | Detached lifetime | `ResultRemainsUsableAfterWorkspaceClose` reads the complete result after awaited Workspace close. |
 | Full result closure | `PublicResultClosureIsResourceFree` traverses the complete public and representative runtime result graph and rejects every forbidden resource family named above. |
 

@@ -282,7 +282,9 @@ public static class MatchedApiMemberAnalysisQuery
             AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                 realization.ImplementationGroup!,
                 implementation.Participant,
-                methodToken);
+                methodToken,
+                cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         return entry switch
         {
             AssemblyContextEntry<AssemblyMethodAnalysis>.Available available =>
