@@ -502,6 +502,31 @@ public sealed class BrowserLibraryApiDiffOperationTests
     }
 
     [Fact]
+    public void SupplementaryUnicodeUsesWorkerCompatibleCharacterAdmission()
+    {
+        BrowserLibraryApiDiffRequest request = Request("Transport.Package");
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                Available(1, SupplementaryLetters(900_000)),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            result.Kind);
+        string escapedJson = JsonSerializer.Serialize(
+            result,
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
+        Assert.True(
+            escapedJson.Length
+                + BrowserLibraryApiDiffWireProjection
+                    .OrdinaryWorkerResultTupleOverhead
+                > BrowserLibraryApiDiffWireProjection
+                    .MaxOrdinaryWorkerJsonCharacters);
+    }
+
+    [Fact]
     public void OversizedEndpointEvidenceProducesABoundedTransportRejection()
     {
         BrowserLibraryApiDiffRequest request = Request("Transport.Package");
@@ -802,6 +827,19 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 _ => 0,
             };
     }
+
+    static string SupplementaryLetters(int count) =>
+        string.Create(
+            checked(count * 2),
+            count,
+            static (characters, letterCount) =>
+            {
+                for (int index = 0; index < letterCount; index++)
+                {
+                    characters[index * 2] = '\ud801';
+                    characters[index * 2 + 1] = '\udc00';
+                }
+            });
 
     static MetadataTypeDefinitionName TypeName(
         string segment,
