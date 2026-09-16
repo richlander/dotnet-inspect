@@ -180,6 +180,64 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentAndUseFrameworkWrappers()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        Span<byte> constructed = new(buffer);
+        Span<byte> converted = buffer;
+        Span<byte> extension = buffer.AsSpan(1);
+        Memory<byte> extensionMemory = buffer.AsMemory(1);
+        ReadOnlySpan<byte> readOnlySpan = converted;
+        Memory<byte> constructedMemory = new(buffer);
+        Memory<byte> memory = buffer;
+        ReadOnlyMemory<byte> readOnlyMemory = memory;
+        int length =
+            constructed.Slice(1).Length
+            + converted.Slice(1, 2).Length
+            + extension.Length
+            + extensionMemory.Span.Length
+            + readOnlySpan.Slice(1).Length
+            + constructedMemory.Slice(1).Span.Length
+            + memory.Slice(1).Span.Length
+            + readOnlyMemory.Slice(1, 2).Span.Length;
+        ArrayPool<byte>.Shared.Return(buffer);
+        return length;
+    }
+
+    public static BindingOutcome BindOccurrenceReferences()
+    {
+        var owner = new BindingOwner<byte>();
+        return owner.Apply(42, static value => value);
+    }
+
+    public static BindingOutcome BindOpenGenericReferences<T>(T value) =>
+        new BindingOpenOwner<T>().Apply(
+            value,
+            static item => new BindingBox<T> { Value = item });
+
+    public static BindingOutcome BindClosedGenericReferences() =>
+        new BindingOpenOwner<int>().Apply(
+            42,
+            static item => new BindingBox<int> { Value = item });
+
+    public static BindingOutcome InvokeMalformedCallback() =>
+        new BindingOwnerWithExtra<byte, int>()
+            .BindMalformedCallback(42);
+
+    public static BindingOutcome InvokeMalformedField() =>
+        new BindingOwnerWithExtra<byte, int>()
+            .Use(new BindingBox<byte>());
+
+    public static byte BindCollapsedResourceKinds() =>
+        new BindingGenericOwner<byte>().Apply<byte>(1, 2);
+
+    public static void BindEnumOutcomeAliases()
+    {
+        _ = GetBindingStatus();
+    }
+
+    static BindingStatus GetBindingStatus() => BindingStatus.Rejected;
+
     static void ForwardRentedArray(byte[] buffer) =>
         ReturnRentedArray(buffer);
 
@@ -243,4 +301,78 @@ public static class Entry
         internal void Return(int marker, byte[] buffer) =>
             ArrayPool<byte>.Shared.Return(buffer);
     }
+}
+
+public delegate T BindingCallback<T>(T value);
+
+public delegate BindingBox<T> BindingBoxCallback<T>(T value);
+
+public enum BindingStatus
+{
+    Rejected = 0,
+    Retry = 0,
+    Accepted = 1,
+}
+
+public sealed class BindingOwner<T>
+{
+    public T? Child;
+    public int ChildCount;
+    public int[] ChildCounts = [];
+    public BindingBox<T>? ChildBox;
+
+    public BindingOutcome Apply(T child, BindingCallback<T> callback)
+    {
+        Child = callback(child);
+        ChildCount++;
+        return new BindingRejectedOutcome();
+    }
+}
+
+public sealed class BindingOwnerWithExtra<T, TExtra>
+{
+    public BindingOutcome BindMalformedCallback(T child) =>
+        Apply(child, static value => value);
+
+    public BindingOutcome Apply(T child, BindingCallback<T> callback) =>
+        new BindingRejectedOutcome
+        {
+            ReturnedChild = callback(child),
+        };
+
+    public BindingOutcome Use(BindingBox<T> box) =>
+        new BindingRejectedOutcome
+        {
+            ReturnedChild = box.Value,
+        };
+}
+
+public sealed class BindingOpenOwner<T>
+{
+    public BindingBox<T>? Child;
+
+    public BindingOutcome Apply(T value, BindingBoxCallback<T> callback)
+    {
+        Child = callback(value);
+        return new BindingRejectedOutcome();
+    }
+}
+
+public sealed class BindingBox<T>
+{
+    public T? Value;
+}
+
+public abstract class BindingOutcome;
+
+public sealed class BindingAcceptedOutcome : BindingOutcome;
+
+public sealed class BindingRejectedOutcome : BindingOutcome
+{
+    public object? ReturnedChild;
+}
+
+public sealed class BindingGenericOwner<T>
+{
+    public TMethod Apply<TMethod>(T value, TMethod result) => result;
 }
