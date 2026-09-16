@@ -908,6 +908,10 @@ internal sealed partial class ResourceEffectInterfaceApplicationPlan
         var origins = new Dictionary<TypeRef, ResolvedAssemblyReference>(
             concreteType.Origins,
             ReferenceEqualityComparer.Instance);
+        AddOrigins(
+            original.DeclaringType,
+            implementationCall.Participant.Assembly,
+            origins);
         foreach (TypeRef argument in methodArguments)
         {
             AddOrigins(

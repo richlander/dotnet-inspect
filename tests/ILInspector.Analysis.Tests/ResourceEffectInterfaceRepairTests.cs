@@ -142,6 +142,63 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void CrossAssemblyReceiverRetainsCallerResolutionOrigin()
+    {
+        ExternalSyntheticParticipant scenario =
+            CreateCrossAssemblyInterfaceParticipant();
+        AssemblyReferenceIdentity assembly =
+            scenario.TargetAssembly.Identity;
+        var target = new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                new ResourceTypeExpression.Named(
+                    new ResourceAssemblySelector(
+                        assembly.Name,
+                        assembly.PublicKeyToken,
+                        ResourceAssemblyVersionPolicy.Exact(
+                            assembly.Version!)),
+                    "N",
+                    [new ResourceTypeNameSegment("IContract", 0)]),
+                "Target",
+                ResourceEffectMemberKind.Method,
+                isStatic: false,
+                genericArity: 0,
+                ResourceEffectCallingConvention.Default,
+                hasThis: true,
+                explicitThis: false,
+                [new(CoreType("Object"), ResourceEffectRefKind.Value)],
+                CoreType("Void")));
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.cross-assembly-receiver",
+                target,
+                new ResourceEffect.Independent(
+                    new ResourceEffectLocation.Receiver(),
+                    new ResourceEffectLocation.Parameter(0))));
+
+        var complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    scenario.Policy,
+                    admission,
+                    [scenario.Participant],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        ResolvedResourceEffect effect =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.Collection(
+            effect.Binding.Locations,
+            receiver =>
+            {
+                Assert.Equal("Contract", receiver.Type.Type.Name);
+                Assert.Equal(assembly, receiver.Type.DefiningAssembly);
+                Assert.NotNull(receiver.Type.Definition);
+            },
+            parameter =>
+                Assert.Equal("Object", parameter.Type.Type.Name));
+    }
+
+    [Fact]
     public void OneImplementationRetainsBothClosedInterfaceSlotProofs()
     {
         SyntheticParticipant participant =
@@ -524,6 +581,204 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 new ResourceEffect.Independent(
                     new ResourceEffectLocation.Parameter(0),
                     new ResourceEffectLocation.Parameter(1))));
+    }
+
+    static ExternalSyntheticParticipant
+        CreateCrossAssemblyInterfaceParticipant()
+    {
+        const string TargetAssemblyName =
+            "CrossAssemblyInterfaceTarget";
+        var targetMetadata = new MetadataBuilder();
+        targetMetadata.AddModule(
+            0,
+            targetMetadata.GetOrAddString(
+                TargetAssemblyName + ".dll"),
+            targetMetadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        targetMetadata.AddAssembly(
+            targetMetadata.GetOrAddString(TargetAssemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.Sha1);
+        AssemblyReferenceHandle systemRuntime =
+            targetMetadata.AddAssemblyReference(
+                targetMetadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                targetMetadata.GetOrAddBlob(
+                    Convert.FromHexString("b03f5f7f11d50a3a")),
+                default,
+                default);
+        TypeReferenceHandle objectType =
+            targetMetadata.AddTypeReference(
+                systemRuntime,
+                targetMetadata.GetOrAddString("System"),
+                targetMetadata.GetOrAddString("Object"));
+        targetMetadata.AddTypeDefinition(
+            default,
+            default,
+            targetMetadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle contract =
+            targetMetadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                targetMetadata.GetOrAddString("N"),
+                targetMetadata.GetOrAddString("IContract"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle implementation =
+            targetMetadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                targetMetadata.GetOrAddString("N"),
+                targetMetadata.GetOrAddString("Contract"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        targetMetadata.AddInterfaceImplementation(
+            implementation,
+            contract);
+        byte[] signature = [0x20, 0x01, 0x01, 0x1C];
+        targetMetadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            targetMetadata.GetOrAddString("Target"),
+            targetMetadata.GetOrAddBlob(signature),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        var targetBodies = new BlobBuilder();
+        var targetIl = new BlobBuilder();
+        targetIl.WriteByte((byte)ILOpCode.Ret);
+        int implementationBody =
+            new MethodBodyStreamEncoder(targetBodies)
+                .AddMethodBody(new InstructionEncoder(targetIl));
+        targetMetadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            targetMetadata.GetOrAddString("Target"),
+            targetMetadata.GetOrAddBlob(signature),
+            implementationBody,
+            MetadataTokens.ParameterHandle(1));
+        byte[] targetImage = Serialize(
+            targetMetadata,
+            targetBodies);
+        ResolvedAssemblyReference targetAssembly =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(
+                    targetImage,
+                    writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "cross-assembly interface target"))!;
+
+        const string CallerAssemblyName =
+            "CrossAssemblyInterfaceCaller";
+        var callerMetadata = new MetadataBuilder();
+        callerMetadata.AddModule(
+            0,
+            callerMetadata.GetOrAddString(
+                CallerAssemblyName + ".dll"),
+            callerMetadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        callerMetadata.AddAssembly(
+            callerMetadata.GetOrAddString(CallerAssemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.Sha1);
+        AssemblyReferenceHandle targetReference =
+            callerMetadata.AddAssemblyReference(
+                callerMetadata.GetOrAddString(TargetAssemblyName),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle implementationReference =
+            callerMetadata.AddTypeReference(
+                targetReference,
+                callerMetadata.GetOrAddString("N"),
+                callerMetadata.GetOrAddString("Contract"));
+        MemberReferenceHandle methodReference =
+            callerMetadata.AddMemberReference(
+                implementationReference,
+                callerMetadata.GetOrAddString("Target"),
+                callerMetadata.GetOrAddBlob(signature));
+        callerMetadata.AddTypeDefinition(
+            default,
+            default,
+            callerMetadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        callerMetadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            callerMetadata.GetOrAddString("N"),
+            callerMetadata.GetOrAddString("Calls"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var callerIl = new BlobBuilder();
+        var callerInstructions = new InstructionEncoder(callerIl);
+        callerInstructions.OpCode(ILOpCode.Ldnull);
+        callerInstructions.OpCode(ILOpCode.Ldnull);
+        callerInstructions.OpCode(ILOpCode.Callvirt);
+        callerInstructions.Token(methodReference);
+        callerInstructions.OpCode(ILOpCode.Ret);
+        var callerBodies = new BlobBuilder();
+        int callerBody =
+            new MethodBodyStreamEncoder(callerBodies)
+                .AddMethodBody(callerInstructions, maxStack: 2);
+        callerMetadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            callerMetadata.GetOrAddString("Call"),
+            callerMetadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            callerBody,
+            MetadataTokens.ParameterHandle(1));
+        byte[] callerImage = Serialize(
+            callerMetadata,
+            callerBodies);
+        ResolvedAssemblyReference callerAssembly =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(
+                    callerImage,
+                    writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "cross-assembly interface caller"))!;
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                CallerAssemblyName + ".dll",
+                ImmutableArray.CreateRange(callerImage),
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        var participant =
+            new CatalogCallGraphParticipant(index, callerAssembly);
+        return new(
+            targetImage,
+            targetAssembly,
+            participant,
+            new ExactPolicy(
+                [
+                    callerAssembly,
+                    targetAssembly,
+                    CoreLibraryAssembly,
+                ]));
     }
 
     static ResourceEffectAdmission DualInterfaceApplicationAdmission(
