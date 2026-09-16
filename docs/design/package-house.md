@@ -330,10 +330,6 @@ same still-live Package Source settlement root. Candidate-generation
 validation rejects execution through another root. Current source
 authorization is applied again at cell execution, so a source that is no
 longer authorized cannot be recovered from retained population evidence.
-The cell-owned `OwnsRequest` predicate verifies that a returned House request
-retains both the cell's exact association and its reporter-bound candidate;
-downstream composition does not reconstruct that correspondence from package
-identity or version text.
 Population discovery and every cell execution have independent request and
 operation deadlines; an overall History budget belongs to the History
 coordinator.
