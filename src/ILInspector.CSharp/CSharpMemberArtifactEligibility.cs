@@ -46,9 +46,11 @@ public static class CSharpMemberArtifactEligibility
             return true;
         }
 
-        string name = member.SignatureModel?.MemberName is { Length: > 0 } modelName
-            ? modelName
-            : member.Name;
+        string name = member.Kind is "method" or "extension-method"
+            ? member.Name
+            : member.SignatureModel?.MemberName is { Length: > 0 } modelName
+                ? modelName
+                : member.Name;
         if (name == "this[]")
             return true;
 

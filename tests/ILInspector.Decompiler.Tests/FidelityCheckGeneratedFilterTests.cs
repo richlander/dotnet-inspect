@@ -158,6 +158,32 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void SelectReturnToSenderTargets_IncludesRepresentableGenericMethods()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class GenericOnlyFixture
+            {
+                public static int Pick<T>() => 1;
+            }
+            """);
+        try
+        {
+            var target = Assert.Single(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: 1));
+
+            Assert.Equal("GenericOnlyFixture", target.Type);
+            Assert.Equal("Pick", target.Method);
+            Assert.Equal("mss1:1(0:)n", target.Signature);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void FidelityCheckCommand_DispatchesRaisedToNativeAndLoweredToLegacy()
     {
         var assemblyPath = CompileFixture("""
