@@ -135,6 +135,35 @@ test("Workspace details distinguish loading, empty, and failure", () => {
   assert.match(render(false, "Acquisition failed"), /Acquisition failed/);
 });
 
+test("Workspace details render framework Libraries without a Platform component", () => {
+  const html = renderWorkspaceView({
+    occurrences: [],
+    packages: [{
+      id: "Microsoft.NETCore.App",
+      version: "11.0.0",
+      activeFramework: "net11.0",
+      isRuntimePack: true,
+    }],
+    frameworkLibraries: [{
+      name: "System.Text.Json",
+      assembly: "System.Text.Json",
+      pack: "netcore.app",
+      version: "11.0.0",
+      framework: "net11.0",
+      source: ".NET",
+    }],
+    loading: false,
+    error: "",
+    escapeHtml,
+  });
+
+  assert.match(html, /1 loaded coordinate/);
+  assert.match(
+    html,
+    /data-workspace-framework-library="System\.Text\.Json"[\s\S]*data-workspace-framework-pack="netcore\.app"[\s\S]*data-workspace-framework="net11\.0"[\s\S]*data-workspace-framework-version="11\.0\.0"/);
+  assert.doesNotMatch(html, /data-workspace-platform|\.NET Platform/);
+});
+
 test("Workspace removal remains available while occurrence activation loads or fails", () => {
   for (const status of [{ loading: true, error: "" }, { loading: false, error: "Offline" }]) {
     const html = renderWorkspaceView({
@@ -203,10 +232,23 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
     addEventListener: (name: string, listener: EventListener) =>
       listeners.set(`add:${name}`, listener),
   };
+  const frameworkLibrary = {
+    dataset: {
+      workspaceFrameworkLibrary: "System.Text.Json",
+      workspaceFrameworkPack: "netcore.app",
+      workspaceFramework: "net11.0",
+      workspaceFrameworkVersion: "11.0.0",
+    },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`framework-library:${name}`, listener),
+  };
   const root = {
     querySelector: (selector: string) =>
       selector === "[data-workspace-retry]" ? retry
-        : selector === "[data-workspace-add-package]" ? add : null,
+        : selector === "[data-workspace-add-package]" ? add
+          : selector === "[data-workspace-framework-library]"
+            ? frameworkLibrary
+            : null,
     querySelectorAll: (selector: string) =>
       selector === "[data-workspace-select]" ? [select]
         : selector === "[data-workspace-switch]" ? [workspaceSwitch]
@@ -235,6 +277,9 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
         calls.push("retry");
       },
       onAddPackage: () => { calls.push("add"); },
+      onFrameworkLibrary: (assembly, pack, framework, version) => {
+        calls.push(`framework-library:${assembly}:${pack}:${framework}:${version}`);
+      },
     });
 
   listeners.get("select:click")?.(fakeDom.event());
@@ -245,6 +290,7 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
   listeners.get("invalid-demo:click")?.(fakeDom.event());
   listeners.get("retry:click")?.(fakeDom.event());
   listeners.get("add:click")?.(fakeDom.event());
+  listeners.get("framework-library:click")?.(fakeDom.event());
   assert.deepEqual(calls, [
     "select:workspace-1",
     "switch:workspace-2",
@@ -253,6 +299,7 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
     "demo:stj-serializer",
     "retry",
     "add",
+    "framework-library:System.Text.Json:netcore.app:net11.0:11.0.0",
   ]);
 });
 
