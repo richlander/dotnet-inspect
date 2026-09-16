@@ -246,8 +246,9 @@ PR [#6907](https://github.com/richlander/dotnet-inspect/pull/6907), with
 compiler-produced family covers direct and nested writes plus local, argument,
 stack-join, field, ref-return, ref-parameter, constructor, helper-bound,
 copied-carrier, indirect-destination, and conditional indirect-destination
-transfer through stack slots and ref locals; supported methods must also
-compile back `Exact`. The dedicated-return control and the existing
+transfer through stack slots and ref locals, including a ref-return field
+receiver; supported methods must also compile back `Exact`. The
+dedicated-return control and the existing
 `IrImporterTests.TryFinallyTwoReturns_SinksBothReturnsIntoTry` plus
 `FidelityGateTests` gate the neighboring safe-inlining boundary. Corpus cards
 remain population evidence; they do not replace these method-level semantic

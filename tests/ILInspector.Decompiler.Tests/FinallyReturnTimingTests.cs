@@ -127,6 +127,38 @@ public class FinallyReturnTimingTests
     }
 
     [Fact]
+    public void RefReturnFieldAliasConvergesAndStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunRefReturnFieldAlias(
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunRefReturnFieldAlias(
+            loop: true,
+            setValue: false,
+            exit: true));
+
+        using var source = MetadataSource.Open(SampleType.Assembly.Location);
+        IrFunction function = Assert.IsType<IrFunction>(IrImporter.Import(
+            source,
+            SampleType.FullName!,
+            nameof(FinallyReturnTimingSample.RunRefReturnFieldAlias)));
+        Assert.Contains(
+            function.Descendants.OfType<StoreField>(),
+            store => store.Instance is Call);
+
+        var result = CSharpPrinter.PrintRaised(
+            function,
+            method => IrImporter.Import(source, method),
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+        string output = Assert.IsType<string>(result.Output)
+            .ReplaceLineEndings("\n");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
     public void CallAliasReturnStaysAfterFinally()
     {
         Assert.Equal(100, FinallyReturnTimingSample.RunCallAlias(
@@ -421,6 +453,7 @@ public class FinallyReturnTimingTests
                 or nameof(FinallyReturnTimingSample.RunAliasedLocal)
                 or nameof(FinallyReturnTimingSample.RunConditionalAlias)
                 or nameof(FinallyReturnTimingSample.RunFieldAlias)
+                or nameof(FinallyReturnTimingSample.RunRefReturnFieldAlias)
                 or nameof(FinallyReturnTimingSample.RunCallAlias)
                 or nameof(FinallyReturnTimingSample.RunArgumentAlias)
                 or nameof(FinallyReturnTimingSample.RunConstructorAlias)
@@ -430,7 +463,7 @@ public class FinallyReturnTimingTests
                 or nameof(FinallyReturnTimingSample.RunConditionalIndirectCarrierAlias)
                 or nameof(FinallyReturnTimingSample.RunRefLocalIndirectCarrierAlias));
 
-        Assert.Equal(13, results.Count);
+        Assert.Equal(14, results.Count);
         Assert.All(results, result =>
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
     }

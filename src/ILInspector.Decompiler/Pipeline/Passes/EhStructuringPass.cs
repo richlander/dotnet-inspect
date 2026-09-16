@@ -1700,8 +1700,10 @@ public sealed partial class EhStructuringPass : IIrPass
 
     static bool SameCarrierPlace(IrExpression? left, IrExpression? right)
     {
+        if (ReferenceEquals(left, right))
+            return true;
         if (left is null || right is null)
-            return left is null && right is null;
+            return false;
 
         return (left, right) switch
         {

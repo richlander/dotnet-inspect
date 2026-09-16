@@ -191,6 +191,39 @@ public static class FinallyReturnTimingSample
         return result;
     }
 
+    public static int RunRefReturnFieldAlias(
+        bool loop,
+        bool setValue,
+        bool exit)
+    {
+        int result = 0;
+        scoped RefHolder holder = default;
+        GetReference(ref holder).Value = ref result;
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            holder.Value += 100;
+        }
+
+    Done:
+        return result;
+    }
+
     public static int RunCallAlias(
         bool useResult,
         bool loop,
