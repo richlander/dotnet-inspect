@@ -601,10 +601,12 @@ selection resolves `net10.0`; Browser explicitly selects that framework, opens
 and activates its occurrence, and reports the matching `IHttpClientFactory`
 and `AddHttpClient` signals. The same network-backed case opens
 `System.Text.Json@10.0.0/net10.0` through the ordinary Worker transport as its
-large-package payload boundary. These coordinates use the live Gallery CDN;
-the lifecycle and malformed-implementation cases use deterministic local
-archive responses. Run the gate after building the frontend and publishing
-`DotnetInspect.Web.csproj` in Release to `artifacts/inspect-web-publish`.
+large-package baseline and `Aspire.Hosting@13.5.4/net8.0` as the pathological
+package that crosses both former transport bounds. These coordinates use the
+live Gallery CDN; the lifecycle and malformed-implementation cases use
+deterministic local archive responses. Run the gate after building the frontend
+and publishing `DotnetInspect.Web.csproj` in Release to
+`artifacts/inspect-web-publish`.
 
 ## Supported
 
@@ -1413,7 +1415,11 @@ Oxlint checks all seven compiler-derived production facade artifact triples and
 the multi-facade and managed-operation canary sources as consumer contracts.
 The `src/facades/*.d.ts` declarations receive the TypeScript rules, while the
 exact seven `DotnetInspect.Web/wwwroot/inspect-web-*.js` modules receive the JavaScript
-correctness and suspicious rules described below. The checked-in production
+correctness and suspicious rules described below. TypeScript's declaration
+emitter appends `export {};` when an exported opaque type references its
+module-private `unique symbol`; generated declarations therefore disable only
+`unicorn/require-module-specifiers`, whose preferred rewrite would make that
+compiler-owned module marker invalid. The checked-in production
 and canary TypeScript facades are compiled separately against the exact
 SDK-owned `dotnet.d.ts`; each canary gate compiles its authored coordinator or
 initializer and exercise modules in that same program. TypeScript compilation
@@ -1424,8 +1430,9 @@ configuration disables four non-correctness rules: underscore spelling,
 function relocation, listener API preference, and `Array.prototype.sort`.
 Those rules prescribe
 naming/layout churn or, for sorting, the ES2023 `toSorted` API while this
-project targets ES2022. Those four, plus the generated-facade overrides, are
-the *complete* set of disabled rules. The compiler-derived JavaScript disables
+project targets ES2022. Those four, plus the generated-facade and generated-
+declaration overrides, are the *complete* set of disabled rules. The
+compiler-derived JavaScript disables
 the five unsafe-operation rules and the catch-callback annotation rule that
 JavaScript cannot satisfy. The authoritative generated TypeScript facades
 disable those unsafe-operation rules, unsafe type-assertion analysis for

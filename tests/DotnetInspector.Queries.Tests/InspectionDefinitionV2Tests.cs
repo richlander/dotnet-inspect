@@ -233,7 +233,26 @@ public sealed class InspectionDefinitionV2Tests
     }
 
     [Fact]
-    public void Constructors_RejectInvalidFocusAndWorkspaceRowContext()
+    public void Constructors_RequireCompleteWorkspaceBackedVersion2Scenario()
+    {
+        Assert.Throws<ArgumentException>(() => new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            "scenario",
+            workspace: "workspace"));
+        Assert.Throws<ArgumentException>(() => new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            "scenario",
+            workspace: "workspace",
+            view: "view"));
+        Assert.Throws<ArgumentException>(() => new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            "scenario",
+            workspace: "workspace",
+            navigation: "navigation"));
+    }
+
+    [Fact]
+    public void Constructors_RejectInvalidFocusAndPackageContextAliases()
     {
         Assert.Throws<ArgumentException>(() => new CommittedNavigationDefinition(
             InspectionDefinitionSchema.Version2,
@@ -246,19 +265,32 @@ public sealed class InspectionDefinitionV2Tests
             ],
             focus: "platform"));
 
+        Assert.Throws<ArgumentException>(() =>
+            new CommittedViewStateDefinition(
+                "stj",
+                context: new PortableRetainedSubjectContext.Package()));
+        Assert.Throws<ArgumentException>(() =>
+            new CommittedViewStateDefinition(
+                "stj",
+                new PortableSubjectRequest.Workspace(),
+                new PortableRetainedSubjectContext.Package()));
+    }
+
+    [Fact]
+    public void PrepareScenario_RequiresExplicitLeadingWorkspaceSubject()
+    {
         var registry = Registry(
             states:
             [
-                new CommittedViewStateDefinition(
-                    null,
-                    new PortableSubjectRequest.Workspace(),
-                    new PortableRetainedSubjectContext.Package()),
+                new CommittedViewStateDefinition(null),
                 new CommittedViewStateDefinition("stj"),
             ]);
+
         var exception = Assert.Throws<InspectionDefinitionException>(
             () => registry.PrepareScenario("scenario"));
+
         Assert.Contains(
-            "Workspace state cannot retain Package context",
+            "must request the Workspace subject",
             exception.Message,
             StringComparison.Ordinal);
     }
@@ -492,7 +524,7 @@ public sealed class InspectionDefinitionV2Tests
     }
 
     [Fact]
-    public void PrepareScenario_FocusedNonPackageVersion1ReturnsCompatibilityHandoff()
+    public void PrepareScenario_FocusedNonPackageVersion1KeepsVersion1Path()
     {
         var registry = new InspectionDefinitionRegistry();
         var workspace = new WorkspaceDefinition(
@@ -528,19 +560,150 @@ public sealed class InspectionDefinitionV2Tests
         registry.Add(navigation);
         registry.Add(scenario);
 
-        var handoff = Assert.IsType<
-            InspectionDefinitionScenarioPreparationResult
-                .LegacyCompatibilityRequired>(
-                    registry.PrepareScenario(scenario.Id));
+        var prepared =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
+                registry.PrepareScenario(scenario.Id));
 
-        Assert.Same(scenario, handoff.Plan.Scenario);
-        Assert.Same(workspace, handoff.Plan.Workspace);
-        Assert.Same(navigation, handoff.Plan.Navigation);
-        Assert.Same(navigation.Tabs[0], handoff.Plan.FocusedTab);
+        Assert.Same(scenario, prepared.Definitions.Scenario);
+        Assert.Same(workspace, prepared.Definitions.Workspace);
+        Assert.Same(navigation, prepared.Definitions.Navigation);
     }
 
     [Fact]
-    public void PrepareScenario_LegacyCompatibilityRejectsDuplicateTabIds()
+    public void PrepareScenario_LibraryScopedVersion1KeepsVersion1Path()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        WorkspaceDefinition workspace = Workspace(
+            InspectionDefinitionSchema.Version1);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "package",
+                    coordinate: Package()),
+            ],
+            "package");
+        var view = new ViewDefinition(
+            InspectionDefinitionSchema.Version1,
+            "view",
+            lens: "api",
+            type: "System.Text.Json.JsonSerializer",
+            libraries: ["System.Text.Json"]);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: workspace.Id,
+            context: "context",
+            view: view.Id,
+            navigation: navigation.Id);
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(view);
+        registry.Add(scenario);
+
+        var prepared =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
+                registry.PrepareScenario(scenario.Id));
+
+        Assert.Same(view, prepared.Definitions.View);
+        Assert.Same(navigation, prepared.Definitions.Navigation);
+    }
+
+    [Fact]
+    public void PrepareScenario_Version1PreservesUnloweredSubscription()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        var catalog = new CatalogDefinition(
+            InspectionDefinitionSchema.Version1,
+            "catalog",
+            [
+                new CatalogGroupDefinition(
+                    "Runtime",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PlatformCoordinate(
+                            "runtime"),
+                    ]),
+            ]);
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    subscribe: ":Runtime"),
+            ]);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            "navigation",
+            [new NavigationTabDefinition("runtime", subscribe: ":Runtime")],
+            "runtime");
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: workspace.Id,
+            navigation: navigation.Id);
+        registry.Add(catalog);
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(scenario);
+
+        var prepared =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
+                registry.PrepareScenario(scenario.Id));
+
+        Assert.Same(navigation, prepared.Definitions.Navigation);
+        Assert.Same(catalog, Assert.Single(prepared.Definitions.Catalogs));
+    }
+
+    [Fact]
+    public void PrepareScenario_Version1PreservesUnloweredFilesystemCoordinates()
+    {
+        DefinitionMemberCoordinate[] coordinates =
+        [
+            new DefinitionMemberCoordinate.ProjectCoordinate("sample.csproj"),
+            new DefinitionMemberCoordinate.LocalCoordinate("sample.dll"),
+            new DefinitionMemberCoordinate.DirectoryCoordinate("artifacts"),
+        ];
+
+        foreach (DefinitionMemberCoordinate coordinate in coordinates)
+        {
+            var registry = new InspectionDefinitionRegistry();
+            var workspace = new WorkspaceDefinition(
+                InspectionDefinitionSchema.Version1,
+                "workspace",
+                [
+                    new WorkspaceContextDefinition(
+                        "context",
+                        members: [coordinate]),
+                ]);
+            var navigation = new NavigationDefinition(
+                InspectionDefinitionSchema.Version1,
+                "navigation",
+                [new NavigationTabDefinition("source", coordinate: coordinate)],
+                "source");
+            var scenario = new ScenarioDefinition(
+                InspectionDefinitionSchema.Version1,
+                "scenario",
+                workspace: workspace.Id,
+                navigation: navigation.Id);
+            registry.Add(workspace);
+            registry.Add(navigation);
+            registry.Add(scenario);
+
+            var prepared =
+                Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
+                    registry.PrepareScenario(scenario.Id));
+
+            Assert.Same(
+                coordinate,
+                Assert.Single(prepared.Definitions.Navigation!.Tabs).Coordinate);
+        }
+    }
+
+    [Fact]
+    public void PrepareScenario_Version1RejectsDuplicateTabIds()
     {
         var registry = new InspectionDefinitionRegistry();
         WorkspaceDefinition workspace = Workspace(
@@ -576,7 +739,7 @@ public sealed class InspectionDefinitionV2Tests
     }
 
     [Fact]
-    public void PrepareScenario_WorkspaceBackedVersion1WithoutNavigationUsesCompatibility()
+    public void PrepareScenario_WorkspaceBackedVersion1WithoutNavigationKeepsVersion1Path()
     {
         var registry = new InspectionDefinitionRegistry();
         WorkspaceDefinition workspace = Workspace(
@@ -588,14 +751,12 @@ public sealed class InspectionDefinitionV2Tests
         registry.Add(workspace);
         registry.Add(scenario);
 
-        var handoff = Assert.IsType<
-            InspectionDefinitionScenarioPreparationResult
-                .LegacyCompatibilityRequired>(
-                    registry.PrepareScenario(scenario.Id));
+        var prepared =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
+                registry.PrepareScenario(scenario.Id));
 
-        Assert.Same(workspace, handoff.Plan.Workspace);
-        Assert.Null(handoff.Plan.Navigation);
-        Assert.Null(handoff.Plan.FocusedTab);
+        Assert.Same(workspace, prepared.Definitions.Workspace);
+        Assert.Null(prepared.Definitions.Navigation);
         Assert.Equal(
             scenario.Id,
             registry.ResolveScenario(scenario.Id).ScenarioId);
@@ -626,9 +787,9 @@ public sealed class InspectionDefinitionV2Tests
             Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
                 registry.PrepareScenario("scenario"));
 
-        Assert.Null(prepared.Scenario.Workspace);
-        Assert.Equal("bundle:input", prepared.Scenario.Scenario.Input);
-        Assert.Equal("platform", prepared.Scenario.Navigation!.FocusTabId);
+        Assert.Null(prepared.Definitions.Workspace);
+        Assert.Equal("bundle:input", prepared.Definitions.Scenario.Input);
+        Assert.Equal("platform", prepared.Definitions.Navigation!.Focus);
     }
 
     [Fact]

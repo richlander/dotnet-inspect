@@ -88,7 +88,8 @@ static class DtsEmitter
         ILInspector.JsExportSurface.JsExportSurface surface,
         TypeScriptGenerationDiagnostics? diagnostics = null,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
-        string? allocatedInertStringName = null)
+        string? allocatedInertStringName = null,
+        string? allocatedInertStringBrandName = null)
     {
         ApiType[] declarationTypes = GetDeclarationTypes(surface);
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
@@ -112,7 +113,8 @@ static class DtsEmitter
             declaredTypesByScopedIdentity,
             diagnostics,
             allocatedTypeNames,
-            allocatedInertStringName);
+            allocatedInertStringName,
+            allocatedInertStringBrandName);
         return sb.ToString();
     }
 
@@ -252,7 +254,8 @@ static class DtsEmitter
             declaredTypesByScopedIdentity,
         TypeScriptGenerationDiagnostics? diagnostics,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
-        string? allocatedInertStringName = null)
+        string? allocatedInertStringName = null,
+        string? allocatedInertStringBrandName = null)
     {
         TypeMappingEnvironment typeEnvironment =
             CreateKnownTypes(
@@ -265,6 +268,8 @@ static class DtsEmitter
         {
             string inertStringName =
                 allocatedInertStringName ?? "InertString";
+            string inertStringBrandName =
+                allocatedInertStringBrandName ?? "inertStringBrand";
             if (declarationTypes.Any(type =>
                 AllocatedTypeName(type, allocatedTypeNames)
                     == inertStringName))
@@ -273,11 +278,27 @@ static class DtsEmitter
                     inertStringIdentity.FullName,
                     "the inert-string TypeScript brand collides with another type");
             }
+            if (allocatedInertStringBrandName is null
+                && (declarationTypes.Any(type =>
+                        AllocatedTypeName(type, allocatedTypeNames)
+                            == inertStringBrandName)
+                    || surface.Functions.Any(function =>
+                        CamelCase.FromPascalCase(function.Name)
+                            == inertStringBrandName)))
+            {
+                throw new UnsupportedWireContractException(
+                    inertStringIdentity.FullName,
+                    "the inert-string TypeScript brand binding collides with another declaration");
+            }
 
-            sb.Append("export type ")
+            sb.Append("declare const ")
+                .Append(inertStringBrandName)
+                .Append(": unique symbol;\n\n")
+                .Append("export type ")
                 .Append(inertStringName)
-                .Append(
-                    " = string & { readonly __inertStringBrand: unique symbol };\n\n");
+                .Append(" = string & {\n  readonly [")
+                .Append(inertStringBrandName)
+                .Append("]: \"InertString\";\n};\n\n");
         }
 
         foreach (ApiType enumType in surface.Enums

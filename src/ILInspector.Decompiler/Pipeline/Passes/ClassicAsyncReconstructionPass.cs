@@ -153,6 +153,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
 
         function.MergeTypeFactsFrom(plan.TypeFacts);
+        function.ClearImportedExceptionFacts();
         function.ResetLocals(plan.Locals, plan.LocalNames,
             synthesizedNames: plan.SynthesizedLocalNames);
         function.RequiresAsyncBodyModifier = true;

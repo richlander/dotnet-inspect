@@ -361,6 +361,10 @@ cp "$dotnet_dts" "$scratch/dotnet.d.ts"
 "$tsc" -p "$scratch/tsconfig.json"
 
 grep -F 'from "./dotnet.js"' "$scratch/out/facade.js" >/dev/null
+if grep -F 'inertStringBrand' "$scratch/out/facade.js" >/dev/null; then
+  echo "Generated JavaScript retained the compile-time inert-string brand." >&2
+  exit 1
+fi
 if grep -E 'RuntimeAPI|dotnet(\.js)?' "$scratch/out/facade.d.ts" >/dev/null; then
   echo "Generated public declaration leaked an SDK runtime type." >&2
   exit 1
@@ -433,11 +437,26 @@ expect_compile_failure \
   'getAssemblyExports' \
   'missingGetAssemblyExports' \
   'const exports: unknown'
-expect_compile_failure \
-  inert-string-brand \
-  'string & \{ readonly __inertStringBrand: unique symbol \}' \
-  'string' \
-  '^export type InertString'
+mutation="$scratch/inert-string-brand"
+mkdir "$mutation"
+cp \
+  "$scratch/dotnet.d.ts" \
+  "$scratch/tsconfig.json" \
+  "$scratch/callback-usage.ts" \
+  "$scratch/inert-usage.ts" \
+  "$scratch/union-usage.ts" \
+  "$mutation/"
+perl -0pe \
+  's/export type InertString = string & \{\n  readonly \[inertStringBrand\]: "InertString";\n\};/export type InertString = string;/' \
+  "$scratch/facade.ts" > "$mutation/facade.ts"
+if cmp -s "$scratch/facade.ts" "$mutation/facade.ts"; then
+  echo "inert-string-brand mutation did not change the generated source." >&2
+  exit 1
+fi
+if "$tsc" -p "$mutation/tsconfig.json" >/dev/null 2>&1; then
+  echo "inert-string-brand mutation unexpectedly compiled." >&2
+  exit 1
+fi
 
 expect_callback_compile_failure() {
   local name=$1
