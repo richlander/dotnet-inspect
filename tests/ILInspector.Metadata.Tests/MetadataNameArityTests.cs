@@ -69,6 +69,50 @@ public class MetadataNameArityTests
     }
 
     [Theory]
+    [InlineData(new[] { "Widget" }, 0, true)]
+    [InlineData(new[] { "List`1" }, 1, true)]
+    [InlineData(new[] { "Outer`1", "Inner`2" }, 3, true)]
+    [InlineData(new[] { "Referenced" }, 2, false)]
+    [InlineData(new[] { "Referenced`1" }, 2, false)]
+    [InlineData(new[] { "Referenced`x" }, 0, false)]
+    public void Segments_MatchCanonicalArgumentCount(
+        string[] segments,
+        int argumentCount,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            MetadataNameArity.MatchesArgumentCount(
+                segments,
+                argumentCount));
+    }
+
+    [Fact]
+    public void Segments_UseTrustedCountsOnlyForMissingCanonicalSuffixes()
+    {
+        Assert.True(MetadataNameArity.MatchesArgumentCount(
+            ["Outer", "Inner`1"],
+            argumentCount: 3,
+            introducedTypeParameterCounts: [2, 1]));
+        Assert.False(MetadataNameArity.MatchesArgumentCount(
+            ["Outer`1", "Inner`1"],
+            argumentCount: 3,
+            introducedTypeParameterCounts: [2, 1]));
+        Assert.False(MetadataNameArity.MatchesArgumentCount(
+            ["Outer`x", "Inner`1"],
+            argumentCount: 3,
+            introducedTypeParameterCounts: [2, 1]));
+        Assert.False(MetadataNameArity.MatchesArgumentCount(
+            ["Outer", "Inner"],
+            argumentCount: 3,
+            introducedTypeParameterCounts: [2]));
+        Assert.False(MetadataNameArity.MatchesArgumentCount(
+            ["Outer", "Inner"],
+            argumentCount: 1,
+            introducedTypeParameterCounts: [2, -1]));
+    }
+
+    [Theory]
     // A nested metadata name nests with '+' only, and each segment carries its own
     // arity.
     [InlineData("Outer`1+Inner`2", "Outer+Inner")]
