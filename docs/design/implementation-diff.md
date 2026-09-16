@@ -1706,7 +1706,7 @@ the decompiler, compiler, author, or build environment.
 
 The consumers are the existing CLI Implementation Diff and the browser's
 selected-member two-version Source view under
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706) remains the
 single counted adoption/retirement ledger. Its consumer-first Source route
 follows [#5865](https://github.com/richlander/dotnet-inspect/issues/5865):

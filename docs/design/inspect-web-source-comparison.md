@@ -20,7 +20,7 @@ see how its authored declaration changed in another version. This delivers
 S4 and S5 together in the six-milestone
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706) route, under
 the browser experience tracker
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 S1-S3 already landed, including the shared query and its CLI consumer in
 [#5984](https://github.com/richlander/dotnet-inspect/pull/5984).
 S6 is the separate scoped retirement in
@@ -75,7 +75,7 @@ create a navigation subject or canonical packet. Dismissal or navigation that
 replaces its launching context disposes its operation through existing surface
 lifetime hooks. Ordinary member navigation and history remain unchanged;
 refresh and shared links restore the underlying inspection, not the transient
-comparison. Portable paired navigation remains broader #5083 work.
+comparison. Portable paired navigation remains broader #7213 work.
 
 ## Managed projection
 

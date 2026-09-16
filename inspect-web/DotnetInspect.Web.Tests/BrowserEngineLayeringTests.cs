@@ -221,6 +221,11 @@ public sealed class BrowserEngineLayeringTests
             symbol => symbol.StartsWith(
                 "M:DotnetInspector.Queries.AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipantAsync",
                 StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:DotnetInspector.Sections.AssemblyIntegrationOpportunitiesInspection.ExecuteAndReleaseAsync",
+                StringComparison.Ordinal));
     }
 
     [Fact]

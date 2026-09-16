@@ -1172,7 +1172,7 @@ exact descendant with an exact destination lens. Its first retained consumer
 is Library-to-Type and Type-to-Member drill-down in
 [Inspect Web Compare Experience](inspect-web-compare-experience.md), under the
 end-to-end tracker
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083). The
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213). The
 stateless CLI consumer is tracked by #5513 under #5512.
 
 The host-neutral request binds:

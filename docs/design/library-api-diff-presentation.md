@@ -6,7 +6,7 @@ This document defines the `DotnetInspector.Presentation`-owned portable Library
 API diff projection for
 [#6247](https://github.com/richlander/dotnet-inspect/issues/6247), within the
 Inspect Web Diff experience tracked by
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083) and the
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213) and the
 structured-comparison delivery tracked by
 [#5528](https://github.com/richlander/dotnet-inspect/issues/5528).
 
