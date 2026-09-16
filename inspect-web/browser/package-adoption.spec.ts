@@ -157,7 +157,17 @@ function packageQueryManifest(
   packageId: string,
   packageVersion: string,
   isTool: boolean,
+  dependencies: readonly string[] = [],
 ): Buffer {
+  const dependencyMarkup = dependencies.length === 0
+    ? ""
+    : `<dependencies>
+      <group targetFramework="net10.0">
+        ${dependencies.map(
+          dependency => `<dependency id="${dependency}" version="[1.0.0, )" />`,
+        ).join("\n        ")}
+      </group>
+    </dependencies>`;
   return Buffer.from(
     `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
@@ -171,6 +181,7 @@ function packageQueryManifest(
       <packageType name="DotnetTool" />
     </packageTypes>`
       : ""}
+    ${dependencyMarkup}
   </metadata>
 </package>
 `,
@@ -663,7 +674,15 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
       segments: ["A", "B"],
       display: identifier,
     },
+    members: [],
   });
+  const share = {
+    kind: "nonProjectable",
+    path: "comparison/endpoints",
+    reason: "Ordered endpoints are not shareable.",
+    fullUrl: null,
+    packet: null,
+  };
   const result: BrowserLibraryApiDiffResult = {
     schemaVersion: 1,
     request: {
@@ -697,6 +716,11 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     error: null,
     diagnostic: null,
     reason: null,
+    inspection: {
+      content: { outcome: "available", document: {} },
+      share,
+      diagnostics: [],
+    },
   };
   const state: LibraryApiDiffState = {
     status: "ready",
@@ -922,6 +946,122 @@ test.describe("Package Query website over real Wasm", () => {
     expect(registry.downloadCount(library)).toBe(0);
   });
 
+  test("applies, edits, repeats, and removes product-issued dependency terms", async ({
+    page,
+    context,
+  }) => {
+    const hostingManifest = packageQueryManifest(
+      "Contoso.HostingConsumer",
+      version,
+      false,
+      ["Microsoft.Extensions.Hosting"]);
+    const injectionManifest = packageQueryManifest(
+      "Contoso.InjectionConsumer",
+      version,
+      false,
+      ["Microsoft.Extensions.DependencyInjection"]);
+    const hosting: FixtureCoordinate = {
+      packageId: "Contoso.HostingConsumer",
+      version,
+      manifest: hostingManifest,
+      archive: healthyArchive,
+    };
+    const injection: FixtureCoordinate = {
+      packageId: "Contoso.InjectionConsumer",
+      version,
+      manifest: injectionManifest,
+      archive: healthyArchive,
+    };
+    const registry = new GalleryFixtureRegistry([hosting, injection]);
+    await installGalleryRoutes(context, registry);
+    let searchRequests = 0;
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      searchRequests++;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({
+          totalHits: 2,
+          data: [hosting, injection].map(fixture => ({
+            id: fixture.packageId,
+            version: fixture.version,
+            description: "Dependency term fixture.",
+            owners: ["Fixture"],
+            totalDownloads: 1,
+            verified: false,
+          })),
+        }),
+      });
+    });
+
+    await page.goto("/query");
+    const prefix = page.locator("#package-query-prefix");
+    await expect(prefix).toBeVisible({ timeout: 120_000 });
+    await prefix.fill("Contoso.*");
+    await page.locator('[data-query-term-add="depends"]').click();
+    const draft = page.locator("[data-query-term-draft-value]");
+    await expect(draft).toBeFocused();
+    expect(searchRequests).toBe(0);
+    await draft.fill("Microsoft.Extensions.Hosting");
+    await expect(draft).toHaveValue("Microsoft.Extensions.Hosting");
+    expect(searchRequests).toBe(0);
+    await draft.fill("   ");
+    await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
+    await expect(draft).toHaveJSProperty("validationMessage", "Enter a term value.");
+    expect(searchRequests).toBe(0);
+    await draft.fill("Microsoft.Extensions.Hosting");
+    await expect(draft).toHaveJSProperty("validationMessage", "");
+    await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
+
+    const rows = page.locator(".query-row h2");
+    await expect(rows).toHaveText([hosting.packageId], { timeout: 30_000 });
+    await expect(page.locator('[data-query-term-form="0"]'))
+      .toContainText("depends on package");
+    expect(registry.downloadCount(hosting)).toBe(0);
+    expect(registry.downloadCount(injection)).toBe(0);
+
+    const firstValue =
+      page.locator('[data-query-term-form="0"] [data-query-term-value]');
+    await firstValue.fill("Microsoft.Extensions.DependencyInjection");
+    await page.locator('[data-query-term-add="depends"]').click();
+    await expect(firstValue)
+      .toHaveValue("Microsoft.Extensions.DependencyInjection");
+    await page.locator("[data-query-term-draft-cancel]").click();
+    await firstValue.fill("not a package id");
+    const beforeInvalid = searchRequests;
+    await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
+    await expect(page.getByRole("region", { name: "Package query results" }))
+      .toContainText("term value is invalid");
+    expect(searchRequests).toBe(beforeInvalid);
+
+    await firstValue.fill("Microsoft.Extensions.DependencyInjection");
+    await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
+    await expect(rows).toHaveText([injection.packageId]);
+
+    await firstValue.fill("Microsoft.Extensions.Logging");
+    await page.locator(".brand").click();
+    await expect(page.locator(".home-search")).toBeVisible();
+    await page.goBack();
+    await expect(firstValue)
+      .toHaveValue("Microsoft.Extensions.DependencyInjection");
+
+    await page.locator('[data-query-term-add="depends"]').click();
+    await page.locator("[data-query-term-draft-value]")
+      .fill("Microsoft.Extensions.Hosting");
+    await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
+    await expect(page.locator(".query-row")).toHaveCount(0);
+    await expect(page.locator("[data-query-term-form]")).toHaveCount(2);
+
+    await page.locator('[data-query-term-remove="1"]').click();
+    await expect(rows).toHaveText([injection.packageId]);
+    await page.locator('[data-query-term-remove="0"]').click();
+    await expect(rows).toHaveText([
+      hosting.packageId,
+      injection.packageId,
+    ]);
+  });
+
   test("retains 100 prefix results while mounting a bounded row window", async ({
     page,
     context,
@@ -993,7 +1133,7 @@ test.describe("Package Query website over real Wasm", () => {
 
 });
 
-test.describe("Package Changes website over real Wasm", () => {
+test.describe("Package Activity website over real Wasm", () => {
   test("streams product activity and reconciles typed partial evidence", async ({
     page,
     context,
@@ -1126,10 +1266,23 @@ test.describe("Package Changes website over real Wasm", () => {
       });
     });
 
-    await page.goto("/query");
-    await expect(page.locator("#package-query-prefix"))
-      .toBeVisible({ timeout: 120_000 });
-    await page.locator('[data-query-mode="changes"]').click();
+    await page.goto("/");
+    const homeSearch = page.locator("#spotlight-input");
+    await expect(homeSearch).toBeVisible({ timeout: 120_000 });
+    await homeSearch.fill("activity");
+    await page.locator('[data-sl-package-activity="1"]').click();
+    await expect(page).toHaveURL(/\/activity$/);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(homeSearch).toBeFocused();
+    await page.goForward();
+    await expect(page).toHaveURL(/\/activity$/);
+    await expect(page.locator("#package-changes-heading"))
+      .toHaveText("Package Activity");
+    await page.reload();
+    await expect(page.locator("#package-changes-heading"))
+      .toHaveText("Package Activity", { timeout: 120_000 });
+    await expect(page).toHaveTitle("Package Activity · dotnet-inspect");
     const packageSet = page.locator("#package-changes-package-set");
     await expect(packageSet).toBeVisible();
     expect(await packageSet.locator("option").count()).toBeGreaterThan(0);
@@ -1141,7 +1294,7 @@ test.describe("Package Changes website over real Wasm", () => {
     await page.locator("#package-changes-run").click();
     expect(await maximumRows.evaluate(input => {
       if (!(input instanceof HTMLInputElement)) {
-        throw new Error("Package Changes maximum rows is not an input.");
+        throw new Error("Package Activity maximum rows is not an input.");
       }
       return input.validity.valueMissing;
     })).toBe(true);
@@ -1197,7 +1350,7 @@ test.describe("Package Changes website over real Wasm", () => {
       const first = document.querySelector<HTMLElement>(
         "[data-changes-row-index='0']");
       if (!scroll || !window || !first) {
-        throw new Error("Package Changes window geometry is unavailable.");
+        throw new Error("Package Activity window geometry is unavailable.");
       }
       const scrollRect = scroll.getBoundingClientRect();
       const windowRect = window.getBoundingClientRect();
@@ -1209,7 +1362,7 @@ test.describe("Package Changes website over real Wasm", () => {
     });
     expect(geometry.extent).toBeGreaterThan(1_600);
     await expect(page.locator("#package-changes-row-window"))
-      .toHaveAttribute("aria-label", "Changes 1 through 30 of 40");
+      .toHaveAttribute("aria-label", "Activity events 1 through 30 of 40");
     const retainedLink = page.locator(
       "[data-changes-row-index='10'] [data-package-changes-focus-key='package-10']");
     await retainedLink.focus();
@@ -1219,7 +1372,7 @@ test.describe("Package Changes website over real Wasm", () => {
       element.dispatchEvent(new Event("scroll"));
     });
     await expect(page.locator("#package-changes-row-window"))
-      .not.toHaveAttribute("aria-label", "Changes 1 through 30 of 40");
+      .not.toHaveAttribute("aria-label", "Activity events 1 through 30 of 40");
     expect(await scroller.evaluate(element => element.scrollTop))
       .toBeGreaterThanOrEqual(geometry.target);
     await expect(page.locator(".package-changes-row")).toHaveCount(30);
@@ -1236,6 +1389,58 @@ test.describe("Package Changes website over real Wasm", () => {
 
 test.describe("artifact-backed package scope adoption over real Wasm", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  test("opens a search-hidden exact coordinate without fallback", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    let searchRequests = 0;
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      searchRequests++;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 0, data: [] }),
+      });
+    });
+
+    await page.goto("/");
+    let search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("InspectWeb.Adoption.Missing@9.9.9");
+    await page.locator(
+      '[data-sl-pkg-load="InspectWeb.Adoption.Missing"]',
+    ).click();
+    await expect(page.locator(".query-notice"))
+      .toContainText("InspectWeb.Adoption.Missing", { timeout: 180_000 });
+    expect(searchRequests).toBe(0);
+
+    await page.goto("/");
+    search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill(`${healthy.packageId}@${healthy.version}`);
+    const exact = page.locator(
+      `[data-sl-pkg-load="${healthy.packageId}"]`,
+    );
+    await expect(exact).toContainText("exact coordinate · listed or unlisted");
+    await exact.click();
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    await expect.poll(() => new URL(page.url()).searchParams.get("package"))
+      .toBe(healthy.packageId);
+    await expect(page.getByTitle(
+      `${healthy.packageId}@${healthy.version}`,
+      { exact: true },
+    )).toBeVisible();
+    await expect(page.getByTitle(fixtureFramework, { exact: true }))
+      .toBeVisible();
+    expect(searchRequests).toBe(0);
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
 
   test("drives the production opening, join, occurrence, and rejection contracts", async ({
     page,
@@ -1622,6 +1827,25 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 
 test.describe("bounded network-backed two-host demo", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  test("opens an unlisted package through visible exact-coordinate search", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("WrongTurn@0.1.14");
+    const exact = page.locator('[data-sl-pkg-load="WrongTurn"]');
+    await expect(exact)
+      .toContainText("0.1.14 · exact coordinate · listed or unlisted");
+    await exact.click();
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText("WrongTurn", { timeout: 180_000 });
+    await expect(page.getByTitle("WrongTurn@0.1.14", { exact: true }))
+      .toBeVisible();
+    await expect(page.getByTitle("net11.0", { exact: true })).toBeVisible();
+  });
 
   test("opens ordinary and pathological packages over the real Gallery CDN", async ({
     page,

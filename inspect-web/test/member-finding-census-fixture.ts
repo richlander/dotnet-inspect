@@ -6,6 +6,7 @@ import {
 import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import type { AnnotatedSourceDocument } from "../src/document-model.ts";
 import { sampleViewerCatalog } from "./annotated-source-result-fixture.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 export type MemberFindingCensusFixtureMode = "populated" | "long" | "empty";
 
@@ -83,7 +84,7 @@ export function memberFindingCensusFixture(
     annotatedSource: {
       document,
       viewerCatalog: sampleViewerCatalog,
-      provenance: "decompiled from IL",
+      provenance: inertStringFixture("decompiled from IL"),
       contextLimitation: null,
     },
     sourceFactInstances: mode === "empty"

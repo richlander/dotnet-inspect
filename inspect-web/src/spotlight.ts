@@ -36,6 +36,7 @@ interface PackageLoadedResult {
 export interface SpotlightPackageHit {
   id: string;
   version?: string;
+  exact?: boolean;
 }
 
 interface PackageNugetResult {
@@ -55,24 +56,12 @@ interface PackageQueryResult {
   prefix: string;
 }
 
-interface RuntimeSuggestionResult {
-  kind: "rtpack-suggest";
+interface PackageActivityResult {
+  kind: "package-activity";
 }
 
-interface PlatformSubjectResult {
-  kind: "platform";
-  tfm: string;
-  version: string;
-}
-
-interface RuntimeStatusResult {
-  kind: "rtpack-status";
-  loading?: boolean;
-  error?: string;
-}
-
-interface PlatformLibraryResult {
-  kind: "platform-lib";
+interface FrameworkLibraryResult {
+  kind: "framework-lib";
   assembly: string;
   pack: string;
   publicTypes: number;
@@ -108,10 +97,8 @@ export type SpotlightResult =
   | CommandPaletteResult
   | SpotlightPackageResult
   | PackageQueryResult
-  | RuntimeSuggestionResult
-  | PlatformSubjectResult
-  | RuntimeStatusResult
-  | PlatformLibraryResult
+  | PackageActivityResult
+  | FrameworkLibraryResult
   | TypeResult
   | MemberResult;
 
@@ -150,7 +137,6 @@ interface SpotlightOptions {
   packageSearchLoading: () => boolean;
   packageSearchError?: () => string;
   packageCount: () => number;
-  activeFramework: () => string;
   render: () => void;
   focusAfterDismiss?: () => void;
   captureFocusAfterDismiss?: () => () => void;
@@ -166,7 +152,6 @@ const BASE_SCOPES = [
   { id: "packages", label: "Packages" },
   { id: "types", label: "Types" },
   { id: "members", label: "Members" },
-  { id: "runtime", label: "Platform" },
 ] as const;
 
 const COMMAND_SCOPE = { id: "commands", label: "Commands" } as const;
@@ -182,14 +167,12 @@ const GROUP_LABELS: Readonly<Record<SpotlightResult["kind"], string>> = {
   command: "Commands",
   "pkg-recent": "Recent",
   "package-query": "Query",
+  "package-activity": "Query",
   "pkg-loaded": "Packages",
   "pkg-nuget": "Packages",
   type: "Types",
   member: "Members",
-  "platform-lib": "Libraries",
-  platform: "Platform",
-  "rtpack-suggest": "Runtime",
-  "rtpack-status": "Runtime",
+  "framework-lib": "Libraries",
 };
 
 export function nextSpotlightSelection(
@@ -230,7 +213,12 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
         result.pkg.activeFramework ?? "",
       ]);
     case "pkg-nuget":
-      return JSON.stringify([result.kind, result.hit.id, result.hit.version ?? ""]);
+      return JSON.stringify([
+        result.kind,
+        result.hit.id,
+        result.hit.version ?? "",
+        result.hit.exact === true,
+      ]);
     case "pkg-recent":
       return JSON.stringify([
         result.kind,
@@ -240,10 +228,10 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
       ]);
     case "package-query":
       return JSON.stringify([result.kind, result.prefix]);
-    case "platform-lib":
+    case "package-activity":
+      return JSON.stringify([result.kind]);
+    case "framework-lib":
       return JSON.stringify([result.kind, result.tfm ?? "", result.version ?? "", result.pack, result.assembly]);
-    case "platform":
-      return JSON.stringify([result.kind, result.tfm, result.version]);
     case "type":
       return JSON.stringify([
         result.kind,
@@ -262,7 +250,7 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
         result.memberKey,
       ]);
     default:
-      return result.kind;
+      throw new Error("Unknown Spotlight result.");
   }
 }
 
@@ -352,10 +340,13 @@ export function createSpotlight(options: SpotlightOptions) {
       </button>`);
     }
     if (result.kind === "pkg-nuget") {
+      const source = result.hit.exact
+        ? "exact coordinate · listed or unlisted"
+        : "nuget.org";
       return `<button ${base} data-sl-pkg-load="${escapeHtml(result.hit.id)}" data-sl-pkg-version="${escapeHtml(result.hit.version || "")}">
         <span class="kind-icon sl-pkg-new">↓</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.hit.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${escapeHtml(result.hit.version || "")} · nuget.org</span>
+        <span class="spotlight-item-ns">${escapeHtml(result.hit.version || "")} · ${source}</span>
       </button>`;
     }
     if (result.kind === "pkg-recent") {
@@ -378,28 +369,18 @@ export function createSpotlight(options: SpotlightOptions) {
         <span class="spotlight-item-ns">${suffix}</span>
       </button>`;
     }
-    if (result.kind === "platform" || result.kind === "rtpack-suggest") {
-      const framework = options.activeFramework() || "runtime";
-      return `<button ${base} data-sl-load-runtime="1">
-        <span class="kind-icon sl-lib">▤</span>
-        <span class="spotlight-item-name">Platform</span>
-        <span class="spotlight-item-ns">Browse .NET libraries · ${escapeHtml(result.kind === "platform" ? `${result.tfm} · ${result.version}` : framework)}</span>
+    if (result.kind === "package-activity") {
+      return `<button ${base} data-sl-package-activity="1">
+        <span class="kind-icon sl-command">↻</span>
+        <span class="spotlight-item-name">Package Activity</span>
+        <span class="spotlight-item-ns">Review product package changes over time</span>
       </button>`;
     }
-    if (result.kind === "rtpack-status") {
-      const text = result.loading
-        ? "Loading .NET runtime pack — this can take a while…"
-        : `Runtime pack failed: ${result.error || "unknown error"}`;
-      return `<div id="spotlight-result-${index}" class="spotlight-item spotlight-status ${selectedClass}" role="option" aria-selected="${selected}" aria-disabled="true" data-sl-index="${index}">
-        <span class="kind-icon">${result.loading ? "◔" : "⚠"}</span>
-        <span class="spotlight-item-name">${escapeHtml(text)}</span>
-      </div>`;
-    }
-    if (result.kind === "platform-lib") {
+    if (result.kind === "framework-lib") {
       const label = PLATFORM_PACK_LABEL[result.pack] || result.pack;
       const types = `${result.publicTypes} type${result.publicTypes === 1 ? "" : "s"}`;
-      const meta = `Platform · ${label}${result.tfm ? ` · ${result.tfm}` : ""}${result.version ? ` · ${result.version}` : ""} · ${result.role ?? types}${result.loaded ? " · loaded" : ""}`;
-      return `<button ${base} data-sl-platform-lib="${escapeHtml(result.assembly)}" data-sl-platform-pack="${escapeHtml(result.pack)}">
+      const meta = `${label} library${result.tfm ? ` · ${result.tfm}` : ""}${result.version ? ` · ${result.version}` : ""} · ${result.role ?? types}${result.loaded ? " · loaded" : ""}`;
+      return `<button ${base} data-sl-framework-lib="${escapeHtml(result.assembly)}" data-sl-framework-pack="${escapeHtml(result.pack)}">
         <span class="kind-icon sl-lib">▤</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.assembly, result.ranges)}</span>
         <span class="spotlight-item-ns">${escapeHtml(meta)}</span>
@@ -442,9 +423,9 @@ export function createSpotlight(options: SpotlightOptions) {
       }
       if (!query) {
         if (packageAddition) {
-          return '<div class="spotlight-empty">Search NuGet for a package to add to Workspace.</div>';
+          return '<div class="spotlight-empty">Search NuGet or enter PackageId@Version to add an exact coordinate.</div>';
         }
-        return '<div class="spotlight-empty">Search packages, types, and members — pick a target below.</div>';
+        return '<div class="spotlight-empty">Search packages, types, and members, or enter PackageId@Version.</div>';
       }
       if (options.packageSearchLoading()) {
         return '<div class="spotlight-empty">Searching…</div>';
@@ -540,8 +521,11 @@ export function createSpotlight(options: SpotlightOptions) {
     const items = resultsForRender();
     const commands = state.spotlightScope === "commands";
     const name = packageAddition ? "Add package" : commands ? "Run a command" : "Go to anything";
-    const placeholder = packageAddition ? "Search NuGet packages…" : commands
-      ? "Run a command…" : "Go to anything…  package, type, or member";
+    const placeholder = packageAddition
+      ? "Search NuGet or enter PackageId@Version…"
+      : commands
+        ? "Run a command…"
+        : "Go to anything… package, type, member, or PackageId@Version";
     return `
       <div class="spotlight-backdrop" id="spotlight-backdrop">
         <div class="spotlight" role="dialog" aria-modal="true" aria-label="${name}">
@@ -570,7 +554,7 @@ export function createSpotlight(options: SpotlightOptions) {
             <rect class="home-search-glint-line" pathLength="1"></rect>
           </svg>` : ""}
           <span class="spotlight-glyph">⌕</span>
-          <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — a package, type, or member…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results"${activeDescendantAttribute(items)} ${disabled ? "disabled" : ""} />
+          <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — package, type, member, or PackageId@Version…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results"${activeDescendantAttribute(items)} ${disabled ? "disabled" : ""} />
         </div>
         <div class="spotlight-chips" id="spotlight-chips">${chipsHtml()}</div>
         <div class="spotlight-results home-results" id="spotlight-results" role="listbox">${resultsHtml(items)}</div>

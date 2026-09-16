@@ -35,7 +35,7 @@ public sealed class PackageChangesCommandTests
         var result = CommandLineBuilder.CreateRootCommand().Parse(
         [
             "package",
-            "changes",
+            "activity",
             "--ecosystem",
             "aspire",
             "--security-only",
@@ -55,26 +55,26 @@ public sealed class PackageChangesCommandTests
 
     [Theory]
     [InlineData(
-        "package changes --ecosystem aspire --table",
-        "--table is not supported with package changes")]
+        "package activity --ecosystem aspire --table",
+        "--table is not supported with package activity")]
     [InlineData(
         "ecosystem aspire --changes",
         "Unrecognized command or argument '--changes'")]
     [InlineData(
-        "package changes",
-        "package changes requires --ecosystem")]
+        "package activity",
+        "package activity requires --ecosystem")]
     [InlineData(
-        "package changes --ecosystem aspire --from 2026-09-01T00:00:00Z",
+        "package activity --ecosystem aspire --from 2026-09-01T00:00:00Z",
         "--from and --through must be specified together")]
     [InlineData(
-        "package changes --ecosystem aspire --from 2026-09-01 --through 2026-10-01",
+        "package activity --ecosystem aspire --from 2026-09-01 --through 2026-10-01",
         "must be ISO 8601 timestamps with an explicit UTC offset")]
     [InlineData(
-        "package changes --ecosystem aspire -n 1001",
+        "package activity --ecosystem aspire -n 1001",
         "-n must be between 1 and 1000")]
     [InlineData(
-        "package changes --ecosystem aspire --compact",
-        "--compact requires package changes --json")]
+        "package activity --ecosystem aspire --compact",
+        "--compact requires package activity --json")]
     public void ParserRejectsUnsupportedOrAmbiguousRequests(
         string command,
         string expected)
@@ -87,6 +87,18 @@ public sealed class PackageChangesCommandTests
             error => error.Message.Contains(
                 expected,
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RetiredPackageChangesSpellingReportsReplacement()
+    {
+        Assert.True(CommandLineBuilder.TryGetRemovedCommandError(
+            ["package", "changes", "--ecosystem", "aspire"],
+            out string? error));
+        Assert.Equal(
+            "'package changes' has been removed. Use 'package activity' "
+            + "with the same options.",
+            error);
     }
 
     [Fact]
@@ -321,7 +333,7 @@ public sealed class PackageChangesCommandTests
             var result = await InvokeAsync(
                 [
                     "package",
-                    "changes",
+                    "activity",
                     "--ecosystem",
                     "aspire",
                     "--from",
@@ -376,7 +388,7 @@ public sealed class PackageChangesCommandTests
             var result = await InvokeAsync(
                 [
                     "package",
-                    "changes",
+                    "activity",
                     "--ecosystem",
                     "aspire",
                     "--from",

@@ -38,7 +38,7 @@ boundary. It does not own:
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | The browser-side navigation-result consumer model: canonical location and refresh, browser history, product transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
 | [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) | The persistent shell and shared transient/routed surface interaction: shell actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry, the command palette, and routed-versus-modal classification. |
 | [Inspect Web Compare Experience](inspect-web-compare-experience.md) | One Diff/Clone Compare inspector whose Library Type rows and Type Member rows drill down with mode retained, whose Type Diff alone offers whole-Type exploration, and whose detailed results begin at Member. |
-| [Inspect Web Surface Composition](inspect-web-surface-composition.md) | Browser host page-level composition and placement: working surfaces including Member Diff, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
+| [Inspect Web Surface Composition](inspect-web-surface-composition.md) | Browser host page-level composition and placement: working surfaces including Package Query, Package Activity, Member Diff, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
 
 Each focused document states its own Ownership and boundaries, Inputs or
 consumed contracts, Non-claims, and (where applicable) implementation gates
@@ -89,13 +89,13 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Persistent hierarchy | Use one title line for product, Query/Workspace application scopes, subject/inspector navigation, and Search/history; keep the inspected target on its separate row |
+| Persistent hierarchy | Use one title line for product, Query/Activity/Workspace application scopes, subject/inspector navigation, and Search/history; keep the inspected target on its separate row |
 | Workspace title bar | Follow `dotnet-inspect` with the icon-backed typed Package > Library > Type > Member target path, then responsive Back/Forward and flush-right Search |
-| Application scopes | Render Query and Workspace in a separate quiet strip that yields before inspection identity under width pressure |
+| Application scopes | Render Query, Activity, and Workspace in a separate quiet strip that yields before inspection identity under width pressure |
 | Subject navigation | Establish Package, Type, and Member now; add Library when product descriptors are ready |
 | Subject zone | Render complete full-label subject and inspector tablists when they fit; otherwise adapt either group to its current-label Chooser |
 | Workspace selection | Keep ordinary single-workspace use free of coordinate tabs; manage retained coordinates inside the Workspace application scope |
-| Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
+| Package coordinate | Render version and TFM selectors in Package content; framework libraries are Workspace content, not a Platform component |
 | Library inspection | Select all libraries or one library within Library |
 | Type headings | Use a compact exact-target heading in API, no duplicate local heading in full-area Source, and detailed context in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
@@ -125,6 +125,10 @@ semantics, and subject-driven inspector replacement. The previous reusable
 windowing control was retired by
 [#6277](https://github.com/richlander/dotnet-inspect/issues/6277) after the
 production adoption left it without a justified consumer.
+
+Spotlight exposes no Platform scope or root destination. Installed framework
+assemblies participate as ordinary Library results with source disclosure,
+preserving useful discovery without introducing a separate Platform component.
 
 The page-level action line keeps working-surface actions distinct from the
 Application menu: Source, Annotated Source, and Member Diff supply contextual

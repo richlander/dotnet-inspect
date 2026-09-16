@@ -275,7 +275,7 @@ public class ApiCommand
         {
             CommandError.Write(
                 "this view publishes no bare -S overview sections.",
-                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+                "Use -S <Section> to select one, -D to discover what is available, or -S @Surface for the type-list surface.");
             return null;
         }
 
@@ -630,6 +630,16 @@ public class ApiCommand
         if (cloneCandidatesSelectionError is not null)
         {
             CommandError.Write(cloneCandidatesSelectionError);
+            return (null!, 1);
+        }
+        (options, string? implementationProfilesSelectionError) =
+            NormalizeExactOnlySectionSelection(
+                options,
+                memberPipeline.SelectableSectionNames,
+                SectionNames.ImplementationProfiles);
+        if (implementationProfilesSelectionError is not null)
+        {
+            CommandError.Write(implementationProfilesSelectionError);
             return (null!, 1);
         }
         if (options is
@@ -1752,10 +1762,11 @@ public class ApiCommand
         else if (options.Tabular)
         {
             if (ApiOutputFormatter
-                .ShouldRenderSurfaceInspectionFailureTableView(
+                .ShouldRenderSurfaceSectionedTableView(
                     options))
             {
-                var failureRows =
+                string section = options.IncludeSections!.Single();
+                var sectionRows =
                     OutputFormatter.RenderProjectedTable(
                         !options.NoHeader,
                         options.Tsv,
@@ -1765,28 +1776,25 @@ public class ApiCommand
                         (writer, formatter, writerOptions) =>
                         {
                             writerOptions.IncludeSections =
-                                [SectionNames.InspectionFailures];
+                                [section];
                             MarkoutSerializer.Serialize(
                                 view,
                                 writer,
                                 formatter,
                                 ApiViewContext.Default,
                                 writerOptions);
-                        });
+                        },
+                        options.Rows);
                 ProjectionDiagnostics.DiagnoseRendered(
                     options.Fields ?? options.Columns,
-                    failureRows);
+                    sectionRows);
                 if (!TryReportEmptyProjection(
-                        failureRows,
+                        sectionRows,
                         options))
                 {
                     return 1;
                 }
-                Console.Out.Write(
-                    OutputFormatter.LimitRenderedTableRows(
-                        failureRows,
-                        options.Rows,
-                        !options.NoHeader));
+                Console.Out.Write(sectionRows);
                 return successExitCode;
             }
 
@@ -2249,12 +2257,12 @@ public class ApiCommand
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                checksumVerification = PdbSourceHouse.VerifyChecksum(
+                checksumVerification = SourceLinkService.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     localBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(localBytes));
+                    SourceLinkService.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -2264,12 +2272,12 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                checksumVerification = PdbSourceHouse.VerifyChecksum(
+                checksumVerification = SourceLinkService.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     repoBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(repoBytes));
+                    SourceLinkService.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
@@ -2605,6 +2613,14 @@ public class ApiCommand
             && !sourceDocumentJson && !findingCensusJson)
         {
             if (GetRequestedMemberSections(type, options)
+                    .Contains(SectionNames.ImplementationProfiles))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Implementation Profiles analysis. "
+                    + "Use --jsonl, --tsv, or --table.");
+                return 1;
+            }
+            if (GetRequestedMemberSections(type, options)
                     .Contains(SectionNames.PerformanceTriage)
                 && HasExplicitPerformanceTriageSelector(options))
             {
@@ -2794,6 +2810,30 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
+            }
+
+            if (options.DllPath is not null
+                && GetRequestedMemberSections(type, options)
+                    .Contains(SectionNames.ImplementationProfiles))
+            {
+                bool restrictImplementationProfiles =
+                    ApiMemberSectionPipelines
+                        .UsesDetailPipeline(options)
+                    || ApiMemberSectionPipelines
+                        .UsesOverloadInventoryPipeline(options);
+                ApiOutputFormatter.PopulateImplementationProfiles(
+                    view,
+                    restrictImplementationProfiles
+                        ? BuildFilteredTypeForBodyShapes(
+                            type,
+                            options)
+                        : type,
+                    TypeAnalysisIndex(),
+                    restrictToModelMembers:
+                        restrictImplementationProfiles,
+                    selectedMethodToken:
+                        (options as MemberOptions)?
+                            .SelectedBodyMethodToken);
             }
 
             // Source code (already resolved in command layer)
@@ -3847,6 +3887,31 @@ public class ApiCommand
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }
+
+            if (renderOptions.DllPath is not null
+                && GetRequestedMemberSections(type, renderOptions)
+                    .Contains(SectionNames.ImplementationProfiles))
+            {
+                bool restrictImplementationProfiles =
+                    ApiMemberSectionPipelines
+                        .UsesDetailPipeline(renderOptions)
+                    || ApiMemberSectionPipelines
+                        .UsesOverloadInventoryPipeline(
+                            renderOptions);
+                ApiOutputFormatter.PopulateImplementationProfiles(
+                    view,
+                    restrictImplementationProfiles
+                        ? BuildFilteredTypeForBodyShapes(
+                            type,
+                            renderOptions)
+                        : type,
+                    TypeAnalysisIndex(),
+                    restrictToModelMembers:
+                        restrictImplementationProfiles,
+                    selectedMethodToken:
+                        (renderOptions as MemberOptions)?
+                            .SelectedBodyMethodToken);
+            }
         }
 
         return new TypeRenderDocument(
@@ -4207,9 +4272,14 @@ public class ApiCommand
             AssemblyMemberDecompiledSourceAttempt.Available =>
                 "available",
             AssemblyMemberDecompiledSourceAttempt.Unavailable unavailable =>
-                unavailable.Status == Decompiler.MemberBodyProductionStatus.Absent
-                    ? "the member has no renderable body"
-                    : "decompilation failed",
+                unavailable.Status switch
+                {
+                    Decompiler.CSharpDecompilationStatus.Absent =>
+                        "the member has no renderable body",
+                    Decompiler.CSharpDecompilationStatus.Incomplete =>
+                        $"decompilation incomplete: {unavailable.FailureDetail}",
+                    _ => $"decompilation failed: {unavailable.FailureDetail}",
+                },
             _ => throw new InvalidOperationException(
                 "Unknown decompiled source attempt."),
         };

@@ -16,7 +16,7 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class PackageChangesCommand
 {
-    internal const string Name = "changes";
+    internal const string Name = "activity";
 
     internal static async Task<int> ExecuteAsync(
         PackageChangesOptions options,
@@ -96,7 +96,7 @@ internal static class PackageChangesCommand
                 or OutputFormat.Json))
         {
             CommandError.Write(
-                $"Output format '{options.Format}' is not supported with package changes; use Markdown, plain text, or JSON.");
+                $"Output format '{options.Format}' is not supported with package activity; use Markdown, plain text, or JSON.");
             return 1;
         }
 
@@ -188,7 +188,7 @@ internal static class PackageChangesCommand
                 return;
             default:
                 throw new InvalidOperationException(
-                    "Unsupported package changes output format.");
+                    "Unsupported package activity output format.");
         }
     }
 

@@ -112,10 +112,12 @@ npm test
 npm run lint
 ```
 
-The managed suite is an xUnit in-process executable. It covers the
-`DotnetInspect.Web` host, shared Sections and Networking implementation, and
-domain-specific `DotnetInspect.Web.Interop.*` export assemblies. The frontend
-gates cover the generated public facade contracts and browser application
+The managed suite is an xUnit Microsoft Testing Platform executable. Use
+`--filter-class` and `--filter-method` after `--` for focused selections. It
+covers the `DotnetInspect.Web` host, shared Sections and Networking
+implementation, and domain-specific `DotnetInspect.Web.Interop.*` export
+assemblies. The frontend gates cover the generated public facade contracts and
+browser application
 without renaming the published `inspect-web-*` modules.
 
 ### Network tests
@@ -290,8 +292,9 @@ source eng/activate-iltools.sh --mdv
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 ```
 
-The custom xUnit executable retains its native selectors and `--gate` presets.
-Its compiler-produced specimens stay with the host under `tests/`; independent
+The custom xUnit executable expands its `--gate` presets to MTP filters. Use
+`--filter-class` and `--filter-method` for focused selections. Its
+compiler-produced specimens stay with the host under `tests/`; independent
 inputs remain under `fixtures/`, and linked harness sources remain owned by
 `tools/DecompilerHarness`. Run the separate `--gate corpus` lane only when the
 multi-hour corpus sweep is required. See

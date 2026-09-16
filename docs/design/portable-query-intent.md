@@ -2,13 +2,12 @@
 
 ## Status
 
-**Partly implemented.** `DotnetInspector.PortableQueries` carries the intent
-type, identity texts, semantic orders, and canonical payload codec.
-**Resolution is not implemented**: no vocabulary binds an intent yet, so every
-gate in [Required gates](#required-gates) remains a requirement on that work
-rather than a property enforced today, and statements below about what a
-resolver does, admits, or refuses describe the contract an implementation must
-satisfy, not observed behavior.
+**Implemented substrate; production adoption pending.**
+`DotnetInspector.QueryEngine` carries the intent type, identity texts, semantic
+orders, canonical payload codec, vocabulary abstraction, and atomic resolver
+under the existing `DotnetInspector.PortableQueries` namespace. The Release
+gates in [Required gates](#required-gates) enforce that substrate. No production
+vocabulary binds an intent yet; Package Query is the first planned adopter.
 
 This is **slice 1 of 2** under
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971). It owns the
@@ -154,6 +153,16 @@ Because composition is read from the vocabulary rather than the payload, family
 membership — combining or exclusive — is part of that vocabulary's compatibility
 surface: changing which keys combine or exclude changes what an already-shared
 link means, and is governed by the same replay rules as removing a key.
+
+A vocabulary may require that an intent contain at least one member of a named
+family. This expresses a required owner choice without adding a privileged
+intent slot or selecting one key as the model's default. Required families are
+checked only after every present term has resolved; an invalid present term
+therefore fails at its own semantic position before an absent family is
+reported. If more than one required family is absent, the family whose identity
+sorts first by the model's scalar order is reported. Its failure is located at
+the next semantic term position and names the missing family.
+
 A **value** is bounded text preserved exactly as supplied. This layer does not
 parse, normalize, case-fold, or interpret it. Interpretation belongs to the
 vocabulary's binder at resolution, and containment belongs to the sink: a value
@@ -179,6 +188,14 @@ one** bound:
 two maxima for one dimension are not a narrower request, they are a
 contradiction. Bounds in different dimensions are independent, so their
 declaration sequence carries no meaning.
+
+A vocabulary may require an execution-bound dimension. Required dimensions are
+checked after every present bound has resolved, so an invalid present bound
+fails before absence is considered. If more than one required dimension is
+absent, scalar identity order selects the first failure. Its location is the
+next semantic bound position and its offender is the missing dimension. A
+required bound is never supplied by a vocabulary default: replay either carries
+the bound that was shared or refuses.
 
 A **selection stage** is owned by
 [semantic row selection](semantic-row-selection.md), which defines an ordered
@@ -226,6 +243,8 @@ the orders live here, and any encoding emits them rather than defining them.
   the key's identity text, the operator's identity text, and the exact value
   token, never a resolved or normalized form.
 - **Bounds** order by dimension identity.
+- **Required term families and required dimensions** each order by their
+  owner-issued identity when absence must choose one failure.
 
 Every text comparison in these orders is by **Unicode scalar value**, which is
 also UTF-8 byte order. It is not UTF-16 code-unit order — the default in .NET's
@@ -245,11 +264,13 @@ the owner's executable plan or one structured failure.
 - Resolution is **atomic**. The first failure returns no plan and no partial
   binding, and which failure is first is fixed by this contract rather than by a
   host's enumeration order: the vocabulary; then terms in their
-  [semantic order](#semantic-order); then bounds in theirs; then the baseline
-  order operation; then the stages in declaration sequence, each ranking stage
-  resolving its own ranking as it is reached — the operation bound to it, else
-  the vocabulary's declared default, else *ranking missing*. Within one element
-  the checks run existence, then admissibility, then binding, then collision —
+  [semantic order](#semantic-order), then missing required term families; then
+  bounds in their semantic order, then missing required dimensions; then the
+  baseline order operation; then the stages in declaration sequence, each
+  ranking stage resolving its own ranking as it is reached — the operation
+  bound to it, else the vocabulary's declared default, else *ranking missing*.
+  Within one element the checks run existence, then admissibility, then binding,
+  then collision —
   and within collision, exclusivity before duplication, because a contradiction
   is never collapsible while a duplicate may be — so a term with both an
   inadmissible operator and a value its binder would reject reports the
@@ -308,8 +329,10 @@ hosts produce the same failure and not merely the same reason:
 | Value rejected by the key's binder | the term | the key whose binder rejected it |
 | Duplicate after binding | the later of the two terms in semantic order | the key |
 | Terms incompatible — two bound terms the vocabulary declares mutually exclusive | the later of the two terms in semantic order | its key |
+| Required term family missing | the next semantic term position | the family |
 | Unknown dimension | the bound | the dimension |
 | Maximum outside the dimension's declared range, which may depend on the bound terms | the bound | the dimension |
+| Required dimension missing | the next semantic bound position | the dimension |
 | Stage not admitted | the stage | the stage kind |
 | Unknown order reference | the operation, and the field-term index within a field list | the reference |
 | Order reference not orderable | the operation, and the field-term index within a field list | the reference |
@@ -440,6 +463,7 @@ successor slice.
 | `RankingStagesResolveOrFail` | A top stage resolves its ranking when reached in stage sequence — the bound operation, else the declared default, else ranking missing at the stage with no offender — so with two top stages the earlier stage's missing ranking is reported before the later stage's unknown reference; a sequence-purpose named order in a ranking role fails as order not a ranking. |
 | `ExclusiveFamilyMembersAreRefused` | Two bound terms the vocabulary declares mutually exclusive fail as terms incompatible at the later term in semantic order, distinct from duplicate-after-binding, which requires the binder to map two terms to one predicate; where one later term is both, exclusivity is reported. |
 | `BoundRangeSeesResolvedTerms` | A dimension whose admissible range depends on bound terms — Package Query's candidate cap with a package-content term — is checked with the terms resolved, at the bound, before any acquisition. |
+| `RequiredQueryPartsFailVisibly` | A vocabulary-required term family or execution-bound dimension that is absent fails after present elements in that part validate, before later parts, plan creation, or acquisition; multiple missing requirements use scalar identity order, and no default silently changes replay. |
 | `FailureReasonUnionIsClosed` | Every failure carries one reason from the table, at that reason's location, with that reason's offender or none; no implementation or vocabulary emits a reason outside it. |
 
 ## Decisions

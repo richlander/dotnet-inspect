@@ -79,8 +79,12 @@ test("normal Search after dismissal regains its scopes and removal affordances",
   await page.getByRole("button", { name: "Search", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Go to anything", exact: true });
   await expect(dialog.locator("[data-sl-remove]")).toHaveCount(1);
-  await expect(dialog).toContainText("All");
-  await expect(dialog).toContainText("Platform");
+  await expect(dialog.locator("[data-sl-scope]")).toHaveText([
+    "All",
+    "Packages",
+    "Types",
+    "Members",
+  ]);
   await dialog.getByRole("option", { name: /Alpha/ }).click();
   await expect(page.locator("#notice")).toHaveText("Ordinary Search selection");
 });

@@ -45,6 +45,17 @@ internal static class CSharpSpellability
         => type.Kind == TypeRefKind.SzArray
             && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
 
+    public static bool CanSpellNamedReferenceStorageType(TypeRef type, IrFunction host)
+        => type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
+            && host.TypeShapes.GetValueOrDefault(CoercionRendering.NamedDefinition(type)) == TypeShape.Reference
+            && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+
+    public static bool CanSpellNamedValueStorageType(TypeRef type, IrFunction host)
+        => type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
+            && host.TypeShapes.GetValueOrDefault(CoercionRendering.NamedDefinition(type)) == TypeShape.ValueType
+            && !IsByRefLikeType(type, host)
+            && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+
     public static bool CanSpellExplicitParameterType(
         TypeRef type,
         IrFunction host,

@@ -197,7 +197,8 @@ SourceHouse, but decompilation remains available when policy or availability
 provides none. It must not discover or open an embedded, adjacent, or ambient
 PDB contrary to the explicit PDB contribution supplied for the request. The
 existing `MemberBodyProducer` is the implementation basis; introducing
-`CSharpDecompilerService` is a separate focused owner step.
+`CSharpDecompilerService` is a separate focused owner step governed by the
+[C# decompiler service](csharp-decompiler-service.md) contract.
 
 ### `SourceFetch`
 

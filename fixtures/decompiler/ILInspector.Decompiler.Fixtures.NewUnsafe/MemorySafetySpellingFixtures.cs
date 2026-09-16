@@ -43,8 +43,40 @@ public sealed class MemorySafetySpellingFixture
 
     public static int NormalMethod() => 42;
 
+    public string Type { get; set; } = "";
+
+    public required string RequiredValue { get; set; }
+
+    public nint NativeInt { get; set; }
+
+    public int InternalSet { get; internal set; }
+
+    public string PrivateGet { private get; set; } = "";
+
+    public int InitOnly { get; init; }
+
     [DllImport("__dotnet_inspect_memory_safety_fixture__")]
     public static safe extern int SafeExtern();
+}
+
+public struct MemorySafetyReadonlyPropertyFixture
+{
+    int _value;
+
+    public MemorySafetyReadonlyPropertyFixture(int value) => _value = value;
+
+    public readonly int Value => _value;
+}
+
+public readonly struct MemorySafetyReadonlySetterPropertyFixture
+{
+    public int Value
+    {
+        get => 0;
+        set { }
+    }
+
+    public static int StaticValue { get; set; }
 }
 
 [StructLayout(LayoutKind.Explicit, Pack = 2, Size = 16)]
@@ -87,6 +119,17 @@ public sealed class MemorySafetyExplicitAccessorFixture
     : IMemorySafetyAccessorContract
 {
     unsafe int IMemorySafetyAccessorContract.Value => 42;
+}
+
+public interface IMemorySafetyImplicitPropertyContract
+{
+    int Value { get; }
+}
+
+public sealed class MemorySafetyImplicitPropertyFixture
+    : IMemorySafetyImplicitPropertyContract
+{
+    public int Value => 42;
 }
 
 public enum MemorySafetyExtensionEnum

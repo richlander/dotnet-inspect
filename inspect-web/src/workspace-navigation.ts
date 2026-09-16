@@ -52,6 +52,8 @@ export interface WorkspaceView {
   libraryLens: LibraryLens;
   libraryScope: string[] | null;
   platformLibrary?: string | null;
+  platformRootParent?: boolean;
+  platformPresentedAsRoot?: boolean;
 }
 
 export function workspaceViewSignature(view: WorkspaceView): string {
@@ -78,6 +80,8 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     ll: view.libraryLens,
     ls: view.libraryScope,
     platformLibrary: view.platformLibrary ?? null,
+    platformRootParent: view.platformRootParent ?? false,
+    platformPresentedAsRoot: view.platformPresentedAsRoot ?? false,
   });
 }
 

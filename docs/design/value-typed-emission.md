@@ -538,6 +538,51 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    in-domain webs in that residual therefore materialize normally; their
    declaration ordering may change, but no expression moves.
 
+   Multiple store blocks are not themselves a materialization veto for an
+   already-decided, multiply observed web. Every occurrence retains its place
+   in the ordered IR; the same typed local represents the complete web across
+   those blocks. This does not split live ranges, infer a join type, consume a
+   control-flow edge, or expand the coercion domain. The independent
+   storage-rewrite invariant checks that preservation. Incomplete direct-copy
+   components still remain wholly on slots.
+
+   The motivating witness is Microsoft.CodeAnalysis.CSharp 5.0.0,
+   `SourcePropertyAccessorSymbol.GetAccessorName`: its string-prefix stores
+   and consumers already share one type across the raised branch arms.
+   `CrossBlockSlotMaterializationTests` gates compiler-produced branch,
+   repeated-condition and throwing-path cases, the real Roslyn witness, and
+   complete versus incomplete cross-block copy components. It also preserves
+   loop backedges and rejects conflicting or underivable cross-block testimony.
+   Its slow compile-back gate, owned by Deep Inspect and the focused pre-merge
+   selection, requires Exact for the throwing and repeated-condition fixtures.
+   The two branch-prefix fixtures retain their measured OpcodeDiff: earlier
+   structuring already duplicates the final return across the branch arms.
+   That difference is not introduced or repaired by materialization. The
+   ordinary admission gates are PR-fast; existing nested-scope gates remain
+   in force.
+   Production adoption is the unchanged shared CLI and Browser/Wasm pipeline.
+
+   Multiple stores with only one load are also settled storage, not evidence
+   of a pending expression fold. The earlier expression passes own those folds;
+   materialization neither folds nor moves their remaining stores. The blanket
+   multi-store/single-load veto is retired while the independent type, scope,
+   rendering, pending-swap, and atomic-copy boundaries remain.
+   The motivating witness is Microsoft.CodeAnalysis.Common 5.0.0,
+   `AnalyzerImageReference.Display`: its display/path fallback already renders
+   as assignments and an `if`, with an inner `??` expression. The complete
+   string-copy component becomes typed locals without changing those decisions.
+   `SingleLoadSlotMaterializationTests` gates that real witness, compiler-produced
+   fallback storage, and preservation of already-raised conditional, coalesce,
+   lazy-cache, and short-circuit consumer expressions. These admission
+   and fold gates are PR-fast. The slow native-RTS gate, owned by Deep Inspect
+   and the focused pre-merge selection, requires Exact for the four expression
+   folds. The fallback fixture retains its measured OpcodeDiff: earlier raising
+   already keeps its outer fallback as a branch. Paired product-artifact
+   compile-back preserves both original and recompiled streams; materialization
+   neither introduces nor repairs that existing difference. The shared default
+   pipeline adopts the change for CLI and Browser/Wasm; EH adoption is not part
+   of this storage slice.
+
    At materialization, a slot whose stores are all Boolean-valued may recover
    the Boolean identity of an integer-typed load consumed by a Boolean sink
    or condition. Every load still testifies: a numeric use conflicts, and an
@@ -548,6 +593,23 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    constant or control-flow decisions. The printer uses the same Boolean-sink
    rule for lowered and still-deferred slots instead of maintaining a second
    sink vocabulary.
+
+   A Boolean `box` operand is also a semantic Boolean observer: its metadata
+   token names the boxed value type, not the evaluation-stack storage width.
+   Recovery still requires every producer to be Boolean-valued and every load
+   to agree. Numeric observers conflict; mixed Boolean/integer producers retain
+   the existing decline boundary. This does not add general boxing conversions
+   or make boxing an insertion/invariant sink. Microsoft.CodeAnalysis.CSharp
+   5.0.0 `Binder.FoldNeverOverflowBinaryOperators` motivates this boundary:
+   unifying its disconnected carriers must not make an incorrect Int32-boxing
+   body compilable when both original boxing tokens require Boolean.
+   `RealRoslynBooleanBoxesMaterializeBooleanStorage` gates the actual
+   compiler-produced two-store/two-box web and its typed Boolean operands
+   through the default tail. `BoxObserversParticipateInCrossBlockIdentity`
+   gates shared printer/materialization testimony and numeric/mixed-producer
+   neighbors. Both are PR-fast. The real method's native whole-module fidelity
+   remains unavailable because of its reconstructed private Roslyn context;
+   the shape gate is not a transferred compile-back or whole-method verdict.
 
    The motivating real witness is Newtonsoft.Json 13.0.4,
    `DefaultContractResolver.InitializeContract`: the Boolean conditional
@@ -629,11 +691,38 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    does not make `string[]` and `object[]` the same storage type.
    A covariant consumer may receive an explicitly
    string-array-typed load without widening its storage identity.
-   Other non-exact producers and reference types remain
-   deferred. Every observer still supplies
+   Named reference storage also materializes when the imported type-shape map
+   confirms its named definition is a reference type and its complete type
+   passes that same explicit-type spelling gate. This includes classes,
+   interfaces, delegates, and their spellable constructed generic forms.
+   Unresolved definitions, bare generic parameters, non-exact producers, and
+   unspellable or out-of-scope constructions remain deferred. Admission
+   consumes existing metadata facts; it does not acquire dependencies or
+   infer assignability, boxing, covariance, or generic constraints.
+   Named value storage follows the same exact-type rule when the imported
+   definition is a known value type, the complete type is spellable, and the
+   type is not byref-like. This includes ordinary structs and their
+   constructed generic forms, including nullable values. No struct conversion,
+   nullable lifting, boxing, width/sign conversion, or storage alias is
+   inferred: every producer must already have the testified nominal type.
+   The rewrite preserves each value-copy occurrence and each existing boxed
+   operand rather than moving a read across a mutation. Unknown definitions,
+   managed references, bare generic parameters and ref-like lifetime cases
+   remain outside this admission; the existing numeric domain is unchanged.
+   Microsoft.CodeAnalysis 5.0.0
+   `Collections.RoslynImmutableInterlocked.VolatileRead` motivates this
+   category: its `ImmutableArray<T>` read must remain before the memory barrier.
+   `ValueSlotMaterializationTests` gates the real read, compiler-produced
+   ordinary/nullable/generic value storage, copy-before-mutation, typed boxing,
+   exact width/sign boundaries, incomplete copies, and the retained swap.
+   Its slow compile-back gate exercises the compiler-produced family in
+   Release; the existing independent storage invariant checks ordered
+   producer and occurrence preservation, not whole-method equivalence.
+   Adoption is through the unchanged shared CLI and Browser/Wasm pipeline.
+   Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy
    boundaries remain in force. No value or control-flow edge moves.
-   A reference carrier already recognized by the later swap raiser stays on slots
+   An exact-storage carrier already recognized by the later swap raiser stays on slots
    until that raiser consumes it; materialization must not turn an existing
    tuple swap back into assignments. This reuses the swap owner's matcher and
    preserves its existing named-local boundary.
@@ -721,6 +810,21 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    ([#7103](https://github.com/richlander/dotnet-inspect/issues/7103)).
    The neighboring scalar, generic, jagged, pointer, and function-pointer
    fixtures require exact compile-back.
+
+   Named-reference admission consumes
+   `CSharpSpellability.CanSpellNamedReferenceStorageType`, reusing the existing
+   named-definition projection and explicit-parameter spelling rules. A
+   motivating real witness is Microsoft.CodeAnalysis 5.0.0
+   `ChildSyntaxList.GetHashCode`, whose retained `SyntaxNode` reference already
+   has exact type testimony. `NamedReferenceSlotMaterializationTests` preserves
+   that witness through the repository compiler dependency and gates known
+   versus unresolved shapes, generic spelling, exact producers, atomic copies,
+   and pending swaps. Compiler-produced class, interface, delegate, generic,
+   allocation, and covariant-return fixtures require exact compile-back.
+   Missing dependency evidence deliberately keeps the same compiler-produced
+   reference on slots rather than guessing its shape. These ordinary gates
+   are PR-fast; the compile-back family is slow and owned by daily Deep Inspect
+   and the focused pre-merge gate.
 
    `MaterializesSingleStoreConditionalWithSingleRead` and
    `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate

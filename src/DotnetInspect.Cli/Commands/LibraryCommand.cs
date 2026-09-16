@@ -44,10 +44,7 @@ public class LibraryCommand
     }
 
     internal static void AddCloneCandidateSchema(DocumentSchema schema)
-        => schema.Add(
-            SectionNames.CloneCandidates,
-            "column",
-            CloneCandidatesCommand.CandidateColumnNames);
+        => CloneCandidatesCommand.AddStructuralSchema(schema);
 
     internal static StructuralSectionInput GetStructuralSectionInput(
         string section)
@@ -341,6 +338,24 @@ public class LibraryCommand
             return 1;
         }
         options = options with { IncludeSections = cloneSelection.Sections };
+        var implementationProfilesSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.ImplementationProfiles);
+        if (implementationProfilesSelection.Error is not null)
+        {
+            CommandError.Write(
+                implementationProfilesSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                implementationProfilesSelection.Sections,
+        };
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {
@@ -444,6 +459,17 @@ public class LibraryCommand
                 ? new HashSet<string>(options.IncludeSections, StringComparer.OrdinalIgnoreCase)
                 : [],
         };
+
+        if (options.JsonOutput
+            && !options.Count
+            && options.IncludeSections?
+                .Contains(SectionNames.ImplementationProfiles) == true)
+        {
+            CommandError.Write(
+                "Document --json cannot represent Implementation Profiles analysis. "
+                + "Use --jsonl, --tsv, or --table.");
+            return 1;
+        }
 
         if (options.ReferenceTreeDepth is < 1)
         {

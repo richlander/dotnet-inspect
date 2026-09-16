@@ -52,8 +52,9 @@ the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-
 The envelope owner's proposed
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
 adds a typed companion without changing that content boundary. Its planned
-`--evidence-envelope` consumer is separate adoption work in #7117, not a
-new rung in this ladder or an already available output option.
+`--evidence-envelope` consumer is separate adoption work in #7117, available
+only in Debug builds under the shared envelope policy. It is not a new rung in
+this ladder or an already available output option.
 
 ### Implementation status
 
@@ -99,8 +100,9 @@ Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
 
 Asset-mode `depends`, other commands, Discover, Count,
 `--evidence-envelope`, optional evidence capture from
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117), and complete
-Browser baseline transport remain unadopted.
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117) remain
+unadopted. Library API Diff's complete Browser baseline transport is governed
+by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
 [#7126](https://github.com/richlander/dotnet-inspect/issues/7126) separately
 owns command cutover. These two concrete Content registrations complete the
 baseline transport rollout in #6719, not those separate adoption efforts.
@@ -224,12 +226,12 @@ diagnostics are empty. The later Library scenario remains
 
 ### Envelope transport
 
-This section owns the public CLI wire contract for `--envelope` and
-`--evidence-envelope`. The input is one completed, owner-issued service value.
-The output is one JSON object, not a document rendering or a stream of
-independently inspected items. An operation over several participants must
-have one owner-issued aggregate content value; transport does not concatenate
-envelopes or invent an aggregation model.
+This section owns the public CLI wire contract for `--envelope` and the
+supported Debug-only CLI wire contract for `--evidence-envelope`. The input is
+one completed, owner-issued service value. The output is one JSON object, not a
+document rendering or a stream of independently inspected items. An operation
+over several participants must have one owner-issued aggregate content value;
+transport does not concatenate envelopes or invent an aggregation model.
 
 The baseline object's required members are:
 
@@ -372,11 +374,14 @@ its nonzero refusal and final non-empty stderr line for an available scalar.
 
 ### Transport adoption gates
 
-The transport is a supported public machine contract, not a Debug-only dump.
-Each production adopter exposes only the operations it can complete. Baseline
-adoption does not wait for optional Evidence support in #7117, Browser UI,
-History, or subject-owned command cutover. Those consumers reuse this
-transport rather than publish another framing convention.
+The baseline transport is a supported public machine contract.
+`--evidence-envelope` uses the same typed, versioned framing as a supported
+Debug-only machine contract; its availability does not make it an ad-hoc dump.
+A retail registration requires the separately approved promotion defined by
+the envelope owner. Each adopter exposes only the operations it can complete.
+Baseline adoption does not wait for optional Evidence support in #7117,
+Browser UI, History, or subject-owned command cutover. Those consumers reuse
+this transport rather than publish another framing convention.
 
 The first runtime adoption is positional type dependencies; Library API Diff
 will supply the second content kind through the same CLI transport. Changing

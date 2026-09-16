@@ -25,7 +25,8 @@ Metadata's body and physical clause types, closed result, and current-surface
 migration are implemented in step 2. Instructions topology, location, and
 normal-transfer facts plus the `MethodInstructions` / `BlockGraph` migration
 are implemented in step 3. Analysis production paths adopt both owners in step
-4. Decompiler adoption and remaining retirement stay unverified until their
+4. Decompiler physical import and EH structuring adopt both owners in step 5.
+The remaining consumer migrations and retirement stay unverified until their
 focused steps land.
 
 ## Handoff
@@ -102,6 +103,57 @@ region and continuation identities; current ancestry can supply descendant
 context within one projection build. The adapter does not become usable by
 Analysis and does not move into Instructions.
 
+For a body that declares EH, the adopted import path reads one closed Metadata
+body result, decodes one correlated `MethodInstructions`, and pairs each flat
+handler projection with the exact Instructions clause object for the same
+Metadata clause identity.
+EH structuring groups clauses by Instructions protected-region identity, uses
+`LocationAt` for production protected/filter/handler membership, and validates
+supported explicit normal edges with `NormalTransferAt`. Successful structured
+nodes retain the exact protected-region or clause association. Missing,
+ambiguous, or rejected correlated Instructions/catch evidence leaves the flat
+representation intact and lowers fidelity visibly. An unavailable Metadata
+body is a closed import failure. Metadata-backed production code never
+substitutes the raw range algorithm; explicit synthetic Layer 0 inputs retain
+that compatibility path.
+
+`ProtectedRegionControlFlow` is the step-6 Decompiler policy adapter. For a
+metadata-backed `Leave`, it requires an available `NormalTransferAt` result,
+uses the owner-issued source and destination context to select raisable regions
+actually left by the edge, and rejects a source inside a `finally` or `fault`
+handler. It walks current IR ancestry only to locate structured constructs,
+then requires their exact protected-region or handler associations to match the
+Instructions source context; the bounded form additionally limits that walk to
+constructs below the caller's candidate boundary. Equal ranges, node kinds, or
+an association from a different body observation do not substitute for that
+identity. Missing or stale production evidence declines and reports `DEC0017`;
+detached or non-Metadata Layer 0 trees retain the explicit structural
+compatibility path. `StructuringPass` carries the production function's
+evidence owner into its detached validation/build clones, whose source offsets
+and exact structured associations remain the projection currency; clone
+detachment alone never selects Layer 0 compatibility.
+
+The classic async inverse is the step-7 Decompiler consumer. Its raw
+`BodyIndex` obtains protected and handler membership from `LocationAt` on the
+execution method's exact `InstructionExceptionFlowFacts` observation. Its
+planning index requires `TryCatch`, `CatchClause`, and `TryFinally` projections
+to retain the exact clause and region associations issued by that observation,
+then compares each provenance-bearing planning node with the shared imported
+context at the same IL offset. Equal ranges from another body observation do
+not correspond. Missing, unavailable, ambiguous, or re-paired production
+evidence declines through the existing visible classic-inverse failure path.
+The recipe, protocol roles, structured-ancestor accounting, and reconstruction
+policy remain Decompiler-owned. Explicit non-Metadata Layer 0 requests retain
+their range-based compatibility path.
+
+The Decompiler composition boundary also requires the
+`StateMachineRelationship`-selected `MoveNext` MethodDef to equal
+`InstructionExceptionFlowFacts.Body.Method` whenever the production execution
+body carries available exception-flow facts. Instructions-owned `GetClause`
+and `GetRegion` resolve exact imported identities without consumer scans or
+object-reference correspondence. Neither composition rule merges async and EH
+semantics or moves Decompiler policy into either fact owner.
+
 ## Nine-step adoption plan
 
 Tracker #6965 owns this complete sequence:
@@ -116,7 +168,8 @@ Tracker #6965 owns this complete sequence:
    clause-order/range interpretation where the shared contracts apply;
 5. adopt the same facts in Decompiler import and EH structuring, adding exact
    structured-IR association;
-6. migrate `ProtectedRegionControlFlow`;
+6. migrate `ProtectedRegionControlFlow` to shared normal-transfer facts and
+   exact structured associations;
 7. migrate classic async exception-context correspondence;
 8. resume #6907 with shared exited-`finally` facts while keeping alias/write
    closure pass-owned; and
@@ -128,7 +181,14 @@ steps. Changing that total requires updating #6965 and this map together.
 
 Step 4 is implemented by the Metadata-backed `MethodBodyAnalysisContext`,
 body-signal and admission consumers, shared reaching-definitions decode, and
-the ArrayPool exception-path adapter. Steps 5 through 9 remain.
+the ArrayPool exception-path adapter. Step 5 is implemented by the
+Metadata-backed Decompiler importer, correlated `MethodInstructions` handoff,
+exact flat-to-structured clause association, and Instructions-backed EH
+membership and normal-edge validation. Step 6 is implemented by
+`ProtectedRegionControlFlow`'s shared normal-transfer query, Decompiler-owned
+raisability policy, and exact bounded association check. Step 7 is implemented
+by classic async's shared `LocationAt` queries, exact structured association
+checks, and same-observation raw/planning join. Steps 8 and 9 remain.
 
 ## Production-host path
 
@@ -171,6 +231,20 @@ contexts, catch-all cleanup, typed-catch near misses, and nested catch
 interception through the production assembly-analysis path. Existing method
 signal, stable-getter, structural-clone, and reaching-definitions tests gate
 their migrated consumers.
+
+`DecompilerExceptionFactAdoptionTests` gates the same-body Instructions
+handoff, exact flat and structured clause association, Metadata catch order,
+the runtime `TextReader.Read(Span<char>)` cleanup identity, visible refusal of
+missing or rejected evidence, closed Metadata body failure, and the explicit
+synthetic compatibility path.
+`ClassicInverseCoreExceptionTests` gates production catch/finally membership
+through shared facts, visible missing-correlation refusal, exact protected,
+catch, and finally associations, same-range foreign-body rejection, and the
+same-observation raw/planning join. It also gates the exact
+relationship-selected `MoveNext`/EH-body MethodDef join, rejection of a foreign
+method's observation, and neighboring user-`finally` reconstruction. The full
+`ClassicInverseCoreTests` fixture population gates unchanged recipe and
+accounting behavior.
 
 This composition does not add exceptional search/unwind semantics, a
 cross-method exception graph, shared Analysis/Decompiler policy, or a new

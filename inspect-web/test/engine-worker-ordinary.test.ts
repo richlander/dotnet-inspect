@@ -60,6 +60,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
+    queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
     queryPackageDependencies: () =>
@@ -469,7 +470,7 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
       packageCacheStats: () => ({
         packages: 4,
         resident: 2,
-        maxPackageEntries: 12,
+        maxPackageEntries: 256,
         workspaces: 1,
         maxWorkspaces: 4,
         maxWorkspaceAssembliesPerRole: 256,
@@ -489,7 +490,7 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
   assert.deepEqual(await neighbor, {
     packages: 4,
     resident: 2,
-    maxPackageEntries: 12,
+    maxPackageEntries: 256,
     workspaces: 1,
     maxWorkspaces: 4,
     maxWorkspaceAssembliesPerRole: 256,
@@ -512,7 +513,7 @@ test("malformed and oversized generated results reject only their calls", async 
       packageCacheStats: () => ({
         packages: 1,
         resident: 1,
-        maxPackageEntries: 12,
+        maxPackageEntries: 256,
         workspaces: 0,
         maxWorkspaces: 4,
         maxWorkspaceAssembliesPerRole: 256,
@@ -666,7 +667,7 @@ test("a closed-epoch ordinary client cannot dispatch into a replacement", async 
         return {
           packages: 0,
           resident: 0,
-          maxPackageEntries: 12,
+          maxPackageEntries: 256,
           workspaces: 0,
           maxWorkspaces: 4,
           maxWorkspaceAssembliesPerRole: 256,
@@ -710,6 +711,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "matchPackageDependencyCoordinate",
       "packageCacheStats",
       "prefetchPlatformPacks",
+      "queryLibraryApi",
       "queryMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
@@ -776,7 +778,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 53);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 54);
 
   const state = fixture();
   const groups = [

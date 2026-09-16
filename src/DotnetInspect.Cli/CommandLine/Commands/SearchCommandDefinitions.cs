@@ -40,6 +40,13 @@ public static class SearchCommandDefinitions
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
+        var ecosystemOption = new Option<string[]>("--ecosystem")
+        {
+            Description =
+                "Register exactly the named canonical ecosystem(s) in caller order. Can repeat.",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false
+        };
         var extensionsOption = new Option<bool>("--extensions")
         {
             Description =
@@ -65,8 +72,8 @@ public static class SearchCommandDefinitions
         var membersOption = new Option<bool>("--members") { Description = "Search member names instead of type names (auto-enabled when the pattern starts with '.', e.g. .Serialize)" };
         var literalOption = new Option<string?>("--literal")
         {
-            Description = "Find decoded IL string literals containing this exact ordinal substring in the primary implementation assembly of up to 5 explicit name@version packages; requires --tfm; -v:n includes literal-use rows",
-            Arity = ArgumentArity.ExactlyOne
+            Hidden = true,
+            Arity = ArgumentArity.ExactlyOne,
         };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
@@ -84,6 +91,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(assemblyOption);
         findCommand.Options.Add(platformOption);
         findCommand.Options.Add(platformLibraryOption);
+        findCommand.Options.Add(ecosystemOption);
         findCommand.Options.Add(extensionsOption);
         findCommand.Options.Add(aspnetcoreOption);
         findCommand.Options.Add(projectOption);
@@ -109,12 +117,24 @@ public static class SearchCommandDefinitions
 
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
-            extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
-            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
-            literalOption);
+            ecosystemOption, extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
+            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetResult(literalOption)
+                is { Implicit: false })
+            {
+                CommandError.Write(
+                    "'find --literal' is no longer valid because Find returns "
+                    + "Type results. Use 'package query <ID-or-prefix*> "
+                    + "--library-literal TEXT --tfm TFM'. Package Query selects "
+                    + "the latest eligible listed version for an exact ID, so "
+                    + "this is not an equivalent replacement for an older "
+                    + "ID@VERSION query.");
+                return 1;
+            }
+
             var result = await FindOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
             switch (result)
@@ -127,7 +147,6 @@ public static class SearchCommandDefinitions
                         "find Chat* --extensions                   # Microsoft.Extensions packages",
                         "find Chat* --aspnetcore                   # ASP.NET Core packages",
                         "find Chat* --package Newtonsoft.Json       # specific package",
-                        "find --literal Json --package System.Text.Json@10.0.0 --tfm net10.0",
                         "find Chat* --platform --extensions         # combine scopes");
 
                 case FindOptionsParser.Success success:
@@ -136,7 +155,6 @@ public static class SearchCommandDefinitions
                         ct);
 
                     if (exitCode == 0
-                        && success.Options.Literal is null
                         && !success.Options.FormatExplicitlySet
                         && !success.Options.IsRawOutput)
                     {

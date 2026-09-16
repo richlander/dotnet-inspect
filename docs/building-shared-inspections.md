@@ -422,7 +422,7 @@ The word "limit" is not enough to identify a contract.
 
 | Limit | Meaning | Owner |
 | --- | --- | --- |
-| Semantic row selection | Selects final logical rows in an owner-declared order | L2 plus `DotnetInspector.RowSelection` |
+| Semantic row selection | Selects final logical rows in an owner-declared order | L2 plus the contract carried by `DotnetInspector.QueryEngine` |
 | Work bound | Authorizes incomplete upstream work in one named dimension and returns completion evidence | The executing query or source owner |
 | Semantic traversal bound | Changes the requested graph or hierarchy extent and reports its boundary | The graph or traversal owner |
 | Presentation limit | Narrows rendered lines, chrome, or viewport state after the typed result exists | Host |

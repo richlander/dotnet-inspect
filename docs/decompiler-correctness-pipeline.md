@@ -160,6 +160,51 @@ highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
 small pass refactor may need the entry gate plus a no-movement quality card. A
 new raise or structuring change must go much higher.
 
+### Shared EH evidence adoption
+
+Decompiler physical import consumes Metadata's closed method-body result and
+complete exception-clause catalog. For a body that declares EH, it decodes that
+same body observation once through Instructions and preserves exact clause and
+region associations while raising flat EH into structured IR. Production
+membership and supported explicit normal edges come from Instructions
+`LocationAt` and `NormalTransferAt`; Decompiler continues to own C#
+raisability, IR construction, correspondence, fidelity, and diagnostics.
+
+A metadata-backed method never falls back to independent range reconstruction.
+Missing, unavailable, ambiguous, or rejected correlated Instructions/catch
+evidence retains the flat representation and reports `DEC0017`; an unavailable
+Metadata body reports the closed import failure as `ContextUnavailable`.
+Synthetic Layer 0 test inputs without Metadata identity retain the explicit
+raw-range compatibility path. Body-replacement transforms clear stale root
+correlation rather than attaching evidence from one body observation to
+another.
+
+`DecompilerExceptionFactAdoptionTests` is the Release gate for exact body and
+clause association, Metadata catch order, runtime cleanup identity, closed
+failure handling, visible refusal, and raw compatibility.
+`ProtectedRegionControlFlowTests` gates the next consumer: production
+try/catch `Leave` transfers use regions actually left by `NormalTransferAt`;
+the current projection requires exact structured associations, with the
+bounded predicate limited to associations below the candidate boundary.
+Missing correlation and same-range foreign-body identity decline visibly. Its
+synthetic cases preserve the explicit Layer 0 compatibility path, while its
+detached-clone case proves that production structuring candidates retain their
+function evidence owner.
+`ProtectedContinueRecoveryTests` gates the production `ForLoopPass` adoption
+outcome.
+`ClassicInverseCoreExceptionTests` gates the classic-async consumer: production
+raw membership comes from `LocationAt`, structured catch/finally projections
+retain exact clause and region associations, raw and planning views share one
+fact observation, missing correlation declines visibly, and same-range foreign
+identity cannot license reconstruction. The same gate requires the
+relationship-selected `MoveNext` MethodDef to equal the available Instructions
+exception-flow body's MethodDef, rejects a foreign method observation, and
+retains the neighboring user-`finally` reconstruction. Decompiler consumers
+resolve owner-issued clause and region identities through Instructions lookup
+rather than collection scans or object-reference correspondence. The full
+`ClassicInverseCoreTests` population gates unchanged recipe and accounting
+behavior. These gates do not verify the later return-timing consumer migration.
+
 ### EH normal-continuation return timing
 
 This section owns one semantic-fidelity rule for exception-handling
@@ -246,8 +291,8 @@ entry gate invalidates every later result, so run it first and report it.
    dotnet run --project tests/ILInspector.Metadata.Tests -c Release
    ```
 
-   Filter to a class while iterating, e.g.
-   `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
+   These executables use MTP's `--filter-class`, `--filter-method`,
+   `--filter-query`, and trait-filter options while iterating.
    [The repository xUnit test host](design/xunit-test-host.md) selects
    Microsoft Testing Platform (MTP) as the owner of aggregate non-vacuity.
    The decompiler host owns `--gate` preset expansion and the stronger
@@ -257,14 +302,13 @@ entry gate invalidates every later result, so run it first and report it.
    identities to prove every selected case executes exactly once. MTP's
    aggregate minimum cannot replace either property.
 
-   Until the MTP adoption tracked by #5379, the decompiler executable retains
-   its transitional `ExplicitFilterGuard` preflight. That preflight is not the
-   repository contract and is removed by adoption rather than generalized.
-   The MTP migration must preserve `--gate` expansion and the per-class receipt
-   and discovery-to-execution completeness receipt while replacing native
-   xUnit selector syntax with MTP filters. If the selected MTP version cannot
-   expose the required independent identities, this suite remains on its
-   transitional host until an equally strong MTP-backed receipt exists.
+   The decompiler executable uses MTP for ordinary execution and has no
+   repository-owned selector preflight. Its discovery receipt uses MTP's
+   JSON-RPC server protocol because MTP 1.9 disables user data consumers during
+   discovery; execution uses a suite-owned MTP `IDataConsumer`. Both carry
+   MTP's stable `TestNodeUid`, preserving the per-class and
+   discovery-to-execution completeness contracts without duplicating selector
+   semantics.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by
@@ -372,15 +416,17 @@ route around the check.
 level for a lone slow gate in an otherwise unrelated class) so a change author
 can run one area's tests —
 including that area's slow gates — without every other area's slow gates, and
-without hand-enumerating `-class` names. The two dimensions compose:
-`-trait "Area=X"` selects area X fast and slow; adding `-trait- "Speed=Slow"`
-narrows to X's fast tests.
+without hand-enumerating `--filter-class` names. The two dimensions compose:
+`--filter-trait "Area=X"` selects area X fast and slow; adding
+`--filter-not-trait "Speed=Slow"` narrows to X's fast tests.
 
 ```bash
 # every Fidelity test, fast and slow:
-dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
+  --filter-trait "Area=Fidelity"
 # fast Fidelity tests only:
-dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity" -trait- "Speed=Slow"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
+  --filter-trait "Area=Fidelity" --filter-not-trait "Speed=Slow"
 ```
 
 Areas and their member classes:
@@ -394,8 +440,8 @@ Areas and their member classes:
 | `Pass` | the per-pass unit tests (`*PassTests`), plus `ControlFlowModelDifferentialTests.ControlFlowViews_AgreeOnSyntheticBoundaryTerminators` |
 
 `Area` is a targeting aid, not a completeness contract: unclassified unit tests
-carry no `Area`, so `-trait "Area=X"` selects only tagged members. When you add
-a class that belongs to an area (especially a new slow gate), tag it with the
+carry no `Area`, so `--filter-trait "Area=X"` selects only tagged members. When
+you add a class that belongs to an area (especially a new slow gate), tag it with the
 matching `[Trait("Area", "…")]` so the area's group filter keeps finding it; add
 a new area value only when an expensive slice has no existing home.
 
@@ -414,16 +460,16 @@ structuring, typing, or printer change can shift any corpus row, so it is not
 covered by its `Area=Pass` unit tests alone: before requesting review still run
 the full slow suite locally (unfiltered `ILInspector.Decompiler.Tests`, which
 Deep Inspect also runs). `Area` does not change what CI runs — PR CI keys on
-`Speed` (`-trait- "Speed=Slow"`) and Deep Inspect runs the whole slow set — so
-every area's slow gates already run before release certification without any
-per-area CI wiring.
+`Speed` (`--filter-not-trait "Speed=Slow"`) and Deep Inspect runs the whole slow
+set — so every area's slow gates already run before release certification
+without any per-area CI wiring.
 
 ### `--gate` preset flag: discoverable trait bundles
 
 Memorizing the `Speed`/`Area` trait spellings above is friction, and an
 *unfiltered* `ILInspector.Decompiler.Tests` run includes the multi-hour
 `Corpus` sweep. The executable therefore accepts a first-class
-`--gate <preset>` flag that expands to the corresponding `-trait`/`-trait-`
+`--gate <preset>` flag that expands to the corresponding MTP trait-filter
 arguments before delegating to the runner. Run `--gate list` for the table:
 
 ```bash
@@ -434,20 +480,20 @@ dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-
 | Preset | Expands to | Use |
 | --- | --- | --- |
 | `all` | *(no filter)* | the full slow suite (same as no flag) |
-| `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
-| `slow` | `-trait "Speed=Slow"` | only the slow gates |
-| `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
-| `pre-merge` | explicit `-class` filters | the bounded compile-back receipt the PR CI `decompiler-gates` job runs |
-| `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
-| `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
-| `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
-| `validity` | `-trait "Area=Validity"` | the validity / ladder gates |
+| `fast` | `--filter-not-trait "Speed=Slow"` | the fast lane the PR CI test job runs |
+| `slow` | `--filter-trait "Speed=Slow"` | only the slow gates |
+| `no-corpus` | `--filter-not-trait "Area=Corpus"` | everything except the multi-hour corpus sweep |
+| `pre-merge` | explicit `--filter-class` options | the bounded compile-back receipt the PR CI `decompiler-gates` job runs |
+| `corpus` | `--filter-trait "Area=Corpus"` | only the corpus sweep |
+| `roundtrip` | `--filter-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
+| `fidelity` | `--filter-trait "Area=Fidelity"` | the changed-method fidelity gates |
+| `validity` | `--filter-trait "Area=Validity"` | the validity / ladder gates |
 
 The flag is a naming convenience over the traits, not a new selection axis:
-presets compose with any additional xUnit arguments (e.g.
-`--gate fast -class …`), and omitting `--gate` leaves invocation behavior
-unchanged. The preset table lives in the test executable's entry point; keep it
-in sync with the areas above when an area is added or renamed.
+presets compose with any additional MTP xUnit arguments (e.g.
+`--gate fast --filter-class …`), and omitting `--gate` leaves invocation
+behavior unchanged. The preset table lives in the test executable's entry
+point; keep it in sync with the areas above when an area is added or renamed.
 
 `pre-merge` is the one preset that names classes rather than a trait, because
 the set it selects is a *cost* decision rather than a functional slice — see
@@ -496,24 +542,26 @@ explicit triggers. The job runs separately so it never serializes with the hot
 
 ```bash
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
-  --gate pre-merge -preEnumerateTheories -noColor -list full/json \
-  > /tmp/expected.json
-dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
-  --gate pre-merge -preEnumerateTheories -noColor -noAutoReporters \
-  -reporter json -xml /tmp/gates.xml | tee /tmp/events.jsonl
+  --gate-discovery-receipt /tmp/discovery.jsonl \
+  --gate pre-merge --pre-enumerate-theories on --no-ansi
+DOTNET_INSPECT_DECOMPILER_TEST_RECEIPT=/tmp/execution.jsonl \
+  dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
+  --gate pre-merge --pre-enumerate-theories on --no-ansi \
+  --auto-reporters off --report-xunit \
+  --report-xunit-filename gates.xml --results-directory /tmp
 dotnet run eng/check-decompiler-gate.cs -- \
   /tmp/gates.xml \
-  /tmp/events.jsonl \
+  /tmp/execution.jsonl \
   eng/decompiler-gate-known-red.txt \
   eng/decompiler-gate-expected-classes.txt \
-  /tmp/expected.json
+  /tmp/discovery.jsonl
 ```
 
 The gate was turned on **red**. That was not made conditional on the open
 failures being fixed first: a gate's job is to make *new* breakage attributable,
 and waiting for green is what let the current backlog accumulate. Open failures
 are pinned in `eng/decompiler-gate-known-red.txt`, one
-`Namespace.Class.Method [TestCaseUniqueID]` per line, each preceded by its issue
+`Namespace.Class.Method [TestNodeUid]` per line, each preceded by its issue
 and the date it was pinned. Pins are case-granular, so one red theory row never
 exempts its siblings.
 
@@ -540,16 +588,16 @@ and treats drift in **both** directions as an error:
 | a pinned case that never ran | dead pin — the case was renamed or deleted |
 | a gate test that neither passed nor failed | coverage silently disappeared |
 | an expected class with nothing executed | the preset stopped selecting it |
-| a discovered case ID that never starts | the report is incomplete |
-| an execution case ID discovery never listed | report and listing describe different runs |
-| one discovered case ID starts more than once | theory enumeration was delayed, or the test retried |
-| discovery and execution attach one case ID to different methods | structured identity is inconsistent |
-| JSON reporter and XML method counts disagree | the two result artifacts describe different runs |
+| a discovered `TestNodeUid` that never starts | the report is incomplete |
+| an execution `TestNodeUid` discovery never listed | receipt and discovery describe different runs |
+| one discovered `TestNodeUid` starts more than once | theory enumeration was delayed, or the test retried |
+| discovery and execution attach one `TestNodeUid` to different methods | structured identity is inconsistent |
+| MTP receipt and XML method counts disagree | the two result artifacts describe different runs |
 | a `<test>` with no usable name | the report is malformed |
 | the report contradicts its own declared totals | truncated or rewritten |
 | the report declares skipped, not-run, or errored tests | coverage did not run |
 | no report, or a report with zero tests | a crashed or empty run is not a pass |
-| no discovery listing, or one listing zero tests | there is no reference to judge completeness against |
+| no discovery receipt, or one containing zero tests | there is no reference to judge completeness against |
 
 Only `Pass` counts as passing. A skipped gate test is neither passing nor
 failing, and treating it as either is how a gate becomes vacuous: an unpinned
@@ -564,44 +612,45 @@ matches the pin list exactly, and the inventory is what rejects it.
 
 That inventory is only worth its accuracy, so it is not maintained by hand
 against the preset. `GateExpectedClassesTests` asserts set equality between the
-file and the `pre-merge` preset's `-class` arguments, in both directions, so a
-class added to the preset without being added to the file fails and so does a
-stale entry. That test is itself in the `pre-merge` preset, so it runs in the
-gate job and is covered by the same completeness check as the correctness
-gates. Running it as a *separate* CI step was worse than useless: a `-class`
-filter naming a renamed or deleted class discovers nothing and exits 0, so the
-step would have gone green while enforcing nothing.
+file and the `pre-merge` preset's `--filter-class` arguments, in both
+directions, so a class added to the preset without being added to the file
+fails and so does a stale entry. That test is itself in the `pre-merge` preset,
+so it runs in the gate job and is covered by the same completeness check as the
+correctness gates.
 
 Completeness is a separate property, and it needs a reference the report cannot
 forge. The report's own summary counters are not one — they are written by the
 same run, so a report containing four of fifteen tests and honestly declaring
 `total="4"` is entirely self-consistent. The checker therefore compares the
-results against a **case discovery listing** produced by
-`-preEnumerateTheories -list full/json` over the same preset. Each listing row
-carries xUnit's stable `ID`. The run uses xUnit's JSON reporter, whose
-`TestCaseUniqueID` is the same value, so every discovered case must start and
+results against a **case discovery receipt** produced through MTP's JSON-RPC
+`testing/discoverTests` request over the same preset. MTP 1.9 intentionally
+disables user data consumers in discovery mode, so the custom host acts as the
+protocol client and records the structured test-node notifications rather than
+parsing console or diagnostic text. Direct execution registers a suite-owned
+MTP `IDataConsumer`. Both artifacts carry MTP's stable `TestNodeUid`, class,
+method, signature, and lifecycle state, so every discovered case must start and
 every started case must have been discovered.
 
-The equality is not merely a set comparison. `-preEnumerateTheories` expands
+The equality is not merely a set comparison. `--pre-enumerate-theories on` expands
 serializable theory data, but xUnit falls back to delayed enumeration when data
 is not serializable. In that shape discovery emits one case ID for a method,
 then execution starts several tests under the same ID. The checker therefore
-requires **exactly one** `test-starting` event per discovered case ID. Zero
-means a case vanished; more than one means discovery did not independently
+requires **exactly one** `started` receipt row per discovered `TestNodeUid`.
+Zero means a case vanished; more than one means discovery did not independently
 enumerate every execution (or the runner retried a test). Both fail.
 
-The JSON reporter owns case identity and case-level known-red matching; XML
-owns diagnostics and class coverage. The checker cross-checks total,
-per-method, and per-outcome execution counts between them.
-Discovery `Class`/`Method`, reporter `TestClassName`/`TestMethodName`, and XML
-`type`/`method` must agree structurally. Display names remain presentation
-strings: they carry theory arguments, honor `-methodDisplayOptions`, and are
-never parsed to manufacture identity.
+The MTP receipts own case identity and case-level known-red matching; the MTP
+xUnit report owns diagnostics and class coverage. The checker cross-checks
+total, per-method, and per-outcome execution counts between them. Discovery and
+execution class/method signatures must agree by `TestNodeUid`; receipt
+class/method names and XML `type`/`method` must also agree structurally. Display
+names remain presentation strings: they carry theory arguments and are never
+parsed to manufacture identity.
 
-This observational contract replaces the old reflection guard that restricted
-the preset to plain `[Fact]` methods. It needs no knowledge of xUnit attribute
-types, inherited methods, interface declarations, custom discoverers, or data
-serialization rules; it measures what discovery and execution actually did.
+This observational contract replaces the removed semantic selector preflight.
+It needs no knowledge of xUnit filter parsing, attribute types, inherited
+methods, interface declarations, custom discoverers, or data serialization
+rules; it measures what MTP discovery and execution actually did.
 The four theory-bearing classes added in #3837 use serializable primitive
 `[InlineData]`, so all 42 cases receive distinct IDs and satisfy the same
 completeness contract as facts.
@@ -646,9 +695,10 @@ truncated report.
 `pre-merge` deliberately selects the workload classes named by its fail-closed
 inventory rather than the whole `Fidelity` area. The bounded receipt covers
 byte-neutral and byte-divergent behavior, whole-module skeleton hazards around
-selected bodies, typed diff fixtures, nested target identity, authored rebuild
-and typed failure paths, plus `GateExpectedClassesTests`, the plumbing guard
-that rides along in the preset it guards.
+selected bodies, product-artifact RTS over typed diff fixtures, nested target
+identity, authored rebuild and typed failure paths, plus
+`GateExpectedClassesTests`, the plumbing guard that rides along in the preset it
+guards.
 
 `FidelityGateTests`, `LoweredFidelityGateTests`, `ClusterCaptureTests`, and
 `PrinterPrecedenceTests` are daily-only whole-pipeline evidence. On #6835 they
@@ -685,13 +735,22 @@ they remained outside the preset because the checker compared
 method-granular discovery (28 methods) with case-granular execution (42
 cases), so fourteen cases could disappear undetected.
 
-The case-ID contract above makes them safe to gate. With pre-enumeration, their
-primitive `[InlineData]` produces 42 distinct discovery IDs; the JSON reporter
-starts each ID exactly once. The delayed-enumeration negative canary remains
+The `TestNodeUid` contract above makes them safe to gate. With pre-enumeration, their
+primitive `[InlineData]` produces 42 distinct MTP `TestNodeUid` values; the
+execution receipt records each ID starting exactly once. The
+delayed-enumeration negative canary remains
 `CSharpPrecedenceTests`: its non-serializable
 `TheoryData<IrExpression, Precedence>` discovers two case IDs but executes
 nineteen tests, with one ID starting eighteen times. The checker rejects that
 shape as `NON-ENUMERATED OR REPEATED CASES`.
+
+`DiffFixtureFidelityTests` requests the seven named raised-view methods from
+each paired fixture through product-artifact RTS with the legacy compile-back
+floor disabled. The gate requires exactly one native result per requested
+target and accepts the same checkable status set as before: `Exact`,
+`OpcodeDiff`, or `OperandDiff`. It therefore proves native product-artifact
+compile-back for this bounded fixture surface without allowing the retiring
+whole-module path to rescue missing or failed evidence.
 
 `SkeletonEmitTests` now contributes its eight cases to `pre-merge` (#3872).
 Its focused `FidelityCheck.Evaluate` calls select a typed
@@ -711,9 +770,10 @@ compile-back; a pruned skeleton would incorrectly turn that canary green.
 > [!TIP]
 > When measuring a class by name, check the namespace. Several classes in this
 > assembly live in `ILInspector.DecompilerHarness`, not
-> `ILInspector.Decompiler.Tests`. The test host rejects a `-class` filter that
-> matches nothing; `eng/decompiler-gate-expected-classes.txt` and the CI checker
-> additionally keep the preset and its expected class registry synchronized.
+> `ILInspector.Decompiler.Tests`. MTP returns exit code 8 when an execution
+> filter matches nothing; `eng/decompiler-gate-expected-classes.txt` and the CI
+> checker additionally keep the preset and its expected class registry
+> synchronized.
 
 ## Vocabulary
 
@@ -1013,6 +1073,15 @@ align the population: the methods a risky PR actually changed, not a friendlier
 global sample. Its second job is to separate rows that are checkable today from
 rows that need a named uncheckability reason.
 
+The raised rail resolves every current source-spellable row against the live
+module, validates its persisted signature, and passes the resulting typed
+method address to floor-disabled ReturnToSender. Product-artifact RTS must
+return one aligned row per requested target. Missing native output, stale
+identity, and assembly-context failure remain explicit failures, and the
+product decompiler fidelity grade controls whether a changed body can form an
+opcode or operand verdict. The lowered rail remains the labelled legacy
+whole-module evaluator because no product-owned lowered artifact request exists.
+
 Report changed-method runs in three bands:
 
 1. **Attempted population** — total changed methods attempted, plus exact,
@@ -1020,23 +1089,21 @@ Report changed-method runs in three bands:
    and context-fail counts.
 2. **Checkable population** — `Exact` rows that pin a green set and
    `OpcodeDiff` / `OperandDiff` rows that become the semantic docket. These are
-   the rows a PR may cite as
-   compile-back evidence. Under cluster mode (`CB_CLUSTER=1`) this band is
-   reported by **capture provenance** — *checkable whole-module* (bound under the
-   whole-module skeleton) and *checkable cluster-rescued* (bound only after the
-   target's transitive closure was reconstructed in isolation, i.e. a row a single
-   unrelated sibling gap had been poisoning). Both are equally citable; the split
-   only shows how much of the checkable population depended on closure isolation.
+   the rows a PR may cite as compile-back evidence. Raised runs identify this as
+   product-artifact RTS evidence. On the retained lowered legacy rail, cluster
+   mode (`CB_CLUSTER=1`) continues to report **capture provenance** —
+   *checkable whole-module* and *checkable cluster-rescued*.
 3. **Uncheckable population** — rows classified by reason, such as
    generated/synthesized member, stale delta target, missing reference, or
    `not-safely-capturable` (failed the whole-module attempt *and* the closure
    escalation — typically a Roslyn-class internal cross-assembly graph). Do not
    count them as passing.
 
-The shipping operational order remains **escalate, do not cluster-first**: run
-the cheap whole-module grouped compile, then escalate only rows it could not
-check to the per-method iterative closure path. Existing `Exact` corpus labels
-record the current comparison contract; they are not compile-context receipts.
+The lowered legacy operational order remains **escalate, do not
+cluster-first**: run the cheap whole-module grouped compile, then escalate only
+rows it could not check to the per-method iterative closure path. Raised RTS
+does not use that legacy capture engine. Existing `Exact` labels record the
+current comparison contract; they are not compile-context receipts.
 
 Under issue #4810's target contract, a whole-module body comparison is reusable
 as `Exact` only when its artifact and member compile-context receipt is complete;

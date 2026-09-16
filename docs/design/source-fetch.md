@@ -54,7 +54,7 @@ The adapter consumes, but does not redefine, these owner-issued behaviors:
 - `DotnetInspector.Networking` and `NetworkAccess` own desktop HTTP composition
   and per-hop destination controls.
 - The caller-supplied validator owns semantic byte admission. Current product
-  callers use `PdbSourceHouse.VerifyChecksum`, which owns portable-PDB checksum
+  callers use `SourceLinkService.VerifyChecksum`, which owns portable-PDB checksum
   meaning and line-ending normalization.
 - `ISourceContentStore` is the host persistence port. Its implementation owns
   its storage mechanics, whether backend failures are reported or treated as

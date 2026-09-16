@@ -87,6 +87,68 @@ dispatching the simulated unavailable remote source.
 CLI parser and dispatch boundary using the product's embedded PDB while all
 network access is disabled.
 
+## Content-backed SourceLink producer
+
+`SourceLinkService` owns interpretation of supplied PDB and source content.
+Its content-backed boundary preserves Metadata's assembly/PDB correspondence,
+SourceLink mapping and provenance, and the existing checksum and BOM-decoding
+semantics. It does not select an acquisition candidate or decide whether
+decompilation is an acceptable fallback.
+
+The focused implementation is
+[#7197](https://github.com/richlander/dotnet-inspect/issues/7197), the SourceLink
+producer step of
+[#6512](https://github.com/richlander/dotnet-inspect/issues/6512), within project
+4 of [#7177](https://github.com/richlander/dotnet-inspect/issues/7177).
+SourceHouse supplies the eventual composition requirements; Metadata supplies
+PE/PDB extraction and identity validation. Neither is redefined here.
+
+A caller can open an existing pathless `ResolvedAssemblyReference` with
+`OpenMetadataOnly`, supplying `SourceLinkReadLimits`, then transfer already
+acquired PDB content with `LoadPdbFromStream`. Metadata consumes that stream
+and retains its existing identity, read-failure, and cleanup behavior. Loading
+updates SourceLink's cached map and document state before the next query.
+This path does not activate embedded or adjacent PDB discovery; callers that
+want embedded symbols continue to select the existing bounded embedded-PDB
+operation explicitly.
+
+`PdbContext.GetPortablePdbImage` copies the currently loaded Portable PDB into
+independent immutable content, or returns null when none is loaded. Consumers
+can supply that content to another producer after disposing the acquisition
+context, without reopening `PortablePdbPath`. The accessor requires a live
+context; `PortablePdbSnapshotTests` gates byte preservation, post-disposal use
+of the returned image, absent/rejected PDBs, and use after context disposal.
+
+`VerifyChecksum` applies the existing SHA-1/SHA-256 and accepted bytewise CR/LF
+normalization rules to supplied bytes. `VerifySourceContent` then returns the
+detached `VerifiedSourceTextResult`, retaining `Exact`, `LineEndingNormalized`,
+`Unavailable`, `Unsupported`, or `Mismatch`. Only the first two yield text.
+`DecodeSourceText` retains BOM-aware UTF-8/UTF-16/UTF-32 decoding with UTF-8 as
+the default; decoding alone is not checksum evidence. Normalized verification
+still returns the supplied text, not a rewritten source document.
+
+The production adoption path has three steps in this slice: expose these
+operations at SourceLink; migrate `PdbSourceHouse` and source-integrity/local-
+repository consumers; and retain the existing CLI and Browser/Wasm source
+query paths over those consumers. The old House checksum/decoder entry points
+and Services-owned checksum/result types are retired, not duplicated.
+Acquisition ordering and fallback stay in their current compositions until
+SourceHouse adoption. Library lease consumption and the independent decompiler
+producer remain separately tracked.
+
+The motivating real repository is dotnet-inspect itself: its compiled
+Portable PDB maps an exact member to checksum-verified repository source,
+including when the assembly and PDB are supplied from memory. PR-fast
+`SourceLinkContentProducerTests` gates supplied-content mapping, stream
+settlement, mismatch/read-failure boundaries, retained map limits, and checksum
+and decoding outcomes. `PdbSourceHouseTests` and `VerifiedLocalSourceReadTests`
+gate the migrated composition; `AssemblyContextSourceQueryTests` and existing
+browser source-operation cases cover shared production callers.
+
+This producer adds no host result schema or rendering mode. Existing source
+queries retain their typed output and host-owned lowering; completed host
+inspection envelopes remain the responsibility of their composition boundary.
+
 ## PDB formats
 
 ### Portable PDB

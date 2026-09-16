@@ -8,10 +8,13 @@ Metadata owns local, SRM-only PE/PDB extraction: named documents, checksums,
 document rows, sequence-point relationships and ranges, type/member/token
 correspondence, and generic custom-debug-information blobs by GUID.
 ILInspector.SourceLink owns SourceLink interpretation and source decoration.
-Network acquisition, checksum verdicts, decompiler correspondence, and
+Network acquisition, decompiler correspondence, and
 old/new product interpretation remain separate consumers. Typed SourceLink
 queries compose the document Finding producer with shared acquisition and audit
 services; they do not move network behavior into the Finding producer.
+`SourceLinkService` also owns the
+[supplied-source checksum and decoding operation](../pdb-acquisition.md#content-backed-sourcelink-producer);
+its verdict is an operation result, not another document Finding.
 
 ## Producer inventory
 

@@ -288,7 +288,8 @@ public abstract record TypeDeclarationLocatorSelection
         string PackageId,
         string PackageVersion,
         string? Tfm,
-        string? Rid)
+        string? Rid,
+        string? AssetPath)
         : TypeDeclarationLocatorSelection;
 
     public sealed record PlatformSelection(
@@ -359,6 +360,12 @@ public sealed record TypeDeclarationLocatorSectionCandidate(
     AssemblyTypeDeclarationKind DeclarationKind,
     TypeDeclarationLocatorObservation Observation)
 {
+    [JsonIgnore]
+    public AssemblyTypeDefinitionKind? DefinitionKind { get; init; }
+    [JsonIgnore]
+    public bool? IsDefinitionPublic { get; init; }
+    [JsonIgnore]
+    public int DeclarationOrder { get; init; }
     public bool IsPublicSurface { get; init; }
     public TypeDeclarationDiscoveryAttributes? DiscoveryAttributes { get; init; }
 }
@@ -613,6 +620,11 @@ public static class TypeDeclarationLocatorSection
                                 candidate.Kind,
                                 Observation(candidate.Observation))
                             {
+                                DefinitionKind = candidate.DefinitionKind,
+                                IsDefinitionPublic =
+                                    candidate.IsDefinitionPublic,
+                                DeclarationOrder =
+                                    candidate.DeclarationOrder,
                                 IsPublicSurface = candidate.IsPublicSurface,
                                 DiscoveryAttributes = candidate.DiscoveryAttributes,
                             }),
@@ -821,7 +833,8 @@ public static class TypeDeclarationLocatorSection
                         package.PackageId,
                         package.PackageVersion,
                         package.Tfm,
-                        package.Rid),
+                        package.Rid,
+                        package.AssetPath),
                 AssemblyResolutionProvenance.PlatformAsset platform =>
                     new TypeDeclarationLocatorSelection.PlatformSelection(
                         platform.Framework,
@@ -862,9 +875,21 @@ public static class TypeDeclarationLocatorSection
             WorkspaceDeclarationOrigin.ContextLoad { Realized: RealizedMemberCoordinate.Embedded embedded } =>
                 new TypeDeclarationLocatorRealization.EmbeddedRealization(
                     embedded.ContentRef, embedded.Digest, embedded.DeclaredName),
+            WorkspaceDeclarationOrigin.PackageScope packageScope =>
+                PackageRealization(
+                    packageScope.Occurrence.Occurrence.Package.Coordinate),
             WorkspaceDeclarationOrigin.PlatformReference reference =>
                 new TypeDeclarationLocatorRealization.PlatformReferenceRealization(
                     references.Evidence(reference.Source), reference.Path),
             _ => throw new InvalidOperationException("Unknown declaration origin."),
         };
+
+    private static TypeDeclarationLocatorRealization.PackageRealization
+        PackageRealization(RealizedMemberCoordinate.Package package) =>
+        new(
+            package.PackageId,
+            package.Version,
+            package.Producer,
+            package.Framework,
+            package.RuntimeIdentifier);
 }

@@ -106,9 +106,11 @@ public static class TypeDeclarationLocatorQuery
                 case WorkspaceDeclarationInventoryOutcome.Inspected
                     { Outcome: AssemblyTypeDeclarationInventoryOutcome.Read read }:
                     var unsupported = ImmutableArray.CreateBuilder<AssemblyTypeDeclaration>();
+                    int declarationOrder = 0;
                     foreach (AssemblyTypeDeclaration declaration in read.Inventory.GetDeclarations(includeAll))
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        int currentDeclarationOrder = declarationOrder++;
                         if (declaration.Kind is not (AssemblyTypeDeclarationKind.Definition
                             or AssemblyTypeDeclarationKind.Forwarder))
                         {
@@ -126,7 +128,14 @@ public static class TypeDeclarationLocatorQuery
                                 _ => throw new InspectionQueryException("Unknown admitted locator request."),
                             };
                             if (matches)
-                                candidates[index].Add(new(coordinate, declaration, member));
+                            {
+                                candidates[index].Add(
+                                    new(
+                                        coordinate,
+                                        declaration,
+                                        currentDeclarationOrder,
+                                        member));
+                            }
                         }
                     }
                     outcomes.Add(new TypeDeclarationLocatorMemberOutcome.Searched(member, unsupported.ToImmutable()));

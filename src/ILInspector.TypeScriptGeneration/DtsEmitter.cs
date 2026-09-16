@@ -87,7 +87,9 @@ static class DtsEmitter
     internal static string EmitWireDeclarations(
         ILInspector.JsExportSurface.JsExportSurface surface,
         TypeScriptGenerationDiagnostics? diagnostics = null,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+        string? allocatedInertStringName = null,
+        string? allocatedInertStringBrandName = null)
     {
         ApiType[] declarationTypes = GetDeclarationTypes(surface);
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
@@ -110,7 +112,9 @@ static class DtsEmitter
             declarationTypes,
             declaredTypesByScopedIdentity,
             diagnostics,
-            allocatedTypeNames);
+            allocatedTypeNames,
+            allocatedInertStringName,
+            allocatedInertStringBrandName);
         return sb.ToString();
     }
 
@@ -119,6 +123,7 @@ static class DtsEmitter
         JsExportFunction function,
         TypeScriptGenerationDiagnostics? diagnostics = null,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+        string? allocatedInertStringName = null,
         bool includeRawReturnType = true) =>
         GetFunctionSignature(
             surface,
@@ -126,6 +131,7 @@ static class DtsEmitter
             function,
             diagnostics,
             allocatedTypeNames,
+            allocatedInertStringName,
             includeRawReturnType);
 
     static ApiType[] GetDeclarationTypes(
@@ -247,13 +253,53 @@ static class DtsEmitter
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity,
         TypeScriptGenerationDiagnostics? diagnostics,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+        string? allocatedInertStringName = null,
+        string? allocatedInertStringBrandName = null)
     {
         TypeMappingEnvironment typeEnvironment =
             CreateKnownTypes(
                 surface,
                 declarationTypes,
-                allocatedTypeNames);
+                allocatedTypeNames,
+                allocatedInertStringName);
+
+        if (FindInertStringIdentity(surface) is { } inertStringIdentity)
+        {
+            string inertStringName =
+                allocatedInertStringName ?? "InertString";
+            string inertStringBrandName =
+                allocatedInertStringBrandName ?? "inertStringBrand";
+            if (declarationTypes.Any(type =>
+                AllocatedTypeName(type, allocatedTypeNames)
+                    == inertStringName))
+            {
+                throw new UnsupportedWireContractException(
+                    inertStringIdentity.FullName,
+                    "the inert-string TypeScript brand collides with another type");
+            }
+            if (allocatedInertStringBrandName is null
+                && (declarationTypes.Any(type =>
+                        AllocatedTypeName(type, allocatedTypeNames)
+                            == inertStringBrandName)
+                    || surface.Functions.Any(function =>
+                        CamelCase.FromPascalCase(function.Name)
+                            == inertStringBrandName)))
+            {
+                throw new UnsupportedWireContractException(
+                    inertStringIdentity.FullName,
+                    "the inert-string TypeScript brand binding collides with another declaration");
+            }
+
+            sb.Append("declare const ")
+                .Append(inertStringBrandName)
+                .Append(": unique symbol;\n\n")
+                .Append("export type ")
+                .Append(inertStringName)
+                .Append(" = string & {\n  readonly [")
+                .Append(inertStringBrandName)
+                .Append("]: \"InertString\";\n};\n\n");
+        }
 
         foreach (ApiType enumType in surface.Enums
             .Where(type => ShouldEmit(surface, type))
@@ -331,6 +377,7 @@ static class DtsEmitter
         JsExportFunction function,
         TypeScriptGenerationDiagnostics? diagnostics,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+        string? allocatedInertStringName = null,
         bool includeRawReturnType = true)
     {
         var effectiveDiagnostics =
@@ -339,7 +386,8 @@ static class DtsEmitter
             CreateKnownTypes(
                 surface,
                 declarationTypes,
-                allocatedTypeNames);
+                allocatedTypeNames,
+                allocatedInertStringName);
         bool validDelegateAssociations = TryIndexDelegateParameters(
             function,
             out IReadOnlyDictionary<int, JsExportDelegateParameter>
@@ -458,7 +506,8 @@ static class DtsEmitter
         CreateKnownTypes(
             ILInspector.JsExportSurface.JsExportSurface surface,
             ApiType[] declarationTypes,
-            IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
+            IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+            string? allocatedInertStringName = null)
     {
         (ApiTypeReferenceIdentity Identity, ApiType Type)[] typeIdentities =
             TypeIdentities(surface, declarationTypes);
@@ -471,6 +520,10 @@ static class DtsEmitter
         var knownTypeIdentities = typeIdentities
             .Select(item => item.Identity)
             .ToHashSet();
+        ApiTypeReferenceIdentity? inertStringIdentity =
+            FindInertStringIdentity(surface);
+        if (inertStringIdentity is not null)
+            knownTypeIdentities.Add(inertStringIdentity);
         var localTypeKinds = declarationTypes
             .Select(type => (
                 type.DefinitionName,
@@ -531,6 +584,12 @@ static class DtsEmitter
             identityNames.Add(
                 identity,
                 AllocatedTypeName(type, allocatedTypeNames));
+        }
+        if (inertStringIdentity is not null)
+        {
+            identityNames.Add(
+                inertStringIdentity,
+                allocatedInertStringName ?? "InertString");
         }
 
         return new TypeMappingEnvironment(
@@ -738,7 +797,7 @@ static class DtsEmitter
     static bool ShouldEmit(
         ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType type) =>
-        type.FullName is not "InertText.InertString"
+        type.FullName is not TsTypeMapper.InertStringFullName
         and not "System.Collections.Immutable.ImmutableArray`1"
         and not "System.Text.Json.JsonElement"
         && (!surface.WireDirections.TryGetValue(
@@ -922,23 +981,8 @@ static class DtsEmitter
             string propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType ?? "unknown";
             string location = $"{record.Name}.{member.Name}";
             string tsType;
-            if (HasApprovedInertStringConverter(member))
-            {
-                tsType = propertyType.EndsWith(
-                    "?",
-                    StringComparison.Ordinal)
-                    || member.ReturnType?.EndsWith(
-                        "?",
-                        StringComparison.Ordinal) == true
-                    || member.SignatureModel?.CanonicalReturnType
-                        ?.EndsWith("?", StringComparison.Ordinal) == true
-                    || propertyType.Contains(
-                        "System.Nullable<",
-                        StringComparison.Ordinal)
-                    ? "string | null"
-                    : "string";
-            }
-            else if (member.JsonConverterAttributeCount > 0)
+            if (member.JsonConverterAttributeCount > 0
+                && !HasApprovedInertStringConverter(member))
             {
                 ReportUnsupportedJsonConverter(location, diagnostics);
                 tsType = "unknown";
@@ -1039,7 +1083,9 @@ static class DtsEmitter
                     validateName: !converterControlled);
                 ValidateWireMemberAttributes(
                     FormatMemberLocation(type, member),
-                    member);
+                    member,
+                    assemblyIdentity,
+                    declaredTypesByScopedIdentity);
             }
 
             foreach (FilteredJsonPropertyNameFact fact
@@ -1131,7 +1177,10 @@ static class DtsEmitter
     /// </remarks>
     static void ValidateWireMemberAttributes(
         string location,
-        ApiMember member)
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity)
     {
         if (member.JsonIgnoreConditions.Contains(null))
         {
@@ -1150,6 +1199,25 @@ static class DtsEmitter
             throw new UnsupportedWireContractException(
                 location,
                 "[JsonInclude] metadata could not be decoded");
+        }
+        if (JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Serialize,
+                assemblyIdentity,
+                declaredTypesByScopedIdentity)
+                == JsonWireMemberPresence.Unsupported
+            || JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Deserialize,
+                assemblyIdentity,
+                declaredTypesByScopedIdentity)
+                == JsonWireMemberPresence.Unsupported)
+        {
+            throw new UnsupportedWireContractException(
+                location,
+                "[JsonIgnore] condition is invalid for the member type, or "
+                + "the member type's null capability could not be "
+                + "authenticated");
         }
     }
 
@@ -1354,9 +1422,66 @@ static class DtsEmitter
 
     static bool HasApprovedInertStringConverter(ApiMember member) =>
         member.JsonConverterAttributeCount == 1
-        && (member.SignatureModel?.ReturnType ?? member.ReturnType)
-            ?.Contains("InertText.InertString", StringComparison.Ordinal)
-            == true;
+        && InertStringIdentities(member.SignatureModel?.ReturnTypeShape).Any();
+
+    static IEnumerable<ApiTypeReferenceIdentity> InertStringIdentities(
+        ApiTypeShape? type)
+    {
+        if (type is null)
+            yield break;
+
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(type);
+        while (pending.TryPop(out ApiTypeShape? current))
+        {
+            if (current.Definition is { } identity
+                && IsInertStringIdentity(identity))
+            {
+                yield return identity;
+            }
+            if (current.ElementType is { } element)
+                pending.Push(element);
+            foreach (ApiTypeShape argument in current.TypeArguments)
+                pending.Push(argument);
+        }
+    }
+
+    internal static ApiTypeReferenceIdentity? FindInertStringIdentity(
+        ILInspector.JsExportSurface.JsExportSurface surface)
+    {
+        ApiTypeReferenceIdentity[] identities =
+        [
+            .. surface.Records
+                .SelectMany(type =>
+                {
+                    JsonWireDirection directions =
+                        surface.WireDirections.GetValueOrDefault(
+                            type,
+                            JsonWireDirection.Both);
+                    return type.Members.Where(member =>
+                        JsonWireMemberRules.IsSerialized(
+                            member,
+                            directions));
+                })
+                .Where(HasApprovedInertStringConverter)
+                .SelectMany(member => InertStringIdentities(
+                    member.SignatureModel?.ReturnTypeShape))
+                .Distinct(),
+        ];
+        return identities.Length switch
+        {
+            0 => null,
+            1 => identities[0],
+            _ => throw new UnsupportedWireContractException(
+                TsTypeMapper.InertStringFullName,
+                "multiple inert-string assembly identities are unsupported"),
+        };
+    }
+
+    static bool IsInertStringIdentity(
+        ApiTypeReferenceIdentity identity) =>
+        identity.FullName == TsTypeMapper.InertStringFullName
+        && identity.Assembly.Name == "InertText";
 
     static bool HasUnsupportedRecordWireShape(
         ApiType type,

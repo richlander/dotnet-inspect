@@ -1013,18 +1013,23 @@ public sealed partial class ClassicInverseCoreTests
     {
         using RequestScope narrowed = OpenMutatedRequest(
             "TwoSequentialAwaits",
-            static execution => execution.Regions =
-            [
-                .. execution.Regions.Select(static region =>
-                    region.Kind == HandlerKind.Catch
-                        ? region with
-                        {
-                            CatchType = TypeRef.CoreLib(
-                                "System",
-                                "ArgumentException"),
-                        }
-                        : region),
-            ]);
+            static execution =>
+            {
+                execution.Regions =
+                [
+                    .. execution.Regions.Select(static region =>
+                        region.Kind == HandlerKind.Catch
+                            ? region with
+                            {
+                                CatchType = TypeRef.CoreLib(
+                                    "System",
+                                    "ArgumentException"),
+                            }
+                            : region),
+                ];
+                execution.ClearImportedExceptionFacts();
+                execution.IsMetadataBacked = false;
+            });
         var typeDecline = Assert.IsType<ClassicInverseDecision.Decline>(
             ClassicInverseCore.Decide(narrowed.Request));
         Assert.Equal(
@@ -1802,6 +1807,8 @@ public sealed partial class ClassicInverseCoreTests
             TryLength = region.TryLength - delta,
         };
         execution.Regions = [.. regions];
+        execution.ClearImportedExceptionFacts();
+        execution.IsMetadataBacked = false;
     }
 
     static void RetypeExecutionFieldAAsProbeAwaitable(IrFunction execution)
@@ -2898,6 +2905,7 @@ public sealed partial class ClassicInverseCoreTests
         MetadataMethodAddress? declaredMethod = null,
         MetadataMethodAddress? executionMethod = null,
         StateMachineRelationship? relationship = null,
+        IrFunction? executionBody = null,
         Action<IrFunction, ImmutableArray<IIrPass>>? runPasses = null)
         => new(
             declaredMethod ?? request.DeclaredMethod,
@@ -2905,7 +2913,7 @@ public sealed partial class ClassicInverseCoreTests
             relationship ?? request.Relationship,
             request.AcquisitionGuard,
             request.KickoffBody,
-            request.ExecutionBody,
+            executionBody ?? request.ExecutionBody,
             stateMachineLocal ?? request.StateMachineLocal,
             request.KickoffSourceOffset,
             executionImportOffsets ?? request.ExecutionImportOffsets,

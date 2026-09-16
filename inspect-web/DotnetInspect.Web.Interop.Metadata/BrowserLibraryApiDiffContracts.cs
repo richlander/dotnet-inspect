@@ -1,4 +1,6 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
@@ -20,7 +22,10 @@ public sealed record BrowserLibraryApiDiffResult(
     BrowserLibraryApiDiffFailureKind? FailureKind,
     string? Error,
     string? Diagnostic,
-    string? Reason);
+    string? Reason)
+{
+    public InspectionEnvelope<JsonElement>? Inspection { get; init; }
+}
 
 public sealed record BrowserLibraryApiDiffSucceeded(
     string LibraryIdentifier,
@@ -112,12 +117,29 @@ public sealed record BrowserLibraryApiDiffType(
     int AdditiveCount,
     int PotentiallyBreakingCount,
     BrowserLibraryApiDiffTypeIdentity? Before,
-    BrowserLibraryApiDiffTypeIdentity? After);
+    BrowserLibraryApiDiffTypeIdentity? After,
+    BrowserLibraryApiDiffMember[] Members);
 
 public sealed record BrowserLibraryApiDiffTypeIdentity(
     string Identifier,
     string Namespace,
     string[] Segments,
+    string Display);
+
+public sealed record BrowserLibraryApiDiffMember(
+    string DocumentIdentifier,
+    BrowserLibraryApiDiffMemberPairKind PairKind,
+    BrowserLibraryApiDiffMemberRelationRole Role,
+    BrowserLibraryApiDiffMemberIdentity? Before,
+    BrowserLibraryApiDiffMemberIdentity? After);
+
+public sealed record BrowserLibraryApiDiffMemberIdentity(
+    string DeclaringTypeIdentifier,
+    string StableSelector,
+    string CanonicalSignature,
+    string Fingerprint,
+    string TypeFullName,
+    string MemberName,
     string Display);
 
 public sealed record BrowserLibraryApiDiffCancellation(
@@ -180,6 +202,22 @@ public enum BrowserLibraryApiDiffTypeState
     Diff,
     Addition,
     Deletion,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffMemberPairKind>))]
+public enum BrowserLibraryApiDiffMemberPairKind
+{
+    Changed,
+    Added,
+    Removed,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffMemberRelationRole>))]
+public enum BrowserLibraryApiDiffMemberRelationRole
+{
+    Before,
+    After,
+    Both,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffSurfaceScope>))]

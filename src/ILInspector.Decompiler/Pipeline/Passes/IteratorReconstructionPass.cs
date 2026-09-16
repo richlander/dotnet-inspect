@@ -168,6 +168,7 @@ public sealed class IteratorReconstructionPass : IIrPass
         context.Stepper.StepOver(description, handoff);
 
         function.MergeTypeFactsFrom(work);
+        function.ClearImportedExceptionFacts();
         function.ResetLocals(
             work.Locals,
             work.LocalNames,

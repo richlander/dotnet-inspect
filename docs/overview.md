@@ -342,6 +342,12 @@ substrates, and inspection producers that will extend that space.
   and direct-library adapters bind resource-free source evidence to exact
   Library content references; Metadata, CSharpText, SourceHouse, Library
   ownership, and host presentation retain their focused authority.
+- `src/DotnetInspector.LibraryMetadata/` owns
+  [Library-Metadata correspondence](design/library-metadata-correspondence.md):
+  bounded Metadata extraction inside one exact Library API-content snapshot
+  and resource-free correspondence between the resulting `ApiSurface` and
+  that exact realized content. It composes Library borrowing and Metadata
+  extraction without redefining either.
 - The target
   [Library Ownership and Borrowing](design/library-ownership-and-borrowing.md)
   owner defines the shared lifetime seam beneath those Houses: one
@@ -383,7 +389,12 @@ substrates, and inspection producers that will extend that space.
   evaluation](design/package-query-assembly-evaluation.md) owner defines
   bounded one-candidate primary-assembly evaluation and resource-free
   package-plus-selected-asset semantic evidence without realizing unrelated
-  package assemblies. Its target
+  package assemblies. Its
+  [Package version-cell Metadata
+  inspection](design/package-version-cell-metadata-inspection.md) owner
+  composes one reporter-bound PackageHouse cell through a bounded ephemeral
+  Workspace and the existing Metadata image query, returning only detached
+  evidence after close. Its target
   [Find assembly-semantic query](design/find-assembly-semantic-query.md) owner
   composes one finite host-authorized exact-package population with that
   evaluator into ordered body-occurrence matches, per-candidate outcomes, and
@@ -508,6 +519,12 @@ substrates, and inspection producers that will extend that space.
   destinations, host-local Platform Libraries, and uncovered packages that
   require a fresh curated Workspace. It consumes Scope, registration,
   Navigation, Platform, source, and host-publication outcomes without
+  redefining them.
+- [Inspect Web Type Find](design/inspect-web-type-find.md) owns the
+  Browser-specific active-Workspace Type discovery operation, typed candidate
+  presentation, and exact candidate-to-activation association. It consumes the
+  resident reverse locator, shared visibility and Sections projection,
+  Spotlight destination activation, and Navigation authority without
   redefining them.
 - [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
   session-local Package Diff baseline, inheritance during subject navigation,

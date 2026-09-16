@@ -235,6 +235,20 @@ public sealed record MemberRef(
     public ImmutableArray<TypeRef> OpenSignatureParameters
         => OpenParameterTypes.IsDefaultOrEmpty ? ParameterTypes : OpenParameterTypes;
 
+    internal ImmutableArray<TypeRef> RequiredParameterPrefix(
+        ImmutableArray<TypeRef> parameters)
+    {
+        const byte CallingConventionMask = 0x0F;
+        const byte VarargCallingConvention = 0x05;
+
+        return (SignatureHeader & CallingConventionMask)
+                    == VarargCallingConvention
+                && RequiredParameterCount >= 0
+                && RequiredParameterCount <= parameters.Length
+            ? parameters[..RequiredParameterCount]
+            : parameters;
+    }
+
     /// <summary>
     /// The return type with generic markers preserved (before instantiation), for the
     /// same cross-assembly keying reason as <see cref="OpenParameterTypes"/> (#1741).

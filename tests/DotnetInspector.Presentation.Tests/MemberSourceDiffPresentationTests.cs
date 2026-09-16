@@ -8,6 +8,7 @@ using ILInspector.Decompiler;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.SourceLink;
 
 namespace DotnetInspector.Presentation.Tests;
 
@@ -244,8 +245,10 @@ public class MemberSourceDiffPresentationTests
         var incomplete = comparison with
         {
             Decompiled = new AssemblyMemberDecompiledSourceAttempt.Unavailable(
-                MemberBodyProductionStatus.Failed,
-                "failure")
+                new CSharpDecompilationAttempt(
+                    CSharpDecompilationStatus.Failed,
+                    DecompilerResult.Failure("TEST_FAILURE", "failure"),
+                    [], [], false, DecompilerSymbolSource.None, 0))
         };
 
         Assert.IsType<MemberSourceDiffPresentationResult.Unavailable>(
@@ -296,10 +299,10 @@ public class MemberSourceDiffPresentationTests
                     "https://example.test/repo",
                     "revision")),
             new AssemblyMemberDecompiledSourceAttempt.Available(
-                new MemberRenderResult(
-                    MemberBodyProductionStatus.Complete,
-                    after,
-                    [])));
+                new CSharpDecompilationAttempt(
+                    CSharpDecompilationStatus.Available,
+                    DecompilerResult.Success(after),
+                    [], [], false, DecompilerSymbolSource.None, 0)));
     }
 
     static MemberSourceDiffStatistics Statistics(

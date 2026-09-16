@@ -34,26 +34,6 @@ public class FindCommand
             // Discovery mode: -D/--discover lists schema
             if (options.Discover != null)
             {
-                if (options.Literal is not null)
-                {
-                    return DiscoverOutput.Execute(
-                        options.Discover,
-                        PackageAssemblyQuerySections.CreateSchema(),
-                        DiscoveryOutputRequest.Create(
-                            options.JsonOutput ? OutputFormat.Json
-                                : options.Jsonl ? OutputFormat.Jsonl
-                                : options.Tsv ? OutputFormat.Tsv
-                                : options.Tabular ? OutputFormat.Table
-                                : OutputFormat.Markdown,
-                            options.Tree,
-                            options.Tabular,
-                            options.NoHeader,
-                            (int)options.Verbosity,
-                            options),
-                        semanticRowSelection: options.RowSelection,
-                        semanticSelectionName: "Find");
-                }
-
                 var schema = options.Members
                     ? new DocumentSchema()
                         .Add("Members", "column", "Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source")
@@ -73,14 +53,6 @@ public class FindCommand
                         options),
                     semanticRowSelection: options.RowSelection,
                     semanticSelectionName: "Find");
-            }
-
-            if (options.Literal is not null)
-            {
-                return await ExecuteAssemblyLiteralQueryAsync(
-                    options,
-                    context,
-                    cancellationToken);
             }
 
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -154,7 +126,7 @@ public class FindCommand
             {
                 // --fields/--columns name post-lowering vocabulary (computed table columns), so
                 // naming one opts into the lowered display view; plain --json keeps the typed
-                // result document (#3494). This combination used to fail closed (#3386) only
+                // root result array (#3494). This combination used to fail closed (#3386) only
                 // because the lowered JSON view did not exist yet.
                 if (IsColumnProjectionRequested(options))
                 {
@@ -197,252 +169,6 @@ public class FindCommand
                 ? "pattern matched"
                 : "patterns matched")
             + " no types.");
-    }
-
-    /// <summary>
-    /// Runs the decoded-literal Package Query over an explicit, finite package
-    /// selection and renders the shared evaluator's own outcomes.
-    /// </summary>
-    /// <remarks>
-    /// The route is deliberately narrow: it acquires only the exact
-    /// ID@VERSION candidates named on the command line, evaluates the
-    /// selector-issued primary implementation assembly of each, and never
-    /// falls back to the type-search scopes. Candidates are disposable — the
-    /// shared pipeline keeps no long-lived package cache for them — so the
-    /// only durable result a host may act on is the owner-issued Root
-    /// reopening token each evaluated candidate carries.
-    /// </remarks>
-    private static async Task<int> ExecuteAssemblyLiteralQueryAsync(
-        FindOptions options,
-        CommandContext context,
-        CancellationToken cancellationToken)
-    {
-        if (options.Pattern.Length > 0
-            || options.Assemblies.Length > 0
-            || options.PlatformAssemblies.Length > 0
-            || options.PlatformFrameworks.Length > 0
-            || options.Projects.Length > 0
-            || options.BinPaths.Length > 0
-            || options.PackagePrefixSpecified
-            || options.PackagePrefix is not null
-            || options.Members
-            || options.IncludeAll
-            || options.TypeFilter is not null)
-        {
-            CommandError.Write(
-                "--literal searches only explicit ID@VERSION packages; "
-                + "it cannot be combined with a type pattern, API search scopes, "
-                + "--package-prefix, --members, --all, or --type.");
-            return 1;
-        }
-
-        if (options.SourceOptions is { } sourceOptions
-            && (sourceOptions.Sources.Length > 0
-                || sourceOptions.AdditionalSources.Length > 0
-                || sourceOptions.ConfigFile is not null))
-        {
-            CommandError.Write(
-                "Literal package queries currently use the NuGet Gallery source and cannot be combined with source overrides.");
-            return 1;
-        }
-
-        if (string.IsNullOrWhiteSpace(options.Tfm))
-        {
-            CommandError.Write(PackageAssemblyQueryDiagnostics.MissingTargetFramework);
-            return 1;
-        }
-
-        PackageAssemblyQueryPlan plan;
-        try
-        {
-            plan = PackageAssemblyQuery.Plan(
-                PackageAssemblyPatterns.StringLiteralContains,
-                options.Literal!,
-                options.Packages,
-                options.Tfm);
-        }
-        catch (ArgumentException ex)
-        {
-            CommandError.Write(PackageAssemblyQueryDiagnostics.Describe(ex));
-            return 1;
-        }
-
-        await using var payloadProvider =
-            new ConfiguredPackageRootPayloadProvider(
-                context.HttpClient.Timeout,
-                new NuGetSourceOptions
-                {
-                    Sources = [PackageSource.NuGetOrg.Url],
-                });
-
-        var events = new List<PackageAssemblyQueryEvent>();
-        try
-        {
-            await foreach (PackageAssemblyQueryEvent queryEvent
-                in PackageAssemblyQuery.ExecuteAsync(
-                        payloadProvider,
-                        plan,
-                        cancellationToken)
-                    .ConfigureAwait(false))
-            {
-                if (queryEvent is PackageAssemblyQueryEvent.Progress progress)
-                {
-                    context.Logger.Log(
-                        $"Evaluated {progress.CompletedCandidates} of {progress.Limit} package candidates");
-                    continue;
-                }
-
-                events.Add(queryEvent);
-            }
-        }
-        catch (Exception ex)
-            when (PackageAssemblyEvaluationExceptionEvidence.TryGetCleanup(
-                ex,
-                out PackageAssemblyEvaluationCleanupEvidence? cleanup))
-        {
-            // Cleanup evidence rides on the propagated exception, so reporting
-            // only the primary message would silently drop it.
-            CommandError.Write(
-                ex.Message,
-                [
-                    "Candidate cleanup was incomplete: "
-                    + PackageAssemblyQuerySections.DescribeCleanup(cleanup),
-                ]);
-            return 1;
-        }
-
-        PackageAssemblyQueryView view =
-            PackageAssemblyQuerySections.CreateDocument(plan, events);
-        PackageAssemblyLiteralUseRow[] matchRows =
-            [.. view.Matches ?? []];
-        if (!TrySelectRows(
-                options.RowSelection,
-                matchRows,
-                "literal-use",
-                out IReadOnlyList<PackageAssemblyLiteralUseRow>
-                    selectedMatchRows))
-        {
-            view = PackageAssemblyQuerySections.WithSelectedMatches(
-                plan,
-                view,
-                []);
-            WriteAssemblyQueryOutput(
-                view,
-                options with { Count = false });
-            WriteAssemblyQueryDiagnostics(events);
-            return 1;
-        }
-        view = PackageAssemblyQuerySections.WithSelectedMatches(
-            plan,
-            view,
-            selectedMatchRows);
-        WriteAssemblyQueryOutput(view, options);
-
-        WriteAssemblyQueryDiagnostics(events);
-
-        return view.FailureCount == 0 ? 0 : 1;
-    }
-
-    private static void WriteAssemblyQueryDiagnostics(
-        IReadOnlyList<PackageAssemblyQueryEvent> events)
-    {
-        foreach (PackageAssemblyQueryEvent.AcquisitionFailed failed
-            in events.OfType<PackageAssemblyQueryEvent.AcquisitionFailed>())
-        {
-            CommandError.WriteWarning(
-                $"{failed.Value.Coordinate.PackageId}@{failed.Value.Coordinate.Version}: "
-                + failed.Value.Message);
-        }
-    }
-
-    internal static void WriteAssemblyQueryOutput(
-        PackageAssemblyQueryView view,
-        FindOptions options)
-    {
-        if (options.Count)
-        {
-            if (view.FailureCount > 0)
-            {
-                throw new InvalidOperationException(
-                    "Cannot count decoded literal uses because one or more package candidates failed; omit --count to inspect candidate outcomes.");
-            }
-
-            if (!CountOutput.TryWriteProjected(
-                    view,
-                    SearchViewContext.Default,
-                    PackageAssemblyQuerySections.Matches,
-                    options.Columns,
-                    options.Fields,
-                    rows: null))
-            {
-                throw new InvalidOperationException(
-                    "The literal Package Query count projection was rejected.");
-            }
-        }
-        else if (options.JsonOutput)
-        {
-            OutputFormatter.WriteProjectedJson(
-                Console.Out,
-                options.Columns,
-                options.Fields,
-                (writer, formatter, writerOptions) =>
-                    MarkoutSerializer.Serialize(
-                        view,
-                        writer,
-                        formatter,
-                        SearchViewContext.Default,
-                        ConfigureAssemblyQueryWriterOptions(options.Verbosity, writerOptions)),
-                !options.CompactJson,
-                maxRows: null);
-        }
-        else if (options.Tabular)
-        {
-            OutputFormatter.WriteProjectedTable(
-                Console.Out,
-                !options.NoHeader,
-                options.Tsv,
-                options.Jsonl,
-                options.Columns,
-                options.Fields,
-                (writer, formatter, writerOptions) =>
-                    MarkoutSerializer.Serialize(
-                        view,
-                        writer,
-                        formatter,
-                        SearchViewContext.Default,
-                        ConfigureAssemblyQueryWriterOptions(options.Verbosity, writerOptions)),
-                maxRows: null);
-        }
-        else
-        {
-            OutputFormatter.WriteWindowedMarkdown(
-                Console.Out,
-                rows: null,
-                writerOptions => MarkoutSerializer.Serialize(
-                    view,
-                    SearchViewContext.Default,
-                    ConfigureAssemblyQueryWriterOptions(options.Verbosity, writerOptions)),
-                options.Columns,
-                options.Fields);
-        }
-    }
-
-    static MarkoutWriterOptions ConfigureAssemblyQueryWriterOptions(
-        Verbosity verbosity,
-        MarkoutWriterOptions writerOptions)
-    {
-        writerOptions.IncludeSections = verbosity switch
-        {
-            Verbosity.Quiet => [],
-            Verbosity.Minimal => [PackageAssemblyQuerySections.Candidates],
-            _ => null,
-        };
-        writerOptions.SectionOrder =
-        [
-            PackageAssemblyQuerySections.Matches,
-            PackageAssemblyQuerySections.Candidates
-        ];
-        return writerOptions;
     }
 
     private static async Task<int> ExecuteMemberSearchAsync(
@@ -710,4 +436,7 @@ public record class TypeSearchResult
 
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; set; }
+
+    [JsonIgnore]
+    public TypeDeclarationLocatorSectionCandidate? Location { get; set; }
 }
