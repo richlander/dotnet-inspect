@@ -656,10 +656,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         "Exact")]
     [InlineData(
         "DotnetInspect.Cli.Tests.NullablePatternTargat<string?>",
-        "Partial")]
-    public async Task Find_LocatorNullableGenericPatternUsesNormalizedGlobClassification(
+        null)]
+    public async Task Find_NullableGenericPatternPreservesCompatibilityAcrossLocatorRoutes(
         string pattern,
-        string expectedMatch)
+        string? expectedMatch)
     {
         string id =
             $"Workspace.Search.Nullable.{Guid.NewGuid():N}";
@@ -673,7 +673,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             libraryName: "NullablePattern.dll");
         ConfigureCommandFeed(id, package);
 
-        var result = await RunCommandAsync(
+        foreach (bool forceCompatibility in new[] { false, true })
+        {
+            List<string> arguments =
             [
                 "find", pattern,
                 "--package", $"{id}@{Version}",
@@ -681,26 +683,41 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source", FirstFeed,
                 "--json",
                 "--tips", "q",
-            ]);
+            ];
+            if (forceCompatibility)
+            {
+                arguments.Add("--library");
+                arguments.Add(
+                    typeof(System.Text.Json.JsonSerializer).Assembly.Location);
+            }
 
-        Assert.Equal(0, result.Exit);
-        using System.Text.Json.JsonDocument document =
-            System.Text.Json.JsonDocument.Parse(result.Output);
-        System.Text.Json.JsonElement row =
-            Assert.Single(
-                document.RootElement.EnumerateArray(),
-                row =>
-                    row.GetProperty("full_name").GetString()
-                    == typeof(NullablePatternTarget<>).FullName);
-        Assert.Equal(
-            pattern,
-            row.GetProperty("pattern").GetString());
-        Assert.Equal(
-            expectedMatch,
-            row.GetProperty("match").GetString());
-        Assert.Equal(
-            typeof(NullablePatternTarget<>).FullName,
-            row.GetProperty("full_name").GetString());
+            var result = await RunCommandAsync([.. arguments]);
+
+            Assert.Equal(0, result.Exit);
+            using System.Text.Json.JsonDocument document =
+                System.Text.Json.JsonDocument.Parse(result.Output);
+            if (expectedMatch is null)
+            {
+                Assert.Empty(document.RootElement.EnumerateArray());
+                continue;
+            }
+
+            System.Text.Json.JsonElement row =
+                Assert.Single(
+                    document.RootElement.EnumerateArray(),
+                    row =>
+                        row.GetProperty("full_name").GetString()
+                        == typeof(NullablePatternTarget<>).FullName);
+            Assert.Equal(
+                pattern,
+                row.GetProperty("pattern").GetString());
+            Assert.Equal(
+                expectedMatch,
+                row.GetProperty("match").GetString());
+            Assert.Equal(
+                typeof(NullablePatternTarget<>).FullName,
+                row.GetProperty("full_name").GetString());
+        }
     }
 
     [Fact]

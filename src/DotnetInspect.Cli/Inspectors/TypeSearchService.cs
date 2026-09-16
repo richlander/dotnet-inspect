@@ -250,7 +250,7 @@ internal static class TypeSearchService
         bool needsCensus =
             misses.Any(
                 miss =>
-                    !TypeMatcher.IsTypeGlobPattern(miss.Pattern)
+                    IsCompatibilityFallbackEligible(miss.Pattern)
                     && (!LooksLikeNamespacePrefix(miss.Pattern)
                         || !prefixes.TryGetValue(
                             $"{miss.Pattern}*",
@@ -314,7 +314,7 @@ internal static class TypeSearchService
                 continue;
             }
 
-            if (!TypeMatcher.IsTypeGlobPattern(pattern))
+            if (IsCompatibilityFallbackEligible(pattern))
             {
                 var suggestions =
                     TypeMatcher.FindClosest(
@@ -356,7 +356,7 @@ internal static class TypeSearchService
                 || prefixCompletion.GetValueOrDefault(
                     $"{pattern}*");
             bool patternNeedsCensus =
-                !TypeMatcher.IsTypeGlobPattern(pattern)
+                IsCompatibilityFallbackEligible(pattern)
                 && (!LooksLikeNamespacePrefix(pattern)
                     || !prefixes.TryGetValue(
                         $"{pattern}*",
@@ -814,8 +814,11 @@ internal static class TypeSearchService
     private static bool LooksLikeNamespacePrefix(string pattern)
         => pattern.Contains('.') && !pattern.Contains('<') && !pattern.Contains('`');
 
+    private static bool IsCompatibilityFallbackEligible(string pattern)
+        => !pattern.Contains('*') && !pattern.Contains('?');
+
     private static bool IsPrefixFallbackEligible(string pattern)
-        => !TypeMatcher.IsTypeGlobPattern(pattern)
+        => IsCompatibilityFallbackEligible(pattern)
             && LooksLikeNamespacePrefix(pattern);
 
     /// <summary>

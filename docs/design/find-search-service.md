@@ -301,8 +301,12 @@ contributes results:
    visible on stderr, the effective wildcard is carried in `Pattern`, and the
    results are classified as `Glob`. Duplicate full names collapse to the
    first source-ranked candidate.
-3. **Similarity fallback.** A non-wildcard pattern with no direct or prefix
-   result may produce up to five `Partial` suggestions. `TypeMatcher` compares
+3. **Similarity fallback.** A pattern containing neither raw `*` nor raw `?`
+   with no direct or prefix result may produce up to five `Partial`
+   suggestions. This compatibility fallback gate is intentionally distinct
+   from direct classification: `?` inside explicit generic arguments is
+   nullable syntax for a direct match, but an unmatched pattern containing it
+   retains the established no-fallback result. `TypeMatcher` compares
    normalized simple base names, requires similarity of at least `0.5`, and
    supplies the score carried by `Similarity`. The candidate census returns to
    caller source and declaration inventory order before distinct names enter
