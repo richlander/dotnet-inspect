@@ -25,6 +25,7 @@ T:ILInspector.Metadata.TypeResolutionContext;Type-resolution inspection belongs 
 T:ILInspector.Metadata.TypeResolutionEnumWidth;Enum-width resolution enters TypeResolutionContext and belongs to product queries, not the browser host.
 T:ILInspector.Metadata.SignatureSpellability;Signature inspection and its transitive assembly opens belong to product queries, not the browser host.
 T:ILInspector.Decompiler.MemberBodyProducer;Member-body projection opens descriptors transitively and belongs to product queries, not the browser host.
+T:ILInspector.Decompiler.CSharpDecompilerService;C# production opens caller-selected descriptors and belongs inside the shared source query, not the browser host.
 T:ILInspector.Decompiler.Pipeline.MetadataSource;Research projections open their own source inside DotnetInspector.ResearchQueries.
 T:ILInspector.SourceLink.SourceLinkService;SourceLink and PDB inspection open descriptors transitively and belong to product queries, not the browser host.
 T:ILInspector.SourceLink.SourceLinkInspector;Path-based SourceLink inspection belongs to product queries, not the browser host.
