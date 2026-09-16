@@ -3409,7 +3409,10 @@ test("Workspace Platform presentation follows provenance rather than the active 
     /state\.rootKind !== "platform"\s*\|\|\s*platformIsPresentedAsRoot\(\)/);
   assert.match(
     workspace,
-    /const presentPlatform = platformIsPresentedAsRoot\(\);[\s\S]*runtimePackageForTarget\(state\.platformSelection\)[\s\S]*resolvePackageLibrary\([\s\S]*frameworkPackage\.assemblyId[\s\S]*platform: presentPlatform \? state\.platformSelection : null[\s\S]*frameworkLibraries: frameworkLibrary/);
+    /const presentPlatform = platformIsPresentedAsRoot\(\);[\s\S]*runtimePackageForTarget\(state\.platformSelection\)[\s\S]*resolvePackageLibrary\([\s\S]*frameworkPackage\.assemblyId[\s\S]*platform: presentPlatform \? state\.platformSelection : null[\s\S]*frameworkLibraries: frameworkLibrary[\s\S]*assembly: frameworkLibrary\.name[\s\S]*pack: frameworkLibrary\.platformPack/);
+  assert.match(
+    appSource,
+    /onFrameworkLibrary: \(assembly, pack, tfm, version\) =>[\s\S]*openPlatformLibrary\(assembly, pack, \{[\s\S]*deferPlatformPresentation: true,[\s\S]*inPlace: true,[\s\S]*tfm,[\s\S]*version/);
 });
 
 test("Spotlight keeps loaded framework Library navigation in place", () => {

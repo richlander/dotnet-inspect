@@ -2628,6 +2628,10 @@ test("a direct Spotlight framework Library remains a Library after package activ
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
   await expect(page.locator("[data-workspace-framework-library]"))
     .toContainText("System.Text.Json");
+  await page.locator("[data-workspace-framework-library]").click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).not.toContainText("Second.Package");
 });
 
 test("Platform Library parent, history and refresh retain the exact target without choosing a Type", async ({ page }) => {

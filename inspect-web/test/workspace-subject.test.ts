@@ -146,6 +146,8 @@ test("Workspace details render framework Libraries without a Platform component"
     }],
     frameworkLibraries: [{
       name: "System.Text.Json",
+      assembly: "System.Text.Json",
+      pack: "netcore.app",
       version: "11.0.0",
       framework: "net11.0",
       source: ".NET",
@@ -156,7 +158,9 @@ test("Workspace details render framework Libraries without a Platform component"
   });
 
   assert.match(html, /1 loaded coordinate/);
-  assert.match(html, /data-workspace-framework-library[\s\S]*System\.Text\.Json/);
+  assert.match(
+    html,
+    /data-workspace-framework-library="System\.Text\.Json"[\s\S]*data-workspace-framework-pack="netcore\.app"[\s\S]*data-workspace-framework="net11\.0"[\s\S]*data-workspace-framework-version="11\.0\.0"/);
   assert.doesNotMatch(html, /data-workspace-platform|\.NET Platform/);
 });
 
@@ -229,6 +233,12 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
       listeners.set(`add:${name}`, listener),
   };
   const frameworkLibrary = {
+    dataset: {
+      workspaceFrameworkLibrary: "System.Text.Json",
+      workspaceFrameworkPack: "netcore.app",
+      workspaceFramework: "net11.0",
+      workspaceFrameworkVersion: "11.0.0",
+    },
     addEventListener: (name: string, listener: EventListener) =>
       listeners.set(`framework-library:${name}`, listener),
   };
@@ -267,7 +277,9 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
         calls.push("retry");
       },
       onAddPackage: () => { calls.push("add"); },
-      onFrameworkLibrary: () => { calls.push("framework-library"); },
+      onFrameworkLibrary: (assembly, pack, framework, version) => {
+        calls.push(`framework-library:${assembly}:${pack}:${framework}:${version}`);
+      },
     });
 
   listeners.get("select:click")?.(fakeDom.event());
@@ -287,7 +299,7 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
     "demo:stj-serializer",
     "retry",
     "add",
-    "framework-library",
+    "framework-library:System.Text.Json:netcore.app:net11.0:11.0.0",
   ]);
 });
 

@@ -5621,6 +5621,8 @@ function renderWorkspaceView() {
     platform: presentPlatform ? state.platformSelection : null,
     frameworkLibraries: frameworkLibrary ? [{
       name: frameworkLibrary.name,
+      assembly: frameworkLibrary.name,
+      pack: frameworkLibrary.platformPack ?? "",
       version: frameworkPackage?.version ?? "",
       framework: frameworkPackage?.activeFramework ?? "",
       source: frameworkLibrary.platformPack === "aspnetcore.app"
@@ -8443,12 +8445,15 @@ function bindWorkspaceSubjectEvents() {
     onRemove: removeWorkspacePackageRow,
     onAddPackage: openWorkspacePackagePicker,
     onPlatform: showPlatformRoot,
-    onFrameworkLibrary: () => {
-      state.workspaceSubjectOpen = false;
-      state.atPackageRoot = false;
-      state.atLibraryRoot = true;
-      render();
-    },
+    onFrameworkLibrary: (assembly, pack, tfm, version) =>
+      observeAsync(
+        openPlatformLibrary(assembly, pack, {
+          deferPlatformPresentation: true,
+          inPlace: true,
+          tfm,
+          version,
+        }),
+        "Opening a framework Library"),
   });
 }
 
