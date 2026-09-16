@@ -20352,6 +20352,56 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Find_LocatorCollidingEffectivePatternsReplaceEarlierGroup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.Nodes,System.Text.Json.Nodes*,JsonSerializer",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--tips",
+            "q",
+            "-n",
+            "8");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Showing prefix matches",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(
+            [
+                "System.Text.Json.Nodes.JsonArray",
+                "System.Text.Json.Nodes.JsonNode",
+                "System.Text.Json.Nodes.JsonNodeOptions",
+                "System.Text.Json.Nodes.JsonObject",
+                "System.Text.Json.Nodes.JsonValue",
+                "System.Text.Json.JsonSerializer",
+            ],
+            rows
+                .Select(
+                    static row =>
+                        row.GetProperty("full_name").GetString()!)
+                .ToArray());
+        Assert.All(
+            rows[..5],
+            static row =>
+                Assert.Equal(
+                    "System.Text.Json.Nodes*",
+                    row.GetProperty("pattern").GetString()));
+        Assert.Equal(
+            "JsonSerializer",
+            rows[^1].GetProperty("pattern").GetString());
+    }
+
+    [Fact]
     public async Task Find_IncompleteLocatorMarkdownPreservesResultsView()
     {
         var (exit, output, error) = await RunAppAsync(

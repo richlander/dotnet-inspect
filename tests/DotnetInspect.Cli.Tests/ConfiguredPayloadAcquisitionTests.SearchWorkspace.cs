@@ -557,6 +557,43 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         }
     }
 
+    [Fact]
+    public async Task Find_LocatorUsesSelectedAssetFileNameForLibrary()
+    {
+        string id =
+            $"Workspace.Search.AssetName.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "renamed locator assembly",
+            library: assembly,
+            libraryName: "Renamed.dll");
+        ConfigureCommandFeed(id, package);
+
+        var result = await RunCommandAsync(
+            [
+                "find",
+                typeof(ConfiguredPayloadAcquisitionTests).FullName!,
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Equal("", result.Error);
+        using System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        System.Text.Json.JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            "Renamed",
+            row.GetProperty("library").GetString());
+    }
+
     [Theory]
     [InlineData(
         "DotnetInspect.Cli.Tests.NullablePatternTarget<string?>",

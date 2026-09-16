@@ -212,9 +212,6 @@ internal static class TypeSearchService
             primaryResults[index] = classified;
         }
 
-        if (misses.Count == 0)
-            return [.. primaryResults.SelectMany(static rows => rows!)];
-
         var prefixRequests =
             misses
                 .Where(static miss =>
@@ -381,11 +378,21 @@ internal static class TypeSearchService
             }
         }
 
+        var primaryResultsByEffectivePattern =
+            new Dictionary<string, List<TypeFindResult>>(
+                StringComparer.Ordinal);
+        foreach (List<TypeFindResult>? rows in primaryResults)
+        {
+            if (rows is null || rows.Count == 0)
+                continue;
+
+            primaryResultsByEffectivePattern[rows[0].Pattern] = rows;
+        }
+
         return
         [
-            .. primaryResults
-                .Where(static rows => rows is not null)
-                .SelectMany(static rows => rows!),
+            .. primaryResultsByEffectivePattern.Values.SelectMany(
+                static rows => rows),
             .. deferredResults,
         ];
     }
@@ -518,8 +525,16 @@ internal static class TypeSearchService
                     Kind = !includeAll && attributes is null
                         ? ""
                         : DisplayTypeKind(definitionKind),
-                    Assembly =
-                        candidate.Observation.AssemblyIdentity.Name,
+                    Assembly = candidate.Observation.Selection switch
+                    {
+                        TypeDeclarationLocatorSelection.PackageSelection
+                            {
+                                AssetPath: { Length: > 0 } assetPath,
+                            } =>
+                            Path.GetFileNameWithoutExtension(assetPath),
+                        _ =>
+                            candidate.Observation.AssemblyIdentity.Name,
+                    },
                     Source = source,
                     SourceVersion = version,
                     Location = candidate,

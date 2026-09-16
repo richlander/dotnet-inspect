@@ -265,9 +265,11 @@ Unsupported source shapes retain an ephemeral
 inventory query, and the service projects its type name, namespace, full name,
 kind, library file base name, source, and source version into the internal
 `TypeSearchResult` currency. The library value on this route is path
-provenance, not metadata assembly identity. Neither route reopens assemblies,
-infers metadata facts from display text, or replaces a typed query failure with
-a candidate.
+provenance, not metadata assembly identity. Locator-backed Package rows derive
+the same published value from the retained selected implementation asset path;
+the attached observation keeps metadata assembly identity separate. Neither
+route reopens assemblies, infers metadata facts from display text, or replaces
+a typed query failure with a candidate.
 
 A non-null collection pattern may be pushed into each inventory scan. With a
 non-tabular single pattern and an active result limit, `FindTypesAsync` selects
@@ -318,6 +320,10 @@ score; `NotFound` carries no score. Multiple patterns classify independently,
 so one candidate may legitimately appear under more than one pattern. Their
 direct or namespace-prefix groups remain in input-pattern order; similarity
 groups and misses follow those primary groups in their own input-pattern order.
+When distinct inputs resolve to the same effective direct or prefix pattern,
+the later group's rows replace the earlier group's rows without changing that
+effective pattern's first insertion position, matching the established
+classification map.
 
 The row list does not otherwise promise a global presentation order. Direct
 and namespace-prefix matches preserve source and inventory order, but consumers
