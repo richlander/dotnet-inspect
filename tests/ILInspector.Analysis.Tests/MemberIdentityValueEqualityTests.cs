@@ -423,6 +423,69 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void
+        MethodDefinitionMap_ConstructedGenericVarargFallbackUsesRequiredPrefix()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Box`1");
+        TypeRef closedOwner =
+            TypeRef.GenericInstance(
+                owner,
+                [TypeRef.CoreLib("System", "Int32")]);
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Route",
+            [TypeRef.GenericParameter(0, "T")],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true)
+        {
+            SignatureHeader = 0x05,
+            RequiredParameterCount = 1,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                closedOwner,
+                "Route",
+                [
+                    TypeRef.CoreLib("System", "Int32"),
+                    TypeRef.CoreLib("System", "String"),
+                ],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method)
+            {
+                SignatureHeader = 0x05,
+                RequiredParameterCount = 1,
+                OpenParameterTypes =
+                [
+                    TypeRef.GenericParameter(0, "T"),
+                    TypeRef.CoreLib("System", "String"),
+                ],
+            },
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            target.MetadataToken,
+            MethodDefinitionMap.Create([target, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
     public void MemberPattern_ConversionReturnUsesExactRetainedIdentity()
     {
         TypeRef owner =

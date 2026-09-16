@@ -43,11 +43,14 @@ internal sealed class MethodDefinitionMap
             return call.CalleeDefinitionToken;
         if (call.Callee.Kind == MemberKind.Unsupported)
             return 0;
+        ImmutableArray<TypeRef> requiredParameters =
+            call.Callee.RequiredParameterPrefix(
+                call.Callee.OpenSignatureParameters);
         string key = Key(
             call.Callee.DeclaringType,
             call.Callee.Name,
             call.Callee.GenericArity,
-            call.Callee.OpenSignatureParameters);
+            requiredParameters);
         if (_methodsByKey.TryGetValue(key, out var candidates))
         {
             int resolvedToken = 0;
@@ -96,20 +99,21 @@ internal sealed class MethodDefinitionMap
         MethodIdentity candidate,
         MemberRef callee)
     {
+        ImmutableArray<TypeRef> requiredParameters =
+            callee.RequiredParameterPrefix(
+                callee.OpenSignatureParameters);
         if (!MethodShapeMatches(candidate, callee)
             || candidate.ParameterTypes.Length
-                != callee.OpenSignatureParameters.Length)
+                != requiredParameters.Length)
         {
             return false;
         }
 
-        for (int i = 0;
-            i < callee.OpenSignatureParameters.Length;
-            i++)
+        for (int i = 0; i < requiredParameters.Length; i++)
         {
             if (!TypeRef.ExactSignatureEquals(
                     candidate.ParameterTypes[i],
-                    callee.OpenSignatureParameters[i]))
+                    requiredParameters[i]))
             {
                 return false;
             }
@@ -124,20 +128,23 @@ internal sealed class MethodDefinitionMap
         ImmutableArray<TypeRef> typeArguments,
         MemberRef callee)
     {
+        ImmutableArray<TypeRef> requiredParameters =
+            callee.RequiredParameterPrefix(
+                callee.ParameterTypes);
         if (!MethodShapeMatches(candidate, callee)
             || candidate.ParameterTypes.Length
-                != callee.ParameterTypes.Length)
+                != requiredParameters.Length)
         {
             return false;
         }
 
-        for (int i = 0; i < callee.ParameterTypes.Length; i++)
+        for (int i = 0; i < requiredParameters.Length; i++)
         {
             if (!TypeRef.ExactSignatureEquals(
                     candidate.ParameterTypes[i].Instantiate(
                         typeArguments,
                         callee.TypeArguments),
-                    callee.ParameterTypes[i]))
+                    requiredParameters[i]))
             {
                 return false;
             }

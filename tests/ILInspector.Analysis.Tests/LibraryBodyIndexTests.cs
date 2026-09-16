@@ -12124,6 +12124,155 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OverloadRelationships_LocalVarargMemberReferenceUsesRequiredPrefix()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "VarargOverloads.dll",
+                EmitVarargOverloadAssembly(),
+                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+        OverloadCallRelationship relationship =
+            Assert.Single(index.OverloadRelationships());
+        Assert.Equal(0x06000002, relationship.Caller.MetadataToken);
+        Assert.Equal(0x06000001, relationship.Callee.MetadataToken);
+
+        MethodImplementationProfile target =
+            Assert.Single(
+                index.ImplementationProfiles(),
+                profile =>
+                    profile.Method.MetadataToken == 0x06000001);
+        MethodImplementationProfile caller =
+            Assert.Single(
+                index.ImplementationProfiles(),
+                profile =>
+                    profile.Method.MetadataToken == 0x06000002);
+        Assert.Equal(1, target.IncomingOverloadCallerCount);
+        Assert.Equal(1, caller.OutgoingOverloadTargetCount);
+        Assert.True(target.IsComplete);
+        Assert.True(caller.IsComplete);
+    }
+
+    static ImmutableArray<byte> EmitVarargOverloadAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("VarargOverloads.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("VarargOverloads"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Probe"),
+            metadata.GetOrAddString("Sample"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        BlobHandle targetSignature =
+            AddSignature(
+                0x05,
+                parameterCount: 1,
+                0x01,
+                0x08);
+        BlobHandle callerSignature =
+            AddSignature(
+                0x00,
+                parameterCount: 0,
+                0x01);
+        BlobHandle callSiteSignature =
+            AddSignature(
+                0x05,
+                parameterCount: 2,
+                0x01,
+                0x08,
+                0x41,
+                0x08);
+        MemberReferenceHandle targetReference =
+            metadata.AddMemberReference(
+                type,
+                metadata.GetOrAddString("Route"),
+                callSiteSignature);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int targetBody = AddBody(0x2a);
+        var callerIl = new BlobBuilder();
+        callerIl.WriteByte(0x16);
+        callerIl.WriteByte(0x17);
+        callerIl.WriteByte(0x28);
+        callerIl.WriteInt32(
+            MetadataTokens.GetToken(targetReference));
+        callerIl.WriteByte(0x2a);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerIl),
+            maxStack: 2);
+
+        AddMethod(targetSignature, targetBody);
+        AddMethod(callerSignature, callerBody);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.CreateRange(image.ToArray());
+
+        BlobHandle AddSignature(
+            byte header,
+            int parameterCount,
+            params byte[] signatureBytes)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(header);
+            signature.WriteCompressedInteger(parameterCount);
+            signature.WriteBytes(signatureBytes);
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        int AddBody(params byte[] il)
+        {
+            var code = new BlobBuilder();
+            code.WriteBytes(il);
+            return bodyEncoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        }
+
+        void AddMethod(
+            BlobHandle signature,
+            int bodyOffset)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Route"),
+                signature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
+    }
+
+    [Fact]
     public void ImplementationProfiles_AttributeAsyncBodiesToSourceMethods()
     {
         var index = LibraryBodyIndex.Open(
