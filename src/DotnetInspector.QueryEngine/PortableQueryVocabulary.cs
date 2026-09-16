@@ -183,6 +183,22 @@ public abstract class PortableQueryVocabulary<TPredicate, TPlan>
     /// <summary>The owner-issued vocabulary identity, which an intent's identity pairs with its bytes.</summary>
     public abstract string Identity { get; }
 
+    /// <summary>
+    /// Term families of which an intent must contain at least one member.
+    /// </summary>
+    /// <remarks>
+    /// A required family expresses owner-required choice without privileging a
+    /// key in the intent model. Package Query, for example, requires one member
+    /// of its exact-package-or-prefix population family.
+    /// </remarks>
+    public virtual IReadOnlyList<string> RequiredTermFamilies => [];
+
+    /// <summary>
+    /// Execution-bound dimensions that every intent for this vocabulary must
+    /// carry.
+    /// </summary>
+    public virtual IReadOnlyList<string> RequiredDimensions => [];
+
     public abstract bool TryGetKey(
         string key,
         [NotNullWhen(true)] out PortableQueryKeyDeclaration<TPredicate>? declaration);
