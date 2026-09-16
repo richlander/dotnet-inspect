@@ -181,15 +181,22 @@ public class FidelityCheckGeneratedFilterTests
                 [assemblyPath],
                 cap: int.MaxValue);
 
-            Assert.Equal(2, selected.Count);
+            Assert.Equal(4, selected.Count);
             Assert.Contains(selected, target => target.Method == "Good");
             Assert.Contains(selected, target => target.Method == "event");
+            Assert.Contains(
+                selected,
+                target => target.Method == "op_Subtraction");
             Assert.DoesNotContain(selected, target => target.Type.Contains(
                 "bad-namespace",
                 StringComparison.Ordinal));
             Assert.DoesNotContain(
                 selected,
-                target => target.Method is "bad-name" or "BadSignature" or "BadConstraint");
+                target => target.Method is
+                    "bad-name"
+                    or "BadSignature"
+                    or "BadConstraint"
+                    or "op_Addition");
         }
         finally
         {
@@ -448,7 +455,7 @@ public class FidelityCheckGeneratedFilterTests
 
             int exitCode = await FidelityCheck.RunReturnToSender(
                 [assemblyPath],
-                cap: 3,
+                cap: int.MaxValue,
                 maxExamples: 5,
                 timings: false,
                 zeroSignalGuard: 2,
@@ -475,7 +482,7 @@ public class FidelityCheckGeneratedFilterTests
             Assert.Equal(2, evaluated);
             string output = writer.ToString();
             Assert.Contains(
-                "Standalone candidate population: 3 planned (global cap 3; 2 evaluated)",
+                $"Standalone candidate population: 3 planned (global cap {int.MaxValue}; 2 evaluated)",
                 output);
             Assert.Contains(
                 "zero-signal guard : stopped after 2 of requested 3",
@@ -2553,8 +2560,36 @@ public class FidelityCheckGeneratedFilterTests
         badConstraintBody.Emit(OpCodes.Ldc_I4_1);
         badConstraintBody.Emit(OpCodes.Ret);
 
+        TypeBuilder operatorType = module.DefineType(
+            "OperatorType",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Sealed);
+        MethodBuilder validOperator = operatorType.DefineMethod(
+            "op_Subtraction",
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            typeof(int),
+            [operatorType, typeof(int)]);
+        ILGenerator validOperatorBody = validOperator.GetILGenerator();
+        validOperatorBody.Emit(OpCodes.Ldc_I4_1);
+        validOperatorBody.Emit(OpCodes.Ret);
+
+        MethodBuilder malformedOperator = operatorType.DefineMethod(
+            "op_Addition",
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        ILGenerator malformedOperatorBody = malformedOperator.GetILGenerator();
+        malformedOperatorBody.Emit(OpCodes.Ldc_I4_1);
+        malformedOperatorBody.Emit(OpCodes.Ret);
+
         badSignatureType.CreateType();
         goodType.CreateType();
+        operatorType.CreateType();
         assembly.Save(path);
         return path;
     }
@@ -2614,6 +2649,22 @@ public class FidelityCheckGeneratedFilterTests
             resolutionScope: default,
             @namespace: metadata.GetOrAddString("System"),
             name: metadata.GetOrAddString("ValueType"));
+        AssemblyReferenceHandle fakeCore = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Fake.Core"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        TypeReferenceHandle fakeObject = metadata.AddTypeReference(
+            resolutionScope: fakeCore,
+            @namespace: metadata.GetOrAddString("System"),
+            name: metadata.GetOrAddString("Object"));
+        TypeReferenceHandle enumerable = metadata.AddTypeReference(
+            resolutionScope: fakeCore,
+            @namespace: metadata.GetOrAddString(
+                "System.Collections.Generic"),
+            name: metadata.GetOrAddString("IEnumerable`1"));
 
         var methodSignature = new BlobBuilder();
         methodSignature.WriteByte(0x10);
@@ -2686,6 +2737,41 @@ public class FidelityCheckGeneratedFilterTests
         AddModifiedConstraintMethod("ModifiedConstraint", disposable);
         AddModifiedConstraintMethod("ModifiedObjectConstraint", @object);
         AddModifiedConstraintMethod("ModifiedValueTypeConstraint", valueType);
+
+        void AddConstraintMethod(
+            string name,
+            EntityHandle constraintType)
+        {
+            MethodDefinitionHandle method = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(methodSignature),
+                AddBody(),
+                MetadataTokens.ParameterHandle(1));
+            GenericParameterHandle parameter = metadata.AddGenericParameter(
+                method,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("V"),
+                index: 0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                constraintType);
+        }
+
+        var arityMismatchConstraint = new BlobBuilder();
+        arityMismatchConstraint.WriteByte(0x15);
+        arityMismatchConstraint.WriteByte(0x12);
+        arityMismatchConstraint.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(enumerable) << 2) | 1);
+        arityMismatchConstraint.WriteCompressedInteger(2);
+        arityMismatchConstraint.WriteByte(0x08);
+        arityMismatchConstraint.WriteByte(0x08);
+        AddConstraintMethod(
+            "ArityMismatchConstraint",
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(arityMismatchConstraint)));
+        AddConstraintMethod("FakeObjectConstraint", fakeObject);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

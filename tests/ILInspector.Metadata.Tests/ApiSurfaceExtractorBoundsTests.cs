@@ -656,6 +656,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void RepeatedLongGenericConstraintName_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildRepeatedLongGenericConstraintNameImage(
+                parameterCount: 10_000,
+                nameLength: 4_000));
+    }
+
+    [Fact]
     public void OneWideSignature_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -1821,6 +1830,36 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 signatureHandle);
         }
         AddModuleAndPublicType(metadata, "Amplifier");
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildRepeatedLongGenericConstraintNameImage(
+        int parameterCount,
+        int nameLength)
+    {
+        MetadataBuilder metadata = Metadata(
+            $"RepeatedLongConstraint{Guid.NewGuid():N}");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            $"ConstraintCarrier`{parameterCount}");
+        TypeReferenceHandle constraint = metadata.AddTypeReference(
+            resolutionScope: default,
+            @namespace: metadata.GetOrAddString("N"),
+            name: metadata.GetOrAddString(new string('C', nameLength)));
+
+        for (int i = 0; i < parameterCount; i++)
+        {
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    type,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString($"T{i}"),
+                    index: i);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                constraint);
+        }
+
         return Serialize(metadata);
     }
 

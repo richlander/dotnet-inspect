@@ -2375,7 +2375,7 @@ public static class ApiSurfaceExtractor
                     context,
                     beforeRetain,
                     beforeDecodeWork);
-                IReadOnlyList<MetadataTypeDefinitionName>? definitionNames =
+                ConstraintTypeDefinitionNameReadResult? constraintIdentity =
                     ConstraintTypeDefinitionNameReader.Read(
                         reader,
                         constraint.Type,
@@ -2383,17 +2383,18 @@ public static class ApiSurfaceExtractor
                         allowUnmanagedValueTypeEncoding: isUnmanaged);
                 if (IsExactPseudoConstraint(
                         constraintTypeName,
-                        definitionNames))
+                        constraintIdentity))
                 {
                     continue;
                 }
-                if (definitionNames is null)
+                if (constraintIdentity is null)
                 {
                     constraintTypeDefinitionNamesAvailable = false;
                 }
                 else
                 {
-                    constraintTypeDefinitionNames.AddRange(definitionNames);
+                    constraintTypeDefinitionNames.AddRange(
+                        constraintIdentity.DefinitionNames);
                 }
                 var formatted = FormatConstraintType(
                     reader,
@@ -2443,9 +2444,13 @@ public static class ApiSurfaceExtractor
 
     private static bool IsExactPseudoConstraint(
         string constraintTypeName,
-        IReadOnlyList<MetadataTypeDefinitionName>? definitionNames)
+        ConstraintTypeDefinitionNameReadResult? constraintIdentity)
     {
-        if (definitionNames is not [var definitionName]
+        if (constraintIdentity is not
+            {
+                IsCoreLibraryPseudoConstraint: true,
+                DefinitionNames: [var definitionName],
+            }
             || definitionName.Namespace != "System"
             || definitionName.Segments is not [var simpleName])
         {

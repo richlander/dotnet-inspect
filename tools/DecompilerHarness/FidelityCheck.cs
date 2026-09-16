@@ -133,7 +133,9 @@ static class FidelityCheck
         int zeroSignalGuard = 0)
     {
         var phaseTimings = timings ? new FidelityPhaseTimings() : null;
-        var zeroSignal = zeroSignalGuard > 0 ? new ZeroSignalGuard(zeroSignalGuard, cap) : null;
+        var zeroSignal = zeroSignalGuard > 0
+            ? new ZeroSignalGuard(zeroSignalGuard, cap)
+            : null;
         // Release codegen so the recompiled stream is compared against the
         // optimization shape the BCL ships; the fixture assembly is built the
         // same way under -c Release.
@@ -235,7 +237,9 @@ static class FidelityCheck
             ? SelectReturnToSenderTargets(assemblies, cap, typeFilter)
             : phaseTimings.MeasureSelection(() => SelectReturnToSenderTargets(assemblies, cap, typeFilter));
 
-        var zeroSignal = zeroSignalGuard > 0 ? new ZeroSignalGuard(zeroSignalGuard, cap) : null;
+        var zeroSignal = zeroSignalGuard > 0
+            ? new ZeroSignalGuard(zeroSignalGuard, selected.Count)
+            : null;
         int probeCount = zeroSignal is null
             ? selected.Count
             : Math.Min(zeroSignalGuard, selected.Count);

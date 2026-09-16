@@ -5,7 +5,7 @@ namespace ILInspector.Metadata;
 
 internal static class ConstraintTypeDefinitionNameReader
 {
-    internal static IReadOnlyList<MetadataTypeDefinitionName>? Read(
+    internal static ConstraintTypeDefinitionNameReadResult? Read(
         MetadataReader reader,
         EntityHandle handle,
         GenericContext context,
@@ -16,13 +16,11 @@ internal static class ConstraintTypeDefinitionNameReader
             ConstraintShape shape = handle.Kind switch
             {
                 HandleKind.TypeDefinition => Named(
-                    MetadataTypeDefinitionNameReader.Read(
-                        reader,
-                        (TypeDefinitionHandle)handle)),
+                    reader,
+                    (TypeDefinitionHandle)handle),
                 HandleKind.TypeReference => Named(
-                    MetadataTypeDefinitionNameReader.Read(
-                        reader,
-                        (TypeReferenceHandle)handle)),
+                    reader,
+                    (TypeReferenceHandle)handle),
                 HandleKind.TypeSpecification =>
                     GuardedProviderDecode.TypeSpec(
                         reader,
@@ -36,7 +34,9 @@ internal static class ConstraintTypeDefinitionNameReader
                 && shape.IsConstraintType
                 && (allowUnmanagedValueTypeEncoding
                     || !shape.IsUnmanagedValueTypeEncoding)
-                ? [.. shape.DefinitionNames.Distinct()]
+                ? new(
+                    [.. shape.DefinitionNames.Distinct()],
+                    shape.IsCoreLibraryPseudoConstraint)
                 : null;
         }
         catch (Exception ex) when (
@@ -49,15 +49,50 @@ internal static class ConstraintTypeDefinitionNameReader
     }
 
     static ConstraintShape Named(
-        MetadataTypeDefinitionNameReadResult result) =>
+        MetadataReader reader,
+        TypeDefinitionHandle handle) =>
+        Named(
+            MetadataTypeDefinitionNameReader.Read(reader, handle),
+            CoreLibraryRootAuthentication
+                .DeclaresUniqueTopLevelCoreLibraryRoot(reader));
+
+    static ConstraintShape Named(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+    {
+        TypeReference reference = reader.GetTypeReference(handle);
+        return Named(
+            MetadataTypeDefinitionNameReader.Read(reader, handle),
+            ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                reader,
+                reference.ResolutionScope));
+    }
+
+    static ConstraintShape Named(
+        MetadataTypeDefinitionNameReadResult result,
+        bool resolvesThroughCoreLibrary) =>
         result is MetadataTypeDefinitionNameReadResult.Read read
-            ? ConstraintShape.Named(read.Name)
+            ? IsPseudoConstraintName(read.Name)
+                ? resolvesThroughCoreLibrary
+                    ? ConstraintShape.Named(
+                        read.Name,
+                        isCoreLibraryPseudoConstraint: true)
+                    : ConstraintShape.Unavailable
+                : ConstraintShape.Named(
+                    read.Name,
+                    isCoreLibraryPseudoConstraint: false)
             : ConstraintShape.Unavailable;
+
+    static bool IsPseudoConstraintName(
+        MetadataTypeDefinitionName name) =>
+        name.Namespace == "System"
+            && name.Segments is ["Object" or "ValueType"];
 
     readonly record struct ConstraintShape(
         bool IsAvailable,
         bool IsConstraintType,
         ImmutableArray<MetadataTypeDefinitionName> DefinitionNames,
+        bool IsCoreLibraryPseudoConstraint = false,
         bool IsUnmanagedValueTypeEncoding = false)
     {
         internal static ConstraintShape EmptyConstraint { get; } =
@@ -70,8 +105,13 @@ internal static class ConstraintTypeDefinitionNameReader
             new(false, false, []);
 
         internal static ConstraintShape Named(
-            MetadataTypeDefinitionName name) =>
-            new(true, true, [name]);
+            MetadataTypeDefinitionName name,
+            bool isCoreLibraryPseudoConstraint) =>
+            new(
+                true,
+                true,
+                [name],
+                isCoreLibraryPseudoConstraint);
     }
 
     sealed class Provider :
@@ -86,13 +126,13 @@ internal static class ConstraintTypeDefinitionNameReader
             MetadataReader reader,
             TypeDefinitionHandle handle,
             byte rawTypeKind) =>
-            Named(MetadataTypeDefinitionNameReader.Read(reader, handle));
+            Named(reader, handle);
 
         public ConstraintShape GetTypeFromReference(
             MetadataReader reader,
             TypeReferenceHandle handle,
             byte rawTypeKind) =>
-            Named(MetadataTypeDefinitionNameReader.Read(reader, handle));
+            Named(reader, handle);
 
         public ConstraintShape GetTypeFromSpecification(
             MetadataReader reader,
@@ -151,6 +191,15 @@ internal static class ConstraintTypeDefinitionNameReader
                 return ConstraintShape.Unavailable;
             }
 
+            if (genericType.DefinitionNames is not [var definitionName])
+            {
+                return ConstraintShape.Unavailable;
+            }
+
+            int? declaredArity = GetDeclaredArity(definitionName);
+            if (declaredArity != typeArguments.Length)
+                return ConstraintShape.Unavailable;
+
             var definitions =
                 ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
             definitions.AddRange(genericType.DefinitionNames);
@@ -160,6 +209,21 @@ internal static class ConstraintTypeDefinitionNameReader
                 IsAvailable: true,
                 IsConstraintType: true,
                 definitions.ToImmutable());
+        }
+
+        static int? GetDeclaredArity(
+            MetadataTypeDefinitionName definitionName)
+        {
+            int arity = 0;
+            foreach (string segment in definitionName.Segments)
+            {
+                int segmentArity = MetadataNameArity.OfSegment(segment);
+                if (segmentArity > int.MaxValue - arity)
+                    return null;
+                arity += segmentArity;
+            }
+
+            return arity;
         }
 
         public ConstraintShape GetGenericTypeParameter(
@@ -222,3 +286,7 @@ internal static class ConstraintTypeDefinitionNameReader
             && segment == simpleName;
     }
 }
+
+internal sealed record ConstraintTypeDefinitionNameReadResult(
+    IReadOnlyList<MetadataTypeDefinitionName> DefinitionNames,
+    bool IsCoreLibraryPseudoConstraint);

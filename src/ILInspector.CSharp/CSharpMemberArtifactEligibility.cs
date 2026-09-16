@@ -21,6 +21,7 @@ public static class CSharpMemberArtifactEligibility
             || member.SignatureDecodeStatus is not null
             || !IsMemberNameRepresentable(member)
             || member.SignatureModel is not { } signature
+            || !IsOperatorDeclarationRepresentable(type, member, signature)
             || signature.TypeParameters.Any(parameter => !IsIdentifier(parameter.Name))
             || signature.Parameters.Any(parameter => !IsIdentifier(parameter.Name))
             || !ConstraintsAreRepresentable(type.TypeParameters)
@@ -42,11 +43,14 @@ public static class CSharpMemberArtifactEligibility
     static bool IsMemberNameRepresentable(ApiMember member)
     {
         if (member.Name is ".ctor" or ".cctor"
-            || member.IsFinalizer
-            || member.Kind == "operator")
+            || member.IsFinalizer)
         {
             return true;
         }
+
+        if (member.Kind == "operator")
+            return OperatorNames.GetStandaloneDeclarationParameterCount(
+                member.Name) is not null;
 
         string name = member.Kind is "method" or "extension-method"
             ? member.Name
@@ -67,6 +71,65 @@ public static class CSharpMemberArtifactEligibility
 
         return IsIdentifier(name);
     }
+
+    static bool IsOperatorDeclarationRepresentable(
+        ApiType type,
+        ApiMember member,
+        ApiSignature signature)
+    {
+        if (member.Kind != "operator")
+            return true;
+
+        if (type.DefinitionName is not { } declaringType
+            || type.Kind is not ("class" or "struct")
+            || type.IsStatic
+            || member.Accessibility is not null
+            || !member.IsStatic
+            || member.GenericArity != 0
+            || signature.TypeParameters.Count != 0
+            || signature.ReturnType is null or "void"
+            || OperatorNames.GetStandaloneDeclarationParameterCount(
+                member.Name) is not int parameterCount
+            || signature.Parameters.Count != parameterCount
+            || signature.Parameters.Any(
+                parameter => !string.IsNullOrEmpty(parameter.Modifier)))
+        {
+            return false;
+        }
+
+        bool hasDeclaringOperand = signature.Parameters.Any(
+            parameter => parameter.TypeReferences.Any(
+                reference => HasDefinitionName(
+                    reference,
+                    declaringType)));
+        if (!hasDeclaringOperand)
+            return false;
+
+        if (member.Name is "op_Increment" or "op_Decrement")
+        {
+            return signature.ReturnTypeReferences.Any(
+                reference => HasDefinitionName(
+                    reference,
+                    declaringType));
+        }
+
+        if (member.Name is
+            "op_LeftShift"
+                or "op_RightShift"
+                or "op_UnsignedRightShift")
+        {
+            return signature.Parameters[1].Type == "int";
+        }
+
+        return true;
+    }
+
+    static bool HasDefinitionName(
+        ApiTypeReferenceIdentity reference,
+        MetadataTypeDefinitionName expected) =>
+        reference.DefinitionName is { } actual
+            && actual.Namespace == expected.Namespace
+            && actual.Segments.SequenceEqual(expected.Segments);
 
     static bool ConstraintsAreRepresentable(
         IEnumerable<TypeParameter> parameters)
