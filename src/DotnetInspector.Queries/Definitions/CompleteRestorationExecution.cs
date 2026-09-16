@@ -84,12 +84,39 @@ public abstract record CompleteRestorationResolvedState
                         nameof(ActiveStateIndex));
     }
 
-    public sealed record Legacy(NavigationInitialization Initialization)
+    public sealed record Legacy(
+        Version1ScenarioDefinitionSet Definitions,
+        ImmutableArray<CompleteRestorationResolvedViewState> States,
+        int ActiveStateIndex)
         : CompleteRestorationResolvedState
     {
-        public NavigationInitialization Initialization { get; } =
-            Initialization
-            ?? throw new ArgumentNullException(nameof(Initialization));
+        public Version1ScenarioDefinitionSet Definitions { get; } =
+            Definitions
+            ?? throw new ArgumentNullException(nameof(Definitions));
+
+        public ImmutableArray<CompleteRestorationResolvedViewState> States
+        {
+            get;
+        } = !States.IsDefault
+            && States.All(static state => state is not null)
+                ? States
+                : throw new ArgumentException(
+                    "Resolved states must be an initialized immutable array.",
+                    nameof(States));
+
+        public int ActiveStateIndex { get; } =
+            ActiveStateIndex >= 0 && ActiveStateIndex < States.Length
+                ? ActiveStateIndex
+                : throw new ArgumentOutOfRangeException(
+                    nameof(ActiveStateIndex));
+
+        public CompleteRestorationResolvedViewState ActiveState =>
+            States[ActiveStateIndex];
+
+        public NavigationInitialization Initialization =>
+            ActiveState.Initialization
+            ?? throw new InvalidOperationException(
+                "The active legacy state must be navigable.");
     }
 }
 
@@ -933,38 +960,100 @@ public static class CompleteRestorationCoordinator
 
         var legacy =
             (CompleteRestorationRecipe.LegacyDirectPackage)plan.Recipe;
-        if (!packageRequests.TryGetValue(
-            legacy.FocusNavigationId,
-            out PackageArtifactRootRequest legacyRequest))
+        NavigationDefinition navigation =
+            legacy.Definitions.Navigation
+            ?? throw new InvalidOperationException(
+                "A legacy direct-Package recipe requires Navigation.");
+        var states =
+            ImmutableArray.CreateBuilder<CompleteRestorationResolvedViewState>(
+                navigation.Tabs.Count + 1);
+        var workspaceSubject =
+            StructuralSubjectIdentity.ForWorkspace(workspace.Identity);
+        states.Add(
+            new CompleteRestorationResolvedViewState(
+                new CommittedViewStateDefinition(
+                    navigation: null,
+                    subject: new PortableSubjectRequest.Workspace()),
+                new NavigationInitialization(workspaceSubject),
+                lensResolution: null));
+
+        NavigationInitialization? activeInitialization = null;
+        NavigationPackageEvaluation? activePackage = null;
+        int activeStateIndex = -1;
+        for (int tabIndex = 0; tabIndex < navigation.Tabs.Count; tabIndex++)
+        {
+            NavigationTabDefinition tab = navigation.Tabs[tabIndex];
+            if (tab.Coordinate
+                is not DefinitionMemberCoordinate.PackageCoordinate)
+            {
+                states.Add(
+                    new CompleteRestorationResolvedViewState(
+                        new CommittedViewStateDefinition(tab.Id),
+                        initialization: null,
+                        lensResolution: null));
+                continue;
+            }
+            if (!packageRequests.TryGetValue(
+                    tab.Id,
+                    out PackageArtifactRootRequest packageRequest))
+            {
+                throw new InvalidOperationException(
+                    $"Prepared navigation row '{tab.Id}' has no exact "
+                        + "Package request.");
+            }
+
+            PackageEvaluationResult evaluated =
+                await EvaluatePackageAsync(
+                    tab.Id,
+                    packageRequest,
+                    workspace,
+                    scope,
+                    roots,
+                    options.PackageSurfaceLimits,
+                    cancellationToken).ConfigureAwait(false);
+            if (evaluated.Failure is not null)
+                return new(null, null, null, evaluated.Failure);
+
+            bool isActive = tab.Id == legacy.FocusNavigationId;
+            string? facet = isActive ? legacy.Facet : null;
+            LegacyInitializationResult lowered =
+                LegacyInitialization(
+                    evaluated.Package!,
+                    facet,
+                    options);
+            if (lowered.Failure is not null)
+                return new(null, null, null, lowered.Failure);
+
+            states.Add(
+                new CompleteRestorationResolvedViewState(
+                    LegacyStateDefinition(tab.Id, facet),
+                    lowered.Initialization,
+                    lowered.LensResolution));
+            if (isActive)
+            {
+                activeInitialization = lowered.Initialization;
+                activePackage = evaluated.Package;
+                activeStateIndex = tabIndex + 1;
+            }
+        }
+
+        if (activeInitialization is null
+            || activePackage is null
+            || activeStateIndex < 0)
         {
             throw new InvalidOperationException(
-                $"Prepared navigation row '{legacy.FocusNavigationId}' has no "
-                    + "exact Package request.");
+                "A legacy direct-Package recipe did not resolve its focused "
+                    + "Package state.");
         }
-        PackageEvaluationResult legacyPackage = await EvaluatePackageAsync(
-            legacy.FocusNavigationId,
-            legacyRequest,
-            workspace,
-            scope,
-            roots,
-            options.PackageSurfaceLimits,
-            cancellationToken).ConfigureAwait(false);
-        if (legacyPackage.Failure is not null)
-            return new(null, null, null, legacyPackage.Failure);
 
-        LegacyInitializationResult lowered =
-            LegacyInitialization(
-                legacy,
-                legacyPackage.Package!,
-                options);
-        return lowered.Failure is not null
-            ? new(null, null, null, lowered.Failure)
-            : new(
-                lowered.Initialization,
-                legacyPackage.Package,
-                new CompleteRestorationResolvedState.Legacy(
-                    lowered.Initialization!),
-                null);
+        return new(
+            activeInitialization,
+            activePackage,
+            new CompleteRestorationResolvedState.Legacy(
+                legacy.Definitions,
+                states.MoveToImmutable(),
+                activeStateIndex),
+            null);
     }
 
     private static DetachedVersion2Result DetachVersion2(
@@ -1157,8 +1246,8 @@ public static class CompleteRestorationCoordinator
     }
 
     private static LegacyInitializationResult LegacyInitialization(
-        CompleteRestorationRecipe.LegacyDirectPackage legacy,
         NavigationPackageEvaluation package,
+        string? facet,
         CompleteRestorationExecutionOptions options)
     {
         StructuralSubjectIdentity.WorkspaceSubject workspace =
@@ -1169,42 +1258,56 @@ public static class CompleteRestorationCoordinator
                 workspace,
                 package.Occurrence.Occurrence);
         StructuralSubjectIdentity? subject =
-            legacy.Facet is null
+            facet is null
                 ? null
                 : packageSubject;
         var context = new NavigationRetainedSubjectContext(packageSubject);
-        NavigationLensIdentity? lens = legacy.Facet is null
+        NavigationLensIdentity? lens = facet is null
             ? null
             : new NavigationLensIdentity(
                 subject
                     ?? throw new InvalidOperationException(
                         "A mapped legacy facet requires an exact subject."),
-                new ViewFacetId(legacy.Facet));
+                new ViewFacetId(facet));
+        NavigationLensActivationResult? lensResolution = null;
         if (lens is not null)
         {
             NavigationSubjectInventory inventory =
                 NavigationWorkspaceSnapshotEvaluation
                     .ClassifySubjectInventory(packageSubject, package);
-            NavigationLensActivationResult resolution =
+            lensResolution =
                 NavigationLensActivation.ResolveExact(
                     lens,
                     options.Facets,
                     options.FacetAvailability(lens.Subject, inventory));
-            if (resolution is NavigationLensActivationResult.Rejected)
+            if (lensResolution is NavigationLensActivationResult.Rejected)
             {
                 return LegacyFailure(
-                    $"Legacy facet '{legacy.Facet}' is unknown or "
+                    $"Legacy facet '{facet}' is unknown or "
                         + "inapplicable.");
             }
         }
 
         return new(
             new NavigationInitialization(subject, context, lens),
+            lensResolution,
             null);
     }
 
+    private static CommittedViewStateDefinition LegacyStateDefinition(
+        string navigationId,
+        string? facet) =>
+        facet is null
+            ? new CommittedViewStateDefinition(navigationId)
+            : new CommittedViewStateDefinition(
+                navigationId,
+                new PortableSubjectRequest.Package(),
+                new PortableRetainedSubjectContext.Package(),
+                facet);
+
     private static LegacyInitializationResult LegacyFailure(string message) =>
         new(
+            null,
             null,
             new CompleteRestorationFailure.LegacyLoweringFailed(message));
 
@@ -1271,6 +1374,7 @@ public static class CompleteRestorationCoordinator
 
     private sealed record LegacyInitializationResult(
         NavigationInitialization? Initialization,
+        NavigationLensActivationResult? LensResolution,
         CompleteRestorationFailure? Failure);
 
     private sealed record DetachedVersion2Result(

@@ -362,6 +362,156 @@ public sealed class CompleteRestorationExecutionTests
     }
 
     [Fact]
+    public async Task DefinitionV1_RetainsCompleteOrderedNavigationState()
+    {
+        PackageFixture package = await SystemTextJsonPackageAsync();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(CompleteRestorationExecutionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    Version1MultipleStateRegistry(assembly),
+                    "scenario",
+                    authority));
+        var recipe =
+            Assert.IsType<CompleteRestorationRecipe.LegacyDirectPackage>(
+                preparation.Plan.Recipe);
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(
+                    client,
+                    package.Store,
+                    new StubEmbeddedContent(assembly)),
+                TestContext.Current.CancellationToken);
+
+        var activated = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
+        var legacy =
+            Assert.IsType<CompleteRestorationResolvedState.Legacy>(
+                activated.Workspace.Snapshot.Resolved);
+        Assert.Same(recipe.Definitions, legacy.Definitions);
+        Assert.Equal(1, legacy.ActiveStateIndex);
+        Assert.Equal(4, legacy.States.Length);
+
+        CompleteRestorationResolvedViewState workspaceState = legacy.States[0];
+        Assert.Null(workspaceState.NavigationId);
+        Assert.Equal(
+            StructuralSubjectKind.Workspace,
+            workspaceState.Initialization!.Subject!.Kind);
+
+        CompleteRestorationResolvedViewState activeState = legacy.States[1];
+        Assert.Same(activeState, legacy.ActiveState);
+        Assert.Equal("first", activeState.NavigationId);
+        Assert.Equal(
+            StructuralSubjectKind.Package,
+            activeState.Initialization!.Subject!.Kind);
+        Assert.Equal(
+            "net9.0",
+            activeState.Initialization.Context!.Package.Descriptor
+                .Coordinate.Framework);
+        Assert.Equal(
+            "package.overview",
+            activeState.Initialization.Lens!.Facet.Value);
+
+        CompleteRestorationResolvedViewState inactiveState = legacy.States[2];
+        Assert.Equal("second", inactiveState.NavigationId);
+        Assert.Null(inactiveState.Initialization!.Subject);
+        Assert.Equal(
+            "net8.0",
+            inactiveState.Initialization.Context!.Package.Descriptor
+                .Coordinate.Framework);
+        Assert.Null(inactiveState.Initialization.Lens);
+
+        CompleteRestorationResolvedViewState dormantState = legacy.States[3];
+        Assert.Equal("fixture", dormantState.NavigationId);
+        Assert.Null(dormantState.Initialization);
+
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
+    public async Task PacketV1_RetainsCompleteOrderedPackageState()
+    {
+        PackageFixture package = await SystemTextJsonPackageAsync();
+        var packet = new WorkspaceSharePacket(
+            [
+                new WorkspaceShareTab(
+                    WorkspaceShareSourceKind.Package,
+                    "System.Text.Json",
+                    "9.0.4",
+                    "net9.0",
+                    runtimeIdentifier: null),
+                new WorkspaceShareTab(
+                    WorkspaceShareSourceKind.Package,
+                    "System.Text.Json",
+                    "9.0.4",
+                    "net8.0",
+                    runtimeIdentifier: null),
+            ],
+            [
+                new WorkspaceShareContext([0]),
+                new WorkspaceShareContext([1]),
+            ],
+            activeTabIndex: 0,
+            selectedContextIndex: 0,
+            lens: "overview",
+            type: null,
+            memberAnchor: null,
+            memberSignature: null,
+            section: null,
+            libraries: []);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    encoded,
+                    authority));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, package.Store),
+                TestContext.Current.CancellationToken);
+
+        var activated = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
+        var legacy =
+            Assert.IsType<CompleteRestorationResolvedState.Legacy>(
+                activated.Workspace.Snapshot.Resolved);
+        Assert.Equal(1, legacy.ActiveStateIndex);
+        Assert.Equal(
+            new string?[] { null, "t0", "t1" },
+            legacy.States.Select(static state => state.NavigationId));
+        Assert.Equal(
+            StructuralSubjectKind.Package,
+            legacy.ActiveState.Initialization!.Subject!.Kind);
+        Assert.Null(legacy.States[2].Initialization!.Subject);
+        Assert.Equal(
+            "net8.0",
+            legacy.States[2].Initialization!.Context!.Package.Descriptor
+                .Coordinate.Framework);
+        Assert.Equal(
+            encoded,
+            Assert.IsType<CompleteRestorationProjection.Projectable>(
+                activated.Workspace.Projection).CanonicalPacket);
+
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
     public async Task RepeatedPackageAcrossContexts_RestoresOneOccurrence()
     {
         PackageFixture package = await SystemTextJsonPackageAsync();
@@ -1274,6 +1424,78 @@ public sealed class CompleteRestorationExecutionTests
             workspace: "workspace",
             context: "context",
             view: view.Id,
+            navigation: "navigation"));
+        return registry;
+    }
+
+    private static InspectionDefinitionRegistry Version1MultipleStateRegistry(
+        byte[] assembly)
+    {
+        string digest = Convert.ToHexString(
+            SHA256.HashData(assembly)).ToLowerInvariant();
+        var embedded =
+            new DefinitionMemberCoordinate.EmbeddedCoordinate(
+                "queries-tests",
+                digest,
+                "DotnetInspector.Queries.Tests");
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "first-context",
+                    framework: "net9.0",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "System.Text.Json",
+                            "9.0.4"),
+                    ]),
+                new WorkspaceContextDefinition(
+                    "second-context",
+                    framework: "net8.0",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "System.Text.Json",
+                            "9.0.4"),
+                    ]),
+                new WorkspaceContextDefinition(
+                    "fixture-context",
+                    members: [embedded]),
+            ]));
+        registry.Add(new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "first",
+                    coordinate:
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "System.Text.Json",
+                            "9.0.4"),
+                    framework: "net9.0"),
+                new NavigationTabDefinition(
+                    "second",
+                    coordinate:
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "System.Text.Json",
+                            "9.0.4"),
+                    framework: "net8.0"),
+                new NavigationTabDefinition("fixture", coordinate: embedded),
+            ],
+            "first"));
+        registry.Add(new ViewDefinition(
+            InspectionDefinitionSchema.Version1,
+            "view",
+            lens: "overview"));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: "workspace",
+            context: "first-context",
+            view: "view",
             navigation: "navigation"));
         return registry;
     }

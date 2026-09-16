@@ -2415,10 +2415,13 @@ Definition records and product demos (this slice):
   owner-issued logical request, replaces Scope once, resolves every direct
   Package state, validates exact Registry facets including inactive states,
   prepares canonical Navigation, captures one detached complete snapshot, and
-  classifies projection. Packet-v1 restoration retains its canonical packet;
-  definition restoration is validly non-projectable until packet format 2
-  lands. Only `Activated` carries the host's unpublished activation handle.
-  Every non-install result is settled by the host before it returns;
+  classifies projection. Direct-Package version-1 restoration retains the exact
+  source definitions plus the explicit Workspace state, focused Package state,
+  inactive Package recommendation states, and dormant non-Package rows.
+  Packet-v1 restoration retains its canonical packet; definition restoration
+  is validly non-projectable until packet format 2 lands. Only `Activated`
+  carries the host's unpublished activation handle. Every non-install result
+  is settled by the host before it returns;
 - `NavigationPackageEvaluationFactory` is the shared bounded Package evidence
   producer used by complete restoration and the CLI Workspace command. The CLI
   retains its public API-surface policy, while complete restoration obtains the
