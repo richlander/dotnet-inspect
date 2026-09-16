@@ -50,12 +50,12 @@ registerEngineWorkerStartupOperations(operations, {
   async listHomeDemos() {
     return (await import("/inspect-web-catalog.js")).listHomeDemos();
   },
-  async listPackageChangesPackageSets() {
+  async listPackageActivityPackageSets() {
     return (await import("/inspect-web-package.js"))
-      .listPackageChangesPackageSets();
+      .listPackageActivityPackageSets();
   },
-  async listPackageQueryFacets() {
-    return (await import("/inspect-web-package.js")).listPackageQueryFacets();
+  async listPackageQueryCatalog() {
+    return (await import("/inspect-web-package.js")).listPackageQueryCatalog();
   },
 });
 let sourceFacade: EngineWorkerTypeSourceFacade | undefined;
@@ -76,7 +76,7 @@ let packageChangesFacade: EngineWorkerPackageChangesFacade | undefined;
 registerEngineWorkerPackageChangesOperation(operations, () => {
   if (packageChangesFacade === undefined) {
     throw new Error(
-      "Package Changes facade is unavailable before Worker readiness.");
+      "Package Activity facade is unavailable before Worker readiness.");
   }
   return packageChangesFacade;
 });

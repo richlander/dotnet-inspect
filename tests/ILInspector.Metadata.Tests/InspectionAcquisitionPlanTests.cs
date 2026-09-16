@@ -37,12 +37,14 @@ public class InspectionAcquisitionPlanTests
             "Example.Package",
             "1.2.3",
             "net10.0",
-            "linux-x64");
+            "linux-x64",
+            "runtimes/linux-x64/lib/net10.0/Example.dll");
         var samePackage = AssemblyResolutionProvenance.Package(
             "Example.Package",
             "1.2.3",
             "net10.0",
-            "linux-x64");
+            "linux-x64",
+            "runtimes/linux-x64/lib/net10.0/Example.dll");
         var platform = AssemblyResolutionProvenance.Platform(
             "Microsoft.NETCore.App",
             "10.0.0",
@@ -58,6 +60,10 @@ public class InspectionAcquisitionPlanTests
             "Example.Package",
             Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(package)
                 .PackageId);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net10.0/Example.dll",
+            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(package)
+                .AssetPath);
         Assert.Equal(
             "assemblies/Example.dll",
             Assert.IsType<AssemblyResolutionProvenance.EmbeddedAsset>(embedded)

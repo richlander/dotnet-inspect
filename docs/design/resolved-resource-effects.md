@@ -438,12 +438,30 @@ self-consistent. Metadata resolution finishes the concrete association:
 - each `StructuralField` resolves to one exact FieldDef reachable from the
   bound root type;
 - each callback scope resolves to its exact delegate parameter and callback
-  contract at this occurrence;
+  contract at this occurrence, including every `Invoke` parameter and return
+  type before publishing the contract;
 - each outcome case retains its resolved source location and finite test;
 - each operation slot retains its bound source and optional concrete
   resource-kind arguments; and
 - each signature location in a guard resolves to the occurrence's exact
   receiver, parameter, or return type.
+
+An exact-type outcome selector is local to the selected operation
+definition's assembly. `type[Namespace.Name]` must name one TypeDef in that
+exact assembly and generation. A missing, duplicate, forwarded, external, or
+unreadable type is retained as incomplete, ambiguous, or unsupported rather
+than being guessed from another registered assembly.
+
+An enum outcome resolves the tested source to one exact enum TypeDef, then the
+named value to one exact literal FieldDef. Its occurrence evidence retains the
+normalized underlying integral constant. Two differently named aliases with
+the same exact enum type and value therefore overlap; spelling is not enum
+outcome identity. The enum base and underlying integral field must also have
+their exact core-library identities; same-named lookalikes are unsupported.
+
+Operation-slot identity uses the exact bound source and resource-kind
+arguments, including definition assembly and generic scope. Display-equivalent
+types from different exact identities do not name the same slot.
 
 Model-local callback and outcome labels do not become cross-model identity.
 Occurrence-bound equality uses their resolved delegate, source, test, and

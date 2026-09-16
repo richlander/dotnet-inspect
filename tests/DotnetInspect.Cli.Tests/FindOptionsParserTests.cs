@@ -39,6 +39,7 @@ public class FindOptionsParserTests
     [InlineData("--package-prefix", "Example.")]
     [InlineData("--library", "Example.dll")]
     [InlineData("--platform", null)]
+    [InlineData("--ecosystem", "ecosystem.aspire")]
     [InlineData("--extensions", null)]
     [InlineData("--aspnetcore", null)]
     [InlineData("--project", "Example.csproj")]
@@ -57,6 +58,53 @@ public class FindOptionsParserTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("cannot be combined", result.Error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("aspire", "Invalid ecosystem")]
+    [InlineData("ecosystem.Aspire", "Invalid ecosystem")]
+    [InlineData("ecosystem.missing", "Unknown ecosystem")]
+    public async Task Ecosystem_RejectsNonCanonicalOrUnknownIds(
+        string ecosystem,
+        string expectedError)
+    {
+        var result = await Run(
+            "find", "System.Object",
+            "--ecosystem", ecosystem,
+            "--platform", "System.Runtime",
+            "--tfm", "net10.0");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            expectedError,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Ecosystem_RejectsDuplicateIds()
+    {
+        var result = await Run(
+            "find", "System.Object",
+            "--ecosystem", "ecosystem.aspire",
+            "--ecosystem", "ecosystem.aspire",
+            "--platform", "System.Runtime",
+            "--tfm", "net10.0");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "cannot be selected more than once",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Ecosystem_RequiresAnId()
+    {
+        ParseResult result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "System.Object", "--ecosystem"]);
+
+        Assert.NotEmpty(result.Errors);
     }
 
     [Theory]

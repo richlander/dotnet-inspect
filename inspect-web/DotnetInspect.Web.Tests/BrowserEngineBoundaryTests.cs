@@ -8229,7 +8229,9 @@ public sealed partial class BrowserEngineBoundaryTests
         Task<BrowserPackage>? second = null;
         try
         {
-            int count = byteLimit ? 1 : 10;
+            int count = byteLimit
+                ? 1
+                : BrowserPackageWorkspace.Stats().MaxPackageEntries - 2;
             for (int index = 0; index < count; index++)
             {
                 held.Add(await BrowserPackageWorkspace.ReservePackageDownloadAsync(
@@ -9148,6 +9150,54 @@ public sealed partial class BrowserEngineBoundaryTests
             release.TrySetResult();
             await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
             await BrowserPackageWorkspace.RemoveScopeAsync(closing);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCacheEntryBudget_CoversChargedRealizationEnvelope()
+    {
+        (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+            $"entry.budget.drain.{Guid.NewGuid():N}@1.0.0",
+            128L * MiB)).Dispose();
+
+        BrowserPackageCacheSnapshot stats = BrowserPackageWorkspace.Stats();
+        int expectedEntries = checked(
+            WorkspaceScopeLimits.DefaultMaxPackages
+            * BrowserWorkspaceRealizationHost.MaxChargedRealizations);
+        Assert.Equal(expectedEntries, stats.MaxPackageEntries);
+
+        var reservations =
+            new List<BrowserPackageWorkspace.PackageDownloadReservation>(
+                expectedEntries);
+        try
+        {
+            for (int index = 0; index < expectedEntries; index++)
+            {
+                reservations.Add(
+                    await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                        $"entry.budget.{index}.{Guid.NewGuid():N}@1.0.0",
+                        declaredLength: 0));
+            }
+
+            InvalidOperationException failure =
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                        $"entry.budget.rejected.{Guid.NewGuid():N}@1.0.0",
+                        declaredLength: 0).AsTask());
+            Assert.Contains(
+                "package-cache limit",
+                failure.Message,
+                StringComparison.Ordinal);
+            Assert.Equal(0, BrowserPackageWorkspace.Stats().ResidentBytes);
+        }
+        finally
+        {
+            foreach (
+                BrowserPackageWorkspace.PackageDownloadReservation reservation
+                in reservations)
+            {
+                reservation.Dispose();
+            }
         }
     }
 

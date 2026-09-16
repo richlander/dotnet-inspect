@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -271,8 +273,24 @@ public sealed record BrowserPackageQueryFacetDescriptor(
     string? DisplayGroupId,
     string? DisplayGroupLabel);
 
-public sealed record BrowserPackageQueryFacetCatalog(
-    BrowserPackageQueryFacetDescriptor[] Facets);
+public sealed record BrowserPackageQueryCatalog(
+    BrowserPackageQueryFacetDescriptor[] Facets,
+    BrowserPackageQueryTermDescriptor[] Terms);
+
+public sealed record BrowserPackageQueryTermDescriptor(
+    string Key,
+    string Label,
+    string Summary,
+    int Weight,
+    BrowserPackageQueryFacetTier Tier,
+    string[] Operators,
+    string ValueKind,
+    string Example);
+
+public sealed record BrowserPackageQueryTerm(
+    string Key,
+    string Operator,
+    string Value);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEvidenceScope>))]
 public enum BrowserPackageQueryEvidenceScope
@@ -289,7 +307,8 @@ public sealed record BrowserPackageQueryEvidence(
     string Id,
     string Text,
     BrowserPackageQueryEvidenceScope Scope,
-    BrowserPackageQueryEvidenceSummary? Summary);
+    BrowserPackageQueryEvidenceSummary? Summary,
+    BrowserPackageQueryTerm? Term = null);
 
 public sealed record BrowserPackageQueryDeclaredDependency(
     string Id,
@@ -475,6 +494,123 @@ public sealed record BrowserInspectionDiagnostic(
     string Summary,
     string? Correspondence);
 
+public sealed record BrowserExactLibraryApiInspection(
+    BrowserExactLibraryApiInspectionResult Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics);
+
+public enum BrowserExactLibraryApiInspectionOutcome
+{
+    Available,
+    NotFound,
+    Ambiguous,
+    Unavailable,
+}
+
+public enum BrowserExactLibraryApiInspectionFailureKind
+{
+    ContextLoad,
+    PackageMismatch,
+    CompileSelectionUnavailable,
+    LibraryNotFound,
+    LibraryAmbiguous,
+    ParticipantUnavailable,
+    InspectionIncomplete,
+    ProjectionTruncated,
+}
+
+public enum BrowserExactLibraryApiAssetKind
+{
+    Reference,
+    Library,
+}
+
+public enum BrowserExactLibraryApiProjectionLimit
+{
+    Participants,
+    Types,
+    Members,
+    InspectionFailures,
+    TypeForwarders,
+    MetadataRows,
+    RetainedTextCharacters,
+}
+
+public sealed record BrowserExactLibraryApiSourceCoordinate(
+    string PackageId,
+    string PackageVersion,
+    string Producer,
+    string? Framework);
+
+public sealed record BrowserExactLibraryApiAsset(
+    string Id,
+    string Path,
+    string AssemblyName,
+    string TargetFramework,
+    BrowserExactLibraryApiAssetKind Kind);
+
+public sealed record BrowserExactLibraryApiAssemblyReferenceIdentity(
+    string Name,
+    string? Version,
+    string? Culture,
+    string? PublicKeyToken);
+
+public sealed record BrowserExactLibraryApiAssemblyIdentity(
+    BrowserExactLibraryApiAssemblyReferenceIdentity Identity,
+    Guid ModuleVersionId);
+
+public sealed record BrowserExactLibraryApiFacet(
+    string Id,
+    string SingularLabel,
+    string PluralLabel,
+    int Weight,
+    int Count,
+    bool IsDefault);
+
+public sealed record BrowserExactLibraryApiNamespace(
+    string Name,
+    int Count);
+
+public sealed record BrowserExactLibraryApiInventory(
+    int PublicTypeCount,
+    int PublicMemberCount,
+    int PublicMethodCount,
+    int PublicPropertyCount,
+    BrowserExactLibraryApiFacet[] TypeKinds,
+    BrowserExactLibraryApiNamespace[] Namespaces);
+
+public sealed record BrowserExactLibraryApiProjectionTruncation(
+    BrowserExactLibraryApiProjectionLimit Limit,
+    int Bound,
+    int ProjectedParticipants,
+    int OmittedParticipants,
+    int ProjectedTypes,
+    int ProjectedMembers,
+    int ProjectedInspectionFailures,
+    int ProjectedTypeForwarders,
+    int InspectedMetadataRows,
+    int ProjectedRetainedTextCharacters);
+
+public sealed record BrowserExactLibraryApiInspectionFailure(
+    BrowserExactLibraryApiInspectionFailureKind Kind,
+    string Detail,
+    BrowserExactLibraryApiAssemblyReferenceIdentity? SubjectAssembly);
+
+public sealed record BrowserExactLibraryApiInspectionResult(
+    BrowserExactLibraryApiInspectionOutcome Outcome,
+    string PackageId,
+    string PackageVersion,
+    string RequestedTargetFramework,
+    string RequestedLibrary,
+    BrowserExactLibraryApiSourceCoordinate? Source,
+    BrowserExactLibraryApiAsset? Asset,
+    BrowserExactLibraryApiAssemblyIdentity? Assembly,
+    BrowserExactLibraryApiInventory? Inventory,
+    BrowserExactLibraryApiProjectionTruncation? Truncation,
+    BrowserExactLibraryApiInspectionFailure[] Failures,
+    bool IsComplete,
+    bool IsAvailable);
+
 public sealed record BrowserPackageQueryDocument(
     BrowserPackageQueryRow[] Results,
     BrowserPackageQueryFailure[] Failures,
@@ -510,6 +646,17 @@ public sealed record BrowserPackageQueryResult(
     string? Diagnostic,
     string? Reason)
 {
+    internal static BrowserPackageQueryResult ExpectedFailure(string error) =>
+        new(
+            3,
+            BrowserPackageQueryResultKind.Failed,
+            null,
+            null,
+            BrowserPackageQueryOperationFailureKind.Expected,
+            error,
+            error,
+            null);
+
     internal static BrowserPackageQueryResult From(
         BrowserManagedOperationResult<
             BrowserPackageQueryEvent,
@@ -801,10 +948,12 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
-[JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
+[JsonSerializable(typeof(BrowserPackageQueryCatalog))]
+[JsonSerializable(typeof(BrowserPackageQueryTerm[]))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageQueryDocument))]
 [JsonSerializable(typeof(BrowserPackageQueryInspection))]
+[JsonSerializable(typeof(BrowserExactLibraryApiInspection))]
 [JsonSerializable(typeof(BrowserPackageQueryResult))]
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]

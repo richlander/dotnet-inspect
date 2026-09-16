@@ -131,7 +131,7 @@ internal static class BrowserPackageChangesOperations
                 out DateTimeOffset parsed))
         {
             throw new ArgumentException(
-                "Package Changes interval endpoints must use round-trip timestamps.",
+                "Package Activity interval endpoints must use round-trip timestamps.",
                 parameterName);
         }
 
@@ -177,7 +177,7 @@ internal static class BrowserPackageChangesWireProjection
                     null,
                     Project(failure.Value)),
             _ => throw new InvalidOperationException(
-                "Unknown Package Changes nonterminal event."),
+                "Unknown Package Activity nonterminal event."),
         };
 
     internal static BrowserPackageChangesInspection Project(
@@ -394,14 +394,14 @@ public static partial class PackageExports
         new();
 
     [JSExport]
-    public static string ListPackageChangesPackageSets() =>
+    public static string ListPackageActivityPackageSets() =>
         JsonSerializer.Serialize(
             BrowserPackageChangesOperations.PackageSets(),
             BrowserPackageJsonContext.Default
                 .BrowserPackageChangesPackageSetCatalog);
 
     [JSExport]
-    public static string CancelPackageChanges(
+    public static string CancelPackageActivity(
         string operationId,
         string reason)
     {
@@ -417,7 +417,7 @@ public static partial class PackageExports
     }
 
     [JSExport]
-    public static async Task<string> RunPackageChanges(
+    public static async Task<string> RunPackageActivity(
         string operationId,
         string requestJson,
         JSObject eventSink)
@@ -428,7 +428,7 @@ public static partial class PackageExports
                 requestJson,
                 BrowserPackageJsonContext.Default.BrowserPackageChangesRequest)
             ?? throw new ArgumentException(
-                "A Package Changes request is required.",
+                    "A Package Activity request is required.",
                 nameof(requestJson));
 
         BrowserManagedOperationResult<

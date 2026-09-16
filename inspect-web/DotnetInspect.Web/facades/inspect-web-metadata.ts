@@ -38,6 +38,8 @@ export type ExactTypeInspectionOutcome = number;
 
 export type InspectionDiagnosticSeverity = number;
 
+export type JsonValueKind = number;
+
 export type MetadataRootMalformedReason = number;
 
 export type MetadataTypeNameFailureMechanism = number;
@@ -216,6 +218,7 @@ export interface BrowserLibraryApiDiffResult {
   readonly error: string | null;
   readonly diagnostic: string | null;
   readonly reason: string | null;
+  readonly inspection: InspectionEnvelope<unknown> | null;
 }
 
 export interface BrowserLibraryApiDiffSucceeded {

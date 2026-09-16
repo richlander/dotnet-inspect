@@ -181,9 +181,18 @@ another.
 
 `DecompilerExceptionFactAdoptionTests` is the Release gate for exact body and
 clause association, Metadata catch order, runtime cleanup identity, closed
-failure handling, visible refusal, and raw compatibility. It does not verify
-the later protected-region, classic-async correspondence, or return-timing
-consumer migrations.
+failure handling, visible refusal, and raw compatibility.
+`ProtectedRegionControlFlowTests` gates the next consumer: production
+try/catch `Leave` transfers use regions actually left by `NormalTransferAt`;
+the current projection requires exact structured associations, with the
+bounded predicate limited to associations below the candidate boundary.
+Missing correlation and same-range foreign-body identity decline visibly. Its
+synthetic cases preserve the explicit Layer 0 compatibility path, while its
+detached-clone case proves that production structuring candidates retain their
+function evidence owner.
+`ProtectedContinueRecoveryTests` gates the production `ForLoopPass` adoption
+outcome. These gates do not verify the later classic-async correspondence or
+return-timing consumer migrations.
 
 ### EH normal-continuation return timing
 
@@ -271,8 +280,11 @@ entry gate invalidates every later result, so run it first and report it.
    dotnet run --project tests/ILInspector.Metadata.Tests -c Release
    ```
 
-   Filter to a class while iterating, e.g.
-   `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
+   `DecompilerHarness.Tests`, `ILInspector.Analysis.Tests`, and
+   `ILInspector.Metadata.Tests` use MTP's `--filter-class` and
+   `--filter-method` options while iterating. `ILInspector.Decompiler.Tests`
+   remains on its transitional native host and uses its existing `-filter` and
+   trait options.
    [The repository xUnit test host](design/xunit-test-host.md) selects
    Microsoft Testing Platform (MTP) as the owner of aggregate non-vacuity.
    The decompiler host owns `--gate` preset expansion and the stronger

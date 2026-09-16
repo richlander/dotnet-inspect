@@ -35,6 +35,13 @@ relationship evidence without copying its authorship or processing semantics.
 `PackageHouseDependencyPruningQuery` preserves explicit non-evaluated states
 or creates one PackageHouse-issued policy receipt, and candidate-bound House
 execution applies that receipt before payload acquisition.
+`PackageDependencyPruningInspection` in `DotnetInspector.Sections` now owns the
+bounded host-neutral operation that resolves authorized declaration candidates,
+applies that pruning query, and returns the ordered outcomes through
+`InspectionEnvelope<PackageDependencyPruningInspectionResult>`. CLI `depends`
+and Inspect Web package pruning both consume that operation while retaining
+their own input scope, source and inventory authorization, completion policy,
+and presentation.
 `DesktopPackageSourceComposition` still owns desktop configuration,
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
@@ -333,6 +340,16 @@ longer authorized cannot be recovered from retained population evidence.
 Population discovery and every cell execution have independent request and
 operation deadlines; an overall History budget belongs to the History
 coordinator.
+
+A cell may issue one prepared execution that freezes its exact candidate,
+operation, target context, asset-selection kind, library-handoff mode, and
+association into one `PackageHouseRequest`. A host executes that request
+without rebuilding its demand. The preparation accepts a terminal settlement
+only when House evidence retains the exact prepared request object, so reusing
+the public association cannot substitute a neighboring demand. The
+PackageQueries
+[version-cell Metadata operation](package-version-cell-metadata-inspection.md)
+is the first consumer.
 
 `DesktopPackageSourceComposition` is the first production bridge. It resolves
 the configured online source policy, transfers one operation lease into

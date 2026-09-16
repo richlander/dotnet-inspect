@@ -185,8 +185,14 @@ public sealed class PackageRootBinding
         [NotNullWhen(true)] out PackageRootBinding? binding,
         string? displayPackageId = null)
     {
-        string? acquisitionFramework =
-            ValidateSourceSelection(payload, receipt);
+        if (!TryValidateSourceSelection(
+                payload,
+                receipt,
+                out string? acquisitionFramework))
+        {
+            binding = null;
+            return false;
+        }
         return TryCreate(
             payload,
             payload.Coordinate.PackageId,
@@ -210,6 +216,23 @@ public sealed class PackageRootBinding
     private static string? ValidateSourceSelection(
         AcquiredPackageSourcePayload payload,
         PackageCompileAssetSelectionReceipt receipt)
+    {
+        if (!TryValidateSourceSelection(
+                payload,
+                receipt,
+                out string? acquisitionFramework))
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier requires a canonical acquisition framework.",
+                nameof(receipt));
+        }
+        return acquisitionFramework;
+    }
+
+    private static bool TryValidateSourceSelection(
+        AcquiredPackageSourcePayload payload,
+        PackageCompileAssetSelectionReceipt receipt,
+        out string? acquisitionFramework)
     {
         ArgumentNullException.ThrowIfNull(payload);
         ArgumentNullException.ThrowIfNull(receipt);
@@ -237,17 +260,10 @@ public sealed class PackageRootBinding
                 "A package Root runtime identifier must be a canonical lowercase moniker.",
                 nameof(receipt));
         }
-        string? acquisitionFramework =
+        acquisitionFramework =
             SourceAcquisitionFramework(receipt.RequestedTargetFramework);
-        if (receipt.RequestedRuntimeIdentifier is not null
-            && acquisitionFramework is null)
-        {
-            throw new ArgumentException(
-                "A package Root runtime identifier requires a canonical acquisition framework.",
-                nameof(receipt));
-        }
-
-        return acquisitionFramework;
+        return receipt.RequestedRuntimeIdentifier is null
+            || acquisitionFramework is not null;
     }
 
     /// <summary>
@@ -786,6 +802,10 @@ public sealed class PackageRootRealization
                 packageId,
                 targetFramework,
                 runtimeIdentifier));
+        HasUnselectedTargetFrameworkAssemblyCandidates =
+            HasUnselectedTargetFrameworkAssemblyCandidatesCore(
+                content,
+                AssetSelection);
     }
 
     public string PackageId { get; }
@@ -803,6 +823,12 @@ public sealed class PackageRootRealization
     public bool FromCache => _content.FromCache;
 
     public PackageCompileAssetSelection AssetSelection { get; }
+
+    /// <summary>
+    /// Whether the package contains a DLL candidate for the selected target
+    /// framework outside the implementation universe.
+    /// </summary>
+    public bool HasUnselectedTargetFrameworkAssemblyCandidates { get; }
 
     internal IPackageContent Content => _content;
 
@@ -826,6 +852,28 @@ public sealed class PackageRootRealization
 
     static IReadOnlyList<T> Freeze<T>(IReadOnlyList<T> values) =>
         Array.AsReadOnly([.. values]);
+
+    static bool HasUnselectedTargetFrameworkAssemblyCandidatesCore(
+        IPackageContent content,
+        PackageCompileAssetSelection selection)
+    {
+        if (selection.TargetFramework is not { } targetFramework)
+            return false;
+
+        HashSet<string> selectedPaths =
+            selection.ImplementationAssets
+                .Select(static asset => asset.Path)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return content.EnumerateEntries().Any(
+            entry =>
+                entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                && TfmResolver.ExtractTfmFromPath(entry)
+                    ?.Equals(
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase)
+                    is true
+                && !selectedPaths.Contains(entry));
+    }
 }
 
 /// <summary>Resource admission policy for acquired-package role realization.</summary>

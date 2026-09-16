@@ -218,6 +218,7 @@ function registerEngineWorkerCanaryAdapter(host: EngineWorkerHost) {
 function packageQueryRequest(
   searchText: string,
   facetIdsJson: string,
+  termsJson: string,
   maximumCandidates: number,
   maximumMatches: number,
   includePrerelease: boolean,
@@ -228,17 +229,64 @@ function packageQueryRequest(
       `Package Query initial credit must be ${PACKAGE_QUERY_INITIAL_MATCH_CREDIT}.`);
   }
   const rawFacetIds: unknown = JSON.parse(facetIdsJson);
-  if (!Array.isArray(rawFacetIds)
-    || !rawFacetIds.every(value => typeof value === "string")) {
+  if (!Array.isArray(rawFacetIds)) {
     throw new TypeError("Package Query facet IDs must be a JSON string array.");
   }
+  const facetIds = rawFacetIds.map((value: unknown) => {
+    if (typeof value !== "string") {
+      throw new TypeError(
+        "Package Query facet IDs must be a JSON string array.");
+    }
+    return value;
+  });
+  const rawTerms: unknown = JSON.parse(termsJson);
+  if (!Array.isArray(rawTerms)) {
+    throw new TypeError(
+      "Package Query terms must be a JSON term array.");
+  }
+  const terms = rawTerms.map((value: unknown, index) => {
+    if (typeof value !== "object" || value === null) {
+      throw new TypeError(
+        `Package Query term ${index} must be an object.`);
+    }
+    if (!("key" in value)
+      || !("operator" in value)
+      || !("value" in value)
+      || typeof value.key !== "string"
+      || typeof value.operator !== "string"
+      || typeof value.value !== "string") {
+      throw new TypeError(
+        `Package Query term ${index} must contain text key, operator, and value fields.`);
+    }
+    return {
+      key: value.key,
+      operator: value.operator,
+      value: value.value,
+    };
+  });
   return {
     scopeQuery: searchText,
-    facets: rawFacetIds.map(key => ({
+    facets: facetIds.map(key => ({
       key,
       label: key,
       tier: "nuspec",
     })),
+    terms: terms.map(term => {
+      return {
+        descriptor: {
+          key: term.key,
+          label: term.key,
+          summary: "",
+          weight: 0,
+          tier: "nuspec",
+          operators: [term.operator],
+          valueKind: "",
+          example: "",
+        },
+        operator: term.operator,
+        value: term.value,
+      };
+    }),
     requestedLimit: maximumCandidates,
     requestedMatchLimit: maximumMatches,
     includePrerelease,
@@ -264,10 +312,10 @@ function publishPackageChangesEvent(
 ): void {
   if ((typeof eventSink !== "object" && typeof eventSink !== "function")
     || eventSink === null) {
-    throw new TypeError("Package Changes event sink is unavailable.");
+    throw new TypeError("Package Activity event sink is unavailable.");
   }
   if (!Reflect.set(eventSink, "event", JSON.stringify(event))) {
-    throw new TypeError("Package Changes event sink rejected an event.");
+    throw new TypeError("Package Activity event sink rejected an event.");
   }
 }
 
@@ -515,6 +563,7 @@ export function bindPackageQueryFacade(
       operationId,
       searchText,
       facetIdsJson,
+      termsJson,
       maximumCandidates,
       maximumMatches,
       includePrerelease,
@@ -526,6 +575,7 @@ export function bindPackageQueryFacade(
         packageQueryRequest(
           searchText,
           facetIdsJson,
+          termsJson,
           maximumCandidates,
           maximumMatches,
           includePrerelease,
@@ -548,7 +598,7 @@ export function bindPackageChangesFacade(
   authority: SharedEngineOperationAuthority,
 ): Pick<
   EngineClient["package"],
-  "cancelPackageChanges" | "runPackageChanges"
+  "cancelPackageActivity" | "runPackageActivity"
 > & { readonly dispose: () => void } {
   type PackageChangesInspection =
     import("./facades/inspect-web-package.d.ts")
@@ -573,19 +623,19 @@ export function bindPackageChangesFacade(
   const active = new Map<string, ActivePackageChanges>();
 
   return {
-    cancelPackageChanges(operationId, reason) {
+    cancelPackageActivity(operationId, reason) {
       active.get(operationId)?.handle.cancel(operationCancelReason(reason));
     },
-    async runPackageChanges(operationId, requestJson, eventSink) {
+    async runPackageActivity(operationId, requestJson, eventSink) {
       if (active.has(operationId)) {
         throw new Error(
-          `Package Changes operation '${operationId}' is already active.`);
+          `Package Activity operation '${operationId}' is already active.`);
       }
       let rawRequest: unknown;
       try {
         rawRequest = JSON.parse(requestJson);
       } catch (error: unknown) {
-        throw new TypeError("Package Changes request JSON is invalid.", {
+        throw new TypeError("Package Activity request JSON is invalid.", {
           cause: error,
         });
       }
@@ -628,7 +678,7 @@ export function bindPackageChangesFacade(
       if (started.kind === "rejected") {
         session.dispose();
         throw new Error(
-          `Package Changes could not start: ${
+          `Package Activity could not start: ${
             startFailureReason(started.reason)
           }.`);
       }
