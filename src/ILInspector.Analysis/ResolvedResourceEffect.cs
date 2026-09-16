@@ -20,9 +20,22 @@ public enum ResourceEffectResolutionGapKind
     SelectorAmbiguous,
     SelectorUnsupported,
     SelectorIncomplete,
+    OccurrenceAmbiguous,
+    OccurrenceUnsupported,
+    OccurrenceIncomplete,
     DeferredEffect,
     DeferredInterfaceApplication,
     WorkLimitExceeded,
+}
+
+public enum ResourceEffectOccurrenceBindingGapKind
+{
+    BoundaryLocation,
+    TypeDefinition,
+    StructuralField,
+    CallbackContract,
+    CallbackLocation,
+    OutcomeType,
 }
 
 public enum ResourceEffectDeferredKind
@@ -57,12 +70,17 @@ public sealed record ResourceEffectResolutionGap(
     public AnalysisDiagnostic? AnalysisDiagnostic { get; init; }
     public GraphNodeStorageKey? PhysicalInvocation { get; init; }
     public ResourceEffectSelectorBindingGap? SelectorGap { get; init; }
+    public ResourceEffectOccurrenceBindingGap? OccurrenceGap { get; init; }
     public ResourceEffectDeferredKind? DeferredKind { get; init; }
     public ResourceEffectResolutionWorkDimension? WorkDimension
         { get; init; }
     public long? Limit { get; init; }
     public long? RequiredWork { get; init; }
 }
+
+public sealed record ResourceEffectOccurrenceBindingGap(
+    ResourceEffectOccurrenceBindingGapKind Kind,
+    ResourceEffectLocation? Location = null);
 
 public sealed class ResourceEffectResolutionLimits
 {
@@ -248,21 +266,378 @@ public sealed class ResolvedResourceEffectSource
         _provenances;
 }
 
+public enum ResolvedResourceEffectBoundaryLocationKind
+{
+    Receiver,
+    Return,
+    Constructed,
+    Parameter,
+}
+
+public sealed class ResolvedResourceEffectTypeDefinition
+{
+    internal ResolvedResourceEffectTypeDefinition(
+        ResolvedAssemblyReference assembly,
+        Guid moduleVersionId,
+        TypeDefinitionToken token,
+        MetadataTypeDefinitionName name)
+    {
+        AssemblyReference = assembly
+            ?? throw new ArgumentNullException(nameof(assembly));
+        ModuleVersionId = moduleVersionId;
+        Token = token;
+        Name = name ?? throw new ArgumentNullException(nameof(name));
+    }
+
+    internal ResolvedAssemblyReference AssemblyReference { get; }
+    public AssemblyReferenceIdentity Assembly =>
+        AssemblyReference.Identity;
+    public Guid ModuleVersionId { get; }
+    public TypeDefinitionToken Token { get; }
+    public MetadataTypeDefinitionName Name { get; }
+}
+
+public sealed class ResolvedResourceEffectField
+{
+    internal ResolvedResourceEffectField(
+        ResolvedResourceEffectTypeDefinition declaringType,
+        int metadataToken,
+        string metadataName,
+        bool isStatic,
+        ResolvedResourceEffectType fieldType)
+    {
+        DeclaringType = declaringType
+            ?? throw new ArgumentNullException(nameof(declaringType));
+        if (metadataToken == 0)
+            throw new ArgumentOutOfRangeException(nameof(metadataToken));
+        ArgumentException.ThrowIfNullOrEmpty(metadataName);
+        MetadataToken = metadataToken;
+        MetadataName = metadataName;
+        IsStatic = isStatic;
+        FieldType = fieldType
+            ?? throw new ArgumentNullException(nameof(fieldType));
+    }
+
+    public ResolvedResourceEffectTypeDefinition DeclaringType { get; }
+    public int MetadataToken { get; }
+    public string MetadataName { get; }
+    public bool IsStatic { get; }
+    public ResolvedResourceEffectType FieldType { get; }
+}
+
+public sealed class ResolvedResourceEffectCallbackContract
+{
+    readonly ImmutableArray<ResolvedResourceEffectType> _parameterTypes;
+
+    internal ResolvedResourceEffectCallbackContract(
+        int delegateParameterIndex,
+        ResolvedResourceEffectType delegateType,
+        ResolvedResourceEffectTypeDefinition delegateDefinition,
+        int invokeMetadataToken,
+        ImmutableArray<ResolvedResourceEffectType> parameterTypes,
+        ResolvedResourceEffectType returnType)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            delegateParameterIndex);
+        if (invokeMetadataToken == 0)
+            throw new ArgumentOutOfRangeException(nameof(invokeMetadataToken));
+        DelegateParameterIndex = delegateParameterIndex;
+        DelegateType = delegateType
+            ?? throw new ArgumentNullException(nameof(delegateType));
+        DelegateDefinition = delegateDefinition
+            ?? throw new ArgumentNullException(nameof(delegateDefinition));
+        InvokeMetadataToken = invokeMetadataToken;
+        _parameterTypes = ImmutableArrayValueEquality.RequireInitialized(
+            parameterTypes,
+            nameof(parameterTypes));
+        ReturnType = returnType
+            ?? throw new ArgumentNullException(nameof(returnType));
+    }
+
+    public int DelegateParameterIndex { get; }
+    public ResolvedResourceEffectType DelegateType { get; }
+    public ResolvedResourceEffectTypeDefinition DelegateDefinition
+        { get; }
+    public int InvokeMetadataToken { get; }
+    public ImmutableArray<ResolvedResourceEffectType> ParameterTypes =>
+        _parameterTypes;
+    public ResolvedResourceEffectType ReturnType { get; }
+}
+
+public abstract class ResolvedResourceEffectLocation
+{
+    private protected ResolvedResourceEffectLocation(
+        ResolvedResourceEffectType type,
+        string canonicalKey)
+    {
+        Type = type ?? throw new ArgumentNullException(nameof(type));
+        CanonicalKey = canonicalKey
+            ?? throw new ArgumentNullException(nameof(canonicalKey));
+    }
+
+    public ResolvedResourceEffectType Type { get; }
+    internal string CanonicalKey { get; }
+
+    public sealed class Boundary : ResolvedResourceEffectLocation
+    {
+        internal Boundary(
+            ResolvedResourceEffectBoundaryLocationKind kind,
+            int? parameterIndex,
+            ResolvedResourceEffectType type,
+            string canonicalKey)
+            : base(type, canonicalKey)
+        {
+            Kind = kind;
+            ParameterIndex = parameterIndex;
+        }
+
+        public ResolvedResourceEffectBoundaryLocationKind Kind { get; }
+        public int? ParameterIndex { get; }
+    }
+
+    public sealed class Field : ResolvedResourceEffectLocation
+    {
+        internal Field(
+            ResolvedResourceEffectLocation root,
+            ResolvedResourceEffectField field,
+            string canonicalKey)
+            : base(field.FieldType, canonicalKey)
+        {
+            Root = root;
+            Definition = field;
+        }
+
+        public ResolvedResourceEffectLocation Root { get; }
+        public ResolvedResourceEffectField Definition { get; }
+    }
+
+    public sealed class CallbackParameter : ResolvedResourceEffectLocation
+    {
+        internal CallbackParameter(
+            ResolvedResourceEffectCallbackContract callback,
+            int parameterIndex,
+            ResolvedResourceEffectType type,
+            string canonicalKey)
+            : base(type, canonicalKey)
+        {
+            Callback = callback;
+            ParameterIndex = parameterIndex;
+        }
+
+        public ResolvedResourceEffectCallbackContract Callback { get; }
+        public int ParameterIndex { get; }
+    }
+
+    public sealed class CallbackReturn : ResolvedResourceEffectLocation
+    {
+        internal CallbackReturn(
+            ResolvedResourceEffectCallbackContract callback,
+            ResolvedResourceEffectType type,
+            string canonicalKey)
+            : base(type, canonicalKey) =>
+            Callback = callback;
+
+        public ResolvedResourceEffectCallbackContract Callback { get; }
+    }
+
+    public sealed class OperationSlot : ResolvedResourceEffectLocation
+    {
+        internal OperationSlot(
+            ResolvedResourceEffectLocation source,
+            ResolvedResourceKindReference? kind,
+            string canonicalKey)
+            : base(source.Type, canonicalKey)
+        {
+            Source = source;
+            Kind = kind;
+        }
+
+        public ResolvedResourceEffectLocation Source { get; }
+        public ResolvedResourceKindReference? Kind { get; }
+    }
+}
+
+public sealed class ResolvedResourceEffectCallback
+{
+    internal ResolvedResourceEffectCallback(
+        ResolvedResourceEffectCallbackContract contract,
+        ResourceCallbackExecution execution,
+        ResourceCallbackCardinality cardinality)
+    {
+        Contract = contract
+            ?? throw new ArgumentNullException(nameof(contract));
+        Execution = execution;
+        Cardinality = cardinality;
+    }
+
+    public ResolvedResourceEffectCallbackContract Contract { get; }
+    public ResourceCallbackExecution Execution { get; }
+    public ResourceCallbackCardinality Cardinality { get; }
+}
+
+public sealed class ResolvedResourceEffectOutcomeTest
+{
+    internal ResolvedResourceEffectOutcomeTest(
+        ResourceEffectOutcomeTest declaration,
+        ResolvedResourceEffectTypeDefinition? exactType,
+        ResolvedResourceEffectEnumConstant? enumConstant,
+        string canonicalKey)
+    {
+        Declaration = declaration
+            ?? throw new ArgumentNullException(nameof(declaration));
+        ExactType = exactType;
+        EnumConstant = enumConstant;
+        CanonicalKey = canonicalKey
+            ?? throw new ArgumentNullException(nameof(canonicalKey));
+    }
+
+    public ResourceEffectOutcomeTest Declaration { get; }
+    public ResolvedResourceEffectTypeDefinition? ExactType { get; }
+    public ResolvedResourceEffectEnumConstant? EnumConstant { get; }
+    internal string CanonicalKey { get; }
+}
+
+public sealed class ResolvedResourceEffectEnumConstant
+{
+    internal ResolvedResourceEffectEnumConstant(
+        ResolvedResourceEffectTypeDefinition enumType,
+        int metadataToken,
+        string metadataName,
+        decimal value)
+    {
+        EnumType = enumType
+            ?? throw new ArgumentNullException(nameof(enumType));
+        if (metadataToken == 0)
+            throw new ArgumentOutOfRangeException(nameof(metadataToken));
+        ArgumentException.ThrowIfNullOrEmpty(metadataName);
+        MetadataToken = metadataToken;
+        MetadataName = metadataName;
+        Value = value;
+    }
+
+    public ResolvedResourceEffectTypeDefinition EnumType { get; }
+    public int MetadataToken { get; }
+    public string MetadataName { get; }
+    public decimal Value { get; }
+}
+
+public sealed class ResolvedResourceEffectOutcome
+{
+    internal ResolvedResourceEffectOutcome(
+        ResolvedResourceEffectLocation source,
+        ResolvedResourceEffectOutcomeTest test)
+    {
+        Source = source
+            ?? throw new ArgumentNullException(nameof(source));
+        Test = test ?? throw new ArgumentNullException(nameof(test));
+    }
+
+    public ResolvedResourceEffectLocation Source { get; }
+    public ResolvedResourceEffectOutcomeTest Test { get; }
+}
+
+public sealed class ResolvedResourceEffectCompletion
+{
+    internal ResolvedResourceEffectCompletion(
+        ResourceEffectCompletion declaration,
+        ResolvedResourceEffectOutcome? outcome,
+        string canonicalKey)
+    {
+        Declaration = declaration
+            ?? throw new ArgumentNullException(nameof(declaration));
+        Outcome = outcome;
+        CanonicalKey = canonicalKey
+            ?? throw new ArgumentNullException(nameof(canonicalKey));
+    }
+
+    public ResourceEffectCompletion Declaration { get; }
+    public ResolvedResourceEffectOutcome? Outcome { get; }
+    internal string CanonicalKey { get; }
+}
+
+public sealed class ResolvedResourceEffectGuard
+{
+    internal ResolvedResourceEffectGuard(
+        ResolvedResourceEffectLocation subject,
+        ResolvedResourceEffectType expectedType)
+    {
+        Subject = subject
+            ?? throw new ArgumentNullException(nameof(subject));
+        ExpectedType = expectedType
+            ?? throw new ArgumentNullException(nameof(expectedType));
+    }
+
+    public ResolvedResourceEffectLocation Subject { get; }
+    public ResolvedResourceEffectType ExpectedType { get; }
+}
+
+public sealed class ResolvedResourceEffectBinding
+{
+    readonly ImmutableArray<ResolvedResourceEffectLocation> _locations;
+    readonly ImmutableArray<ResolvedResourceEffectCallbackContract>
+        _callbackContracts;
+    readonly Dictionary<ResourceEffectLocation, ResolvedResourceEffectLocation>
+        _byDeclaration;
+
+    internal ResolvedResourceEffectBinding(
+        ImmutableArray<ResolvedResourceEffectLocation> locations,
+        ImmutableArray<ResolvedResourceEffectCallbackContract>
+            callbackContracts,
+        Dictionary<ResourceEffectLocation, ResolvedResourceEffectLocation>
+            byDeclaration,
+        ResolvedResourceEffectCallback? callback,
+        ResolvedResourceEffectOutcome? outcome,
+        ResolvedResourceEffectCompletion? completion,
+        ResolvedResourceEffectGuard? guard)
+    {
+        _locations = ImmutableArrayValueEquality.RequireInitialized(
+            locations,
+            nameof(locations));
+        _callbackContracts =
+            ImmutableArrayValueEquality.RequireInitialized(
+                callbackContracts,
+                nameof(callbackContracts));
+        _byDeclaration = byDeclaration
+            ?? throw new ArgumentNullException(nameof(byDeclaration));
+        Callback = callback;
+        Outcome = outcome;
+        Completion = completion;
+        Guard = guard;
+    }
+
+    public ImmutableArray<ResolvedResourceEffectLocation> Locations =>
+        _locations;
+    public ImmutableArray<ResolvedResourceEffectCallbackContract>
+        CallbackContracts => _callbackContracts;
+    public ResolvedResourceEffectCallback? Callback { get; }
+    public ResolvedResourceEffectOutcome? Outcome { get; }
+    public ResolvedResourceEffectCompletion? Completion { get; }
+    public ResolvedResourceEffectGuard? Guard { get; }
+
+    internal ResolvedResourceEffectLocation Location(
+        ResourceEffectLocation declaration) =>
+        _byDeclaration[declaration];
+}
+
 public sealed record ResolvedResourceEffectApplicability
 {
     internal ResolvedResourceEffectApplicability(
         ResourceEffectCompletion? completion,
         ResourceEffectGuard? guard,
-        ResolvedResourceEffectType? guardExpectedType)
+        ResolvedResourceEffectBinding binding)
     {
         Completion = completion;
         Guard = guard;
-        GuardExpectedType = guardExpectedType;
+        ResolvedCompletion = binding.Completion;
+        ResolvedGuard = binding.Guard;
+        GuardExpectedType = binding.Guard?.ExpectedType;
     }
 
     public ResourceEffectCompletion? Completion { get; }
     public ResourceEffectGuard? Guard { get; }
     public ResolvedResourceEffectType? GuardExpectedType { get; }
+    public ResolvedResourceEffectCompletion? ResolvedCompletion { get; }
+    public ResolvedResourceEffectGuard? ResolvedGuard { get; }
 }
 
 public sealed class ResolvedResourceEffect
@@ -281,7 +656,7 @@ public sealed class ResolvedResourceEffect
         ImmutableArray<ResolvedResourceEffectGenericBinding>
             genericBindings,
         ImmutableArray<ResolvedResourceKindReference> resourceKinds,
-        ResolvedResourceEffectType? guardExpectedType,
+        ResolvedResourceEffectBinding binding,
         ImmutableArray<ResolvedResourceEffectSource> sources,
         string canonicalEffect)
     {
@@ -313,11 +688,13 @@ public sealed class ResolvedResourceEffect
         _sources = ImmutableArrayValueEquality.RequireInitialized(
             sources,
             nameof(sources));
-        GuardExpectedType = guardExpectedType;
+        Binding = binding
+            ?? throw new ArgumentNullException(nameof(binding));
+        GuardExpectedType = binding.Guard?.ExpectedType;
         Applicability = new ResolvedResourceEffectApplicability(
             EffectCompletion(effect),
             EffectGuard(effect),
-            guardExpectedType);
+            binding);
         CanonicalEffect = canonicalEffect
             ?? throw new ArgumentNullException(nameof(canonicalEffect));
     }
@@ -334,6 +711,7 @@ public sealed class ResolvedResourceEffect
     public ImmutableArray<ResolvedResourceEffectType>
         AuthorityKeyArguments => _authorityKeyArguments;
     public ResolvedResourceEffectType? GuardExpectedType { get; }
+    public ResolvedResourceEffectBinding Binding { get; }
     public ResolvedResourceEffectApplicability Applicability { get; }
     public ImmutableArray<ResolvedResourceEffectSource> Sources => _sources;
     public ImmutableArray<ResourceDeclarationProvenance> Provenances =>
