@@ -260,6 +260,38 @@ public sealed class ResourceOwnershipFlowTests
         Assert.Equal(ResourceOwnershipUseKind.Released, use.Kind);
     }
 
+    [Theory]
+    [InlineData(
+        "ForwardRentedArray",
+        ResourceOwnershipUseKind.Forwarded)]
+    [InlineData(
+        "StoreRentedArray",
+        ResourceOwnershipUseKind.Stored)]
+    [InlineData(
+        "ReturnRentedArrayToCaller",
+        ResourceOwnershipUseKind.ReturnedToCaller)]
+    public void ScopedArrayParameterFlowRetainsCompatibilityEvidence(
+        string methodName,
+        ResourceOwnershipUseKind expected)
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            CallerPath,
+            LibraryBodyAnalysisFeatures.OwnershipFlow,
+            Resolver(CallerPath),
+            bodyScope: new HashSet<int>
+            {
+                MethodToken(methodName),
+            });
+
+        ResourceOwnershipMethodEvidence evidence =
+            Assert.Single(index.ResourceOwnership);
+        Assert.True(evidence.IsComplete);
+        Assert.Equal(
+            expected,
+            Assert.Single(
+                Assert.Single(evidence.Parameters).Uses).Kind);
+    }
+
     [Fact]
     public void SameKindAcquisitionsRetainPhysicalIdentity()
     {
@@ -498,6 +530,30 @@ public sealed class ResourceOwnershipFlowTests
     }
 
     [Fact]
+    public void ReceiverReleaseRemainsVisibleAsUnsupported()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(TokenResourceModel()),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("ReleaseReceiverParameter"),
+                });
+
+        ResourceOwnershipMethodEvidence evidence =
+            Assert.Single(index.ResourceOwnership);
+        Assert.False(evidence.IsComplete);
+        Assert.Empty(Assert.Single(evidence.Parameters).Uses);
+        Assert.Contains(
+            evidence.Limits,
+            limit => limit.Kind
+                == ResourceOwnershipFlowLimitKind.UnsupportedEffect);
+    }
+
+    [Fact]
     public void OwnershipResolutionUsesTheAcquiredRootSnapshot()
     {
         string path = Path.Combine(
@@ -713,6 +769,11 @@ public sealed class ResourceOwnershipFlowTests
             "DeclaredOwnership",
             [new ResourceTypeNameSegment("TokenResourceApi", 0)],
             []);
+        ResourceTypeExpression.Named token = new(
+            assembly,
+            "DeclaredOwnership",
+            [new ResourceTypeNameSegment("DeclaredToken", 0)],
+            []);
         ResourceKindReference kind = new(TokenKind, []);
         return new(
             ResourceEffectLanguageIdentity.Version1,
@@ -744,6 +805,23 @@ public sealed class ResourceOwnershipFlowTests
                         TokenModelIdentity,
                         "release",
                         1)]),
+                new ResourceEffectTypedDeclaration(
+                    Member(
+                        token,
+                        "Close",
+                        parameters: [],
+                        CoreType("Void"),
+                        isStatic: false),
+                    new ResourceEffect.Release(
+                        new ResourceEffectLocation.Receiver(),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        kind,
+                        Correspondence: null,
+                        Observation: null),
+                    [Provenance(
+                        TokenModelIdentity,
+                        "receiver-release",
+                        2)]),
             ]);
     }
 

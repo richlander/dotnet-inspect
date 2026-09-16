@@ -531,6 +531,54 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void Select_IntrinsicCoreLibraryUsesRetainedRequestingTarget()
+    {
+        string sourcePath = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"RetainedBindingTarget-{Guid.NewGuid():N}.dll");
+        File.Copy(sourcePath, path);
+
+        try
+        {
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "retained binding-policy test"));
+            var ready = Assert.IsType<
+                AssemblyImageSnapshotResult.Ready>(
+                    AssemblyImageSnapshot.Open(
+                        source,
+                        _ => true,
+                        _ => { }));
+            ResolvedAssemblyReference retained =
+                ready.Snapshot.RetainAssemblyReference(source);
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path)
+                {
+                    AllowPlatformAssemblyVersionRollForward = true,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromAssembly(retained),
+                AssemblyResolutionScope.Platform);
+            File.Delete(path);
+
+            var selected = Assert.IsType<
+                AssemblyBindingSelection.Selected>(
+                    resolver.Select(request).Selection);
+
+            Assert.NotSame(retained, selected.Assembly);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void AssemblyGroup_SelectsCoreLibraryFromTheRequestingDescriptor()
     {
         string path = typeof(AssemblyDependencyResolverTests)

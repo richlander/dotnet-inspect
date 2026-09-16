@@ -260,7 +260,11 @@ internal static class ResourceOwnershipFlow
             TypeRef parameterType = method.ParameterTypes[parameterIndex];
             bool isResourceValueType =
                 resolution.IsResourceValueType(parameterType);
-            if (!isResourceValueType && !hasReleaseEffects)
+            bool isArrayCompatibilityType =
+                parameterType.Kind == TypeRefKind.SzArray;
+            if (!isResourceValueType
+                && !isArrayCompatibilityType
+                && !hasReleaseEffects)
                 continue;
 
             int slot = parameterIndex + (method.IsStatic ? 0 : 1);
@@ -296,6 +300,7 @@ internal static class ResourceOwnershipFlow
                 incompleteCallOffsets,
                 parameterLimits);
             if (!isResourceValueType
+                && !isArrayCompatibilityType
                 && !flow.Uses.Any(static use =>
                     use.Effect is not null)
                 && !parameterLimits.Any(static limit =>
@@ -501,13 +506,20 @@ internal static class ResourceOwnershipFlow
         bool incomplete = false;
         foreach (ResolvedResourceEffect effect in atCall)
         {
-            if (effect.Effect is not ResourceEffect.Release release
-                || release.Source
-                    is not ResourceEffectLocation.Parameter source
-                || source.Index != parameterIndex)
+            if (effect.Effect is not ResourceEffect.Release release)
             {
                 continue;
             }
+
+            bool supportedSource =
+                release.Source
+                    is ResourceEffectLocation.Parameter source
+                && source.Index == parameterIndex;
+            bool receiverSource =
+                release.Source is ResourceEffectLocation.Receiver
+                && parameterIndex == -1;
+            if (!supportedSource && !receiverSource)
+                continue;
 
             ResolvedResourceKindReference? releaseKind =
                 effect.ResourceKinds is [var exactKind]
@@ -518,6 +530,12 @@ internal static class ResourceOwnershipFlow
                     || resourceKind is not null
                         && !releaseKind.Equals(resourceKind)))
             {
+                continue;
+            }
+
+            if (receiverSource)
+            {
+                incomplete = true;
                 continue;
             }
 
@@ -914,6 +932,12 @@ internal static class ResourceOwnershipFlow
                     when source.Index >= 0
                         && source.Index < member.ParameterTypes.Length:
                     yield return member.ParameterTypes[source.Index];
+                    break;
+                case ResourceEffect.Release
+                    {
+                        Source: ResourceEffectLocation.Receiver,
+                    }:
+                    yield return member.DeclaringType;
                     break;
             }
         }

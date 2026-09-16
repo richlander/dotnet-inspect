@@ -35,7 +35,12 @@ public sealed class ValueResourcePool
     }
 }
 
-public sealed class DeclaredToken;
+public sealed class DeclaredToken
+{
+    public void Close()
+    {
+    }
+}
 
 public static class TokenResourceApi
 {

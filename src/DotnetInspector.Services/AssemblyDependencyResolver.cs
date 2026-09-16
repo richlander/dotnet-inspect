@@ -680,7 +680,7 @@ public sealed partial class AssemblyDependencyResolver :
                 AssemblyBindingTarget.AssemblyReference reference =>
                     SelectReference(reference.Identity, request.Scope),
                 AssemblyBindingTarget.IntrinsicCoreLibrary =>
-                    SelectIntrinsicCoreLibrary(request.Scope),
+                    SelectIntrinsicCoreLibrary(request),
                 _ => AssemblyBindingSelection.Invalid(
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.InvalidPolicyResult)),
@@ -746,30 +746,52 @@ public sealed partial class AssemblyDependencyResolver :
     }
 
     AssemblyBindingSelection SelectIntrinsicCoreLibrary(
-        AssemblyResolutionScope scope)
+        AssemblyBindingRequest request)
     {
         string targetPath = Path.GetFullPath(
             _options.TargetAssemblyPath);
-        AssemblyDescriptorResolution target = DescriptorResult(
-            targetPath,
-            // Only returned as a binding when this file IS the core library
-            // facade, and it is the caller's designated target either way.
-            // Designation is the honest label: the caller named this exact
-            // file, which entitles it to core-library identity, but it says
-            // nothing about where the file came from. Reporting Platform would
-            // claim a coherent closure — a hive or pack — for what may be one
-            // loose file, and that claim is consumed beyond trust: it selects
-            // symbol-server PDB acquisition and is printed as ResolvedFrom.
-            AssemblyResolutionProvenance.Designated(
-                "intrinsic core library"));
-        return target.Assembly is null
+        ResolvedAssemblyReference? requestingTarget =
+            request.Origin
+                is AssemblyBindingOrigin.RequestingAssembly requesting
+                && requesting.Assembly.Path
+                    is { Length: > 0 } requestingPath
+                && Path.GetFullPath(requestingPath).Equals(
+                    targetPath,
+                    OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal)
+            ? requesting.Assembly
+            : null;
+        AssemblyDescriptorResolution? target = null;
+        ResolvedAssemblyReference? targetAssembly = requestingTarget;
+        if (targetAssembly is null)
+        {
+            target = DescriptorResult(
+                targetPath,
+                // Only returned as a binding when this file IS the core
+                // library facade, and it is the caller's designated target
+                // either way.
+                // Designation is the honest label: the caller named this exact
+                // file, which entitles it to core-library identity, but it says
+                // nothing about where the file came from. Reporting Platform
+                // would claim a coherent closure -- a hive or pack -- for what
+                // may be one loose file, and that claim is consumed beyond
+                // trust: it selects symbol-server PDB acquisition and is
+                // printed as ResolvedFrom.
+                AssemblyResolutionProvenance.Designated(
+                    "intrinsic core library"));
+            targetAssembly = target.Assembly;
+        }
+        return targetAssembly is null
             ? AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
-                    target.FailureKind))
+                    target?.FailureKind))
             : IntrinsicCoreLibraryBinding.Select(
-                target.Assembly,
-                facade => SelectReference(facade, scope));
+                targetAssembly,
+                facade => SelectReference(
+                    facade,
+                    request.Scope));
     }
 
     static AssemblyResolutionProvenance ResolutionProvenance(
