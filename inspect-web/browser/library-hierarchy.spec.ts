@@ -235,6 +235,7 @@ interface PackageLoadingFixture {
   failFrameworkOnce?: string;
   failVersionOnce?: string;
   versions?: readonly string[];
+  activityCatalogFailure?: boolean;
 }
 
 // Exercise the production composition root and bindings with deterministic facade
@@ -500,6 +501,9 @@ async function installFacades(
         };
       }
       export function listPackageActivityPackageSets() {
+        if (packageLoading.activityCatalogFailure) {
+          throw new Error("Package Activity catalog offline");
+        }
         return {
           version: 1,
           packageSets: [{
@@ -872,7 +876,17 @@ async function installFacades(
           callGraph: null,
         };
       }
-      export function encodeWorkspaceShareState(json) {
+      let holdNextWorkspaceEncode = false;
+      document.addEventListener("hold-workspace-encode", () => {
+        holdNextWorkspaceEncode = true;
+      });
+      export async function encodeWorkspaceShareState(json) {
+        if (holdNextWorkspaceEncode) {
+          holdNextWorkspaceEncode = false;
+          document.documentElement.dataset.workspaceEncodePending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-workspace-encode", resolve, { once: true }));
+        }
         return { succeeded: true, packet: btoa(json), failure: null };
       }
       export function decodeWorkspaceShareState(packet) {
@@ -2327,13 +2341,116 @@ test("home demo history failure restores the catalog without publication", async
     .toHaveCount(retainedBefore);
 });
 
-async function openPlatform(page: Page, options: PlatformFixture = {}) {
-  await installFacades(page, surface, [], "ready", "ready", options);
-  await page.goto("/");
-  await page.locator("[data-sl-load-runtime]").click();
+test("Activity Back restores focus on the Demos route", async ({ page }) => {
+  await installHomeDemo(page, "Methods", "package");
+  await page.goto("/demos");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
+  await page.keyboard.press("Control+k");
+  await page.locator("#spotlight-input").fill("activity");
+  await page.locator('[data-sl-package-activity="1"]').click();
+  await expect(page).toHaveURL(/\/activity$/);
+
+  await page.goBack();
+
+  await expect(page).toHaveURL(/\/demos$/);
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeFocused();
+});
+
+test("Activity catalog failure focuses the visible route heading", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {},
+    { activityCatalogFailure: true },
+  );
+  await page.goto("/activity");
+
+  await expect(page.locator(".query-navigation-error"))
+    .toContainText("Package Activity catalog offline");
+  await expect(page.locator("#package-changes-package-set")).toBeDisabled();
+  await expect(page.getByRole("heading", {
+    name: "Package Activity",
+    exact: true,
+  })).toBeFocused();
+});
+
+function platformWorkspaceUrl(includePackage = false) {
+  const platformTabId = includePackage ? "t1" : "t0";
+  const platformContextId = includePackage ? "g1" : "g0";
+  const platformTab = {
+    id: platformTabId,
+    kind: "group",
+    source: ":Platform",
+    version: platformVersion,
+    framework: "net11.0",
+    runtimeIdentifier: null,
+  };
+  const state = {
+    tabs: includePackage
+      ? [
+        {
+          id: "t0",
+          kind: "package",
+          source: surface.package,
+          version: surface.version,
+          framework: surface.activeFramework,
+          runtimeIdentifier: null,
+        },
+        platformTab,
+      ]
+      : [platformTab],
+    contexts: includePackage
+      ? [{ id: "g0", tabIds: ["t0"] }, { id: "g1", tabIds: ["t1"] }]
+      : [{ id: platformContextId, tabIds: [platformTabId] }],
+    activeTabId: platformTabId,
+    selectedContextId: platformContextId,
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+    },
+  };
+  const packet = Buffer.from(JSON.stringify(state)).toString("base64");
+  return `/?w=${encodeURIComponent(packet)}`;
+}
+
+async function openInstalledPlatform(page: Page, includePackage = false) {
+  await page.goto(platformWorkspaceUrl(includePackage));
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await expect(page).toHaveURL(/\/\?package=&w=/);
 }
+
+async function openPlatform(page: Page, options: PlatformFixture = {}) {
+  await installFacades(page, surface, [], "ready", "ready", options);
+  await openInstalledPlatform(page);
+}
+
+test("Activity Back restores focus on the Platform route", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const platformLocation = page.url();
+  await page.locator("[data-application-scope='activity']").click();
+  await expect(page).toHaveURL(/\/activity$/);
+
+  await page.goBack();
+
+  await expect(page).toHaveURL(platformLocation);
+  await expect(page.locator("[data-application-scope='activity']")).toBeFocused();
+});
 
 test("Platform opens its catalog before warm-up, with reference membership and role labels", async ({ page }) => {
   await openPlatform(page, { warmup: "pending" });
@@ -2420,8 +2537,8 @@ test("Platform mismatched catalog does not relabel the installed inventory", asy
   await expect(page.locator(".platform-library-list")).not.toContainText("System.NewFacade");
 });
 
-test("Spotlight offers separate NuGet and Platform System.Text.Json destinations without warming packs", async ({ page }) => {
-  await installFacades(page, surface, [], "ready", "ready", {});
+test("Spotlight offers NuGet and .NET Library System.Text.Json destinations without a Platform choice", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", { libraryPending: true });
   await page.route("https://azuresearch-usnc.nuget.org/query?**", route => route.fulfill({
     contentType: "application/json", body: JSON.stringify({ data: [{ id: "System.Text.Json", version: "11.0.0-preview.7" }] }),
   }));
@@ -2430,11 +2547,121 @@ test("Spotlight offers separate NuGet and Platform System.Text.Json destinations
   await expect(search).toBeEnabled();
   await search.fill("System.Text.Json");
   await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toBeVisible();
-  await expect(page.locator('[data-sl-platform-lib="System.Text.Json"]')).toContainText("Platform");
+  await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]')).toContainText(".NET library");
+  await expect(page.locator('[data-sl-scope="runtime"]')).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Platform", exact: true })).toHaveCount(0);
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");
-  await page.locator('[data-sl-platform-lib="System.Text.Json"]').click();
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(page.locator(".platform-workspace")).toHaveCount(0);
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.getByText("Opening the selected Library...")).toHaveCount(0);
+  await releaseFacade(page, "finish-platform-library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+  await expect(page.locator(".inspected-target .subject-path")).toContainText("System.Text.Json");
+  await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
+  await expect(page.locator("[data-workspace-framework-library]")).toContainText("System.Text.Json");
+  await page.locator("[data-workspace-framework-library]").click();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+  await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
+  await expect.poll(() => new URL(page.url()).pathname).not.toBe("/query");
+  await page.reload();
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
+  await releaseFacade(page, "finish-platform-library");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+});
+
+test("Spotlight framework Library failure stays outside Platform presentation", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", { libraryFailure: true });
+  await page.goto("/");
+  const search = page.getByRole("combobox");
+  await search.fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(page.locator(".platform-workspace")).toHaveCount(0);
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator(".query-notice-text")).toContainText(
+    "Could not open Library: Library offline",
+  );
+  await expect(page.locator(".query-notice-text")).not.toContainText("Platform Library");
+});
+
+test("a direct Spotlight framework Library remains a Library after package activation", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await page.goto("/");
+  await page.getByRole("combobox").fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.getByRole("button", { name: "Add package", exact: true }).click();
+  const add = page.getByRole("dialog", { name: "Add package", exact: true });
+  await add.getByRole("combobox", { name: "Add package", exact: true })
+    .fill("Second.Package");
+  await add.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
+  await expect(page.locator("[data-workspace-framework-library]"))
+    .toContainText("System.Text.Json");
+
+  await page.getByRole(
+    "button",
+    { name: "Inspect Second.Package 1.0.0 net10.0", exact: true },
+  ).click();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
+  await expect(page.locator("[data-workspace-framework-library]"))
+    .toContainText("System.Text.Json");
+  await page.locator("[data-workspace-framework-library]").click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).not.toContainText("Second.Package");
+});
+
+test("Workspace retains an in-place framework Library selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await page.goto("/");
+  await page.getByRole("combobox").fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "integrations",
+    "Integrations",
+  );
+  await page.locator('[data-integration-mode="opportunities"]').click();
+  const picker = page.locator(
+    ".library-opportunities-controls .platform-library-select",
+  );
+  await picker.selectOption("System.Facade");
+  await expect(picker).toHaveValue("System.Facade");
+
+  await page.locator('[data-application-scope="workspace"]').click();
+  const frameworkLibrary =
+    page.locator("[data-workspace-framework-library]");
+  await expect(frameworkLibrary).toContainText("System.Facade");
+  await expect(frameworkLibrary)
+    .toHaveAttribute("data-workspace-framework-library", "System.Facade");
+  await frameworkLibrary.click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
 });
 
 test("Platform Library parent, history and refresh retain the exact target without choosing a Type", async ({ page }) => {
@@ -2449,6 +2676,7 @@ test("Platform Library parent, history and refresh retain the exact target witho
   await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
     JSON.stringify(["net11.0", platformVersion, "System.Facade.dll", "netcore.app", "System.Facade.dll"]));
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
   await page.locator(".type-browser .nav-back-row").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".platform-library-list")).toBeFocused();
@@ -2522,12 +2750,7 @@ test("Catalog-only Platform is a Workspace coordinate and pending Library work c
 test("pending Platform catalog cannot overwrite a loaded Package selected through Spotlight", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installFacades(page, surface, [], "ready", "ready", { catalogPending: true });
-  await page.goto(root);
-  await page.getByRole(
-    "button",
-    { name: "Search types, members, packages", exact: true },
-  ).click();
-  await page.locator("[data-sl-load-runtime]").click();
+  await openInstalledPlatform(page, true);
   await expect(subjectTab(page, "platform"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#platform-version option")).toHaveCount(2);
@@ -2544,6 +2767,7 @@ test("pending Platform catalog cannot overwrite a loaded Package selected throug
   ).click();
   await page.locator("#spotlight-input").fill("Example.Package");
   await page.locator('[data-sl-pkg-open="Example.Package"]').click();
+  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await chooseSubject(page, "package", "Package");
 
@@ -2555,12 +2779,7 @@ test("pending Platform catalog cannot overwrite a loaded Package selected throug
 test("pending Platform catalog cannot overwrite a loaded Type selected through Commands", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installFacades(page, surface, [], "ready", "ready", { catalogPending: true });
-  await page.goto(root);
-  await page.getByRole(
-    "button",
-    { name: "Search types, members, packages", exact: true },
-  ).click();
-  await page.locator("[data-sl-load-runtime]").click();
+  await openInstalledPlatform(page, true);
   await expect(subjectTab(page, "platform"))
     .toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
@@ -2594,12 +2813,7 @@ for (const destination of ["Type", "Member"] as const) {
   test(`pending Platform Library cannot overwrite a loaded ${destination} selected through Spotlight`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installFacades(page, surface, [], "ready", "ready", { libraryPending: true });
-    await page.goto(root);
-    await page.getByRole(
-      "button",
-      { name: "Search types, members, packages", exact: true },
-    ).click();
-    await page.locator("[data-sl-load-runtime]").click();
+    await openInstalledPlatform(page, true);
     await expect(subjectTab(page, "platform"))
       .toHaveAttribute("aria-selected", "true");
     await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
@@ -2717,9 +2931,7 @@ test("Platform requests metadata identity while sharing the exact physical Libra
 test("Package and catalog-only Platform remain distinct coordinates in the same shared Workspace", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installFacades(page, surface, [], "ready", "ready", {});
-  await page.goto(root);
-  await page.getByRole("button", { name: "Search types, members, packages", exact: true }).click();
-  await page.locator("[data-sl-load-runtime]").click();
+  await openInstalledPlatform(page, true);
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await page.reload();
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
@@ -2735,6 +2947,68 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await page.locator("[data-workspace-platform]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
+});
+
+test("an unrelated Platform history entry does not parent a Spotlight Library", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await openInstalledPlatform(page, true);
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.locator("[data-type-nav-back]").click();
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.locator("[data-workspace-activate]").click();
+  await expect(page.locator(".inspected-target")).toContainText("Example.Package");
+
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+  await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
+});
+
+test("an unrelated Platform history entry does not parent Spotlight Types or Members", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await openInstalledPlatform(page, true);
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.locator("[data-type-nav-back]").click();
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.locator("[data-workspace-activate]").click();
+  await expect(page.locator(".inspected-target")).toContainText("Example.Package");
+
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("Widget");
+  await page.locator(
+    '[data-sl-type*="Example.Widget"][data-sl-pkg="Microsoft.NETCore.App"]:not([data-sl-member])',
+  ).first().click();
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to library");
+  await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
+  await page.locator("[data-workspace-activate]").click();
+  await expect(page.locator(".inspected-target")).toContainText("Example.Package");
+
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("Run");
+  await page.locator(
+    '[data-sl-member][data-sl-type*="Example.Widget"][data-sl-pkg="Microsoft.NETCore.App"]',
+  ).first().click();
+  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
 });
 
 test("catalog-only Platform retains its Workspace identity and canonical URL across another Workspace", async ({ page }) => {
@@ -2767,19 +3041,86 @@ test("catalog-only Platform retains its Workspace identity and canonical URL acr
   await expect(page).toHaveURL(platformLocation);
 });
 
-test("missing shipped catalog opens a visible Platform failure without runtime acquisition", async ({ page }) => {
-  await installFacades(page);
-  await page.goto(root);
-  await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Package");
-  const originalWorkspace = await currentWorkspaceHistoryState(page);
+test("Platform descendant history and retained switching preserve the real parent", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await openPlatform(page);
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("Widget");
+  await page.locator('[data-sl-type*="Example.Widget"]:not([data-sl-member])').first().click();
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("Run");
+  await page.locator('[data-sl-member][data-sl-type*="Example.Widget"]').first().click();
+  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+
   await page.keyboard.press("Control+p");
-  await page.locator("[data-sl-load-runtime]").click();
-  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#inspector-panel")).toContainText("The Platform catalog could not be loaded.");
-  await expect(page.locator('[data-platform-retry="catalog"]')).toBeEnabled();
-  await expect(page.locator(".platform-library-row")).toHaveCount(0);
-  await expect(page.locator("html")).not.toHaveAttribute("data-runtime-pack-request");
-  expect(await currentWorkspaceHistoryState(page)).toEqual(originalWorkspace);
+  await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.locator("[data-workspace-switch]").click();
+
+  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel h1")).toContainText("Run");
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+});
+
+test("a fresh Spotlight Library preserves the predecessor Platform parent", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
+  const predecessorLocation = page.url();
+  const predecessorWorkspace = await currentWorkspaceHistoryState(page);
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("System.Facade");
+  await releaseFacade(page, "hold-workspace-encode");
+  await page.locator('[data-sl-framework-lib="System.Facade"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-workspace-encode-pending", "true");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+  await releaseFacade(page, "finish-workspace-encode");
+  await page.getByRole("button", { name: "Application menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await page.locator('#settings-dialog [data-theme="light"]').click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
+
+  await page.goBack();
+  await expect(page).toHaveURL(predecessorLocation);
+  await expect.poll(() => currentWorkspaceHistoryState(page)).toEqual(predecessorWorkspace);
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
+  await page.reload();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
 });
 
 test("restored Platform failure retries its own Library request", async ({ page }) => {
@@ -2797,12 +3138,6 @@ test("restored Platform failure retries its own Library request", async ({ page 
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-  await page.keyboard.press("Control+p");
-  await page.locator("[data-sl-load-runtime]").click();
-  await page.getByRole("button", { name: /System.Facade Facade/ }).click();
-  await expect(page.locator("#inspector-panel")).toContainText(
-    "Could not open Platform Library: Library offline",
-  );
 
   await page.goBack();
   await expect.poll(() => currentWorkspaceHistoryState(page)).toEqual(firstWorkspace);

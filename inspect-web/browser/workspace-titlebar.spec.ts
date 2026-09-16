@@ -45,7 +45,6 @@ async function renderSpotlightFooter(
       resetPackageSearch: () => {},
       packageSearchLoading: () => false,
       packageCount: () => 1,
-      activeFramework: () => "net10.0",
       render: () => {},
     });
     const app = document.querySelector<HTMLElement>("#app");
@@ -84,8 +83,10 @@ test("the top shell row separates application scopes from inspection subjects", 
   await expect(page.locator(".titlebar .application-scope-strip"))
     .toBeVisible();
   await expect(page.locator("[data-application-scope]"))
-    .toHaveText(["Query", "Workspace"]);
+    .toHaveText(["Query", "Activity", "Workspace"]);
   await expect(page.locator("[data-application-scope='query']"))
+    .not.toHaveAttribute("aria-current", "page");
+  await expect(page.locator("[data-application-scope='activity']"))
     .not.toHaveAttribute("aria-current", "page");
   await expect(page.locator("[data-application-scope='workspace']"))
     .not.toHaveAttribute("aria-current", "page");

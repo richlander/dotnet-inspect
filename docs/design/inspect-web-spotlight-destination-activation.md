@@ -12,19 +12,18 @@ Scope and registration revisions, and creates a fresh curated Workspace only
 for an uncovered package. The resource-free coverage and activation-plan
 projection is implemented by `BrowserSpotlightDestinationProjection`.
 Current-Workspace Package and package-origin Library execution is implemented by
-`BrowserSpotlightCurrentPackageActivation`. Exact current-Workspace Platform
-execution and the typed destination-presentation handoff are implemented by
+`BrowserSpotlightCurrentPackageActivation`; fresh-Workspace and retained Browser
+host adoption remain later stages. The previously implemented
 `BrowserSpotlightCurrentPlatformActivation` and
-`BrowserSpotlightDestinationPresentation`; fresh-Workspace and retained Browser
-host adoption remain later stages. Those managed owners are not themselves
-production Browser adoption: projection and execution must consume the exact
-active realization rather than a Workspace reconstructed from frontend state.
+`BrowserSpotlightDestinationPresentation` types are retained staged artifacts,
+not production Browser adoption. Projection and execution must consume the
+exact active realization rather than a Workspace reconstructed from frontend
+state.
 The prerequisite split is tracked by
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027),
 [#7028](https://github.com/richlander/dotnet-inspect/issues/7028),
 [#7031](https://github.com/richlander/dotnet-inspect/issues/7031),
-[#7030](https://github.com/richlander/dotnet-inspect/issues/7030), and
-[#7029](https://github.com/richlander/dotnet-inspect/issues/7029);
+and [#7030](https://github.com/richlander/dotnet-inspect/issues/7030);
 [#6686](https://github.com/richlander/dotnet-inspect/issues/6686) remains the
 final thin Browser integration and acceptance slice.
 
@@ -35,43 +34,44 @@ settled Spotlight result. It consumes owner-issued Scope, Navigation,
 Platform, Workspace Definitions, host-publication, and source outcomes without
 redefining their operations or lifecycles.
 
+## Spotlight presentation boundary
+
+Spotlight does not offer Platform as a scope, component, or root destination.
+Installed framework assemblies may be presented as ordinary Library results,
+with `.NET` or `ASP.NET Core` source disclosure, and the Browser may use
+Platform-owned realization internally when such a Library is selected.
+Platform provenance does not create a Platform result.
+
+The Platform-specific projection, execution types, and model branches were
+implemented as a staged managed capability before this product decision. They
+are historical, non-normative artifacts and remain outside production Browser
+adoption. [#7029](https://github.com/richlander/dotnet-inspect/issues/7029) is
+closed as not planned, and
+[#6686](https://github.com/richlander/dotnet-inspect/issues/6686) must not
+connect those paths. The presentation boundary above is authoritative for
+user-visible Spotlight behavior.
+
 ## Demo
 
-Assume the active Workspace contains the curated Platform, ASP.NET Core, and
-Microsoft.Extensions registrations but has not realized either form of
-`System.Text.Json`.
+Search for `System.Text.Json` while both its NuGet package and framework
+assembly are available.
 
 ```text
 Spotlight: System.Text.Json
 
-In this Workspace
+Libraries
   System.Text.Json
-  Platform Library - .NET 11
-  Available through Platform
+  .NET library - net11.0 - 11.0.0
 
-Open in a new Workspace
+Packages
   System.Text.Json
-  Package - System.Text.Json 11.0.0-preview.7 - net10.0
-  NuGet package
+  NuGet - 11.0.0-preview.7
 ```
 
-The Platform Library is registration-covered, so selecting it preserves the
-active Workspace and invokes the exact Browser Platform action. The package is
-not covered merely because its assembly name matches the Platform Library, so
-selecting it constructs a fresh curated Workspace and adds that exact package.
-
-If the active Workspace also registers a package prefix that matches
-`System.Text.Json`, the package row moves to the first group:
-
-```text
-In this Workspace
-  System.Text.Json
-  Package - System.Text.Json 11.0.0-preview.7 - net10.0
-  Available through System.*
-```
-
-Selecting that row explicitly adds the exact package to the current Workspace
-and focuses it there. Registration itself remains inert.
+Selecting the framework Library uses Browser-owned realization internally and
+opens the Library without exposing a Platform destination before, during, or
+after activation. Selecting the package follows the activation plan described
+below. Registration itself remains inert.
 
 ## Exact claim
 
@@ -82,15 +82,14 @@ snapshot:
   activation action;
 - a registration-covered package or package-origin Library explicitly adds
   its exact enclosing package to the current Workspace, then requests focus;
-- a registration-covered or already-realized Platform Library delegates to
-  the exact Browser Platform activation action while retaining the current
-  Workspace;
-- a Platform Type or Member emitted from the resident Platform surface uses
-  its exact Browser Platform action in the current Workspace;
 - an uncovered package constructs and activates a fresh Ecosystems-curated
   Workspace containing that package; and
 - an uncovered Library is unavailable rather than being reinterpreted by name
   or silently converted into a package request.
+
+Framework Library results are outside this managed activation-plan family.
+The Browser opens them through its existing realization path under the
+[Spotlight presentation boundary](#spotlight-presentation-boundary).
 
 The decision uses membership and registration as relevance evidence. It does
 not make registration source authorization, traversal permission, acquisition,
@@ -148,7 +147,6 @@ SpotlightDestinationActivationPlan
   = NavigateCurrent(exact Navigation action)
   | ActivateCurrentPackageLibrary(exact occurrence, exact Library intent)
   | AddCurrentPackage(exact package request, optional exact Library intent)
-  | ActivateCurrentPlatformDestination(exact Browser Platform action)
   | RestoreExternalPackageWorkspace(exact Definitions request)
   | Unavailable(exact reason)
 ```
@@ -161,15 +159,13 @@ The classification table is:
 | Package-origin Library not yet realized beneath an exact current Package occurrence | Exact occurrence and Library intent | `ActivateCurrentPackageLibrary` |
 | Package covered by a package-prefix contribution | Exact coverage witnesses | `AddCurrentPackage` |
 | Package-origin Library covered by an exact-Library registration or a matching package-prefix contribution, without a current enclosing Package occurrence | Exact coverage witnesses | `AddCurrentPackage` with the Library intent |
-| Platform Library already realized or covered by an exact-Library or Platform-population contribution | Exact realization or coverage witnesses and Platform action | `ActivateCurrentPlatformDestination` |
-| Platform Type or Member emitted from the resident Platform surface | Exact Browser Platform action | `ActivateCurrentPlatformDestination` |
 | Package with no current membership or registration coverage | Exact external package coordinate | `RestoreExternalPackageWorkspace` |
 | Library with no current membership or registration coverage | Exact candidate and reason | `Unavailable` |
 
 This slice does not introduce global external-Library activation. Library
 results within a Workspace come from its admitted or registered populations.
-Home-to-Platform opening and Platform catalog entry remain owned by the
-existing Browser Platform experience.
+Framework Library discovery and Browser-owned realization remain outside this
+managed activation plan.
 
 ## Registration coverage
 
@@ -183,7 +179,7 @@ Workspace identity:
   the candidate's exact package ID and may cover that package or one exact
   package-origin Library within it;
 - an ecosystem registration covers only through one or more of its retained
-  exact-Library, Platform-population, or package-prefix contributions; its
+  exact-Library or package-prefix contributions; its
   label, namespace hints, core-package priorities, knowledge, and scanner
   identity do not independently establish coverage; and
 - current Package membership covers the Package and exact Library candidates
@@ -197,9 +193,7 @@ as binding precedence.
 
 Every witness binds the exact Workspace, Scope revision and publication base,
 registration revision, registration position, nested population contribution
-and authored position when applicable, exact candidate, and source family. A
-Platform witness for `System.Text.Json` cannot cover the package-origin
-candidate with the same visible name.
+and authored position when applicable, exact candidate, and source family.
 
 Coverage says that the current Workspace is the appropriate composition
 boundary. The selected operation must still honor source availability,
@@ -212,8 +206,7 @@ the source owner's typed non-success outcomes.
 
 `NavigateCurrent` submits the exact current Navigation action already issued
 for the destination. It performs no Scope mutation and does not reconstruct
-ancestry from Spotlight text. Browser-local Platform actions use
-`ActivateCurrentPlatformDestination` instead.
+ancestry from Spotlight text.
 
 ### Covered packages and package-origin Libraries
 
@@ -267,44 +260,6 @@ by Navigation remains owned by
 [#5584](https://github.com/richlander/dotnet-inspect/issues/5584), not this
 stage.
 
-### Platform destinations
-
-`ActivateCurrentPlatformDestination` preserves the active Workspace and
-invokes the exact host-local Platform action for a Library, Type, or Member. It
-never represents Platform as a Package, manufactures package ancestry, or
-promotes a package merely because the Library has a package counterpart.
-Every such action remains bound to the exact Workspace that issued it; an
-action retained from another Workspace is stale even when its target text and
-Platform coordinates still compare equal.
-
-A Platform Library may receive this action because current registration
-coverage permits its realization or because that exact Library is already
-realized in the same Workspace. Registration-free repeat activation never
-transfers to a replacement Workspace.
-
-Platform Type and Member results are emitted only from an already-resident
-Platform surface. Their descriptor carries the exact Browser Platform action;
-that action binds the exact Platform target, Library ancestry, Type identity,
-and Member identity as applicable. Spotlight does not reinterpret it as shared
-Navigation. This owner classifies the current-Workspace effect and settles the
-action without redefining Platform's target, catalog, or deep-focus mechanics.
-
-Shared Scope and Navigation currently have no Platform structural subject.
-Unifying Platform Library, Type, or Member activation with the shared
-`Workspace -> Package -> Library -> Type -> Member` grammar requires a separate
-focused Scope, Navigation, and inventory extension. This owner exposes the
-present Browser boundary rather than hiding it behind generic subject
-identity.
-
-The managed execution boundary validates the descriptor's exact Workspace,
-registration revision, Scope revision, and publication base before invoking
-the caller-supplied Platform operation. It passes the complete
-Workspace-bound `BrowserSpotlightPlatformAction` without inspecting or
-reconstructing its target. The caller returns the Platform owner's opaque
-result, which remains complete in the settled Spotlight result whether it
-represents application, failure, or supersession. The boundary never mutates
-Package Scope, invokes shared Navigation, or creates a fallback Workspace.
-
 ## Fresh-Workspace activation
 
 `RestoreExternalPackageWorkspace` applies only to an uncovered package. It
@@ -346,14 +301,13 @@ SpotlightDestinationActivationResult
 ```
 
 This is a product result shape, not a replacement for the contributing owner
-unions. Scope, Navigation, Platform, source, and curated-construction outcomes
-remain embedded or referenced without being collapsed into success-shaped
-Booleans.
+unions. Scope, Navigation, source, and curated-construction outcomes remain
+embedded or referenced without being collapsed into success-shaped Booleans.
 
 Authority is checked before every effect-producing handoff:
 
 - before current Scope mutation;
-- before current Navigation, package-Library, or Platform activation;
+- before current Navigation or package-Library activation;
 - before using a committed occurrence for lower focus; and
 - before handing a `CompleteWorkspaceActivation` to host publication.
 
@@ -382,7 +336,7 @@ Presentation may group current-Workspace effects separately from
 new-Workspace effects and render concise labels such as:
 
 ```text
-Platform Library - .NET 11
+Library - Example.Package 1.0.0 - net10.0
 Package - System.Text.Json 11.0.0-preview.7 - net10.0
 Available through Microsoft.Extensions
 Open in a new Workspace
@@ -395,16 +349,15 @@ and the final visual vocabulary.
 
 ## Real evidence
 
-The motivating overlap uses the real package and Platform forms of
-`System.Text.Json` already preserved by the Exact Library and binding designs.
-Their ECMA-335 assembly identities may compare equivalently while their MVIDs,
-source coordinates, and acquisition routes remain distinct.
+The motivating overlap uses the real package and framework-Library forms of
+`System.Text.Json`. Their ECMA-335 assembly identities may compare equivalently
+while their source coordinates and acquisition routes remain distinct.
 
 The required walkthrough is:
 
-1. Platform registration covers the Platform `System.Text.Json` Library.
-2. It does not cover the package `System.Text.Json` coordinate by name.
-3. Selecting the Platform row preserves the current Workspace.
+1. Spotlight presents the framework assembly only as a `.NET` Library.
+2. It presents the package `System.Text.Json` coordinate independently.
+3. Selecting the framework Library exposes no Platform scope or root.
 4. Selecting the uncovered package row creates a fresh curated Workspace.
 5. Adding a matching package-prefix registration changes only the package
    row's later classification to current-Workspace admission.
@@ -422,18 +375,12 @@ selection-time transfer into activation intent, current Package commit followed
 by independent focus, a Definitions-issued complete fresh activation,
 active-Workspace replacement, supersession, and visible failure.
 
-The model checks:
+The model predates the
+[Spotlight presentation boundary](#spotlight-presentation-boundary). Its
+Platform-specific branches are retained as historical evidence for the staged
+managed types and are not production requirements. The active model claims
+check that:
 
-- same-name Platform and package candidates retain different coverage;
-- a realized Platform Library selected again retains its exact Browser-local
-  Platform action even after its covering registration is removed from the
-  same Workspace;
-- Platform Type and Member results retain their exact Browser-local actions
-  rather than flowing through shared Navigation;
-- a never-realized Platform Library without current coverage remains
-  unavailable;
-- Platform realization in one Workspace does not make the same destination
-  realized in a replacement Workspace;
 - every overlapping registration contribution remains in the exact ordered
   coverage projection;
 - selection copies the rendered descriptor's captured plan and basis rather
@@ -471,7 +418,7 @@ design evidence, not implementation conformance.
 | [Inspection Subject Navigation](inspection-subject-navigation.md) | Shared Package/Library/Type/Member ancestry, focus, reconciliation, and exact action authority |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | Canonical location, history, effect installation, and consumer synchronization |
 | [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Grouping, labels, accessibility, and opaque-action interaction |
-| Browser Platform experience | Host-local Platform target, Library action, catalog, and source-specific focus |
+| Browser framework-Library realization | Internal target, Library acquisition, catalog, and source-specific focus without a Spotlight Platform destination |
 | [Workspace Definitions](workspace-definitions.md), Artifact Acquisition, and retained Browser host | Complete external-package activation, non-install cleanup and drainage, collection publication, and active identity |
 
 Production adoption is staged by owner:
@@ -482,8 +429,8 @@ Production adoption is staged by owner:
    Inspect Web managed composition path.
 3. Adopt current Package and package-origin Library admission through Scope
    and Navigation, preserving partial committed membership results.
-4. Adopt the existing Platform action and typed home/effect presentation in
-   Spotlight.
+4. Keep the staged Platform action and typed presentation types outside
+   production Spotlight; #7029 is retired.
 5. Adopt the Definitions-owned complete-restoration path and current-authority
    host publication for uncovered packages.
 6. Run Browser original-host and Firefox acceptance gates, then include the
@@ -504,17 +451,10 @@ typed results; committed or already-current membership survives Navigation
 failure or supersession. The boundary neither creates a fallback Workspace nor
 publishes host state.
 
-Stage 4 is implemented at the managed action-execution and presentation-handoff
-boundaries. `BrowserSpotlightCurrentPlatformActivation` validates the captured
-activation basis and invokes only the exact opaque
-`ActivateCurrentPlatformDestination` action, retaining the Platform owner's
-complete result without Package Scope mutation, shared Navigation, or
-fresh-Workspace fallback. `BrowserSpotlightDestinationPresentation` provides
-typed source home, Workspace relationship, activation disposition, and
-availability data without lowering labels or using presentation text as
-identity. Current retained-host selection intent, HTML lowering, and end-to-end
-Browser publication remain owned by
-[#6686](https://github.com/richlander/dotnet-inspect/issues/6686).
+Stage 4's `BrowserSpotlightCurrentPlatformActivation` and
+`BrowserSpotlightDestinationPresentation` implementation is retained only as
+historical staged capability. It has no production adoption step and must not
+be connected to Spotlight.
 
 Stage 5 is implemented at the managed Definitions and retained-host
 composition boundary. `BrowserSpotlightExternalPackageActivation` accepts only
@@ -546,13 +486,12 @@ Production adoption follows this dependency order:
 3. Fresh-Workspace producers, including an uncovered Spotlight Package, adopt
    that transaction in
    [#7031](https://github.com/richlander/dotnet-inspect/issues/7031).
-4. Current Package/package-origin Library and Platform actions enter through
-   the exact active realization in
-   [#7030](https://github.com/richlander/dotnet-inspect/issues/7030) and
-   [#7029](https://github.com/richlander/dotnet-inspect/issues/7029).
+4. Current Package and package-origin Library actions enter through the exact
+   active realization in
+   [#7030](https://github.com/richlander/dotnet-inspect/issues/7030).
 5. [#6686](https://github.com/richlander/dotnet-inspect/issues/6686) connects
-   those owner-issued paths to Spotlight interaction and runs the complete
-   Browser acceptance matrix.
+   the remaining owner-issued paths to Spotlight interaction and runs the
+   complete Browser acceptance matrix without Platform actions.
 
 The final slice may enumerate finite exact-Library registrations and ecosystem
 exact-Library populations for projection. Package-prefix registrations classify
@@ -567,15 +506,11 @@ fields, or treat a frontend-retained record as live Workspace authority.
 | Select an already admitted Package, Library, Type, or Member | The existing exact action runs in the current Workspace; membership does not change |
 | Select a package matched by a current package-prefix registration | The exact package becomes current membership and focus is requested there |
 | Select a package-origin Library covered only by an exact-Library registration | Its exact enclosing package is admitted in the current Workspace; no other package asset is inferred as the destination |
-| Select the Platform and package forms of `System.Text.Json` with only Platform registered | The Platform row preserves the Workspace; the package row creates a new Workspace |
-| Select the Platform `System.Text.Json` Library again after it is realized | The exact Browser Platform action runs again; shared Navigation is not substituted |
-| Select a Platform Type or Member returned from the resident Platform surface | Its exact Browser Platform action runs in the current Workspace; shared Navigation is not substituted |
-| Remove the covering Platform registration after the Platform `System.Text.Json` Library is realized, then select it again in the same Workspace | The exact Browser Platform action still runs because realization remains current; missing registration coverage does not make it unavailable |
-| Select a never-realized Platform Library after its covering registration is removed | The result is unavailable; registration removal does not manufacture realization |
-| Realize a Platform Library, replace the active Workspace, remove the replacement's covering registration, then select the same Library | The replacement settles it unavailable; realization from the prior Workspace does not transfer |
-| Add a package-prefix contribution covering `System.Text.Json` and obtain fresh results | The exact package row now preserves the current Workspace; the Platform row remains distinct |
+| Search for framework and package forms of `System.Text.Json` | The framework assembly is an ordinary Library row, the package remains distinct, and no Platform affordance appears |
+| Select a framework Library whose implementation is not resident | The prior surface remains visible during acquisition and success opens the Library directly |
+| Fail framework Library acquisition | The prior surface is restored with a Library-only failure; no Platform root or status appears |
+| Add a package-prefix contribution covering `System.Text.Json` and obtain fresh results | The exact package row now preserves the current Workspace; the framework Library row remains independently sourced |
 | Render an uncovered package row, add a covering registration, then select the old row | The captured external-Package plan settles stale; selection does not reclassify it into current membership |
-| Render a Platform Library row, replace the active Workspace, then select the old row | The captured source-Workspace plan settles stale and publishes no Platform focus |
 | Remove or replace the covering registration during activation | The stale action does not mutate or publish and reports its exact stale outcome |
 | Scope commits a selected Package and Navigation then fails | Membership remains committed; focus failure is visible; no fallback Workspace is created |
 | Covered package acquisition fails before Scope commit | The current Workspace is unchanged and the failure is visible there |
@@ -590,17 +525,15 @@ ordered overlapping witnesses for admitted and registration-covered Package
 and Library subjects, exact-Library-only coverage, independent Scope and
 registration basis validation, stale and foreign Workspace evidence,
 same-ID/version source-request separation, stale Package occurrences, and the
-real package and Platform `System.Text.Json` overlap.
+real package and framework-Library `System.Text.Json` overlap.
 `BrowserSpotlightPackageActivationTests` gates prefix-covered and
 exact-Library-only Package admission, already-current Library activation,
 duplicate no-effect admission, source denial, Scope failure, stale
 registration before and during activation, exact occurrence propagation, and
 committed membership followed by Navigation failure or supersession.
-`BrowserSpotlightPlatformActivationTests` gates exact Platform action
-invocation, unchanged Package Scope, registration-, Scope-revision-, and
-publication-base-stale suppression, opaque owner failure and supersession,
-typed source-home and disposition handoff, and rejection of non-Platform
-plans.
+`BrowserSpotlightPlatformActivationTests` preserves historical evidence for
+the staged, non-production Platform activation types; it is not a production
+Spotlight acceptance gate.
 `WorkspaceScopeTests` gates publication-base-guarded admission and exact
 binding-to-occurrence resolution. Workspace Definitions retains its separate
 non-install cleanup gate for external-package restoration. Selection-intent

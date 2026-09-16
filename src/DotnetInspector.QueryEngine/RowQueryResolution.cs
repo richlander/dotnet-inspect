@@ -11,10 +11,10 @@ public enum RowQueryOperationKind
 
 public enum RowQueryFailureReason
 {
-    UnknownField,
+    UnknownKey,
     UnsupportedPredicateOperator,
     InvalidValue,
-    UnsupportedFieldOrder,
+    UnsupportedKeyOrder,
     UnknownNamedOrder,
     NamedOrderIsNotRanking,
     MissingTopRanking
@@ -27,8 +27,8 @@ public sealed class RowQueryFailure
         int operationPosition,
         int? termPosition,
         int? semanticStageNumber,
-        RowQuerySchemaIdentity schemaIdentity,
-        RowQueryFieldIdentity? fieldIdentity,
+        RowQueryVocabularyIdentity vocabularyIdentity,
+        RowQueryKeyIdentity? keyIdentity,
         RowQueryNamedOrderIdentity? namedOrderIdentity,
         RowQueryFailureReason reason)
     {
@@ -36,8 +36,8 @@ public sealed class RowQueryFailure
         OperationPosition = operationPosition;
         TermPosition = termPosition;
         SemanticStageNumber = semanticStageNumber;
-        SchemaIdentity = schemaIdentity;
-        FieldIdentity = fieldIdentity;
+        VocabularyIdentity = vocabularyIdentity;
+        KeyIdentity = keyIdentity;
         NamedOrderIdentity = namedOrderIdentity;
         Reason = reason;
     }
@@ -50,9 +50,9 @@ public sealed class RowQueryFailure
 
     public int? SemanticStageNumber { get; }
 
-    public RowQuerySchemaIdentity SchemaIdentity { get; }
+    public RowQueryVocabularyIdentity VocabularyIdentity { get; }
 
-    public RowQueryFieldIdentity? FieldIdentity { get; }
+    public RowQueryKeyIdentity? KeyIdentity { get; }
 
     public RowQueryNamedOrderIdentity? NamedOrderIdentity { get; }
 
@@ -68,8 +68,8 @@ public sealed class ResolvedRowQueryPlan<TRow>
         Func<IComparer<TRow>>> _orderCatalog;
 
     internal ResolvedRowQueryPlan(
-        RowQuerySchemaIdentity schemaIdentity,
-        IReadOnlyList<RowQueryFieldIdentity> predicateFieldIdentities,
+        RowQueryVocabularyIdentity vocabularyIdentity,
+        IReadOnlyList<RowQueryKeyIdentity> predicateKeyIdentities,
         IReadOnlyList<Predicate<TRow>> predicates,
         ResolvedRowQueryOrderBinding? baselineOrder,
         IReadOnlyList<ResolvedRowQueryOrderBinding> resolvedOrders,
@@ -79,8 +79,8 @@ public sealed class ResolvedRowQueryPlan<TRow>
             ResolvedRowQueryOrderIdentity,
             Func<IComparer<TRow>>> orderCatalog)
     {
-        SchemaIdentity = schemaIdentity;
-        PredicateFieldIdentities = predicateFieldIdentities;
+        VocabularyIdentity = vocabularyIdentity;
+        PredicateKeyIdentities = predicateKeyIdentities;
         _predicates = predicates;
         BaselineOrder = baselineOrder;
         ResolvedOrders = resolvedOrders;
@@ -89,10 +89,10 @@ public sealed class ResolvedRowQueryPlan<TRow>
         _orderCatalog = orderCatalog;
     }
 
-    public RowQuerySchemaIdentity SchemaIdentity { get; }
+    public RowQueryVocabularyIdentity VocabularyIdentity { get; }
 
-    public IReadOnlyList<RowQueryFieldIdentity>
-        PredicateFieldIdentities
+    public IReadOnlyList<RowQueryKeyIdentity>
+        PredicateKeyIdentities
     { get; }
 
     public ResolvedRowQueryOrderBinding? BaselineOrder { get; }
@@ -125,14 +125,14 @@ public sealed class ResolvedRowQueryOrderBinding
     internal ResolvedRowQueryOrderBinding(
         ResolvedRowQueryOrderIdentity identity,
         RowQueryNamedOrderIdentity? namedOrderIdentity,
-        IReadOnlyList<RowQueryFieldIdentity> fieldIdentities,
-        IReadOnlyList<RowQueryOrderDirection> fieldDirections,
+        IReadOnlyList<RowQueryKeyIdentity> keyIdentities,
+        IReadOnlyList<RowQueryOrderDirection> keyDirections,
         RowQueryOrderDirection? namedOrderDirection)
     {
         Identity = identity;
         NamedOrderIdentity = namedOrderIdentity;
-        FieldIdentities = fieldIdentities;
-        FieldDirections = fieldDirections;
+        KeyIdentities = keyIdentities;
+        KeyDirections = keyDirections;
         NamedOrderDirection = namedOrderDirection;
     }
 
@@ -140,9 +140,9 @@ public sealed class ResolvedRowQueryOrderBinding
 
     public RowQueryNamedOrderIdentity? NamedOrderIdentity { get; }
 
-    public IReadOnlyList<RowQueryFieldIdentity> FieldIdentities { get; }
+    public IReadOnlyList<RowQueryKeyIdentity> KeyIdentities { get; }
 
-    public IReadOnlyList<RowQueryOrderDirection> FieldDirections { get; }
+    public IReadOnlyList<RowQueryOrderDirection> KeyDirections { get; }
 
     public RowQueryOrderDirection? NamedOrderDirection { get; }
 }
@@ -175,64 +175,64 @@ public sealed class RowQueryResolutionResult<TRow>
 public static class RowQueryResolver
 {
     public static RowQueryResolutionResult<TRow> Resolve<TRow>(
-        RowQuerySchema<TRow> schema,
+        RowQueryVocabulary<TRow> vocabulary,
         RowQueryIntent intent)
     {
-        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(vocabulary);
         ArgumentNullException.ThrowIfNull(intent);
 
         var predicates =
             new Predicate<TRow>[intent.Predicates.Count];
-        var predicateIdentities =
-            new RowQueryFieldIdentity[intent.Predicates.Count];
+        var predicateKeyIdentities =
+            new RowQueryKeyIdentity[intent.Predicates.Count];
         for (int index = 0; index < intent.Predicates.Count; index++)
         {
             RowQueryPredicateIntent predicateIntent =
                 intent.Predicates[index];
-            if (!schema.TryGetField(
-                    predicateIntent.FieldKey,
-                    out RowQueryField<TRow>? field))
+            if (!vocabulary.TryGetKey(
+                    predicateIntent.Key,
+                    out RowQueryKey<TRow>? key))
             {
                 return Failed<TRow>(
-                    schema,
+                    vocabulary,
                     RowQueryOperationKind.Predicate,
                     index + 1,
                     null,
                     null,
-                    RowQueryFailureReason.UnknownField);
+                    RowQueryFailureReason.UnknownKey);
             }
 
-            if (!field.Operators.Contains(
+            if (!key.Operators.Contains(
                     predicateIntent.Operator))
             {
                 return Failed<TRow>(
-                    schema,
+                    vocabulary,
                     RowQueryOperationKind.Predicate,
                     index + 1,
                     null,
                     null,
                     RowQueryFailureReason.UnsupportedPredicateOperator,
-                    fieldIdentity: field.Identity);
+                    keyIdentity: key.Identity);
             }
 
             Predicate<TRow>? predicate =
-                field.BindPredicate(
+                key.BindPredicate(
                     predicateIntent.Operator,
                     predicateIntent.Value);
             if (predicate is null)
             {
                 return Failed<TRow>(
-                    schema,
+                    vocabulary,
                     RowQueryOperationKind.Predicate,
                     index + 1,
                     null,
                     null,
                     RowQueryFailureReason.InvalidValue,
-                    fieldIdentity: field.Identity);
+                    keyIdentity: key.Identity);
             }
 
             predicates[index] = predicate;
-            predicateIdentities[index] = field.Identity;
+            predicateKeyIdentities[index] = key.Identity;
         }
 
         var orderCatalog =
@@ -247,7 +247,7 @@ public static class RowQueryResolver
         {
             OrderResolution<TRow> baseline =
                 ResolveOrder(
-                    schema,
+                    vocabulary,
                     intent.BaselineOrder,
                     requireRanking: false,
                     RowQueryOperationKind.BaselineOrder,
@@ -263,11 +263,11 @@ public static class RowQueryResolver
                 baseline.ComparerFactory!;
             resolvedOrders.Add(baselineBinding);
         }
-        else if (schema.DefaultBaselineOrder is not null)
+        else if (vocabulary.DefaultBaselineOrder is not null)
         {
             OrderResolution<TRow> baseline =
                 ResolveDefaultOrder(
-                    schema.DefaultBaselineOrder);
+                    vocabulary.DefaultBaselineOrder);
             if (baseline.Failure is not null)
                 return RowQueryResolutionResult<TRow>.Failed(
                     baseline.Failure);
@@ -318,23 +318,23 @@ public static class RowQueryResolver
                         {
                             ranking =
                                 ResolveOrder(
-                                    schema,
+                                    vocabulary,
                                     operation.RankingOrderOperand,
                                     requireRanking: true,
                                     RowQueryOperationKind.TopRanking,
                                     topPosition,
                                     stageIndex + 1);
                         }
-                        else if (schema.DefaultTopRanking is not null)
+                        else if (vocabulary.DefaultTopRanking is not null)
                         {
                             ranking =
                                 ResolveDefaultOrder(
-                                    schema.DefaultTopRanking);
+                                    vocabulary.DefaultTopRanking);
                         }
                         else
                         {
                             return Failed<TRow>(
-                                schema,
+                                vocabulary,
                                 RowQueryOperationKind.TopRanking,
                                 topPosition,
                                 null,
@@ -369,12 +369,12 @@ public static class RowQueryResolver
 
         return RowQueryResolutionResult<TRow>.Success(
             new ResolvedRowQueryPlan<TRow>(
-                schema.Identity,
-                SectionContractSnapshot.Own(
-                    predicateIdentities),
-                SectionContractSnapshot.Own(predicates),
+                vocabulary.Identity,
+                QueryEngineSnapshot.Own(
+                    predicateKeyIdentities),
+                QueryEngineSnapshot.Own(predicates),
                 baselineBinding,
-                SectionContractSnapshot.Copy(
+                QueryEngineSnapshot.Copy(
                     resolvedOrders),
                 baselineComparerFactory,
                 RowSelectionPlan<
@@ -388,12 +388,12 @@ public static class RowQueryResolver
         new(
             new ResolvedRowQueryOrderIdentity(),
             resolution.NamedOrderIdentity,
-            resolution.FieldIdentities,
-            resolution.FieldDirections,
+            resolution.KeyIdentities,
+            resolution.KeyDirections,
             resolution.NamedOrderDirection);
 
     private static OrderResolution<TRow> ResolveOrder<TRow>(
-        RowQuerySchema<TRow> schema,
+        RowQueryVocabulary<TRow> vocabulary,
         RowQueryOrderIntent intent,
         bool requireRanking,
         RowQueryOperationKind operationKind,
@@ -402,13 +402,13 @@ public static class RowQueryResolver
     {
         if (intent.Kind is RowQueryOrderIntentKind.Named)
         {
-            if (!schema.TryGetNamedOrder(
+            if (!vocabulary.TryGetNamedOrder(
                     intent.NamedOrderKey,
                     out RowQueryNamedOrder<TRow>? order))
             {
                 return OrderResolution<TRow>.Failed(
                     Failure(
-                        schema,
+                        vocabulary,
                         operationKind,
                         operationPosition,
                         null,
@@ -422,7 +422,7 @@ public static class RowQueryResolver
             {
                 return OrderResolution<TRow>.Failed(
                     Failure(
-                        schema,
+                        vocabulary,
                         operationKind,
                         operationPosition,
                         null,
@@ -440,48 +440,48 @@ public static class RowQueryResolver
 
         var comparerFactories =
             new Func<IComparer<TRow>>[intent.Terms.Count];
-        var fieldIdentities =
-            new RowQueryFieldIdentity[intent.Terms.Count];
-        var fieldDirections =
+        var keyIdentities =
+            new RowQueryKeyIdentity[intent.Terms.Count];
+        var keyDirections =
             new RowQueryOrderDirection[intent.Terms.Count];
         for (int index = 0; index < intent.Terms.Count; index++)
         {
             RowQueryOrderTermIntent term =
                 intent.Terms[index];
-            if (!schema.TryGetField(
-                    term.FieldKey,
-                    out RowQueryField<TRow>? field))
+            if (!vocabulary.TryGetKey(
+                    term.Key,
+                    out RowQueryKey<TRow>? key))
             {
                 return OrderResolution<TRow>.Failed(
                     Failure(
-                        schema,
+                        vocabulary,
                         operationKind,
                         operationPosition,
                         index + 1,
                         semanticStageNumber,
-                        RowQueryFailureReason.UnknownField));
+                        RowQueryFailureReason.UnknownKey));
             }
 
-            if (!field.SupportsOrdering)
+            if (!key.SupportsOrdering)
             {
                 return OrderResolution<TRow>.Failed(
                     Failure(
-                        schema,
+                        vocabulary,
                         operationKind,
                         operationPosition,
                         index + 1,
                         semanticStageNumber,
-                        RowQueryFailureReason.UnsupportedFieldOrder,
-                        fieldIdentity: field.Identity));
+                        RowQueryFailureReason.UnsupportedKeyOrder,
+                        keyIdentity: key.Identity));
             }
 
             comparerFactories[index] =
-                field.CreateComparerFactory(term.Direction)!;
-            fieldIdentities[index] = field.Identity;
-            fieldDirections[index] = term.Direction;
+                key.CreateComparerFactory(term.Direction)!;
+            keyIdentities[index] = key.Identity;
+            keyDirections[index] = term.Direction;
         }
 
-        return OrderResolution<TRow>.SuccessFields(
+        return OrderResolution<TRow>.SuccessKeys(
             () =>
             {
                 var comparers =
@@ -510,8 +510,8 @@ public static class RowQueryResolver
                         return 0;
                     });
             },
-            fieldIdentities,
-            fieldDirections);
+            keyIdentities,
+            keyDirections);
     }
 
     private static OrderResolution<TRow> ResolveDefaultOrder<TRow>(
@@ -525,41 +525,41 @@ public static class RowQueryResolver
     }
 
     private static RowQueryResolutionResult<TRow> Failed<TRow>(
-        RowQuerySchema<TRow> schema,
+        RowQueryVocabulary<TRow> vocabulary,
         RowQueryOperationKind operationKind,
         int operationPosition,
         int? termPosition,
         int? semanticStageNumber,
         RowQueryFailureReason reason,
-        RowQueryFieldIdentity? fieldIdentity = null,
+        RowQueryKeyIdentity? keyIdentity = null,
         RowQueryNamedOrderIdentity? namedOrderIdentity = null) =>
         RowQueryResolutionResult<TRow>.Failed(
             Failure(
-                schema,
+                vocabulary,
                 operationKind,
                 operationPosition,
                 termPosition,
                 semanticStageNumber,
                 reason,
-                fieldIdentity,
+                keyIdentity,
                 namedOrderIdentity));
 
     private static RowQueryFailure Failure<TRow>(
-        RowQuerySchema<TRow> schema,
+        RowQueryVocabulary<TRow> vocabulary,
         RowQueryOperationKind operationKind,
         int operationPosition,
         int? termPosition,
         int? semanticStageNumber,
         RowQueryFailureReason reason,
-        RowQueryFieldIdentity? fieldIdentity = null,
+        RowQueryKeyIdentity? keyIdentity = null,
         RowQueryNamedOrderIdentity? namedOrderIdentity = null) =>
         new(
             operationKind,
             operationPosition,
             termPosition,
             semanticStageNumber,
-            schema.Identity,
-            fieldIdentity,
+            vocabulary.Identity,
+            keyIdentity,
             namedOrderIdentity,
             reason);
 
@@ -567,8 +567,8 @@ public static class RowQueryResolver
         Func<IComparer<TRow>>? ComparerFactory,
         RowQueryFailure? Failure,
         RowQueryNamedOrderIdentity? NamedOrderIdentity,
-        IReadOnlyList<RowQueryFieldIdentity> FieldIdentities,
-        IReadOnlyList<RowQueryOrderDirection> FieldDirections,
+        IReadOnlyList<RowQueryKeyIdentity> KeyIdentities,
+        IReadOnlyList<RowQueryOrderDirection> KeyDirections,
         RowQueryOrderDirection? NamedOrderDirection)
     {
         public static OrderResolution<TRow> SuccessNamed(
@@ -579,22 +579,22 @@ public static class RowQueryResolver
                 comparerFactory,
                 null,
                 identity,
-                SectionContractSnapshot.Empty<
-                    RowQueryFieldIdentity>(),
-                SectionContractSnapshot.Empty<
+                QueryEngineSnapshot.Empty<
+                    RowQueryKeyIdentity>(),
+                QueryEngineSnapshot.Empty<
                     RowQueryOrderDirection>(),
                 direction);
 
-        public static OrderResolution<TRow> SuccessFields(
+        public static OrderResolution<TRow> SuccessKeys(
             Func<IComparer<TRow>> comparerFactory,
-            RowQueryFieldIdentity[] fieldIdentities,
-            RowQueryOrderDirection[] fieldDirections) =>
+            RowQueryKeyIdentity[] keyIdentities,
+            RowQueryOrderDirection[] keyDirections) =>
             new(
                 comparerFactory,
                 null,
                 null,
-                SectionContractSnapshot.Own(fieldIdentities),
-                SectionContractSnapshot.Own(fieldDirections),
+                QueryEngineSnapshot.Own(keyIdentities),
+                QueryEngineSnapshot.Own(keyDirections),
                 null);
 
         public static OrderResolution<TRow> Failed(
@@ -603,9 +603,9 @@ public static class RowQueryResolver
                 null,
                 failure,
                 null,
-                SectionContractSnapshot.Empty<
-                    RowQueryFieldIdentity>(),
-                SectionContractSnapshot.Empty<
+                QueryEngineSnapshot.Empty<
+                    RowQueryKeyIdentity>(),
+                QueryEngineSnapshot.Empty<
                     RowQueryOrderDirection>(),
                 null);
     }

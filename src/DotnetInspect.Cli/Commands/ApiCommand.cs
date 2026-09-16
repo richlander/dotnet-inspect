@@ -4558,9 +4558,14 @@ public class ApiCommand
             AssemblyMemberDecompiledSourceAttempt.Available =>
                 "available",
             AssemblyMemberDecompiledSourceAttempt.Unavailable unavailable =>
-                unavailable.Status == Decompiler.MemberBodyProductionStatus.Absent
-                    ? "the member has no renderable body"
-                    : "decompilation failed",
+                unavailable.Status switch
+                {
+                    Decompiler.CSharpDecompilationStatus.Absent =>
+                        "the member has no renderable body",
+                    Decompiler.CSharpDecompilationStatus.Incomplete =>
+                        $"decompilation incomplete: {unavailable.FailureDetail}",
+                    _ => $"decompilation failed: {unavailable.FailureDetail}",
+                },
             _ => throw new InvalidOperationException(
                 "Unknown decompiled source attempt."),
         };

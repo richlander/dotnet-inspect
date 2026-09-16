@@ -1,4 +1,5 @@
 export const ROUTED_ENTRY_PATHS = {
+  activity: "/activity",
   credits: "/credits",
   demos: "/demos",
   diagnostics: "/diagnostics",
@@ -8,6 +9,7 @@ export const ROUTED_ENTRY_PATHS = {
 export const ENTRY_DOCUMENT_PATHS = [
   "/",
   "/index.html",
+  ROUTED_ENTRY_PATHS.activity,
   ROUTED_ENTRY_PATHS.credits,
   ROUTED_ENTRY_PATHS.demos,
   ROUTED_ENTRY_PATHS.diagnostics,

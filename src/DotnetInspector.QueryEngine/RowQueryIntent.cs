@@ -17,7 +17,7 @@ public enum RowQueryOrderDirection
 public enum RowQueryOrderIntentKind
 {
     Named,
-    Fields
+    Keys
 }
 
 public sealed class RowQueryValueToken
@@ -34,21 +34,21 @@ public sealed class RowQueryValueToken
 public sealed class RowQueryPredicateIntent
 {
     public RowQueryPredicateIntent(
-        string fieldKey,
+        string key,
         RowQueryOperator @operator,
         RowQueryValueToken value)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(fieldKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(value);
         RowQueryContractGuard.ValidateDefined(
             @operator,
             nameof(@operator));
-        FieldKey = fieldKey;
+        Key = key;
         Operator = @operator;
         Value = value;
     }
 
-    public string FieldKey { get; }
+    public string Key { get; }
 
     public RowQueryOperator Operator { get; }
 
@@ -58,18 +58,18 @@ public sealed class RowQueryPredicateIntent
 public sealed class RowQueryOrderTermIntent
 {
     public RowQueryOrderTermIntent(
-        string fieldKey,
+        string key,
         RowQueryOrderDirection direction)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(fieldKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
         RowQueryContractGuard.ValidateDefined(
             direction,
             nameof(direction));
-        FieldKey = fieldKey;
+        Key = key;
         Direction = direction;
     }
 
-    public string FieldKey { get; }
+    public string Key { get; }
 
     public RowQueryOrderDirection Direction { get; }
 }
@@ -105,7 +105,7 @@ public sealed class RowQueryOrderIntent
             : throw WrongKind(nameof(NamedOrderDirection));
 
     public IReadOnlyList<RowQueryOrderTermIntent> Terms =>
-        Kind is RowQueryOrderIntentKind.Fields
+        Kind is RowQueryOrderIntentKind.Keys
             ? _terms
             : throw WrongKind(nameof(Terms));
 
@@ -121,17 +121,17 @@ public sealed class RowQueryOrderIntent
             RowQueryOrderIntentKind.Named,
             namedOrderKey,
             direction,
-            SectionContractSnapshot.Empty<RowQueryOrderTermIntent>());
+            QueryEngineSnapshot.Empty<RowQueryOrderTermIntent>());
     }
 
-    public static RowQueryOrderIntent Fields(
+    public static RowQueryOrderIntent Keys(
         IReadOnlyList<RowQueryOrderTermIntent> terms)
     {
         ArgumentNullException.ThrowIfNull(terms);
         if (terms.Count == 0)
         {
             throw new ArgumentException(
-                "A field order must contain at least one term.",
+                "A key order must contain at least one term.",
                 nameof(terms));
         }
 
@@ -145,10 +145,10 @@ public sealed class RowQueryOrderIntent
         }
 
         return new(
-            RowQueryOrderIntentKind.Fields,
+            RowQueryOrderIntentKind.Keys,
             null,
             default,
-            SectionContractSnapshot.Own(copy));
+            QueryEngineSnapshot.Own(copy));
     }
 
     private InvalidOperationException WrongKind(string property) =>
@@ -170,7 +170,7 @@ public sealed class RowQueryIntent
 
     public static RowQueryIntent Empty { get; } =
         new(
-            SectionContractSnapshot.Empty<RowQueryPredicateIntent>(),
+            QueryEngineSnapshot.Empty<RowQueryPredicateIntent>(),
             null,
             RowSelectionIntent<RowQueryOrderIntent>.Empty);
 
@@ -202,7 +202,7 @@ public sealed class RowQueryIntent
             && selection.Operations.Count == 0
                 ? Empty
                 : new(
-                    SectionContractSnapshot.Own(copy),
+                    QueryEngineSnapshot.Own(copy),
                     baselineOrder,
                     selection);
     }

@@ -7,6 +7,8 @@ export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyReques
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
 export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserLibraryApiDiffInspectionFailureMechanism = "Metadata" | "Relationship" | "Signature" | "TypeSpecification" | number;
+export type BrowserLibraryApiDiffMemberPairKind = "Changed" | "Added" | "Removed" | number;
+export type BrowserLibraryApiDiffMemberRelationRole = "Before" | "After" | "Both" | number;
 export type BrowserLibraryApiDiffMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
 export type BrowserLibraryApiDiffOpenFailureKind = "Unreadable" | "InvalidImage" | "ResourceBudget" | "UnsupportedMetadataFormat" | number;
 export type BrowserLibraryApiDiffProjectionLimit = "Participants" | "Types" | "Members" | "InspectionFailures" | "TypeForwarders" | "MetadataRows" | "RetainedTextCharacters" | number;
@@ -133,6 +135,22 @@ export interface BrowserLibraryApiDiffInspectionFailure {
     readonly subjectAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
     readonly dependencyAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
 }
+export interface BrowserLibraryApiDiffMember {
+    readonly documentIdentifier: string;
+    readonly pairKind: BrowserLibraryApiDiffMemberPairKind;
+    readonly role: BrowserLibraryApiDiffMemberRelationRole;
+    readonly before: BrowserLibraryApiDiffMemberIdentity | null;
+    readonly after: BrowserLibraryApiDiffMemberIdentity | null;
+}
+export interface BrowserLibraryApiDiffMemberIdentity {
+    readonly declaringTypeIdentifier: string;
+    readonly stableSelector: string;
+    readonly canonicalSignature: string;
+    readonly fingerprint: string;
+    readonly typeFullName: string;
+    readonly memberName: string;
+    readonly display: string;
+}
 export interface BrowserLibraryApiDiffProjectionTruncation {
     readonly limit: BrowserLibraryApiDiffProjectionLimit;
     readonly bound: number;
@@ -192,6 +210,7 @@ export interface BrowserLibraryApiDiffType {
     readonly potentiallyBreakingCount: number;
     readonly before: BrowserLibraryApiDiffTypeIdentity | null;
     readonly after: BrowserLibraryApiDiffTypeIdentity | null;
+    readonly members: ReadonlyArray<BrowserLibraryApiDiffMember>;
 }
 export interface BrowserLibraryApiDiffTypeIdentity {
     readonly identifier: string;

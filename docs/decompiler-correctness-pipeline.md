@@ -196,9 +196,14 @@ outcome.
 raw membership comes from `LocationAt`, structured catch/finally projections
 retain exact clause and region associations, raw and planning views share one
 fact observation, missing correlation declines visibly, and same-range foreign
-identity cannot license reconstruction. The full `ClassicInverseCoreTests`
-population gates unchanged recipe and accounting behavior. These gates do not
-verify the later return-timing consumer migration.
+identity cannot license reconstruction. The same gate requires the
+relationship-selected `MoveNext` MethodDef to equal the available Instructions
+exception-flow body's MethodDef, rejects a foreign method observation, and
+retains the neighboring user-`finally` reconstruction. Decompiler consumers
+resolve owner-issued clause and region identities through Instructions lookup
+rather than collection scans or object-reference correspondence. The full
+`ClassicInverseCoreTests` population gates unchanged recipe and accounting
+behavior. These gates do not verify the later return-timing consumer migration.
 
 ### EH normal-continuation return timing
 

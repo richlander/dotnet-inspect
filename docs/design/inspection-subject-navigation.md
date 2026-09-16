@@ -166,6 +166,13 @@ sibling Type and does not implement occurrence-replacement correspondence.
 The new policy's Release gates below have not landed. This design step changes
 neither that implementation nor the shipped Browser preferences above.
 
+The [forwarded ancestry policy](#forwarded-api-ancestry) settles
+[#7169](https://github.com/richlander/dotnet-inspect/issues/7169) within that
+same adoption path. The shared correspondence producer and completed matching
+envelope landed in #7188/#7189; they do not implement Navigation replacement.
+Adoption of their actual defining-Library result, active-ancestor preservation,
+and forwarded fallback remains **target-only and unverified** under #5584.
+
 ## Consumer and complexity record
 
 The end-to-end tracker is #5512. The concrete consumers are:
@@ -251,6 +258,13 @@ The added policy serves one experience: a coordinate change must not replace
 the selected API with a sibling or silently discard an explicit inspector
 request. It adds no matching algorithm, cache, or concurrency protocol.
 
+Forwarded ancestry is part of protected replacement step 3, not a seventh
+capability step. The ordinary policy preserves ancestors before descendants;
+the bounded exception below lets an exact Type counterpart replace its
+non-active Library context with its actual defining Library. An explicitly
+active Library still wins over lower-path retention. This avoids both false
+ancestry and a surprising Library switch without adding another retained path.
+
 ## Design demo
 
 The production Browser/Wasm scenario in #5433 is behavioral evidence:
@@ -306,6 +320,33 @@ establish correspondence. An exact supplied Package replacement and typed
 descendant correspondence are prerequisites, not facts inferred from this
 example's labels. Coordinate controls on Type/Member views, fresh content
 queries, focus, and history remain counted Browser adoption work.
+
+#### Forwarded coordinate retention
+
+The real witness is `Avalonia.Data.MultiBinding` in
+`Avalonia@11.3.14 -> 12.1.2 / net8.0`: `Avalonia.Markup` defines it before,
+then forwards it to `Avalonia.Base`. The
+[correspondence owner](forwarded-api-coordinate-correspondence.md#product-question-and-real-demo)
+records the assets and route; its acceptance gates cover the exact Type and
+constructor, and a non-matching `Converter` declaration after relocation.
+The following Navigation outcomes are a mockup, not current Browser behavior:
+
+```text
+Before: Package P  -> Library A  -> Type T  -> Member M
+After:  Package P' -> Library B' -> Type T' -> Member M'
+Route:  entry A' forwards T to B'; A still pairs with A', not B'
+
+Type or exact Member active: follow the declaration into B'.
+Package or Workspace active: keep it active; retain the lower path through B'.
+Library A active: keep paired A' active; discard T/M outside A', explain why.
+Member absent, Type exact: retain B'.T'; an active Member falls back to T'.
+Type not exact: retain the available entry ancestor A', with native evidence.
+```
+
+The active-Library case deliberately sacrifices lower context rather than
+change the subject the person selected. The Type/Member case instead follows
+that selected API; the Library change is ancestry of its exact counterpart,
+not a Library correspondence or a separate Library activation.
 
 ## Problem
 
@@ -456,6 +497,12 @@ subject.
 
 [Type, member, and API representation](type-member-api-representation.md) owns
 the Type and Member identity currencies used here.
+
+[Forwarded API coordinate correspondence](forwarded-api-coordinate-correspondence.md)
+owns the exact source/entry/defining-Library association, declaration result,
+and detached forwarding evidence. It consumes Library pairing and Metadata
+resolution/matching; Navigation consumes that composed evidence, not a second
+forwarder walker or a host-selected destination.
 
 [Workspace definitions](workspace-definitions.md) owns portable view-facet
 registry binding. The [View Facet Registry](view-facet-registry.md), established
@@ -1071,6 +1118,52 @@ evidence. The same rule applies to a completed Registry or policy `Failed`
 outcome. A non-success result shares the unchanged-snapshot outcome class only
 when the complete snapshot is unchanged.
 
+#### Exact Type selection in another retained Package
+
+Issue [#7243](https://github.com/richlander/dotnet-inspect/issues/7243)
+adds one direct-selection action for
+[Inspect Web Type Find](inspect-web-type-find.md), whose end-to-end adoption is
+tracked by [#6851](https://github.com/richlander/dotnet-inspect/issues/6851).
+The action allows a person to choose an exact discovered Type in any ready
+Package occurrence already retained by the same Workspace. It does not add,
+replace, or correspond Package membership.
+
+The managed consumer supplies one complete
+`StructuralSubjectIdentity.TypeSubject`. Its ancestry binds the exact
+Workspace, Package occurrence, acquired Library registration, and structured
+Metadata Type name. Navigation publishes an opaque action only while that
+occurrence is ready in the current complete Scope snapshot. Action publication
+is a state transition bound to the current Navigation publication; a stale
+publication, foreign Workspace, absent occurrence, or non-ready occurrence
+returns a typed non-success and publishes no action.
+
+Submitting the action validates its session, generation, source subject,
+Workspace, occurrence, and exact target before gathering destination facts.
+Navigation then evaluates the requested occurrence directly and requires the
+exact Library and Type to occur once in its trustworthy inventory. Display
+text, Package coordinate equality, assembly simple name, and locator result
+ordinals are not action identity or fallback inputs.
+
+| Destination result | Navigation result and state |
+| --- | --- |
+| Exact Library and exactly one Type are available | Install one complete snapshot with that occurrence and Type active; run recommendation only for that Type |
+| Occurrence or Type is absent with complete evidence | `Unavailable`; retain the installed snapshot |
+| Exact Type identity occurs more than once | `Ambiguous`; retain the installed snapshot |
+| Library ancestry does not match the destination occurrence | `Rejected`; retain the installed snapshot |
+| Inventory cannot establish absence | `Failed` with its evidence; retain the installed snapshot |
+| Action is stale, foreign, duplicated, or source-mismatched | `Rejected` before destination preparation; retain the installed snapshot |
+| Superseded by a newer explicit intent | `Superseded`; publish no visible effect |
+
+This is direct user selection, not retained-coordinate variation. Navigation
+does not inspect the prior subject for correspondence and does not publish a
+Package or recommended default-Type snapshot before the selected Type. One
+semantically changed successful completion advances the semantic revision once
+and uses the existing complete-snapshot installation and acknowledgement
+protocol. Selecting the already-active exact Type is an applied semantic no-op:
+it preserves the complete installed snapshot, including an exact lens basis,
+and returns fresh effect authority without advancing the semantic revision,
+under the ordinary unchanged-snapshot rule.
+
 #### Atomic descendant subject and lens activation
 
 Issue [#6490](https://github.com/richlander/dotnet-inspect/issues/6490)
@@ -1202,12 +1295,17 @@ algorithm:
 2. **Resolve the retained path.** Starting at the established Package, resolve each
    retained Library, Type, and Member in ancestry order. Same-occurrence refresh
    uses exact availability; replacement movement uses typed correspondence. Each
-   resolved node must be an exact descendant of the preceding result.
+   retained node must be an exact descendant of the preceding retained result.
+   During replacement, a paired entry Library is provisional context: an exact
+   forwarded Type may require its actual defining Library instead, under
+   [Forwarded API ancestry](#forwarded-api-ancestry). This is not permission to
+   replace an active Library or retain a Type beneath its forwarding facade.
 3. **Apply one fallback.** At the first unresolved path node, apply the table's
    fallback for that level inside the established Package and truncate every lower
    node. Missing, ambiguous, refused, or failed correspondence follows the same
-   rule with its diagnostic. No fallback crosses the established Package or
-   Workspace.
+   rule with its diagnostic. A matched lower node excluded by active-Library
+   containment is truncated with that distinct reason, not reported as absent.
+   No fallback crosses the established Package or Workspace.
 4. **Derive the active subject.** Workspace remains active independently. A
    non-Workspace active subject uses its resolved path node when present;
    otherwise it becomes the single fallback result. Retained nodes below an
@@ -1267,6 +1365,10 @@ when the retained Package moves between exact occurrences inside one Workspace:
 | Library missing | Available aggregate, then the new occurrence's exact Package |
 | Correspondence missing, ambiguous, refused, or failed | Apply the unresolved node's level fallback inside the already resolved ancestor, truncate lower nodes, and retain the diagnostic |
 
+For a forwarded Type, the resolved ancestor can change from entry Library A'
+to defining Library B' only under the policy below. Type resolution alone is
+not exact Type correspondence.
+
 Display text, package ID alone, portable coordinate equality, assembly name,
 token, and ordinal are not correspondence.
 
@@ -1285,14 +1387,88 @@ protected Navigation consumption. This design accepts only the exact installed
 inventory and active-occurrence inputs. Non-invalidating realization-status
 refresh remains ordinary maintenance.
 
+#### Forwarded API ancestry
+
+Within the exact replacement Package, Library pairing can establish A -> A'
+while correspondence establishes that retained Type T has its exact available
+counterpart T' in B', reached through A'. Navigation keeps those relations
+distinct. A' remains entry evidence; B' is T's destination ancestry. There is
+one retained path, not competing facade and definition paths.
+
+The input is the Queries-issued correspondence result associated with the
+retained source and the exact source/destination observations admitted for this
+replacement. Consume its source, entry, terminal and native non-success
+evidence under the correspondence owner's contract. Scope-result correlation,
+generation/currentness and permission to install remain with #5584 and the
+existing Navigation state protocol. Portable coordinates, names, equal MVIDs,
+or a result from another replacement cannot supply that association.
+
+Resolve the retained structural Type before retaining a Member beneath it.
+Only an exact, available Type counterpart permits replacing the Library
+context with B'. A Member additionally needs exact correspondence whose
+destination declares that Member in the same exact T'. A successful Member
+declaration lookup alone does not establish the retained Type's correspondence.
+An inherited inventory row's display containment does not replace the
+structural Member's declaring-Type identity.
+
+| Active subject before replacement | Adoption when T' is exact and available in B' |
+| --- | --- |
+| Type T | Make T' active with B' as its defining-Library ancestry. Reconcile any lower Member beneath T'. |
+| Member M in T | Retain M' only when its exact result belongs to T'; otherwise use T' as the Member-level fallback. |
+| Package | Keep the exact replacement Package active and retain available lower context through B'. |
+| Workspace | Keep Workspace active and retain available lower context through B' in the exact replacement occurrence. |
+| One Library A | Keep available paired A' active. Retain lower context only if its exact destination belongs to A'; otherwise truncate Type/Member and explain the containment decision. |
+
+The last row does not turn an exact match in B' into `Absent`, `Refused`, or a
+new Library pair. Preserve the exact correspondence and route as evidence for
+why that lower context was not retained. Library or aggregate non-availability
+continues to use the existing Library-level fallback; a lower match does not
+rescue or change an active Library. Aggregate activation and containment retain
+their existing rules.
+
+When the retained Type is exact but Member correspondence is absent, ambiguous,
+refused, or failed, retain B'.T' and truncate the Member with its native result.
+An active Member falls back to T'; an active Type, Package, or Workspace
+remains active as above. This is not permission to select another Member.
+
+Without an exact, available retained Type counterpart, the route alone does not
+authorize retaining B' as a replacement Library or T' as a counterpart.
+Apply Type-level fallback at available paired entry A', then the existing
+aggregate/Package fallback if necessary. This includes a resolved terminal
+whose strict Type correspondence fails, unresolved forwarding, or destination
+availability that prevents adoption. An exact correspondence result remains
+exact when a separate availability failure prevents its retention.
+Preserve resolution, matching, and stage evidence: a dangling route, missing
+binding, ambiguity, refusal, or evaluation failure is not an API-removal
+verdict. No same-named Type elsewhere supplies the missing correspondence.
+
+The complete snapshot uses the adopted destination path and its current
+descriptors and inventories. Type-inventory context is B' for an active Type
+or Member, or for their retained context beneath Package/Workspace; it stays
+A' for the preserved active one-Library case. Inspector-request retention
+below applies to an exactly retained active Type/Member even when its Library
+changes. Member fallback to Type instead receives Type recommendation.
+Lower-context truncation never transfers that lower subject's inspector to an
+active ancestor or discards the ancestor's own exact request.
+
+This policy changes neither correspondence nor admission of a destination
+outside the producer's selected Package population. It does not authorize
+dependency traversal, cross-Workspace retention, broader acquisition, or a
+Browser ancestry repair. The stateless and retained Navigation consumers apply the
+same policy; #5584 integrates it with protected replacement, #5513 exposes the
+stateless completed result, and #5510/#5511 adopt descriptors and complete
+results in Browser/Wasm. Completed host boundaries retain the existing
+`InspectionEnvelope<TContent>` contract.
+
 #### Coordinate inspector-request retention
 
 Only a resolved active subject carries its retained exact inspector request
 into a replacement occurrence. This includes an active Package when the
 occurrence-first algorithm establishes its exact supplied replacement Package,
 and an active Library, Type, or Member when typed correspondence resolves its
-complete ancestor path. A failure below an active resolved ancestor truncates
-the lower context without discarding that ancestor's inspector request.
+complete ancestor path, including the defining-Library adoption above. A
+failure below an active resolved ancestor truncates the lower context without
+discarding that ancestor's inspector request.
 An active Workspace keeps its own subject and lens independently.
 
 The transferable intent is the existing complete opaque `ViewFacetId`, not
@@ -1613,7 +1789,9 @@ Workspace-containment rules above are enforced by the implementation gates
 below rather than claimed as model-checked behavior. Ancestor fallback and
 coordinate inspector-request retention are likewise pure policy over those
 values, not changes to the modeled ordering protocol; their new gates remain
-unverified.
+unverified. Forwarded ancestry is another pure structural policy, not a new
+concurrency transition; the models do not establish its ancestry or
+correspondence properties.
 
 ### Required implementation gates
 
@@ -1695,6 +1873,10 @@ The eventual subject-navigation implementation must include named gates for:
 - `CoordinateVariation_NonSuccessInspectorKeepsResolvedSubject`
 - `CoordinateVariation_FallbackDoesNotTransferInspectorRequest`
 - `CoordinateVariation_RecommendationBasisRemainsRecommendation`
+- `CoordinateVariation_ForwardedApiAdoptsDefiningAncestry`
+- `CoordinateVariation_ForwardedContextPreservesActiveAncestor`
+- `CoordinateVariation_ForwardedMemberNonSuccessKeepsResolvedType`
+- `CoordinateVariation_ForwardedTypeNonSuccessKeepsEntryAncestor`
 - `RetainedSession_UsesInstalledSnapshotAsOnlyPriorState`
 - `RetainedSession_BindsOneExactWorkspaceOccurrence`
 - `RetainedSession_RejectsCallerSuppliedPriorSnapshot`
@@ -1804,6 +1986,31 @@ acknowledgement; this action introduces no second operation or partial
 publication protocol. The exact pair and descendant relationship remain
 **unverified** until these named Release gates land.
 
+The retained-Type publication gate
+`RetainedTypeAction_PublicationRequiresCurrentReadyExactOccurrence` varies the
+Navigation publication, Workspace, occurrence, and realization status before
+asserting that only the exact current basis publishes an action.
+`RetainedTypeAction_SelectsExactTypeAcrossOccurrencesWithoutIntermediateState`
+starts from one Type in occurrence A, publishes actions for exact Types in A
+and B, selects B, and requires one completion whose occurrence, Library, Type,
+and single revision advance are B's exact values.
+`RetainedTypeAction_SeparatesEqualCoordinateOccurrences` keeps
+equal-coordinate occurrences distinct.
+`RetainedTypeAction_MapsUnavailableRejectedAmbiguousAndFailed` covers a
+mismatched Library, missing Type, duplicate Type identity, and incomplete
+inventory, while existing action-authority gates cover stale generation and
+supersession.
+`RetainedTypeAction_DestinationRealizationChangeIsTyped` covers a destination
+that becomes Pending or Failed after publication, and
+`RetainedTypeAction_AlreadyActiveTypeIsSemanticNoOp` fixes the unchanged-snapshot
+revision behavior. The tests independently retain their input identities and
+require the prior complete snapshot for every non-applied result.
+`RetainedTypeAction_ActivatesRealSystemTextJsonObservation` exercises the same
+transition over Metadata projected from the real `System.Text.Json` assembly.
+These gates also use a throwing correspondence sentinel when that seam becomes
+injectable; until then, the direct evaluation path and exact outcome assertions
+gate the no-correspondence claim.
+
 The five ancestor-fallback and coordinate-inspector gates added for #7061 are
 also **unverified**. The missing-Type gate supplies another trustworthy Type
 in the same Library and requires Library fallback, for both ordinary refresh
@@ -1826,6 +2033,26 @@ stateless CLI producer and retained Browser producer consume these same policy
 outcomes; their host adoption gates must also preserve fresh content and the
 existing Package/Library experience.
 
+The four forwarded-ancestry gates are **unverified** until Navigation adoption
+lands. Reuse the pinned Avalonia pair and product correspondence producer, not
+hand-authored successful correspondence, for the exact Type/constructor and
+non-matching Member cases. Independently retain source and destination
+identities and assert the complete ancestry, active subject, Type-inventory
+context, inspector basis, and associated route/result evidence.
+
+The active-ancestor gate covers Workspace and Package retaining B'.T', and
+active A retaining A' while discarding that same exact lower match with a
+containment explanation. The Member non-success gate requires an independently
+exact Type result before falling back to B'.T'. The Type non-success gate
+covers a resolved route without strict Type correspondence and unresolved
+forwarding, unavailable destination evaluation despite an exact match, and an
+unrelated same-named Type that must not be substituted.
+Use proportional producer-backed boundary fixtures where the real pair does
+not supply a case. Existing exact-inspector gates cover Registry non-success;
+the #5584 correlation and supersession gates cover replacement installation,
+not a new forwarding-specific scheduling protocol. CLI and Browser adoption
+must preserve the same typed outcomes and fresh destination content.
+
 ## Acceptance cases
 
 | Case | Expected result |
@@ -1834,6 +2061,9 @@ existing Package/Library experience.
 | Workspace selected without an active occurrence, with zero, one, or many retained entries | Exact Workspace subject with no invented coordinate or lower context |
 | Package coordinate selected | Exact Workspace-bound Package ancestry; no tab or display identity participates |
 | Package subject activated | Exact Package with Package Overview recommendation after #5509 |
+| Exact Type selected in another ready retained occurrence | One complete result activates that occurrence, defining Library, and Type; no Package/default-Type intermediate snapshot |
+| Equal-coordinate retained occurrences contain the same Type name | Each published action retains its exact occurrence and selecting either activates only that observation |
+| Directly selected Type is missing, duplicated, mismatched to its Library, or lacks complete inventory | Typed non-success with the prior complete snapshot; no correspondence or name fallback |
 | Active coordinate is absent without a supplied replacement | Workspace with no active occurrence |
 | Active coordinate is absent with an exact supplied replacement | Occurrence-first correspondence and level-local fallback only inside that occurrence |
 | Current retained coordinate is Pending during non-invalidating re-realization | Exact logical occurrence, installed Package subject, descendant subject context, and typed owner evidence remain without fallback or truncation; no current artifact realization reference or Navigation activation action is exposed |
@@ -1852,6 +2082,12 @@ existing Package/Library experience.
 | Package coordinate or selection target changes so logical correspondence differs | Membership-changing replacement supplies a new occurrence and Package subject; correspondence and level-local fallback govern retained descendants |
 | Coordinate variation within one Workspace | Typed correspondence or independent recommendation confined to the requested occurrence |
 | Coordinate variation across Workspaces | No correspondence; separate retained session and independently restored state |
+| Active Type/Member moves from A through A' to exact B'.T' | Adopt actual B' ancestry and the exact Type/Member; reissue the active subject's inspector request against its destination |
+| Package/Workspace active with the same forwarded lower path | Preserve active ancestor and its lens policy; retain exact lower context through B' |
+| Library A active with an exact lower match in B', distinct from paired A' | Keep A' and its inspector active; truncate Type/Member, retaining exact-match evidence and the containment explanation |
+| Forwarding and Type correspondence succeed but Member correspondence does not | Retain B'.T'; active Member falls back to Type recommendation, with native Member non-success preserved |
+| Forwarding resolves but strict Type correspondence does not | Type-level fallback at paired entry A', not an inferred Library pair with B'; preserve route and strict non-success |
+| Forwarding is unresolved or a same-named Type exists without the required route | Entry-ancestor fallback with native resolution evidence; no replacement Type invented |
 | Coordinate variation resolves the active Package, Library, Type, or Member with a retained exact inspector request | Same opaque facet is resolved against the exact destination; the old subject-bound lens is not reused |
 | Resolved coordinate subject has an unavailable or failed requested inspector | Resolved subject remains active with no effective lens and the exact request/result evidence; no recommended substitute |
 | Resolved coordinate subject has an unknown or inapplicable requested inspector | Rejected inspector request remains visible on the resolved subject, with no effective lens or substituted inspector |

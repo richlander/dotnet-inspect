@@ -524,8 +524,9 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
-                if (!JsonWireMemberRules.IsSerialized(
+                if (!JsonWireMemberRules.ParticipatesInWireContract(
                         member,
+                        JsonWireDirection.Both,
                         surface.AssemblyIdentity,
                         typesByScopedIdentity)
                     || member.JsonConverterAttributeCount > 0)
@@ -702,7 +703,7 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
-                if (!JsonWireMemberRules.IsSerialized(
+                if (!JsonWireMemberRules.ParticipatesInWireContract(
                         member,
                         direction,
                         assemblyIdentity,
@@ -895,7 +896,7 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
-                if (!JsonWireMemberRules.IsSerialized(
+                if (!JsonWireMemberRules.ParticipatesInWireContract(
                         member,
                         direction,
                         assemblyIdentity,

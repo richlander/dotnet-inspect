@@ -1355,7 +1355,8 @@ request and reacquires under current source authorization; it does not retain
 the query candidate in the Workspace cache. RID selection and ecosystem-wide
 candidate discovery are outside this first assembly-pattern gesture.
 
-The same `/query` route exposes **Packages** and **Activity** as peer modes.
+The routed `/activity` surface is the Browser's Package Activity entry beside
+`/query`; neither route renders the retired Packages/Activity peer selector.
 Package Activity discovers product-owned package sets from the managed startup
 catalog, submits the default 42-day interval or one validated paired UTC
 interval, and streams the existing `package-changes` Worker operation. That
@@ -1363,9 +1364,11 @@ operation name, the same-origin bridge path, and the
 `BrowserPackageChanges*` wire records remain stable internal identifiers. Its bounded row window
 renders typed current-advisory, fixed-version, receipt, security-release,
 provider-failure, source-coverage, and completion evidence without inferring
-meaning from formatted text. Mode changes, route exit, replacement, and
-explicit cancellation stop active work; explicit cancellation retains already
-admitted rows. Saved reports and notifications are not part of this surface.
+meaning from formatted text. Route exit, replacement, and explicit
+cancellation stop active work; explicit cancellation retains already admitted
+rows. Direct load and refresh start from session-local initial state, while
+ordinary in-app navigation preserves the current report. Saved reports and
+notifications are not part of this surface.
 The focused contract is
 [The Package Activity experience](../docs/design/package-activity-experience.md).
 
@@ -1374,6 +1377,10 @@ production page through the existing real-Wasm package-adoption harness.
 Deterministic responses cover blank idle behavior, exact-ID resource selection,
 literal-prefix boundaries, missing-ID non-fallback, metadata-only acquisition,
 and bounded completion.
+
+The same harness's **Package Activity website over real Wasm** scenario enters
+the dedicated `/activity` route directly and through Spotlight, refreshes it,
+and exercises Back/Forward before validating progressive report publication.
 
 The same harness's **Assembly Package Query website over real Wasm** scenario
 uses the cataloged `analysis.string-literals` fixture to exercise all four
@@ -2153,10 +2160,15 @@ and focused scrolling; `test/spotlight-identity.test.js` gates composition-root
 wiring.
 
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
-scope/result rendering, selection, and keyboard interaction.
+scope/result rendering, selection, and keyboard interaction. Entering
+`PackageId@Version` produces a direct exact-coordinate package action in both
+the home search and Workspace package picker, including for unlisted versions;
+the coordinate bypasses Gallery discovery and remains subject to ordinary
+package acquisition and framework selection.
 `src/spotlight-package-search.ts` owns debounced NuGet discovery, its
 idle/loading/ready/failed result state, current-loading publication guard,
-successful-result cache, snapshot settlement, and reset state.
+successful-result cache, snapshot settlement, exact-coordinate bypass, and
+reset state.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
 `dotnet-inspect.ts` retains command effects, the NuGet query endpoint, package
 navigation, acquisition, editable Spotlight input, and scope so the components

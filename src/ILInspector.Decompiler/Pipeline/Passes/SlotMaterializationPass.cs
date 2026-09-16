@@ -11,11 +11,10 @@ public enum SlotMaterializationVeto
     ConflictingTypeTestimony = 1 << 4,
     OutsideCoercionDomain = 1 << 6,
     UnrenderableStoreType = 1 << 7,
-    MultiStoreSingleLoadFold = 1 << 8,
     BooleanSinkIdentityRecovery = 1 << 10,
     ElementStoreIdentityRecovery = 1 << 11,
     IncompleteCopyComponent = 1 << 12,
-    PendingReferenceSwap = 1 << 13,
+    PendingStorageSwap = 1 << 13,
 }
 
 public readonly record struct SlotMaterializationDecision(
@@ -169,9 +168,6 @@ public sealed class SlotMaterializationPass : IIrPass
                 throw new InvalidOperationException($"Slot {candidate.Slot} loads had no testimony decision.");
             }
 
-            if (candidate.Stores.Count > 1 && candidate.Loads.Count == 1)
-                candidate.Vetoes |= SlotMaterializationVeto.MultiStoreSingleLoadFold;
-
             if (candidate.Type is not { } slotType)
                 continue;
 
@@ -186,16 +182,20 @@ public sealed class SlotMaterializationPass : IIrPass
                 candidate.Vetoes |= SlotMaterializationVeto.BooleanSinkIdentityRecovery;
             }
 
-            bool exactReference = candidate.Stores.All(store => CoercionDomain.IsAtTarget(store.Value, slotType))
-                && (slotType.Kind == TypeRefKind.Definition
-                    && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
-                        || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
-                    || CSharpSpellability.CanSpellSzArrayStorageType(slotType, function)
-                    || CSharpSpellability.CanSpellNamedReferenceStorageType(slotType, function));
-            if (exactReference && candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
-                candidate.Vetoes |= SlotMaterializationVeto.PendingReferenceSwap;
-            if (!exactReference && !CoercionDomain.InDomain(slotType, function.TypeShapes))
-                candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;
+            if (!CoercionDomain.InDomain(slotType, function.TypeShapes))
+            {
+                bool exactStorage = candidate.Stores.All(store => CoercionDomain.IsAtTarget(store.Value, slotType))
+                    && (slotType.Kind == TypeRefKind.Definition
+                        && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
+                            || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
+                        || CSharpSpellability.CanSpellSzArrayStorageType(slotType, function)
+                        || CSharpSpellability.CanSpellNamedReferenceStorageType(slotType, function)
+                        || CSharpSpellability.CanSpellNamedValueStorageType(slotType, function));
+                if (!exactStorage)
+                    candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;
+                else if (candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
+                    candidate.Vetoes |= SlotMaterializationVeto.PendingStorageSwap;
+            }
             if (candidate.Stores.Any(store => store.Value.ResultType?.Equals(slotType) != true
                     && !CoercionRendering.CanSpellSlotCoercion(
                         store.Value.ResultType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))

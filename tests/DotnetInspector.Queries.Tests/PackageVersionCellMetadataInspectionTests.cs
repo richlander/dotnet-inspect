@@ -13,7 +13,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class PackageVersionCellMetadataInspectionTests
+public sealed partial class PackageVersionCellMetadataInspectionTests
 {
     const string PackageId = "Contoso.Metadata";
     const string Version = "1.0.0";
@@ -54,6 +54,7 @@ public sealed class PackageVersionCellMetadataInspectionTests
             "v",
             available.Value.MetadataVersion.ToString());
         Assert.Null(result.Cleanup);
+        Assert.Null(result.ApiInspection);
     }
 
     [Fact]
@@ -238,8 +239,11 @@ public sealed class PackageVersionCellMetadataInspectionTests
         Assert.Null(evidence.RootCoordinate);
     }
 
-    [Fact]
-    public async Task InspectionMalformedNeighborRejectsWholeRootWithoutMetadata()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InspectionMalformedNeighborRejectsWholeRootWithoutMetadata(
+        bool inspectApi)
     {
         CellFixture fixture = CellFixture.Create();
         IPackageContent content = fixture.Content(
@@ -249,7 +253,7 @@ public sealed class PackageVersionCellMetadataInspectionTests
         var result = Assert.IsType<
             PackageVersionCellMetadataInspectionOutcome.WorkspaceFailure>(
                 await PackageVersionCellMetadataInspector.ExecuteAsync(
-                    fixture.Request(),
+                    fixture.Request(apiInspection: inspectApi ? ApiRequest() : null),
                     new SettlementExecutor(
                         execution => fixture.Realize(
                             execution,
@@ -408,8 +412,11 @@ public sealed class PackageVersionCellMetadataInspectionTests
         Assert.All(failures, failure => Assert.Equal(1, failure.Count));
     }
 
-    [Fact]
-    public async Task InspectionCancellationAfterQueryWaitsForCloseAndPublishesNoOutcome()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InspectionCancellationAfterQueryWaitsForCloseAndPublishesNoOutcome(
+        bool inspectApi)
     {
         CellFixture fixture = CellFixture.Create();
         IPackageContent content = fixture.Content(
@@ -421,7 +428,7 @@ public sealed class PackageVersionCellMetadataInspectionTests
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 () => PackageVersionCellMetadataInspector
                     .ExecuteWithProvisionalOutcomeObserverAsync(
-                        fixture.Request(),
+                        fixture.Request(apiInspection: inspectApi ? ApiRequest() : null),
                         new SettlementExecutor(
                             execution => fixture.Realize(
                                 execution,
@@ -433,9 +440,10 @@ public sealed class PackageVersionCellMetadataInspectionTests
                         },
                         cancellation.Token));
 
-        Assert.IsType<
+        var available = Assert.IsType<
             PackageVersionCellMetadataInspectionOutcome.Available>(
                 provisional);
+        Assert.Equal(inspectApi, available.ApiInspection is not null);
         Assert.Equal(cancellation.Token, failure.CancellationToken);
         Assert.False(
             PackageVersionCellMetadataInspectionExceptionEvidence
@@ -629,7 +637,8 @@ public sealed class PackageVersionCellMetadataInspectionTests
             PackageVersionCellMetadataInspectionLimits? limits = null,
             string framework = Framework,
             DateTimeOffset? deadline = null,
-            PackageHouseTargetContext? targetContext = null) =>
+            PackageHouseTargetContext? targetContext = null,
+            PackageVersionCellApiInspectionRequest? apiInspection = null) =>
             new(
                 cell,
                 PackageHouseOperation.Create(
@@ -641,7 +650,8 @@ public sealed class PackageVersionCellMetadataInspectionTests
                         16,
                         16_000_000,
                         32_000_000),
-                deadline ?? DateTimeOffset.UtcNow.AddMinutes(1));
+                deadline ?? DateTimeOffset.UtcNow.AddMinutes(1),
+                apiInspection);
 
         public IPackageContent Content(
             params (string Path, byte[] Bytes)[] entries)
