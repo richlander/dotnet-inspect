@@ -402,6 +402,49 @@ public sealed class BrowserLibraryApiDiffOperationTests
     }
 
     [Fact]
+    public void ExactWorkerCollectionBoundaryIsInclusive()
+    {
+        BrowserLibraryApiDiffRequest request = Request("Transport.Package");
+        BrowserLibraryApiDiffResult admitted =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                Available(
+                    BrowserLibraryApiDiffWireProjection.MaxChangedTypes,
+                    segmentCount: 14,
+                    additionalSegmentTypeCount: 2_107),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            admitted.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffWireProjection
+                .MaxOrdinaryWorkerCollectionEntries,
+            WorkerCollectionEntries(admitted));
+
+        BrowserLibraryApiDiffResult rejected =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                Available(
+                    BrowserLibraryApiDiffWireProjection.MaxChangedTypes,
+                    segmentCount: 14,
+                    additionalSegmentTypeCount: 2_108),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffRejected evidence =
+            Assert.IsType<BrowserLibraryApiDiffRejected>(rejected.Rejected);
+        Assert.Equal(
+            BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
+            evidence.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffWireProjection
+                .MaxOrdinaryWorkerCollectionEntries + 2,
+            evidence.Observed);
+    }
+
+    [Fact]
     public void EscapedJsonCannotExceedTheOrdinaryWorkerTransport()
     {
         BrowserLibraryApiDiffRequest request = Request("Transport.Package");
@@ -431,6 +474,31 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     .MaxOrdinaryWorkerJsonCharacters);
         Assert.Null(evidence.Target);
         Assert.Null(evidence.Current);
+    }
+
+    [Fact]
+    public void NonAsciiJsonUsesWorkerCompatibleCharacterAdmission()
+    {
+        BrowserLibraryApiDiffRequest request = Request("Transport.Package");
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                Available(1, new string('\u00e9', 1_000_000)),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            result.Kind);
+        string escapedJson = JsonSerializer.Serialize(
+            result,
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
+        Assert.True(
+            escapedJson.Length
+                + BrowserLibraryApiDiffWireProjection
+                    .OrdinaryWorkerResultTupleOverhead
+                > BrowserLibraryApiDiffWireProjection
+                    .MaxOrdinaryWorkerJsonCharacters);
     }
 
     [Fact]
@@ -647,7 +715,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
     static LibraryApiDiffOutcome.Available Available(
         int typeCount,
         string? display = null,
-        int segmentCount = 1)
+        int segmentCount = 1,
+        int additionalSegmentTypeCount = 0)
     {
         AssemblyReferenceIdentity identity = AssemblyIdentity();
         var endpoint = new LibraryApiDiffEndpointSummary(
@@ -661,7 +730,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 .Select(index =>
                 {
                     MetadataTypeDefinitionName name =
-                        TypeName($"Type{index}", segmentCount);
+                        TypeName(
+                            $"Type{index}",
+                            segmentCount
+                                + (index < additionalSegmentTypeCount ? 1 : 0));
                     var typeIdentity = new LibraryApiTypeIdentity(
                         name,
                         display ?? $"Transport.Type{index}");
@@ -702,6 +774,33 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     AdditiveCount: 0,
                     PotentiallyBreakingCount: 0),
                 document));
+    }
+
+    static long WorkerCollectionEntries(BrowserLibraryApiDiffResult result)
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                result,
+                BrowserMetadataJsonContext.Default
+                    .BrowserLibraryApiDiffResult));
+        return BrowserLibraryApiDiffWireProjection
+            .OrdinaryWorkerResultTupleOverhead
+            + Count(document.RootElement);
+
+        static long Count(JsonElement element) =>
+            element.ValueKind switch
+            {
+                JsonValueKind.Array =>
+                    1
+                    + element.GetArrayLength()
+                    + element.EnumerateArray().Sum(Count),
+                JsonValueKind.Object =>
+                    1
+                    + element.EnumerateObject().Count()
+                    + element.EnumerateObject()
+                        .Sum(property => Count(property.Value)),
+                _ => 0,
+            };
     }
 
     static MetadataTypeDefinitionName TypeName(

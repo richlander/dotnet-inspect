@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
@@ -24,10 +25,11 @@ internal sealed record BrowserLibraryApiDiffEndpointContext(
 /// retained text characters per endpoint. This narrower wire boundary admits
 /// at most 10,000 changed Types and 6,000,000 characters across the repeated
 /// document, display, and structured endpoint Type identities. It then
-/// checks the exact collection-entry population, source-generates the exact
-/// result JSON, and reserves the one-element tuple framing used by the ordinary
-/// Worker. Admission examines the complete producer-ordered inventory before
-/// publication; an excess rejects the whole result and never truncates it.
+/// checks the exact collection-entry population, source-generates a
+/// Worker-equivalent result JSON representation, and reserves the one-element
+/// tuple framing used by the ordinary Worker. Admission examines the complete
+/// producer-ordered inventory before publication; an excess rejects the whole
+/// result and never truncates it.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserLibraryApiDiffWireProjection
@@ -37,6 +39,13 @@ internal static class BrowserLibraryApiDiffWireProjection
     internal const int MaxOrdinaryWorkerJsonCharacters = 16_777_216;
     internal const int MaxOrdinaryWorkerCollectionEntries = 524_288;
     internal const int OrdinaryWorkerResultTupleOverhead = 2;
+    static readonly BrowserMetadataJsonContext WorkerTransportJsonContext =
+        new(
+            new JsonSerializerOptions(
+                BrowserMetadataJsonContext.Default.Options)
+            {
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            });
 
     internal static BrowserLibraryApiDiffResult Project(
         BrowserLibraryApiDiffRequest request,
@@ -162,7 +171,7 @@ internal static class BrowserLibraryApiDiffWireProjection
 
         int serializedCharacters = JsonSerializer.Serialize(
             result,
-            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult)
+            WorkerTransportJsonContext.BrowserLibraryApiDiffResult)
             .Length;
         long transportedCharacters =
             (long)serializedCharacters + OrdinaryWorkerResultTupleOverhead;
@@ -202,7 +211,7 @@ internal static class BrowserLibraryApiDiffWireProjection
             Reason: null);
         int serializedCharacters = JsonSerializer.Serialize(
             result,
-            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult)
+            WorkerTransportJsonContext.BrowserLibraryApiDiffResult)
             .Length;
         if (CollectionEntries(result) > MaxOrdinaryWorkerCollectionEntries
             || (long)serializedCharacters + OrdinaryWorkerResultTupleOverhead
@@ -217,7 +226,7 @@ internal static class BrowserLibraryApiDiffWireProjection
 
     static long CollectionEntries(BrowserLibraryApiDiffResult result) =>
         OrdinaryWorkerResultTupleOverhead
-        + 12
+        + 11
         + (result.Request is null ? 0 : 7)
         + (result.Value is null ? 0 : CollectionEntries(result.Value))
         + (result.Unavailable is null
