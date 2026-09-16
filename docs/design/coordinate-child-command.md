@@ -114,11 +114,13 @@ the parsed coordinate to the selected Library generation and, for metadata, to
 the selected metadata root. Output and sharing retain those owner-issued
 identities rather than reconstructing them from display text.
 
-The bare child renders one compact coordinate overview. For an IL coordinate,
-that overview identifies the resolved member, instruction, and primary
-interpretation. For a heap coordinate, it identifies the selected root, heap,
-offset, and decoded value or typed failure. Exact sections then select richer
-peer observations:
+The bare child preserves the current family-specific bounded default. For an IL
+coordinate, it selects every applicable coordinate-scoped section: Source
+Location, Member, Instruction, Exception, Callsite, and Return Address. The
+last three render only when their owning evidence applies. For a heap
+coordinate, the bare child selects the existing heap-coordinate section with
+the selected root, heap, offset, and decoded value or typed failure. Explicit
+sections narrow those defaults to requested peer observations:
 
 ```console
 dotnet-inspect library coordinate ./My.dll 0x06000042+0x2f \
@@ -150,7 +152,8 @@ The initial CLI adoption must:
 1. add `library coordinate` with exact IL, exact heap, and sparse IL-file modes;
 2. route those modes through the existing Metadata, Instructions, Analysis,
    Research, and metadata-rendering owners;
-3. provide a useful bounded bare-child result and structural discovery;
+3. preserve the current family-specific bounded bare-child defaults and
+   structural discovery;
 4. preserve typed failures, coordinate-file partial results, metadata-root
    binding, and current output capabilities;
 5. update help, completion, examples, replay or sharing surfaces, and shipped
@@ -162,6 +165,12 @@ This is an intentionally breaking CLI placement change. The implementation
 slice must classify it under
 [CLI change classification](cli-change-classification.md) and name its exact
 Release gates. This specification's target is currently **unverified**.
+
+Before retirement, Release CLI parity gates compare old and new bare
+invocations for an ordinary IL instruction, exception-region instruction,
+callsite, return address, unavailable source location, and valid heap address.
+The selected applicable sections, rows, typed failures, and exit status must
+match; command placement is the intended change, not default disclosure.
 
 ## Other candidate surfaces
 
