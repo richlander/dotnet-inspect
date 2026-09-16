@@ -321,6 +321,53 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void MethodDefinitionMap_ExactFallbackRejectsAmbiguity()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Value");
+        var method = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [],
+            TypeRef.CoreLib("System", "Int32"),
+            0x06000001,
+            true);
+        var duplicate = method with
+        {
+            MetadataToken = 0x06000002,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "M",
+                [],
+                TypeRef.CoreLib("System", "Int32"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0,
+            MethodDefinitionMap.Create(
+                [method, duplicate, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
     public void MethodDefinitionMap_ConstructedGenericFallbackPreservesReturnAssembly()
     {
         TypeRef owner =

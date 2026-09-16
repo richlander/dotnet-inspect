@@ -6,8 +6,7 @@ namespace ILInspector.Analysis;
 internal sealed class MethodDefinitionMap
 {
     readonly HashSet<int> _methodTokens = [];
-    readonly Dictionary<string, int> _tokenByKey = new(StringComparer.Ordinal);
-    readonly Dictionary<string, List<MethodIdentity>> _conversionsByKey =
+    readonly Dictionary<string, List<MethodIdentity>> _methodsByKey =
         new(StringComparer.Ordinal);
     readonly Dictionary<string, List<MethodIdentity>> _methodsByDeclaringTypeAndName = new(StringComparer.Ordinal);
 
@@ -19,18 +18,12 @@ internal sealed class MethodDefinitionMap
             string key = Key(
                 method.DeclaringType,
                 method.Name,
+                method.GenericArity,
                 method.ParameterTypes);
-            if (ApiMemberIdentity.IsConversionOperator(method.Name))
-            {
-                if (_conversionsByKey.TryGetValue(key, out var conversions))
-                    conversions.Add(method);
-                else
-                    _conversionsByKey[key] = [method];
-            }
+            if (_methodsByKey.TryGetValue(key, out var methodsByKey))
+                methodsByKey.Add(method);
             else
-            {
-                _tokenByKey.TryAdd(key, method.MetadataToken);
-            }
+                _methodsByKey[key] = [method];
 
             var groupKey = DeclaringTypeAndNameKey(method.DeclaringType, method.Name);
             if (_methodsByDeclaringTypeAndName.TryGetValue(groupKey, out var list))
@@ -53,25 +46,21 @@ internal sealed class MethodDefinitionMap
         string key = Key(
             call.Callee.DeclaringType,
             call.Callee.Name,
-            call.Callee.ParameterTypes);
-        if (ApiMemberIdentity.IsConversionOperator(call.Callee.Name))
+            call.Callee.GenericArity,
+            call.Callee.OpenSignatureParameters);
+        if (_methodsByKey.TryGetValue(key, out var candidates))
         {
-            if (_conversionsByKey.TryGetValue(key, out var conversions))
+            int resolvedToken = 0;
+            foreach (MethodIdentity candidate in candidates)
             {
-                foreach (MethodIdentity conversion in conversions)
-                {
-                    if (TypeRef.ExactSignatureEquals(
-                            conversion.ReturnType,
-                            call.Callee.OpenSignatureReturn))
-                    {
-                        return conversion.MetadataToken;
-                    }
-                }
+                if (!LocalSignatureMatches(candidate, call.Callee))
+                    continue;
+                if (resolvedToken != 0)
+                    return 0;
+                resolvedToken = candidate.MetadataToken;
             }
-        }
-        else if (_tokenByKey.TryGetValue(key, out int token))
-        {
-            return token;
+            if (resolvedToken != 0)
+                return resolvedToken;
         }
         return ResolveConstructedGenericDeclaringType(call.Callee);
     }
@@ -84,47 +73,92 @@ internal sealed class MethodDefinitionMap
         if (!_methodsByDeclaringTypeAndName.TryGetValue(DeclaringTypeAndNameKey(definition, callee.Name), out var candidates))
             return 0;
 
+        int resolvedToken = 0;
         foreach (var candidate in candidates)
         {
             if (!definition.Equals(candidate.DeclaringType))
                 continue;
-            if (SignatureMatches(
+            if (ConstructedSignatureMatches(
                     candidate,
                     declaring.TypeArguments,
-                    callee.TypeArguments,
-                    callee.ParameterTypes,
-                    callee.ReturnType))
+                    callee))
             {
-                return candidate.MetadataToken;
+                if (resolvedToken != 0)
+                    return 0;
+                resolvedToken = candidate.MetadataToken;
             }
         }
 
-        return 0;
+        return resolvedToken;
     }
 
-    static bool SignatureMatches(
+    static bool LocalSignatureMatches(
+        MethodIdentity candidate,
+        MemberRef callee)
+    {
+        if (!MethodShapeMatches(candidate, callee)
+            || candidate.ParameterTypes.Length
+                != callee.OpenSignatureParameters.Length)
+        {
+            return false;
+        }
+
+        for (int i = 0;
+            i < callee.OpenSignatureParameters.Length;
+            i++)
+        {
+            if (!TypeRef.ExactSignatureEquals(
+                    candidate.ParameterTypes[i],
+                    callee.OpenSignatureParameters[i]))
+            {
+                return false;
+            }
+        }
+        return TypeRef.ExactSignatureEquals(
+            candidate.ReturnType,
+            callee.OpenSignatureReturn);
+    }
+
+    static bool ConstructedSignatureMatches(
         MethodIdentity candidate,
         ImmutableArray<TypeRef> typeArguments,
-        ImmutableArray<TypeRef> methodArguments,
-        ImmutableArray<TypeRef> parameterTypes,
-        TypeRef returnType)
+        MemberRef callee)
     {
-        if (candidate.ParameterTypes.Length != parameterTypes.Length)
-            return false;
-        for (int i = 0; i < parameterTypes.Length; i++)
+        if (!MethodShapeMatches(candidate, callee)
+            || candidate.ParameterTypes.Length
+                != callee.ParameterTypes.Length)
         {
-            if (!candidate.ParameterTypes[i].Instantiate(typeArguments, methodArguments).Equals(parameterTypes[i]))
+            return false;
+        }
+
+        for (int i = 0; i < callee.ParameterTypes.Length; i++)
+        {
+            if (!TypeRef.ExactSignatureEquals(
+                    candidate.ParameterTypes[i].Instantiate(
+                        typeArguments,
+                        callee.TypeArguments),
+                    callee.ParameterTypes[i]))
+            {
                 return false;
+            }
         }
         TypeRef candidateReturn = candidate.ReturnType.Instantiate(
             typeArguments,
-            methodArguments);
-        return ApiMemberIdentity.IsConversionOperator(candidate.Name)
-            ? TypeRef.ExactSignatureEquals(
-                candidateReturn,
-                returnType)
-            : candidateReturn.Equals(returnType);
+            callee.TypeArguments);
+        return TypeRef.ExactSignatureEquals(
+            candidateReturn,
+            callee.ReturnType);
     }
+
+    static bool MethodShapeMatches(
+        MethodIdentity candidate,
+        MemberRef callee)
+        => candidate.GenericArity == callee.GenericArity
+            && candidate.IsStatic != callee.HasThis
+            && candidate.SignatureHeader
+                == callee.SignatureHeader
+            && candidate.RequiredParameterCount
+                == callee.RequiredParameterCount;
 
     static string DeclaringTypeAndNameKey(TypeRef declaringType, string name)
         => $"{declaringType.Assembly}|{declaringType.Namespace}|{declaringType.Name}|{name}";
@@ -132,8 +166,9 @@ internal sealed class MethodDefinitionMap
     static string Key(
         TypeRef declaringType,
         string name,
+        int genericArity,
         ImmutableArray<TypeRef> parameterTypes) =>
-        $"{GenericMemberIdentity.KeyFragment(declaringType)}|{name}|"
+        $"{GenericMemberIdentity.KeyFragment(declaringType)}|{name}|{genericArity}|"
         + string.Join(
             ",",
             parameterTypes.Select(
