@@ -2379,7 +2379,8 @@ public static class ApiSurfaceExtractor
                     ConstraintTypeDefinitionNameReader.Read(
                         reader,
                         constraint.Type,
-                        context);
+                        context,
+                        allowUnmanagedValueTypeEncoding: isUnmanaged);
                 if (IsExactPseudoConstraint(
                         constraintTypeName,
                         definitionNames))

@@ -8,7 +8,8 @@ internal static class ConstraintTypeDefinitionNameReader
     internal static IReadOnlyList<MetadataTypeDefinitionName>? Read(
         MetadataReader reader,
         EntityHandle handle,
-        GenericContext context)
+        GenericContext context,
+        bool allowUnmanagedValueTypeEncoding)
     {
         try
         {
@@ -31,7 +32,10 @@ internal static class ConstraintTypeDefinitionNameReader
                         ConstraintShape.Unavailable),
                 _ => ConstraintShape.Unavailable,
             };
-            return shape.IsAvailable && shape.IsConstraintType
+            return shape.IsAvailable
+                && shape.IsConstraintType
+                && (allowUnmanagedValueTypeEncoding
+                    || !shape.IsUnmanagedValueTypeEncoding)
                 ? [.. shape.DefinitionNames.Distinct()]
                 : null;
         }
@@ -53,7 +57,8 @@ internal static class ConstraintTypeDefinitionNameReader
     readonly record struct ConstraintShape(
         bool IsAvailable,
         bool IsConstraintType,
-        ImmutableArray<MetadataTypeDefinitionName> DefinitionNames)
+        ImmutableArray<MetadataTypeDefinitionName> DefinitionNames,
+        bool IsUnmanagedValueTypeEncoding = false)
     {
         internal static ConstraintShape EmptyConstraint { get; } =
             new(true, true, []);
@@ -138,7 +143,10 @@ internal static class ConstraintTypeDefinitionNameReader
         {
             if (!genericType.IsAvailable
                 || !genericType.IsConstraintType
-                || typeArguments.Any(argument => !argument.IsAvailable))
+                || genericType.IsUnmanagedValueTypeEncoding
+                || typeArguments.Any(argument =>
+                    !argument.IsAvailable
+                    || argument.IsUnmanagedValueTypeEncoding))
             {
                 return ConstraintShape.Unavailable;
             }
@@ -177,7 +185,40 @@ internal static class ConstraintTypeDefinitionNameReader
         public ConstraintShape GetModifiedType(
             ConstraintShape modifier,
             ConstraintShape unmodifiedType,
-            bool isRequired) =>
-            ConstraintShape.Unavailable;
+            bool isRequired)
+        {
+            if (!isRequired
+                || !IsExactNamed(
+                    modifier,
+                    "System.Runtime.InteropServices",
+                    "UnmanagedType")
+                || !IsExactNamed(
+                    unmodifiedType,
+                    "System",
+                    "ValueType"))
+            {
+                return ConstraintShape.Unavailable;
+            }
+
+            return unmodifiedType with
+            {
+                IsUnmanagedValueTypeEncoding = true,
+            };
+        }
+
+        static bool IsExactNamed(
+            ConstraintShape shape,
+            string @namespace,
+            string simpleName) =>
+            shape is
+            {
+                IsAvailable: true,
+                IsConstraintType: true,
+                IsUnmanagedValueTypeEncoding: false,
+                DefinitionNames: [var definitionName],
+            }
+            && definitionName.Namespace == @namespace
+            && definitionName.Segments is [var segment]
+            && segment == simpleName;
     }
 }

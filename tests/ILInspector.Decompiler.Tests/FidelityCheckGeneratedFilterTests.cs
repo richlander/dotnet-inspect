@@ -237,9 +237,10 @@ public class FidelityCheckGeneratedFilterTests
         var assemblyPath = CompileFixture("""
             public static class GenericOnlyFixture
             {
-                public static int Pick<T, U>()
+                public static int Pick<T, U, V>()
                     where T : U
-                    where U : System.IDisposable => 1;
+                    where U : System.IDisposable
+                    where V : unmanaged => 1;
             }
             """);
         try
@@ -251,7 +252,7 @@ public class FidelityCheckGeneratedFilterTests
 
             Assert.Equal("GenericOnlyFixture", target.Type);
             Assert.Equal("Pick", target.Method);
-            Assert.Equal("mss1:2(0:)n", target.Signature);
+            Assert.Equal("mss1:3(0:)n", target.Signature);
         }
         finally
         {
