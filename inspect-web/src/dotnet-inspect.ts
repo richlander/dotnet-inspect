@@ -5356,7 +5356,8 @@ function hasPlatformRootHistoryView() {
 function platformIsPresentedAsRoot() {
   return state.rootKind !== "platform"
     || state.platformPresentedAsRoot
-    || hasPlatformRootHistoryView();
+    || (pendingWorkspaceConstruction === null
+      && hasPlatformRootHistoryView());
 }
 
 function navigationSnapshotHasPlatformRootParent(

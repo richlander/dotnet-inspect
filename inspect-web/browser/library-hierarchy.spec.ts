@@ -2961,6 +2961,12 @@ test("a fresh Spotlight Library preserves the predecessor Platform parent", asyn
   await page.locator('[data-sl-framework-lib="System.Facade"]').click();
   await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await page.getByRole("button", { name: "Application menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await page.locator('#settings-dialog [data-theme="light"]').click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
 
   await page.goBack();
