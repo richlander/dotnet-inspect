@@ -367,7 +367,9 @@ These are not flattened into one accidental common identity. The Workspace
 owner must preserve enough owner-issued type and identity to distinguish exact
 Package content, an inert package-prefix declaration, and an exact-Library
 registration. [#7219](https://github.com/richlander/dotnet-inspect/issues/7219)
-owns the inventory schema, state, diagnostics, and filter semantics.
+and the focused
+[Workspace top-level inventory](workspace-top-level-inventory.md) own the
+inventory schema, state, diagnostics, and filter semantics.
 
 Registration remains inert. Merely inventorying a package prefix does not
 enumerate matching packages, and merely inventorying an exact Library does not
@@ -380,11 +382,13 @@ or reinterpret a Package as a Library. Selecting one exact inventory occurrence
 for drill-down establishes one coordinate for the subsequent unary
 Package/Library/Type/Member operation.
 
-The focused Workspace owner must define the host-neutral completed content,
-registration syntax, filters, occurrence identity, and CLI/Browser adoption.
-In particular, new direct-Library registration syntax must not overload the
-current Workspace `--library` descendant selector in a way that recreates the
-root-versus-child ambiguity this contract removes.
+The focused Workspace inventory owner must define the host-neutral completed
+content, filters, document-local selection correlation, and CLI/Browser
+adoption constraints. Workspace Scope and registration owners continue to
+issue semantic identity. Each host owns its controls and syntax; in particular,
+new direct-Library registration syntax must not overload the current Workspace
+`--library` descendant selector in a way that recreates the root-versus-child
+ambiguity this contract removes.
 
 ### Current behavior and migration
 
@@ -451,13 +455,13 @@ package System.Text.Json@10.0.0 Markout@0.35.2
          top-level inputs
 
 Workspace top-level inputs
-  1  Package        System.Text.Json@10.0.0
-  2  Package        Markout@0.35.2
-  3  PackagePrefix  Microsoft.Extensions.
-  4  ExactLibrary   ./System.Text.Json.dll
+  Package        System.Text.Json@10.0.0
+  Package        Markout@0.35.2
+  PackagePrefix  Microsoft.Extensions.
+  ExactLibrary   ./System.Text.Json.dll
 
 Workspace inventory, filter Kind = ExactLibrary
-  4  ExactLibrary   ./System.Text.Json.dll
+  ExactLibrary   ./System.Text.Json.dll
 ```
 
 Drill-down then returns to one coordinate. The exact package-relative Library
