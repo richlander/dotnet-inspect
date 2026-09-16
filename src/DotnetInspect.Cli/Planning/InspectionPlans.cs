@@ -560,6 +560,7 @@ public static class ApiSectionDemandIndex
             SectionNames.SafetyFacts,
             SectionNames.CostFacts,
             SectionNames.TopLeverage,
+            SectionNames.ImplementationProfiles,
             SectionNames.SourceFiles,
             SectionNames.SourceLocations,
             SectionNames.PerformanceTriage);
