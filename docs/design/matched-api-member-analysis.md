@@ -192,17 +192,19 @@ owner:
 
 1. this owner resolves one exact matched destination API Member to native
    implementation Analysis Findings;
-2. #7248 executes one bounded reporter-bound source/destination PackageHouse
+2. [Diff History inspection](diff-history.md) issues the baseline source Member
+   once and requires direct correspondence from it to every checkpoint;
+3. #7248 executes one bounded reporter-bound source/destination PackageHouse
    cell pair and invokes this query while both endpoints are live;
-3. Diff History evaluates its chosen checkpoints serially and joins detached
+4. Diff History evaluates its chosen checkpoints serially and joins detached
    sparse node and correspondence-edge evidence;
-4. the subject CLI and Browser/Wasm consume the same shared
+5. the subject CLI and Browser/Wasm consume the same shared
    `InspectionEnvelope<TContent>` terminal; and
-5. the standalone `timeline` implementation is removed without compatibility.
+6. the standalone `timeline` implementation is removed without compatibility.
 
-Diff History separately owns seed selection, behavior when the baseline lacks
-the subject, seed-to-checkpoint correspondence across gaps, transition
-classification, Count, and output retention or streaming.
+Diff History separately owns the now-locked baseline-required seed, direct
+seed-to-checkpoint correspondence across gaps, transition classification,
+Count, and output retention or streaming.
 
 ## Evidence
 

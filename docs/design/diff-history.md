@@ -41,6 +41,14 @@ The 2026-09-16 decision in #7229 makes Type/Member History Count answer
 cohort and its evidence requirements. Package version-population counts and
 future Package History version-row counts remain distinct.
 
+The subsequent decision in
+[#7315](https://github.com/richlander/dotnet-inspect/issues/7315) locks the
+exact-Member Analysis source currency consumed by bounded cell-pair execution.
+The first population Version in caller-directed order is the mandatory source,
+and every checkpoint is corresponded directly from that one source Member.
+History never scans later Versions for a replacement seed or chains declaration
+identity through an intervening checkpoint.
+
 The subsequent user-approved revision makes `--at` target selection, not an
 operation-enabling switch. It supersedes the earlier requirement for an
 explicit `--endpoints` flag and the discovery-only meaning of History without
@@ -155,6 +163,12 @@ dotnet-inspect package Markout@0.33.0..0.35.2 --count
 # Count changed destination versions for one selected API Member
 dotnet-inspect member diff System.Text.Json.JsonSerializer Deserialize:1 \
   --package System.Text.Json@9.0.0..10.0.0 --history --count
+
+# Sparse Member Analysis includes the mandatory first-Version source
+dotnet-inspect member diff System.Text.Json.JsonSerializer Deserialize:1 \
+  --package System.Text.Json@9.0.0..10.0.0 \
+  --history --finding analysis.allocation \
+  --at first --at 9.0.5 --at last
 ```
 
 These are target invocations, not currently supported syntax.
@@ -230,6 +244,16 @@ failures remain visible and cannot silently shorten the request into
 successful full coverage. Version discovery without payload evaluation belongs
 to Package version listing or population Count, not a dormant History mode.
 
+An exact-Member Analysis History has one additional target-selection rule: the
+selected evaluations must include the first population Version in
+caller-directed order. That Version is the mandatory source where the Member
+selector is resolved. Default full evaluation, `--at all`, and an explicit
+`--at first` satisfy the rule. A restricted selection that omits the first
+Version is rejected before payload evaluation; History never acquires an
+unselected source implicitly. Exact checkpoints that infer their own bounds
+already select the minimum bound, which is the first Version in their required
+ascending order.
+
 `#N`, `first`, `last`, `endpoints`, and `midpoint` address this resolved
 population, not a portable identity. Replay retains the population bounds and the existing
 source/TFM/visibility context, and uses exact versions for checkpoint targets;
@@ -288,6 +312,37 @@ replacement grammar. Type/Member selectors follow their subject grammar after
 become exact History focus selectors.
 Source authorization, `--tfm`, `--preview`, and `--all` retain their meanings.
 
+### Exact-Member Analysis seed and checkpoint correspondence
+
+The `analysis.allocation`, `analysis.call-site`, and `analysis.unsafety`
+producers require one exact Member. For those producers, the first population
+Version in caller-directed order is the designated source. Resolve the Member
+selector exactly once in that selected source cell and issue one typed source
+Member currency containing its Version and owner-issued structural declaration
+identity.
+
+If source selection is absent, ambiguous, refused, failed, or cancelled,
+History has no Analysis seed. Preserve that native source-selection non-success
+and do not evaluate destination Analysis. A later Version that happens to
+contain the same display name or ordinal is not a replacement source. The user
+must choose a range whose first Version supplies the intended Member.
+
+The source observation uses that resolved Member directly; it does not invent
+a same-Version correspondence edge. For every other selected checkpoint,
+invoke strict API coordinate correspondence directly from the same source
+Member. Each exact, absent, ambiguous, refused, failed, or cancelled result is
+one source-to-checkpoint declaration edge. A non-exact edge does not stop later
+independent checkpoints, and a later direct exact edge may establish that the
+seeded declaration is present again. It does not bridge through or derive
+identity from the intervening gap.
+
+Checkpoint-to-checkpoint declaration chaining is not admitted. In particular,
+History does not make a later destination the source for the next edge, replay
+the source display ordinal in each Version, infer identity from adjacent array
+positions, or infer continuity from Finding keys. The bounded cell-pair
+consumer in #7248 receives this owner-issued source currency and returns native
+edge evidence; it does not choose or reinterpret the seed.
+
 History-only inputs require `--history`; in particular, `--at` must not
 silently change endpoint Diff or Count into correlation. History rejects
 pairwise classifiers and body-comparison controls such as `--breaking`, `--additive`,
@@ -303,8 +358,12 @@ carries one settled, resource-free `DiffHistoryDocument` and the optional
 requested Count result defined below. The Document preserves:
 
 - the resolved version population and requested evaluation selection;
+- the optional exact-Member Analysis source currency and source-selection
+  outcome;
 - each completed evaluation's version address, provenance, resolved subject,
   producer, and native Finding inspection;
+- native source-to-checkpoint declaration correspondence edges for exact-Member
+  Analysis;
 - native census correlation and, when requested, exact-identity tracks;
 - native comparison evidence joined to its exact evaluated endpoints;
 - the Type/Member Changed Versions cohort, with its destination/predecessor
@@ -367,6 +426,14 @@ exact version of an onset or certify the intervening history.
 Fewer than two evaluated addresses yields no transition evidence, not an
 unchanged History.
 
+For exact-Member Analysis, source-to-checkpoint declaration edges establish
+which evaluations observe the seeded Member; consecutive transitions compare
+the resulting native Finding observations. A Finding transition is not a
+declaration correspondence edge and cannot manufacture one. When one
+checkpoint has no exact source edge, preserve that gap in the transition
+evidence. A later checkpoint may still have its own direct exact edge from the
+seed, without claiming that the missing checkpoint carried identity forward.
+
 Equal first and last endpoints do not imply an unchanged History. Evaluated
 intermediate changes remain present, including an addition followed by removal.
 Failed and inapplicable evaluations remain distinct from absent subjects or
@@ -397,6 +464,9 @@ immediate predecessor in the selected population's caller-directed order,
 including reversed ranges. The first population version is the baseline and
 does not contribute a changed-version row. Result-row selection cannot replace
 that predecessor with the previous displayed row or rebase the population.
+For exact-Member Analysis, each compared observation also retains its direct
+relationship to the designated source; predecessor order never becomes
+declaration identity.
 
 A destination contributes one row when the selected native comparison
 establishes at least one change. Multiple changed Findings, members, attributes,
@@ -627,6 +697,17 @@ The implementation slices must supply Release gates for:
 - mode-aware section and row selection without extra payload evaluation;
 - plain endpoint Diff without interior version discovery, and default full
   History evaluation equivalent to explicit `--at all`;
+- exact-Member Analysis requiring the first population Version in every
+  evaluated selection, including rejection before payload work when restricted
+  `--at` omits it;
+- baseline Member selection exactly once, with absent, ambiguous, refused,
+  failed, and cancelled source outcomes preventing destination Analysis rather
+  than selecting a later same-named or same-ordinal seed;
+- direct source-to-checkpoint exact and non-exact declaration edges, including
+  a later exact edge after an intervening gap without checkpoint chaining or
+  transitive identity;
+- consecutive Finding transitions consuming those direct-edge-qualified
+  observations without manufacturing declaration correspondence;
 - endpoint-only, endpoint-plus-checkpoint, and endpoint-plus-midpoint sampling,
   deduplication, and population order independent of selector order;
 - midpoint selection for odd/even and reversed populations, including
