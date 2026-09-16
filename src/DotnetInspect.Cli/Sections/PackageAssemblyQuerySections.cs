@@ -1,5 +1,6 @@
 using System.Globalization;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspect.Cli.Views;
 using ILInspector.Analysis;
 using InertText;
@@ -8,8 +9,8 @@ using Markout;
 namespace DotnetInspect.Cli.Sections;
 
 /// <summary>
-/// Projects the shared assembly Package Query event stream into the CLI's
-/// rendered document.
+/// Projects the shared assembly-semantic Find Document into the CLI's rendered
+/// document.
 /// </summary>
 /// <remarks>
 /// The projection is total over the owner's closed outcome set: a match, a
@@ -17,12 +18,14 @@ namespace DotnetInspect.Cli.Sections;
 /// failure, and an acquisition failure each produce their own candidate row,
 /// so none of them can be rendered as success-shaped empty output. Only
 /// evaluated candidates carry an owner-issued Root reopening token, because an
-/// acquisition failure never produced one.
+/// acquisition failure never produced one. Population formation failures stay
+/// separate from admitted-candidate outcomes.
 /// </remarks>
 public static class PackageAssemblyQuerySections
 {
     public const string Matches = "Matches";
     public const string Candidates = "Candidates";
+    public const string PopulationFailures = "Population Failures";
 
     /// <summary>
     /// The scope this query covers, stated wherever its results are rendered.
@@ -36,92 +39,52 @@ public static class PackageAssemblyQuerySections
             .ToDocumentSchema();
 
     public static PackageAssemblyQueryView CreateDocument(
-        PackageAssemblyQueryPlan plan,
-        IReadOnlyList<PackageAssemblyQueryEvent> events)
+        PackageAssemblySemanticFindRequest request,
+        PackageAssemblySemanticFindDocument document,
+        IReadOnlyList<PackageAssemblySemanticFindResult>? selectedResults = null)
     {
-        ArgumentNullException.ThrowIfNull(plan);
-        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(document);
+        selectedResults ??= document.Results;
 
-        var matches = new List<PackageAssemblyLiteralUseRow>();
+        List<PackageAssemblyLiteralUseRow> matches =
+            [.. selectedResults.Select(ResultRow)];
         var candidates = new List<PackageAssemblyCandidateRow>();
-        PackageAssemblyQuerySummary? summary = null;
-        foreach (PackageAssemblyQueryEvent queryEvent in events)
+        foreach (PackageAssemblySemanticFindCandidateOutcome outcome
+            in document.CandidateOutcomes)
         {
-            switch (queryEvent)
-            {
-                case PackageAssemblyQueryEvent.Progress:
-                    break;
-                case PackageAssemblyQueryEvent.Evaluated evaluated:
-                    AddOutcome(matches, candidates, evaluated.Value);
-                    break;
-                case PackageAssemblyQueryEvent.AcquisitionFailed failed:
-                    candidates.Add(AcquisitionFailureRow(failed.Value));
-                    break;
-                case PackageAssemblyQueryEvent.Completed completed:
-                    summary = completed.Value;
-                    break;
-                default:
-                    throw new InvalidOperationException(
-                        "Unknown package assembly query event.");
-            }
+            candidates.Add(CandidateRow(outcome));
         }
 
-        if (summary is null)
-        {
-            throw new InvalidOperationException(
-                "The package assembly query stream ended without a completion summary.");
-        }
+        List<PackageAssemblyPopulationFailureRow> populationFailures =
+        [
+            .. document.Population.Failures.Select(PopulationFailureRow),
+        ];
 
         return new PackageAssemblyQueryView(
             InertString.Format(
                 TextPolicy.Prose,
-                $"Find literal: {plan.Pattern.Operand.DisplayText}"),
+                $"Find literal: {request.Pattern.Operand.DisplayText}"),
             Describe(
-                plan,
-                summary.Candidates,
-                summary.Matches,
-                summary.SemanticMisses,
-                summary.NotApplicable,
-                summary.Failures,
+                request,
+                document,
                 matches.Count))
         {
-            CandidateCount = summary.Candidates,
-            MatchedCandidateCount = summary.Matches,
-            SemanticMissCount = summary.SemanticMisses,
-            NotApplicableCount = summary.NotApplicable,
-            FailureCount = summary.Failures,
+            CandidateCount = document.CandidateCount,
+            MatchedCandidateCount = document.MatchedCandidateCount,
+            SemanticMissCount = document.SemanticMissCount,
+            NotApplicableCount = document.NotApplicableCount,
+            FailureCount = document.FailureCount,
+            PopulationFailureCount = populationFailures.Count,
+            IsComplete =
+                document.Completion.IsRequestedPopulationComplete
+                && document.Completion.IsSemanticEvaluationComplete,
             Matches = matches.Count == 0 ? null : matches,
             Candidates = candidates.Count == 0 ? null : candidates,
-        };
-    }
-
-    public static PackageAssemblyQueryView WithSelectedMatches(
-        PackageAssemblyQueryPlan plan,
-        PackageAssemblyQueryView view,
-        IReadOnlyList<PackageAssemblyLiteralUseRow> matches)
-    {
-        ArgumentNullException.ThrowIfNull(plan);
-        ArgumentNullException.ThrowIfNull(view);
-        ArgumentNullException.ThrowIfNull(matches);
-
-        return new PackageAssemblyQueryView(
-            view.TitleText,
-            Describe(
-                plan,
-                view.CandidateCount,
-                view.MatchedCandidateCount,
-                view.SemanticMissCount,
-                view.NotApplicableCount,
-                view.FailureCount,
-                matches.Count))
-        {
-            CandidateCount = view.CandidateCount,
-            MatchedCandidateCount = view.MatchedCandidateCount,
-            SemanticMissCount = view.SemanticMissCount,
-            NotApplicableCount = view.NotApplicableCount,
-            FailureCount = view.FailureCount,
-            Matches = matches.Count == 0 ? null : [.. matches],
-            Candidates = view.Candidates,
+            PopulationFailures =
+                populationFailures.Count == 0
+                    ? null
+                    : populationFailures,
         };
     }
 
@@ -132,26 +95,74 @@ public static class PackageAssemblyQuerySections
     }
 
     static InertString Describe(
-        PackageAssemblyQueryPlan plan,
-        int candidates,
-        int matchedCandidates,
-        int semanticMisses,
-        int notApplicable,
-        int failures,
+        PackageAssemblySemanticFindRequest request,
+        PackageAssemblySemanticFindDocument document,
         int matchRows)
     {
         string lead = matchRows == 0
             ? "No matching decoded string literal uses were reported."
-            : $"{Count(matchRows)} decoded string literal uses in {Count(matchedCandidates)} of {Count(candidates)} package candidates.";
+            : $"{Count(matchRows)} decoded string literal uses in "
+                + $"{Count(document.MatchedCandidateCount)} of "
+                + $"{Count(document.CandidateCount)} package candidates.";
+        string population = document.Population.Completion switch
+        {
+            PackageAcquisitionPopulationCompletionKind.CandidateLimitReached =>
+                "The requested bounded population is complete; the wider prefix was not exhausted.",
+            PackageAcquisitionPopulationCompletionKind.PrefixExhausted =>
+                "The package prefix was exhausted.",
+            PackageAcquisitionPopulationCompletionKind.ExactCoordinates =>
+                "The exact package population was formed.",
+            _ =>
+                $"Package population completion was {document.Population.Completion}.",
+        };
         return InertString.Format(
             TextPolicy.Prose,
-            $"{lead} {Scope} Target framework {plan.TargetFramework}; "
-            + $"misses {Count(semanticMisses)}, not applicable {Count(notApplicable)}, failures {Count(failures)}.");
+            $"{lead} {Scope} Target framework "
+            + $"{request.Target.RequestedFramework}; misses "
+            + $"{Count(document.SemanticMissCount)}, not applicable "
+            + $"{Count(document.NotApplicableCount)}, candidate failures "
+            + $"{Count(document.FailureCount)}, population failures "
+            + $"{Count(document.Population.Failures.Length)}. {population}");
     }
 
-    static void AddOutcome(
-        List<PackageAssemblyLiteralUseRow> matches,
-        List<PackageAssemblyCandidateRow> candidates,
+    static PackageAssemblyLiteralUseRow ResultRow(
+        PackageAssemblySemanticFindResult result) =>
+        new(
+            Cell(result.Coordinate.PackageId),
+            Cell(result.Coordinate.Version),
+            result.SelectedAsset.Asset.AssemblyName,
+            Cell(FormatMethod(
+                result.Evidence.Address.MethodDefinitionToken)),
+            Cell(FormatOffset(result.Evidence.Address.ILOffset)),
+            result.Evidence.LiteralText);
+
+    static PackageAssemblyCandidateRow CandidateRow(
+        PackageAssemblySemanticFindCandidateOutcome outcome)
+    {
+        return outcome switch
+        {
+            PackageAssemblySemanticFindCandidateOutcome.Matched matched =>
+                EvaluationRow(matched.Evaluation),
+            PackageAssemblySemanticFindCandidateOutcome.NoMatch noMatch =>
+                EvaluationRow(noMatch.Evaluation),
+            PackageAssemblySemanticFindCandidateOutcome.NotApplicable
+                notApplicable =>
+                EvaluationRow(notApplicable.Evaluation),
+            PackageAssemblySemanticFindCandidateOutcome.Failure
+                {
+                    Reason:
+                        PackageAssemblySemanticFindFailureReason.Evaluation
+                        evaluation,
+                } =>
+                EvaluationRow(evaluation.Evidence),
+            PackageAssemblySemanticFindCandidateOutcome.Failure failure =>
+                AcquisitionFailureRow(failure),
+            _ => throw new InvalidOperationException(
+                "Unknown package assembly-semantic Find candidate outcome."),
+        };
+    }
+
+    static PackageAssemblyCandidateRow EvaluationRow(
         PackageAssemblyEvaluationOutcome outcome)
     {
         PackageAssemblyEvaluationSubject subject = outcome.Subject;
@@ -168,19 +179,7 @@ public static class PackageAssemblyQuerySections
         {
             case PackageAssemblyEvaluationOutcome.Matched
                 { SelectedAsset: { } matched } match:
-                foreach (StringLiteralUseOccurrence occurrence
-                    in match.Evidence.Occurrences)
-                {
-                    matches.Add(new PackageAssemblyLiteralUseRow(
-                        package,
-                        version,
-                        matched.Asset.AssemblyName,
-                        Cell(FormatMethod(occurrence.Address.MethodDefinitionToken)),
-                        Cell(FormatOffset(occurrence.Address.ILOffset)),
-                        occurrence.LiteralText));
-                }
-
-                candidates.Add(new PackageAssemblyCandidateRow(
+                return new PackageAssemblyCandidateRow(
                     package,
                     version,
                     MatchedOutcome,
@@ -189,10 +188,9 @@ public static class PackageAssemblyQuerySections
                     Cell(
                         $"{Count(match.Evidence.Occurrences.Length)} literal uses; "
                         + $"{Count(matched.UnevaluatedSiblings)} sibling assemblies not evaluated."),
-                    root));
-                break;
+                    root);
             case PackageAssemblyEvaluationOutcome.NoMatch noMatch:
-                candidates.Add(new PackageAssemblyCandidateRow(
+                return new PackageAssemblyCandidateRow(
                     package,
                     version,
                     NoMatchOutcome,
@@ -201,28 +199,25 @@ public static class PackageAssemblyQuerySections
                     Cell(
                         "The selected implementation assembly has no matching decoded ldstr use "
                         + $"after {Count(noMatch.Receipt.MethodBodiesVisited)} method bodies."),
-                    root));
-                break;
+                    root);
             case PackageAssemblyEvaluationOutcome.NotApplicable notApplicable:
-                candidates.Add(new PackageAssemblyCandidateRow(
+                return new PackageAssemblyCandidateRow(
                     package,
                     version,
                     NotApplicableOutcome,
                     asset,
                     targetFramework,
                     Cell(Describe(notApplicable.Reason)),
-                    root));
-                break;
+                    root);
             case PackageAssemblyEvaluationOutcome.Failure failure:
-                candidates.Add(new PackageAssemblyCandidateRow(
+                return new PackageAssemblyCandidateRow(
                     package,
                     version,
                     FailedOutcome,
                     asset,
                     targetFramework,
                     Cell(Describe(failure)),
-                    root));
-                break;
+                    root);
             default:
                 throw new InvalidOperationException(
                     "Unknown package assembly evaluation outcome.");
@@ -230,24 +225,43 @@ public static class PackageAssemblyQuerySections
     }
 
     static PackageAssemblyCandidateRow AcquisitionFailureRow(
-        PackageAssemblyQueryAcquisitionFailure failure)
+        PackageAssemblySemanticFindCandidateOutcome.Failure failure)
     {
-        InertString detail = failure.SourceFailureKind is { } kind
-            ? InertString.Format(
-                TextPolicy.Field,
-                $"{failure.Producer} ({kind}): {failure.Message}")
-            : InertString.Format(
-                TextPolicy.Field,
-                $"{failure.Producer}: {failure.Message}");
+        var acquisition =
+            (PackageAssemblySemanticFindFailureReason.Acquisition)
+                failure.Reason;
+        List<string> details =
+        [
+            .. acquisition.Evidence.Failures.Select(
+                static item =>
+                    $"{item.Authority} ({item.Kind}): {item.Message}"),
+            .. acquisition.Evidence.NotFoundAuthorities.Select(
+                static authority =>
+                    $"{authority}: package payload was not found"),
+        ];
         return new(
             Cell(failure.Coordinate.PackageId),
             Cell(failure.Coordinate.Version),
             FailedOutcome,
             EmptyCell,
             EmptyCell,
-            detail,
+            Cell(
+                details.Count == 0
+                    ? "Package payload acquisition failed."
+                    : string.Join("; ", details)),
             EmptyCell);
     }
+
+    static PackageAssemblyPopulationFailureRow PopulationFailureRow(
+        PackageAcquisitionPopulationFailure failure) =>
+        new(
+            failure.CandidateOrdinal?.ToString(
+                CultureInfo.InvariantCulture) ?? "",
+            failure.Coordinate?.PackageId ?? failure.PackageId ?? "",
+            failure.Coordinate?.Version ?? "",
+            failure.Failure.Authority.ToString(),
+            failure.Failure.Kind.ToString(),
+            failure.Failure.Message);
 
     static string Describe(PackageAssemblyNotApplicableReason reason) =>
         reason switch

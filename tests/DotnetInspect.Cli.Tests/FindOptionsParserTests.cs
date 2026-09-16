@@ -3,6 +3,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -36,7 +37,6 @@ public class FindOptionsParserTests
 
     [Theory]
     [InlineData("Json*", null)]
-    [InlineData("--package-prefix", "Example.")]
     [InlineData("--library", "Example.dll")]
     [InlineData("--platform", null)]
     [InlineData("--extensions", null)]
@@ -57,6 +57,137 @@ public class FindOptionsParserTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("cannot be combined", result.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Literal_PackagePrefixRequiresTake()
+    {
+        var result = await Run(
+            "find", "--literal", "literal",
+            "--package-prefix", "Example.", "--tfm", "net10.0");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "--literal --package-prefix requires --take between 1 and 5.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Literal_PackagePrefixPlanRetainsTheExplicitCandidateBound()
+    {
+        PackageAssemblySemanticFindCliPlan plan =
+            PackageAssemblySemanticFindCliPlan.Create(
+                "literal",
+                [],
+                "Example.",
+                packagePrefixSpecified: true,
+                candidateTake: 5,
+                targetFramework: "net10.0");
+
+        var prefix =
+            Assert.IsType<
+                PackageAssemblySemanticFindPopulationPlan.Prefix>(
+                plan.Population);
+        Assert.Equal(
+            new PackagePrefixDeclaration("Example."),
+            prefix.Declaration);
+        Assert.Equal(5, prefix.MaximumCandidates);
+    }
+
+    [Fact]
+    public async Task Literal_PackagePrefixWithTakeSupportsSchemaDiscovery()
+    {
+        var result = await Run(
+            "find", "--literal", "literal",
+            "--package-prefix", "Example.",
+            "--take", "5",
+            "--tfm", "net10.0",
+            "-D");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Population Failures", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Literal_RejectsExactPackagesCombinedWithPackagePrefix()
+    {
+        var result = await Run(
+            "find", "--literal", "literal",
+            "--package", "Example@1.0.0",
+            "--package-prefix", "Example.",
+            "--take", "5",
+            "--tfm", "net10.0");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "either explicit --package ID@VERSION coordinates or one --package-prefix",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Literal_RejectsTakeWithExactPackages()
+    {
+        var result = await Run(
+            "find", "--literal", "literal",
+            "--package", "Example@1.0.0",
+            "--take", "1",
+            "--tfm", "net10.0");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "--take is available only with find --literal --package-prefix.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeSearch_RejectsTake()
+    {
+        var result = await Run(
+            "find", "Example", "--package-prefix", "Example.", "--take", "1");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "--take is available only with find --literal --package-prefix.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("0", "--take requires a positive whole number.")]
+    [InlineData("6", "--take must be between 1 and 5.")]
+    [InlineData("nope", "--take requires a positive whole number.")]
+    public async Task Literal_RejectsInvalidTake(
+        string value,
+        string expected)
+    {
+        var result = await Run(
+            "find", "--literal", "literal",
+            "--package-prefix", "Example.",
+            "--take", value,
+            "--tfm", "net10.0");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(expected, result.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Literal_RejectsRepeatedTake()
+    {
+        var result = await Run(
+            "find", "--literal", "literal",
+            "--package-prefix", "Example.",
+            "--take", "1", "--take", "2",
+            "--tfm", "net10.0");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "--take may only be specified once.",
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Theory]

@@ -4,7 +4,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -38,7 +38,8 @@ public static class FindOptionsParser
         Option<bool> NoHeaderOption,
         Option<string?> PackagePrefixOption,
         Option<bool> MembersOption,
-        Option<string?> LiteralOption);
+        Option<string?> LiteralOption,
+        Option<string[]> TakeOption);
 
     /// <summary>
     /// Result of parsing find command options.
@@ -69,6 +70,8 @@ public static class FindOptionsParser
         var literal = parseResult.GetValue(args.LiteralOption);
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
         var typeFilter = parseResult.GetValue(args.TypeFilterOption);
+        int? candidateTake =
+            CliExecutionBoundCommandRegistry.GetPreparedValue(parseResult);
         bool packagePrefixSpecified =
             parseResult.GetResult(args.PackagePrefixOption)
                 is { Implicit: false };
@@ -102,8 +105,17 @@ public static class FindOptionsParser
                 opts,
                 args,
                 pattern,
-                literal))
+                literal,
+                candidateTake))
         {
+            return new Invalid();
+        }
+        if (literal is null
+            && parseResult.GetResult(args.TakeOption)
+                is { Implicit: false })
+        {
+            CommandError.Write(
+                "--take is available only with find --literal --package-prefix.");
             return new Invalid();
         }
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
@@ -175,6 +187,7 @@ public static class FindOptionsParser
             Tree = opts.ParseTree(parseResult),
             PackagePrefix = packagePrefix,
             PackagePrefixSpecified = packagePrefixSpecified,
+            CandidateTake = candidateTake,
             SourceOptions = sourceOptions
         };
 
@@ -189,11 +202,10 @@ public static class FindOptionsParser
         SharedOptions opts,
         FindCommandArgs args,
         string? pattern,
-        string literal)
+        string literal,
+        int? candidateTake)
     {
         if (!string.IsNullOrEmpty(pattern)
-            || parseResult.GetResult(args.PackagePrefixOption)
-                is { Implicit: false }
             || parseResult.GetResult(args.AssemblyOption)
                 is { Implicit: false }
             || parseResult.GetResult(args.PlatformOption)
@@ -212,9 +224,35 @@ public static class FindOptionsParser
                 is { Implicit: false })
         {
             CommandError.Write(
-                "--literal searches only explicit ID@VERSION packages; "
-                + "it cannot be combined with a type pattern, API search scopes, "
-                + "--package-prefix, --members, --all, or --type.");
+                "--literal searches only explicit ID@VERSION packages or one "
+                + "bounded package prefix; it cannot be combined with a type "
+                + "pattern, other API search scopes, --members, --all, or --type.");
+            return false;
+        }
+
+        bool hasPrefix =
+            parseResult.GetResult(args.PackagePrefixOption)
+                is { Implicit: false };
+        bool hasPackages =
+            parseResult.GetValue(args.PackageOption) is { Length: > 0 };
+        if (hasPrefix && hasPackages)
+        {
+            CommandError.Write(
+                "--literal accepts either explicit --package ID@VERSION coordinates "
+                + "or one --package-prefix, not both.");
+            return false;
+        }
+        if (hasPrefix && candidateTake is null)
+        {
+            CommandError.Write(
+                "--literal --package-prefix requires --take between 1 and "
+                + $"{PackageAcquisitionPopulation.MaximumCandidates}.");
+            return false;
+        }
+        if (!hasPrefix && candidateTake is not null)
+        {
+            CommandError.Write(
+                "--take is available only with find --literal --package-prefix.");
             return false;
         }
 
@@ -232,10 +270,13 @@ public static class FindOptionsParser
 
         try
         {
-            _ = PackageAssemblyQuery.Plan(
-                PackageAssemblyPatterns.StringLiteralContains,
+            _ = PackageAssemblySemanticFindCliPlan.Create(
                 literal,
                 parseResult.GetValue(args.PackageOption) ?? [],
+                parseResult.GetValue(args.PackagePrefixOption),
+                parseResult.GetResult(args.PackagePrefixOption)
+                    is { Implicit: false },
+                candidateTake,
                 tfm);
             return true;
         }

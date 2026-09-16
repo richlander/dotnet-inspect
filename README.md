@@ -162,7 +162,7 @@ stderr rather than mixed into structured output.
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace scope and navigation | `workspace --package X --tfm TFM` | Publish and render one complete product-owned Navigation snapshot over the Workspace Scope. Repeat `--package` to compose the Workspace; exact duplicate Packages coalesce in first-request order. Add `--active-package N` for structural Library, Type, Member, and lens descriptors. |
-| Package Queries | `find --literal TEXT --package ID@VERSION --tfm TFM`, `workspace --root-request TOKEN` | Evaluate an ordinal decoded-`ldstr` substring over 1-5 explicitly named packages using disposable candidates, reporting per-candidate matched/no-match/not-applicable/failed outcomes with method-token and IL-offset evidence, plus exact Root reopening tokens. |
+| Package Queries | `find --literal TEXT --package ID@VERSION --tfm TFM`, `find --literal TEXT --package-prefix PREFIX --take N --tfm TFM`, `workspace --root-request TOKEN` | Evaluate an ordinal decoded-`ldstr` substring over 1-5 exact or Gallery-prefix-selected packages using disposable candidates, reporting per-candidate matched/no-match/not-applicable/failed outcomes with method-token and IL-offset evidence, plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -176,7 +176,7 @@ stderr rather than mixed into structured output.
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
-| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet package manifests, or with `--literal TEXT` to find decoded IL string literals in explicitly named packages. |
+| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. With `--literal TEXT`, use 1-5 exact `--package ID@VERSION` values or one Gallery `--package-prefix PREFIX --take N` population to find decoded IL string literals. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
@@ -439,25 +439,38 @@ and partial failures are reported explicitly. `--count` counts selected
 matching package rows only when completion or the semantic selection proves
 the count exact.
 
-**Breaking change:** `package search` and patternless
-`find --package-prefix PREFIX` have been removed. Use `package query` with an
-exact package ID or an explicit terminal-star prefix.
+**Breaking change:** `package search` and
+`find --package-prefix PREFIX` without a type/member pattern or `--literal`
+have been removed. Use `package query` with an exact package ID or an explicit
+terminal-star prefix for package rows.
 
-### Assembly-semantic Find over explicit packages
+### Assembly-semantic Find over bounded package populations
 
 `find --literal TEXT` runs an assembly-semantic Find query: it acquires 1-5
-explicitly named `ID@VERSION` packages, selects the primary implementation
-assembly of each for an explicit `--tfm`, and reports which candidates contain
-decoded `ldstr` literals matching `TEXT`. Add `-v:n` for the individual
-literal-use rows.
+exact package candidates, selects the primary implementation assembly of each
+for an explicit `--tfm`, and reports which candidates contain decoded `ldstr`
+literals matching `TEXT`. Name the candidates with repeatable
+`--package ID@VERSION`, or select up to five current stable packages from the
+credential-free NuGet Gallery with `--package-prefix PREFIX --take N`. Exact
+packages and prefix selection cannot be combined.
 
 ```bash
 dotnet-inspect find --literal "Unexpected end when reading JSON" \
   --package Newtonsoft.Json@13.0.3 --tfm net6.0
+
+dotnet-inspect find --literal "DefaultAzureCredential" \
+  --package-prefix Azure.Identity --take 5 --tfm net8.0 -n 10 -v:n
 ```
 
 `TEXT` is a raw ordinal substring, not a type pattern: it is case-sensitive,
 matches no wildcards, and preserves whitespace and Unicode spelling exactly.
+`--take` bounds package-candidate work; `-n` and `--rows` select occurrence
+rows only after the complete admitted population has been evaluated. Reaching
+the requested prefix bound is successful completion of that bounded
+population, while output still discloses that the wider prefix was not
+exhausted. `--count` counts selected occurrence rows only when population
+formation and candidate evaluation are complete.
+
 The query covers selected primary implementation assemblies only, not every
 assembly in a package, and it reports each candidate's own outcome — `matched`,
 `no-match`, `not-applicable`, or `failed` — rather than collapsing them.

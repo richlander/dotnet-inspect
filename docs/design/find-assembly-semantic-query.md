@@ -122,14 +122,14 @@ Its match rows identify three decoded `ldstr` occurrences in the selected
 IL offset. The candidate row separately preserves the exact Root reopening
 request.
 
-The planned first population expansion is a bounded literal prefix:
+The first population expansion is a bounded literal prefix:
 
 ```console
 dotnet-inspect find --literal "DefaultAzureCredential" \
   --package-prefix Azure.Identity --take 5 --tfm net8.0 -n 10 -v:n
 ```
 
-The CLI adoption will mean:
+The CLI contract means:
 
 1. ask the authorized package source for at most five ordered candidates whose
    IDs begin with the literal prefix `Azure.Identity`;
@@ -372,8 +372,7 @@ temporary-working-set, occurrence, and deadline limits. Reaching any limit is
 typed outcome evidence, not a semantic miss.
 
 The query owns a typed maximum-candidate dimension and the invariant that
-semantic row selection cannot authorize candidate acquisition. The planned
-CLI adoption is:
+semantic row selection cannot authorize candidate acquisition. The CLI adoption is:
 
 | Gesture | Meaning |
 | --- | --- |
@@ -455,11 +454,13 @@ occurrence-oriented presentation, but it must not:
 - reconstruct identity or reopening from display text; or
 - run a second semantic evaluator.
 
-The CLI is the first Find-facing consumer. A separately owned CLI adoption
-updates execution-bound and search-scope participation for literal mode,
-decides whether the current Candidates-first default and single-row-format
-projection remain or intentionally change, binds `-n` and Count to the
-occurrence sequence, and uses Sections/Markout for rendering.
+The CLI is the first Find-facing consumer. Its focused adoption updates
+execution-bound and search-scope participation for literal mode, binds `-n`
+and Count to the occurrence sequence, and uses Sections/Markout for rendering.
+It preserves the behavior-safe Candidates-only minimal view; expanded output
+leads with Matches and then retains Candidates and Population Failures.
+Structured single-row formats use the same section order and do not reinterpret
+candidate rows as occurrence rows.
 
 Inspect Web is the second production consumer and already executes the same
 one-candidate evaluator and serial query through its Browser/Wasm managed

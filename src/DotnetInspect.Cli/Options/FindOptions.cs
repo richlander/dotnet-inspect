@@ -167,6 +167,12 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public bool PackagePrefixSpecified { get; init; }
 
     /// <summary>
+    /// Maximum package candidates admitted by assembly-semantic literal prefix
+    /// selection.
+    /// </summary>
+    public int? CandidateTake { get; init; }
+
+    /// <summary>
     /// Returns true if a scope has been selected, including a normalized empty contribution.
     /// </summary>
     public bool HasAnyScope =>
