@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 using InertText;
 
 namespace ILInspector.Analysis.Tests;
@@ -18,6 +19,10 @@ public sealed class ResourceOwnershipFlowTests
         new("fixture.value-resource");
     static readonly ResourceKindIdentity ValueKind =
         new("fixture.value-resource.buffer");
+    static readonly ResourceEffectModelIdentity TokenModelIdentity =
+        new("fixture.token-resource");
+    static readonly ResourceKindIdentity TokenKind =
+        new("fixture.token-resource.value");
 
     static string CallerPath =>
         FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
@@ -464,6 +469,68 @@ public sealed class ResourceOwnershipFlowTests
                 == ResourceOwnershipFlowLimitKind.UnsupportedEffect);
     }
 
+    [Fact]
+    public void NonArrayResourceParameterRetainsReleaseEvidence()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(TokenResourceModel()),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("ReleaseTokenParameter"),
+                });
+
+        ResourceOwnershipMethodEvidence helper =
+            index.ResourceOwnership.Single(candidate =>
+                candidate.Method.Name == "ReleaseTokenParameter");
+        Assert.True(
+            helper.IsComplete,
+            string.Join(", ", helper.Limits));
+        ResourceParameterOwnership parameter =
+            Assert.Single(helper.Parameters);
+        Assert.Equal(TypeRefKind.Definition, parameter.ValueType.Kind);
+        Assert.Equal(
+            ResourceOwnershipUseKind.Released,
+            Assert.Single(parameter.Uses).Kind);
+    }
+
+    [Fact]
+    public void OwnershipResolutionUsesTheAcquiredRootSnapshot()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"OwnershipRoot-{Guid.NewGuid():N}.dll");
+        File.Copy(CallerPath, path);
+        var resolver = new DeleteRootOnResolveResolver(
+            Resolver(CallerPath),
+            path);
+
+        try
+        {
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                resolver,
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("RentAndReturnThroughHelper"),
+                });
+
+            Assert.True(resolver.DeletedRoot);
+            Assert.Contains(
+                index.ResourceOwnership,
+                evidence => evidence.Method.Name
+                    == "RentAndReturnThroughHelper");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     static ResourceEffectModelDefinition DeclaredResourceModel()
     {
         ResourceAssemblySelector assembly = FixtureAssembly();
@@ -638,6 +705,48 @@ public sealed class ResourceOwnershipFlowTests
             ]);
     }
 
+    static ResourceEffectModelDefinition TokenResourceModel()
+    {
+        ResourceAssemblySelector assembly = FixtureAssembly();
+        ResourceTypeExpression.Named api = new(
+            assembly,
+            "DeclaredOwnership",
+            [new ResourceTypeNameSegment("TokenResourceApi", 0)],
+            []);
+        ResourceKindReference kind = new(TokenKind, []);
+        return new(
+            ResourceEffectLanguageIdentity.Version1,
+            TokenModelIdentity,
+            [
+                new ResourceKindDefinition(
+                    TokenKind,
+                    arity: 0,
+                    [Provenance(
+                        TokenModelIdentity,
+                        "resource",
+                        0)]),
+            ],
+            [],
+            [
+                new ResourceEffectTypedDeclaration(
+                    Member(
+                        api,
+                        "Release",
+                        parameters: [CoreType("Object")],
+                        CoreType("Void")),
+                    new ResourceEffect.Release(
+                        new ResourceEffectLocation.Parameter(0),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        kind,
+                        Correspondence: null,
+                        Observation: null),
+                    [Provenance(
+                        TokenModelIdentity,
+                        "release",
+                        1)]),
+            ]);
+    }
+
     static ResourceEffectTargetSelector Member(
         ResourceTypeExpression.Named declaringType,
         string name,
@@ -711,4 +820,26 @@ public sealed class ResourceOwnershipFlowTests
                 LibraryBodyAnalysisFeatures.MethodEvidence)
             .Methods.Single(method => method.Name == methodName)
             .MetadataToken;
+
+    sealed class DeleteRootOnResolveResolver(
+        IAssemblyReferenceResolver inner,
+        string rootPath)
+        : IAssemblyReferenceResolver
+    {
+        int _deletedRoot;
+
+        internal bool DeletedRoot =>
+            Volatile.Read(ref _deletedRoot) != 0;
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+        {
+            ResolvedAssemblyReference? resolved =
+                inner.Resolve(identity, scope);
+            if (Interlocked.Exchange(ref _deletedRoot, 1) == 0)
+                File.Delete(rootPath);
+            return resolved;
+        }
+    }
 }

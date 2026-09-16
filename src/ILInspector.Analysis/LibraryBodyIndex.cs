@@ -1330,8 +1330,10 @@ public sealed class LibraryBodyIndex
                 bodyScope,
                 bodyTypeScope);
 
-        if (resolver is not null
-            && UsesReferenceResolution(plan))
+        if ((resolver is not null
+                && UsesReferenceResolution(plan))
+            || plan.Includes(
+                LibraryBodyAnalysisFeatures.OwnershipFlow))
         {
             LibraryBodyRootSnapshot? rootSnapshot =
                 AcquireRootSnapshot(path);
@@ -1724,7 +1726,8 @@ public sealed class LibraryBodyIndex
         {
             AssemblyImageSnapshotResult.Ready ready =>
                 new LibraryBodyRootSnapshot(
-                    assembly,
+                    ready.Snapshot.RetainAssemblyReference(
+                        assembly),
                     ready.Snapshot),
             AssemblyImageSnapshotResult.Rejected rejected =>
                 throw RootSnapshotFailure(path, rejected.Failure),

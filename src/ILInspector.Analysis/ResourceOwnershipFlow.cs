@@ -250,12 +250,17 @@ internal static class ResourceOwnershipFlow
 
         var parameters =
             ImmutableArray.CreateBuilder<ResourceParameterOwnership>();
+        bool hasReleaseEffects = effects.Values.Any(static atCall =>
+            atCall.Any(static effect =>
+                effect.Effect is ResourceEffect.Release));
         for (int parameterIndex = 0;
             parameterIndex < method.ParameterTypes.Length;
             parameterIndex++)
         {
             TypeRef parameterType = method.ParameterTypes[parameterIndex];
-            if (parameterType.Kind != TypeRefKind.SzArray)
+            bool isResourceValueType =
+                resolution.IsResourceValueType(parameterType);
+            if (!isResourceValueType && !hasReleaseEffects)
                 continue;
 
             int slot = parameterIndex + (method.IsStatic ? 0 : 1);
@@ -275,6 +280,8 @@ internal static class ResourceOwnershipFlow
                 continue;
             }
 
+            var parameterLimits =
+                ImmutableArray.CreateBuilder<ResourceOwnershipFlowLimit>();
             DefinitionAnalysis flow = AnalyzeDefinition(
                 definition,
                 slot,
@@ -287,7 +294,19 @@ internal static class ResourceOwnershipFlow
                 members,
                 effects,
                 incompleteCallOffsets,
-                limits);
+                parameterLimits);
+            if (!isResourceValueType
+                && !flow.Uses.Any(static use =>
+                    use.Effect is not null)
+                && !parameterLimits.Any(static limit =>
+                    limit.Kind
+                        == ResourceOwnershipFlowLimitKind
+                            .UnsupportedEffect))
+            {
+                continue;
+            }
+
+            limits.AddRange(parameterLimits);
             parameters.Add(
                 new(
                     parameterIndex,
@@ -689,6 +708,7 @@ internal static class ResourceOwnershipFlow
             ImmutableArray<ResourceOwnershipFlowLimit>> _limits;
         readonly Dictionary<int, IReadOnlySet<int>> _incompleteCallOffsets;
         readonly ImmutableArray<ResourceOwnershipFlowLimit> _globalLimits;
+        readonly ImmutableHashSet<TypeRef> _resourceValueTypes;
 
         ResolutionView(
             Dictionary<
@@ -699,12 +719,14 @@ internal static class ResourceOwnershipFlow
                 int,
                 ImmutableArray<ResourceOwnershipFlowLimit>> limits,
             Dictionary<int, IReadOnlySet<int>> incompleteCallOffsets,
-            ImmutableArray<ResourceOwnershipFlowLimit> globalLimits)
+            ImmutableArray<ResourceOwnershipFlowLimit> globalLimits,
+            ImmutableHashSet<TypeRef> resourceValueTypes)
         {
             _effects = effects;
             _limits = limits;
             _incompleteCallOffsets = incompleteCallOffsets;
             _globalLimits = globalLimits;
+            _resourceValueTypes = resourceValueTypes;
         }
 
         internal static ResolutionView Create(
@@ -739,6 +761,9 @@ internal static class ResourceOwnershipFlow
                         .ToDictionary(
                             static offsets => offsets.Key,
                             static offsets => offsets.ToImmutableArray()));
+            ImmutableHashSet<TypeRef> resourceValueTypes =
+                effects.SelectMany(ResourceValueTypes)
+                    .ToImmutableHashSet();
 
             var callsByInvocation =
                 new Dictionary<
@@ -865,7 +890,32 @@ internal static class ResourceOwnershipFlow
                 incompleteCallOffsets.ToDictionary(
                     static pair => pair.Key,
                     static pair => (IReadOnlySet<int>)pair.Value),
-                global.ToImmutable());
+                global.ToImmutable(),
+                resourceValueTypes);
+        }
+
+        static IEnumerable<TypeRef> ResourceValueTypes(
+            ResolvedResourceEffect effect)
+        {
+            MemberRef member = effect.DirectCall.Call.Callee;
+            switch (effect.Effect)
+            {
+                case ResourceEffect.Acquire
+                    {
+                        Target: ResourceEffectLocation.Return,
+                    }:
+                    yield return member.ReturnType;
+                    break;
+                case ResourceEffect.Release
+                    {
+                        Source:
+                            ResourceEffectLocation.Parameter source,
+                    }
+                    when source.Index >= 0
+                        && source.Index < member.ParameterTypes.Length:
+                    yield return member.ParameterTypes[source.Index];
+                    break;
+            }
         }
 
         internal IReadOnlyDictionary<
@@ -891,5 +941,8 @@ internal static class ResourceOwnershipFlow
                 out IReadOnlySet<int>? offsets)
                 ? offsets
                 : new HashSet<int>();
+
+        internal bool IsResourceValueType(TypeRef type) =>
+            _resourceValueTypes.Contains(type);
     }
 }

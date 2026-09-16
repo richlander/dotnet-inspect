@@ -34,3 +34,11 @@ public sealed class ValueResourcePool
     {
     }
 }
+
+public sealed class DeclaredToken;
+
+public static class TokenResourceApi
+{
+    public static void Release(object value) =>
+        GC.KeepAlive(value);
+}
