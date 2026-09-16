@@ -43,10 +43,13 @@ public sealed class PackagePlatformHouseAdapter
         _source = source;
         TargetDiscovery = PlatformSourceCapabilityIdentity.Create(capabilityName + "-target-discovery");
         ReferenceRealization = PlatformSourceCapabilityIdentity.Create(capabilityName + "-reference-realization");
+        ImplementationRealization = PlatformSourceCapabilityIdentity.Create(
+            capabilityName + "-implementation-realization");
     }
 
     public PlatformSourceCapabilityIdentity TargetDiscovery { get; }
     public PlatformSourceCapabilityIdentity ReferenceRealization { get; }
+    public PlatformSourceCapabilityIdentity ImplementationRealization { get; }
 
     /// <summary>Consumes one Package Source operation authorized for this House request.</summary>
     public Task<PackagePlatformHouseResult<PackagePlatformTargetInventory>> DiscoverTargetsAsync(
@@ -179,6 +182,124 @@ public sealed class PackagePlatformHouseAdapter
         }
     }
 
+    /// <summary>
+    /// Realizes an exact House target through authorized RID-specific runtime
+    /// packs.
+    /// </summary>
+    public Task<PackagePlatformHouseResult<PackageImplementationRealization>>
+        RealizeImplementationAsync(
+            PlatformHouseRequest request,
+            string runtimeIdentifier,
+            PackageSourceOperationLease operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        bool transferred = false;
+        try
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (request.Target is not PlatformTargetDemand.Exact target)
+            {
+                throw new ArgumentException(
+                    "Package-backed implementation realization requires an exact House target.",
+                    nameof(request));
+            }
+
+            PlatformFamilyTarget exact = target.Target;
+            request.CancellationToken.ThrowIfCancellationRequested();
+            if (!request.Sources.Authorizes(
+                    PlatformSourceFacet.Implementation,
+                    ImplementationRealization))
+            {
+                return Task.FromResult(
+                    Stop<PackageImplementationRealization>(
+                        request,
+                        PlatformSourceFacet.Implementation,
+                        exact,
+                        "The package-backed implementation capability is not authorized."));
+            }
+            if (request.Operation is not PlatformHouseOperation.Realize realize
+                || realize.View == PlatformViewDemand.Reference)
+            {
+                return Task.FromResult(
+                    Stop<PackageImplementationRealization>(
+                        request,
+                        PlatformSourceFacet.Implementation,
+                        exact,
+                        "The House operation does not request implementation realization."));
+            }
+            if (realize.Population is PlatformPopulationDemand.Library
+                { Value: PlatformLibraryDemand.PlatformLibrary })
+            {
+                return Task.FromResult(
+                    Stop<PackageImplementationRealization>(
+                        request,
+                        PlatformSourceFacet.Implementation,
+                        exact,
+                        "An opaque Platform library identity has no runtime-package member correspondence."));
+            }
+            if (request.Work.MaxSourceOperations == 0
+                || request.Work.MaxDuration == TimeSpan.Zero
+                || request.Work.MaxAssemblies == 0
+                || request.Work.MaxBytes == 0)
+            {
+                return Task.FromResult(
+                    Stop<PackageImplementationRealization>(
+                        request,
+                        PlatformSourceFacet.Implementation,
+                        exact,
+                        "The House work allowance does not permit implementation realization.",
+                        incomplete: true));
+            }
+            ValidateOperation(request, operation);
+
+            PackageImplementationPlatformCoordinate coordinate;
+            try
+            {
+                coordinate = new(
+                    exact,
+                    runtimeIdentifier);
+            }
+            catch (ArgumentException)
+            {
+                return Task.FromResult(
+                    Stop<PackageImplementationRealization>(
+                        request,
+                        PlatformSourceFacet.Implementation,
+                        exact,
+                        "The runtime identifier cannot form a package-backed implementation coordinate."));
+            }
+
+            PackagePlatformSourceLimits limits = _source.Limits;
+            var work = new PackageImplementationWorkBudget(
+                limits.MaxFrameworks,
+                limits.MaxResolutionSteps,
+                limits.MaxManifestLibraries,
+                limits.MaxManifestAssets,
+                Math.Min(
+                    request.Work.MaxAssemblies,
+                    limits.MaxAssemblies),
+                Math.Min(
+                    request.Work.MaxBytes,
+                    limits.MaxBytes));
+            Task<PackagePlatformSourceOutcome<PackageImplementationRealization>>
+                pending = _source.RealizeImplementationAsync(
+                    coordinate,
+                    work,
+                    operation);
+            transferred = true;
+            return ProjectImplementationAsync(
+                request,
+                exact,
+                realize,
+                pending);
+        }
+        finally
+        {
+            if (!transferred)
+                operation.Dispose();
+        }
+    }
+
     static void ValidateOperation(PlatformHouseRequest request, PackageSourceOperationLease operation)
     {
         if (operation.CancellationToken != request.CancellationToken
@@ -220,6 +341,71 @@ public sealed class PackagePlatformHouseAdapter
             (PackagePlatformSourceOutcome<PackageReferenceRealization>.NotSucceeded)outcome);
     }
 
+    async Task<PackagePlatformHouseResult<PackageImplementationRealization>>
+        ProjectImplementationAsync(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget target,
+            PlatformHouseOperation.Realize realize,
+            Task<PackagePlatformSourceOutcome<PackageImplementationRealization>>
+                pending)
+    {
+        PackagePlatformSourceOutcome<PackageImplementationRealization>
+            outcome = await pending.ConfigureAwait(false);
+        if (outcome is PackagePlatformSourceOutcome<
+                PackageImplementationRealization>.Succeeded success)
+        {
+            if (realize.Population is PlatformPopulationDemand.Library
+                { Value: PlatformLibraryDemand.Assembly assembly }
+                && !success.Value.Libraries.Any(
+                    library => assembly.Identity.IsEquivalentTo(
+                        library.Identity)))
+            {
+                var diagnostic = new PackagePlatformSourceDiagnostic(
+                    PackagePlatformSourceDiagnosticKind.MemberUnavailable,
+                    "The requested assembly is absent from the package-backed implementation closure.",
+                    []);
+                return new PackagePlatformHouseResult<
+                    PackageImplementationRealization>.NotSucceeded(
+                        diagnostic,
+                        new PlatformSourceContribution.Unavailable(
+                            PlatformSourceFacet.Implementation,
+                            ImplementationRealization,
+                            request.Snapshot,
+                            PlatformSourceGeneration.Create(
+                                outcome.Generation.Name),
+                            target,
+                            PlatformSourceUnavailabilityKind.Absent));
+            }
+
+            return new PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded(
+                    success.Value,
+                    new PlatformSourceContribution.Realization(
+                        PlatformSourceFacet.Implementation,
+                        ImplementationRealization,
+                        request.Snapshot,
+                        PlatformSourceGeneration.Create(
+                            outcome.Generation.Name),
+                        target,
+                        PlatformSourceCoordinateIdentity.Create(
+                            $"{success.Value.Coordinate.PackageId}:"
+                            + $"{target.Version.Value}:"
+                            + $"{success.Value.Coordinate.RuntimeIdentifier}:"
+                            + $"{target.TargetFramework}"),
+                        ((PlatformHouseOperationSnapshot.Realize)
+                            request.Snapshot.Operation).Population,
+                        PlatformSourceContributionCompleteness
+                            .Authoritative));
+        }
+
+        return ProjectFailure(
+            request,
+            PlatformSourceFacet.Implementation,
+            target,
+            (PackagePlatformSourceOutcome<
+                PackageImplementationRealization>.NotSucceeded)outcome);
+    }
+
     PackagePlatformHouseResult<T> ProjectFailure<T>(
         PlatformHouseRequest request, PlatformSourceFacet facet, PlatformFamilyTarget? target,
         PackagePlatformSourceOutcome<T>.NotSucceeded failure) where T : notnull
@@ -258,6 +444,14 @@ public sealed class PackagePlatformHouseAdapter
                 : PackagePlatformSourceDiagnosticKind.InvalidSelection, summary, []), contribution);
     }
 
-    PlatformSourceCapabilityIdentity Capability(PlatformSourceFacet facet) =>
-        facet == PlatformSourceFacet.TargetDiscovery ? TargetDiscovery : ReferenceRealization;
+    PlatformSourceCapabilityIdentity Capability(
+        PlatformSourceFacet facet) =>
+        facet switch
+        {
+            PlatformSourceFacet.TargetDiscovery => TargetDiscovery,
+            PlatformSourceFacet.Reference => ReferenceRealization,
+            PlatformSourceFacet.Implementation =>
+                ImplementationRealization,
+            _ => throw new ArgumentOutOfRangeException(nameof(facet)),
+        };
 }
