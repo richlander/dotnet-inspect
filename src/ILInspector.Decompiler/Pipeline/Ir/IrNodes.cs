@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.Instructions;
 
 using Inverse = ILInspector.Decompiler.Pipeline.InverseArchitecture;
 
@@ -473,6 +474,20 @@ public sealed class IrFunction : IrNode
     internal ClassicAsyncRequestAdapterResult? ClassicAsyncRequest
         { get; set; }
     internal bool IsMetadataBacked { get; set; }
+    internal MethodInstructions? ExceptionInstructions { get; set; }
+    internal InstructionExceptionFlowResult<InstructionExceptionFlowFacts>?
+        ExceptionFlow => ExceptionInstructions?.ExceptionFlow;
+    internal ImmutableArray<DecompilerExceptionClauseImport>
+        ExceptionClauseImports
+    { get; set; } = [];
+    internal string? ExceptionFactFailure { get; set; }
+
+    internal void ClearImportedExceptionFacts()
+    {
+        ExceptionInstructions = null;
+        ExceptionClauseImports = [];
+        ExceptionFactFailure = null;
+    }
 
     internal void ValidateArgumentBindings()
     {
@@ -1207,6 +1222,8 @@ public sealed class TryCatch : IrNode
 
     public BlockContainer TryBody => (BlockContainer)Children[0];
     public IReadOnlyList<CatchClause> Clauses => Children.Skip(1).Cast<CatchClause>().ToList();
+    internal InstructionExceptionRegionId? ExceptionProtectedRegion
+    { get; init; }
 
     public override string Describe() => $"TryCatch ({Children.Count - 1} clauses)";
 }
@@ -1234,6 +1251,7 @@ public sealed class CatchClause : IrNode
 
     /// <summary>Optional C# exception filter (<c>when (...)</c>) for filter handlers.</summary>
     public IrExpression? Filter => Children.Count == 2 ? (IrExpression)Children[0] : null;
+    internal InstructionExceptionClause? ExceptionClause { get; init; }
 
     public override IEnumerable<TypeRef> DirectTypes => [ExceptionType];
 
@@ -1251,6 +1269,7 @@ public sealed class TryFinally : IrNode
 
     public BlockContainer TryBody => (BlockContainer)Children[0];
     public BlockContainer FinallyBody => (BlockContainer)Children[1];
+    internal InstructionExceptionClause? ExceptionClause { get; init; }
 
     public override string Describe() => "TryFinally";
 }
