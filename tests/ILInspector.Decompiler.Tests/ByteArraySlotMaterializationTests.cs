@@ -167,7 +167,7 @@ public class ByteArraySlotMaterializationTests
         var function = RaiseToMaterialization(source, typeof(ByteArraySlotMaterializationSamples).FullName!,
             nameof(ByteArraySlotMaterializationSamples.SwapArrays));
         var pending = Assert.Single(SlotMaterializationPass.Analyze(function),
-            decision => decision.Vetoes == SlotMaterializationVeto.PendingReferenceSwap);
+            decision => decision.Vetoes == SlotMaterializationVeto.PendingStorageSwap);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
         Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == pending.Slot);
