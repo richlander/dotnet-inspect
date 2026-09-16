@@ -121,19 +121,42 @@ The historical-state gate retains both a Preparing snapshot and a committed
 result, awaits actual product retirement settlement, and then checks collection
 of package bindings, content, sessions, and realization resources.
 
-### Navigation operation handoff status
+### Navigation operation handoff implementation
 
-Issue [#7256](https://github.com/richlander/dotnet-inspect/issues/7256) completes
-the [operation handoff contract](#pre-effect-operation-handoff) needed by
-Navigation. The initial implementation above does **not** expose an operation
-before effects, correlate every terminal arm, or return a requested occurrence.
-Its cancellation-control response also shares the mutation-result union.
+Issue [#7256](https://github.com/richlander/dotnet-inspect/issues/7256) implements
+the [operation handoff contract](#pre-effect-operation-handoff) locked in
+[#7262](https://github.com/richlander/dotnet-inspect/pull/7262).
+`InspectionWorkspace` exposes `IssueReplaceScopeRequest`,
+`IssueAddPackagesRequest` (with an optional exact publication-base guard),
+`IssueClearScopeRequest`, and `IssueRemovePackageOccurrenceRequest`, followed
+by explicit `SubmitScopeRequestAsync`. Existing direct mutation entry points
+are no-activation issue/submit adapters.
 
-Delivery is staged: lock this focused Scope contract, then implement its
-producer and Release gates before
-[#5584](https://github.com/richlander/dotnet-inspect/issues/5584) adopts it.
-This contract slice alone neither completes #7256 nor unblocks #5584.
-Navigation owns the subsequent external-effect interaction model and consumer.
+`WorkspaceScopeRequest.Association` is resource-free pre-effect evidence.
+Every mutation terminal arm retains that same association and exposes its
+original `Operation`; `Superseded` names its superseder separately. Request
+inputs retain missing or foreign expected-revision evidence without replacing
+it with valid current authority. The request itself may borrow Package
+bindings; consumers retain its detached association instead.
+
+`CreateScopePackageTarget` constructs an exact, resource-free target from an
+acquired binding. Add/Replace can request that target, and `Committed` or
+`NoEffect` returns its `WorkspacePackageOccurrenceDescriptor` from the complete
+result snapshot. That descriptor includes realization status; membership
+does not imply Ready or authorize Navigation focus.
+
+`CancelScopePreparationAsync` now returns `WorkspaceScopeCancellationResult`.
+Its `Settled` arm carries the original mutation result, while
+`ObservedNoEffect`, `Rejected`, and `Unavailable` are control observations,
+not mutation settlements. This intentionally replaces the ambiguous shared
+return union; cancellation callers must consume the typed distinction.
+
+The [five Release gates below](#operation-handoff-demo-and-evidence) use
+product Scope construction, including pinned Avalonia and System.Text.Json
+archives. The Scope model checks the shared request/result currency before
+production adoption; it does not prove Navigation's external-effect behavior.
+[#5584](https://github.com/richlander/dotnet-inspect/issues/5584) still owns
+that subsequent interaction model and protected consumer implementation.
 The overall [#7061](https://github.com/richlander/dotnet-inspect/issues/7061)
 six-capability plan retains shared Navigation adoption, CLI retained-result
 adoption, Browser descriptors/controls, and Browser complete-result installation
@@ -1357,11 +1380,30 @@ Submit R after the consumer accepts its association.
 The neighboring case is an already-retained `System.Text.Json` 10.0.0 Package:
 explicit duplicate Add returns `NoEffect(R, snapshot, existing occurrence)`;
 the same Add without activation intent returns `NoEffect(R, snapshot, none)`.
-Neither result depends on inventory position. These are design mockups, not
-newly executed website or CLI behavior.
+Neither result depends on inventory position. Both Scope scenarios are
+exercised by `ExplicitScopeTarget_ReturnsExactResultOccurrence` using the
+existing pinned API-matching archives, not manufactured operation results.
+They are not yet website or retained-navigation CLI behavior.
 
-The producer slice must exercise both scenarios through real Package inputs
-and product Scope construction. Its named gates below are **unverified**:
+The public Scope call is:
+
+```csharp
+WorkspaceScopeRequest request = workspace.IssueReplaceScopeRequest(
+    current.Revision,
+    [destinationBinding],
+    deadline,
+    workspace.CreateScopePackageTarget(destinationBinding));
+WorkspaceScopeOperationAssociation association = request.Association;
+WorkspaceScopeOperationResult result =
+    await workspace.SubmitScopeRequestAsync(request, cancellationToken);
+```
+
+The consumer can retain `association` and decide whether to submit before
+calling the final line. Protected Navigation admission is separate work, not
+an implicit effect of this call site.
+
+The following PR-fast Release gates are implemented in
+[`WorkspaceScopeTests.OperationHandoff.cs`](../../tests/DotnetInspector.Queries.Tests/WorkspaceScopeTests.OperationHandoff.cs):
 
 | Release gate in `WorkspaceScopeTests` | Required evidence |
 | --- | --- |
@@ -1372,15 +1414,17 @@ and product Scope construction. Its named gates below are **unverified**:
 | `RetainedScopeOperationEvidence_ErasesTransientInputs` | Retaining request associations and terminal results after product retirement does not retain bindings, execution state, or physical resources. |
 
 These gates extend rather than replace existing mutation, validation,
-non-Ready, and retirement outcomes. The
-[Scope revision/publication model](models/workspace-scope-revisions/README.md)
-already indexes admitted operations and frozen results by exact operation
-currency, but does not check pre-submission issuance, the common terminal
-association, or requested-occurrence projection. Before the producer claims
-those interaction properties, extend that owner's model with the same
-request/result currency and register exact configuration verdicts. Existing
-bounded results do not prove the new handoff or Navigation's external-effect
-composition.
+non-Ready, and retirement outcomes. The complete 97-case Scope selection and
+51 CLI Workspace cases preserve those existing consumers; the five new gates
+each measured below one second in the recorded local Release run.
+
+The [Scope revision/publication model](models/workspace-scope-revisions/README.md#operation-handoff-extension)
+now includes issued requests, all terminal associations, requested-occurrence
+projection, and typed cancellation observations. All 68 configurations reached
+their registered exact verdicts, including all 50 earlier profiles. Its named
+Artifact instances recheck imported publication behavior under the extended
+composition. These bounded results do not prove implementation conformance or
+Navigation's future external-effect composition.
 
 ### Mutation authority
 
@@ -2014,9 +2058,9 @@ action, and receipt identities.
    limits, and exact Add, Replace, Remove, and Clear results. This focused slice
    replaces the generalized producer scope proposed by
    [#5583](https://github.com/richlander/dotnet-inspect/issues/5583).
-   Complete the pre-effect operation association and requested-occurrence
-   producer under #7256 after locking its focused contract; the narrower
-   #5821/#6151 implementation does not supply those Navigation prerequisites.
+   Issue #7256 adds the modeled pre-effect operation association and
+   requested-occurrence producer after contract #7262; the narrower
+   #5821/#6151 implementation alone does not supply those prerequisites.
 5. Narrow
    [#5584](https://github.com/richlander/dotnet-inspect/issues/5584) to consume
    these concrete results in Navigation.
