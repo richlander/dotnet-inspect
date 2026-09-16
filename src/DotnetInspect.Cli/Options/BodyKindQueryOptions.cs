@@ -19,7 +19,7 @@ public sealed record BodyKindQueryOptions
     /// <summary>No body-kind predicate.</summary>
     public static BodyKindQueryOptions Default { get; } = new();
 
-    public static SectionQueryFacet QueryFacet { get; } = new(
+    public static SectionQueryKey QueryKey { get; } = new(
         "Kind",
         ["--where"],
         ["="],

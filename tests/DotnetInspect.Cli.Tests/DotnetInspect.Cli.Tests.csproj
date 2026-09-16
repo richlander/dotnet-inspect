@@ -48,7 +48,7 @@
     <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspect.Cli\DotnetInspect.Cli.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.PortableQueries\DotnetInspector.PortableQueries.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.QueryEngine\DotnetInspector.QueryEngine.csproj" />
     <ProjectReference Include="..\..\src\NuGetFetch\NuGetFetch.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
