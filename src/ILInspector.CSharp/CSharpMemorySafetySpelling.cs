@@ -196,6 +196,7 @@ internal static class CSharpMemorySafetySpelling
             }
             if (member.SignatureModel is not { } propertyModel
                 || string.IsNullOrWhiteSpace(propertyModel.ReturnType)
+                || propertyModel.ReturnTypeShape is null
                 || string.IsNullOrWhiteSpace(propertyModel.MemberName)
                 || propertyModel.MemberName == "this[]"
                 || propertyModel.MemberName.Contains('.', StringComparison.Ordinal)
@@ -206,6 +207,14 @@ internal static class CSharpMemorySafetySpelling
             {
                 return Refuse(
                     "a complete non-indexed ordinary property signature is unavailable.");
+            }
+            if (propertyModel.ReturnTypeShape is
+                {
+                    Kind: ApiTypeShapeKind.Primitive,
+                    Primitive: ApiPrimitiveType.Void,
+                })
+            {
+                return Refuse("a property cannot have a void return type.");
             }
             if (propertyModel.Accessors is not { Count: > 0 } accessors)
                 return Refuse("a complete structured property accessor shape is unavailable.");
@@ -238,6 +247,13 @@ internal static class CSharpMemorySafetySpelling
                     .Any(static group => group.Count() != 1))
             {
                 return Refuse("the structured property accessor shape is ambiguous.");
+            }
+            if (!PropertyAccessibilityIsRepresentable(
+                    member.Accessibility,
+                    accessors))
+            {
+                return Refuse(
+                    "the property accessor accessibility combination is not representable in C#.");
             }
 
             int[] accessorTokens = accessors.Select(accessor => accessor.Kind switch
@@ -365,6 +381,60 @@ internal static class CSharpMemorySafetySpelling
         CSharpMemorySafetyDecision Refuse(string reason)
             => new(null, $"Member '{type.FullName}.{member.Name}': {reason}");
     }
+
+    static bool PropertyAccessibilityIsRepresentable(
+        string? propertyAccessibility,
+        IReadOnlyList<ApiAccessor> accessors)
+    {
+        string property = propertyAccessibility ?? "public";
+        if (!IsCSharpAccessibility(property))
+            return false;
+
+        ApiAccessor[] modified =
+        [
+            .. accessors.Where(
+                static accessor => accessor.Accessibility is not null),
+        ];
+        if (modified.Length == 0)
+            return true;
+        if (accessors.Count != 2 || modified.Length != 1)
+            return false;
+
+        return IsStrictlyMoreRestrictive(
+            modified[0].Accessibility!,
+            property);
+    }
+
+    static bool IsCSharpAccessibility(string accessibility) =>
+        accessibility is
+            "public"
+            or "protected internal"
+            or "protected"
+            or "internal"
+            or "private protected"
+            or "private";
+
+    static bool IsStrictlyMoreRestrictive(
+        string accessor,
+        string property) =>
+        property switch
+        {
+            "public" => accessor is
+                "protected internal"
+                or "protected"
+                or "internal"
+                or "private protected"
+                or "private",
+            "protected internal" => accessor is
+                "protected"
+                or "internal"
+                or "private protected"
+                or "private",
+            "protected" => accessor is "private protected" or "private",
+            "internal" => accessor is "private protected" or "private",
+            "private protected" => accessor is "private",
+            _ => false,
+        };
 
     internal static bool IsStandaloneEnumMember(
         ApiType type,

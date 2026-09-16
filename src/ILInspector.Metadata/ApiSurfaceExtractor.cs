@@ -5355,10 +5355,12 @@ public static class ApiSurfaceExtractor
     {
         if (property.Header.Kind != SignatureKind.Property
             || property.Header.HasExplicitThis
+            || property.Header.IsGeneric
             || property.GenericParameterCount != 0
             || property.RequiredParameterCount != property.ParameterTypes.Length
             || accessor.Header.Kind != SignatureKind.Method
             || accessor.Header.HasExplicitThis
+            || accessor.Header.IsGeneric
             || accessor.GenericParameterCount != 0
             || accessor.Header.CallingConvention != SignatureCallingConvention.Default
             || accessor.Header.IsInstance != property.Header.IsInstance

@@ -254,6 +254,97 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Fact]
+    public void SingleDeclarationOutcomeRejectsVoidPropertyType()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [("get", ContractKind.None, MemorySafetyPointerEvidence.Absent)],
+            returnType: "void");
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "void return type",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsIncomparableAccessorAccessibility()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.Accessibility = "protected";
+        property.SignatureModel!.Accessors
+            .Single(accessor => accessor.Kind == "get")
+            .Accessibility = "internal";
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "accessor accessibility",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("public", "protected internal")]
+    [InlineData("public", "protected")]
+    [InlineData("public", "internal")]
+    [InlineData("public", "private protected")]
+    [InlineData("public", "private")]
+    [InlineData("protected internal", "protected")]
+    [InlineData("protected internal", "internal")]
+    [InlineData("protected internal", "private protected")]
+    [InlineData("protected internal", "private")]
+    [InlineData("protected", "private protected")]
+    [InlineData("protected", "private")]
+    [InlineData("internal", "private protected")]
+    [InlineData("internal", "private")]
+    [InlineData("private protected", "private")]
+    public void SingleDeclarationOutcomeAcceptsRestrictedAccessorAccessibility(
+        string propertyAccessibility,
+        string accessorAccessibility)
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.Accessibility = propertyAccessibility;
+        property.SignatureModel!.Accessors
+            .Single(accessor => accessor.Kind == "get")
+            .Accessibility = accessorAccessibility;
+
+        Assert.IsType<CSharpMemberDeclarationOutcome.Rendered>(
+            Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                .FormatMemberOutcome(type, property));
+    }
+
+    [Fact]
     public void SingleDeclarationOutcomeRejectsIndexedPropertyShape()
     {
         ApiType type = Type(MemorySafetyRulesState.Updated);
@@ -2277,6 +2368,15 @@ public sealed class CSharpMemorySafetySpellingTests
             {
                 MemberName = name,
                 ReturnType = returnType,
+                ReturnTypeShape = ApiTypeShape.PrimitiveType(
+                    returnType switch
+                    {
+                        "int" => ApiPrimitiveType.Int32,
+                        "string" => ApiPrimitiveType.String,
+                        "void" => ApiPrimitiveType.Void,
+                        _ => throw new ArgumentOutOfRangeException(
+                            nameof(returnType)),
+                    }),
                 Accessors = accessorModels,
             },
             MemorySafety = Facts(
