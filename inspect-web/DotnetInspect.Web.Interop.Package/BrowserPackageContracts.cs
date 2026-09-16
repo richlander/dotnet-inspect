@@ -274,13 +274,6 @@ public sealed record BrowserPackageQueryFacetDescriptor(
 public sealed record BrowserPackageQueryFacetCatalog(
     BrowserPackageQueryFacetDescriptor[] Facets);
 
-public sealed record BrowserPackageAssemblyQueryPattern(
-    string Id,
-    string Label,
-    string Summary,
-    int MaximumOperandLength,
-    int MaximumPackages);
-
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEvidenceScope>))]
 public enum BrowserPackageQueryEvidenceScope
 {
@@ -809,7 +802,6 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
-[JsonSerializable(typeof(BrowserPackageAssemblyQueryPattern[]))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageQueryDocument))]
 [JsonSerializable(typeof(BrowserPackageQueryInspection))]

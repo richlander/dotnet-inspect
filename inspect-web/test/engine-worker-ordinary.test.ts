@@ -46,8 +46,6 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("classifyPackageGraphIdentities"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
     getPlatformVersions: () => unexpected("getPlatformVersions"),
-    listPackageAssemblyQueryPatterns: () =>
-      unexpected("listPackageAssemblyQueryPatterns"),
     matchPackageDependencyCoordinate: () =>
       unexpected("matchPackageDependencyCoordinate"),
     searchTypes: () => unexpected("searchTypes"),
@@ -58,8 +56,6 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     packageCacheStats: () => unexpected("packageCacheStats"),
     prefetchPlatformPacks: () => unexpected("prefetchPlatformPacks"),
     queryPackage: () => unexpected("queryPackage"),
-    openPackageAssemblyQueryResult: () =>
-      unexpected("openPackageAssemblyQueryResult"),
     loadRuntimePack: () => unexpected("loadRuntimePack"),
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
@@ -532,7 +528,9 @@ test("malformed and oversized generated results reject only their calls", async 
   );
   const oversized = assert.rejects(
     state.client.package.loadRuntimePack("net10.0", "10.0.0"),
-    /exceeds 8388608 characters/,
+    new RegExp(
+      `exceeds ${engineWorkerOrdinaryMaximumJsonCharacters} characters`,
+    ),
   );
   const neighbor = state.client.package.packageCacheStats();
   await state.environment.flushAsync();
@@ -568,7 +566,9 @@ test("malformed and oversized inputs are rejected before facade invocation", asy
     state.client.package.queryWorkspacePackageOccurrences(
       "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
     ),
-    /exceeds 8388608 characters/,
+    new RegExp(
+      `exceeds ${engineWorkerOrdinaryMaximumJsonCharacters} characters`,
+    ),
   );
   assert.equal(calls, 0);
   assert.equal(state.host.snapshot().activeOperations, 0);
@@ -576,8 +576,8 @@ test("malformed and oversized inputs are rejected before facade invocation", asy
 });
 
 test("large generated results cross the former ordinary transport bounds", async () => {
-  const formerMaximumJsonCharacters = 1_048_576;
-  const formerMaximumCollectionEntries = 65_536;
+  const formerMaximumJsonCharacters = 8_388_608;
+  const formerMaximumCollectionEntries = 262_144;
   const versions = Array.from(
     { length: formerMaximumCollectionEntries },
     (_unused, index) => index === 0
@@ -705,11 +705,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "getPackageDocument",
       "getPlatformCatalog",
       "getPlatformVersions",
-      "listPackageAssemblyQueryPatterns",
       "loadRuntimePack",
       "loadRuntimePackAssembly",
       "matchPackageDependencyCoordinate",
-      "openPackageAssemblyQueryResult",
       "packageCacheStats",
       "prefetchPlatformPacks",
       "queryMemberDocumentation",
@@ -778,7 +776,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 55);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 53);
 
   const state = fixture();
   const groups = [
