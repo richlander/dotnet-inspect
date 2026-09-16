@@ -45,7 +45,7 @@ public sealed class LibraryApiSurfaceCorrespondence
 {
     internal LibraryApiSurfaceCorrespondence(
         LibraryContentReference apiContent,
-        ArtifactAssemblyProjection assembly,
+        Guid moduleVersionId,
         ApiSurface surface,
         ApiSurfaceExtractionScope scope,
         bool typesOnly,
@@ -54,7 +54,7 @@ public sealed class LibraryApiSurfaceCorrespondence
         int retainedTextCharacters)
     {
         ApiContent = apiContent;
-        Assembly = assembly;
+        ModuleVersionId = moduleVersionId;
         Surface = surface;
         Scope = scope;
         TypesOnly = typesOnly;
@@ -65,7 +65,7 @@ public sealed class LibraryApiSurfaceCorrespondence
 
     public LibraryReference Library => ApiContent.Library;
     public LibraryContentReference ApiContent { get; }
-    public ArtifactAssemblyProjection Assembly { get; }
+    public Guid ModuleVersionId { get; }
     public ApiSurface Surface { get; }
     public ApiSurfaceExtractionScope Scope { get; }
     public bool TypesOnly { get; }
@@ -211,16 +211,10 @@ public static class LibraryApiSurfaceInspection
 
                 ApiSurfaceExtractionResult.Extracted extracted =
                     (ApiSurfaceExtractionResult.Extracted)extraction;
-                var projection = new ArtifactAssemblyProjection(
-                    new AssemblyProjectionRegistration(
-                        view.Reference.Generation,
-                        view.Reference.Artifact,
-                        moduleVersionId),
-                    identity);
                 return new LibraryApiSurfaceInspectionOutcome.Completed(
                     new LibraryApiSurfaceCorrespondence(
                         view.Reference,
-                        projection,
+                        moduleVersionId,
                         extracted.Surface,
                         request.Scope,
                         request.TypesOnly,

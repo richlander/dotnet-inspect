@@ -309,18 +309,26 @@ public sealed partial class EhStructuringPass : IIrPass
             return null;
         }
 
+        var canonicalImports =
+            ImmutableArray.CreateBuilder<DecompilerExceptionClauseImport>(
+                imports.Length);
         for (int index = 0; index < imports.Length; index++)
         {
             DecompilerExceptionClauseImport import = imports[index];
             InstructionExceptionClause facts = exceptionFlow.Clauses[index];
             if (!ReferenceEquals(import.Region, regions[index])
-                || !ReferenceEquals(import.Facts, facts)
-                || facts.Id.Body != exceptionFlow.Body)
+                || exceptionFlow.GetClause(import.Facts.Id) is not
+                    InstructionExceptionFlowResult<
+                        InstructionExceptionClause>.Available availableClause
+                || availableClause.Value.Id != facts.Id)
             {
                 evidenceFailure =
                     "Decompiler exception-clause association does not preserve the owner-issued identity.";
                 return null;
             }
+            canonicalImports.Add(new DecompilerExceptionClauseImport(
+                import.Region,
+                availableClause.Value));
 
             if (facts.Kind != ExceptionRegionKind.Catch)
                 continue;
@@ -349,18 +357,20 @@ public sealed partial class EhStructuringPass : IIrPass
         var all = new List<Construct>();
         foreach (IGrouping<
                      InstructionExceptionRegionId,
-                     DecompilerExceptionClauseImport> group in imports.GroupBy(
-                         import => import.Facts.ProtectedRegion))
+                     DecompilerExceptionClauseImport> group
+                 in canonicalImports.GroupBy(
+                     import => import.Facts.ProtectedRegion))
         {
-            InstructionExceptionRegion? protectedRegion =
-                exceptionFlow.Regions.SingleOrDefault(
-                    region => region.Id == group.Key);
-            if (protectedRegion is null)
+            if (exceptionFlow.GetRegion(group.Key) is not
+                InstructionExceptionFlowResult<
+                    InstructionExceptionRegion>.Available availableRegion)
             {
                 evidenceFailure =
                     "Instructions did not publish the protected region named by an imported clause.";
                 return null;
             }
+            InstructionExceptionRegion protectedRegion =
+                availableRegion.Value;
 
             List<DecompilerExceptionClauseImport> clauses = group.ToList();
             var clauseFacts =

@@ -10,6 +10,7 @@ using DotnetInspector.Sections;
 using InertText;
 using Inspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using DotnetInspect.Web.Interop.Metadata;
 
 namespace DotnetInspect.Web.Tests;
@@ -82,6 +83,20 @@ public sealed class BrowserLibraryApiDiffOperationTests
             removed.Before!.Identifier);
         Assert.Equal("LibraryApiDiffFixture", removed.Before.Namespace);
         Assert.Equal(["RemovedType"], removed.Before.Segments);
+        Assert.Equal(3, removed.Members.Length);
+        Assert.All(
+            removed.Members,
+            member =>
+            {
+                Assert.Equal(
+                    BrowserLibraryApiDiffMemberPairKind.Removed,
+                    member.PairKind);
+                Assert.Equal(
+                    BrowserLibraryApiDiffMemberRelationRole.Before,
+                    member.Role);
+                Assert.NotNull(member.Before);
+                Assert.Null(member.After);
+            });
 
         BrowserLibraryApiDiffType added = Assert.Single(
             value.Types,
@@ -96,6 +111,20 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(
             "LibraryApiDiffFixture.AddedType",
             added.After!.Identifier);
+        Assert.Equal(3, added.Members.Length);
+        Assert.All(
+            added.Members,
+            member =>
+            {
+                Assert.Equal(
+                    BrowserLibraryApiDiffMemberPairKind.Added,
+                    member.PairKind);
+                Assert.Equal(
+                    BrowserLibraryApiDiffMemberRelationRole.After,
+                    member.Role);
+                Assert.Null(member.Before);
+                Assert.NotNull(member.After);
+            });
 
         BrowserLibraryApiDiffType definitionOnly = Assert.Single(
             value.Types,
@@ -108,6 +137,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(0, definitionOnly.ChangedMemberCount);
         Assert.NotNull(definitionOnly.Before);
         Assert.NotNull(definitionOnly.After);
+        Assert.Empty(definitionOnly.Members);
 
         BrowserLibraryApiDiffType receiver = Assert.Single(
             value.Types,
@@ -119,6 +149,33 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 == "LibraryApiDiffFixture.ProjectionExtensions");
         Assert.Equal(2, receiver.ChangedMemberCount);
         Assert.Equal(1, extensions.ChangedMemberCount);
+        BrowserLibraryApiDiffMember receiverMoved = Assert.Single(
+            receiver.Members,
+            member => member.Role
+                == BrowserLibraryApiDiffMemberRelationRole.After);
+        BrowserLibraryApiDiffMember extensionMoved = Assert.Single(
+            extensions.Members,
+            member => member.DocumentIdentifier
+                == receiverMoved.DocumentIdentifier);
+        Assert.Equal(
+            BrowserLibraryApiDiffMemberPairKind.Changed,
+            receiverMoved.PairKind);
+        Assert.Equal(
+            BrowserLibraryApiDiffMemberRelationRole.Before,
+            extensionMoved.Role);
+        Assert.Equal(receiverMoved.Before, extensionMoved.Before);
+        Assert.Equal(receiverMoved.After, extensionMoved.After);
+        Assert.Equal(
+            "LibraryApiDiffFixture.ProjectionExtensions",
+            receiverMoved.Before!.DeclaringTypeIdentifier);
+        Assert.Equal(
+            "LibraryApiDiffFixture.ProjectionReceiver",
+            receiverMoved.After!.DeclaringTypeIdentifier);
+        Assert.Equal("Transform", receiverMoved.Before.MemberName);
+        Assert.Equal("Transform", receiverMoved.After.MemberName);
+        Assert.NotEmpty(receiverMoved.After.StableSelector);
+        Assert.NotEmpty(receiverMoved.After.CanonicalSignature);
+        Assert.Equal(10, receiverMoved.After.Fingerprint.Length);
         Assert.Equal(
             new BrowserLibraryApiDiffAggregate(7, 1, 1, 10, 4, 2, 0),
             value.Aggregate);
@@ -371,6 +428,46 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.True(
             evidence.Observed
                 > BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerJsonCharacters);
+        Assert.Null(result.Inspection);
+    }
+
+    [Fact]
+    public void MemberInventoryTextCannotExceedWireAdmission()
+    {
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Transport.Package"),
+                AvailableWithMembers(
+                    memberCount: 1,
+                    memberDisplay: new string('x', 3_100_000)),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        Assert.Equal(BrowserLibraryApiDiffResultKind.Rejected, result.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffRejectionKind.TypeTextLimitExceeded,
+            result.Rejected!.Kind);
+        Assert.Null(result.Value);
+        Assert.NotNull(result.Inspection);
+    }
+
+    [Fact]
+    public void CompleteMemberBaselineCanExceedTransportBeforeViewProjection()
+    {
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Transport.Package"),
+                AvailableWithMembers(memberCount: 12_000),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        Assert.Equal(BrowserLibraryApiDiffResultKind.Rejected, result.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
+            result.Rejected!.Kind);
+        Assert.Null(result.Value);
+        Assert.Null(result.Rejected.Target);
+        Assert.Null(result.Rejected.Current);
         Assert.Null(result.Inspection);
     }
 
@@ -809,6 +906,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "changedMemberCount",
                 "display",
                 "documentIdentifier",
+                "members",
                 "potentiallyBreakingCount",
                 "state",
                 "typeDefinitionChanged",
@@ -816,7 +914,43 @@ public sealed class BrowserLibraryApiDiffOperationTests
             row.EnumerateObject()
                 .Select(property => property.Name)
                 .Order(StringComparer.Ordinal));
-        Assert.False(row.TryGetProperty("members", out _));
+        JsonElement member = root
+            .GetProperty("value")
+            .GetProperty("types")
+            .EnumerateArray()
+            .SelectMany(type =>
+                type.GetProperty("members").EnumerateArray())
+            .First();
+        Assert.Equal(
+            [
+                "after",
+                "before",
+                "documentIdentifier",
+                "pairKind",
+                "role",
+            ],
+            member.EnumerateObject()
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal));
+        JsonElement memberIdentity = member.TryGetProperty(
+                "after",
+                out JsonElement after)
+            && after.ValueKind != JsonValueKind.Null
+                ? after
+                : member.GetProperty("before");
+        Assert.Equal(
+            [
+                "canonicalSignature",
+                "declaringTypeIdentifier",
+                "display",
+                "fingerprint",
+                "memberName",
+                "stableSelector",
+                "typeFullName",
+            ],
+            memberIdentity.EnumerateObject()
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal));
         Assert.False(row.TryGetProperty("selectedType", out _));
     }
 
@@ -890,6 +1024,83 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     AddedTypeCount: 0,
                     RemovedTypeCount: 0,
                     ChangedMemberCount: 0,
+                    BreakingCount: 0,
+                    AdditiveCount: 0,
+                    PotentiallyBreakingCount: 0),
+                document)));
+    }
+
+    static InspectionEnvelope<LibraryApiDiffOutcome> AvailableWithMembers(
+        int memberCount,
+        string? memberDisplay = null)
+    {
+        AssemblyReferenceIdentity identity = AssemblyIdentity();
+        var endpoint = new LibraryApiDiffEndpointSummary(
+            identity,
+            ApiSurfaceScope.Public,
+            IsComplete: true,
+            []);
+        MetadataTypeDefinitionName name = TypeName("MemberContainer");
+        var typeIdentity = new LibraryApiTypeIdentity(
+            name,
+            "Transport.MemberContainer");
+        ImmutableArray<LibraryApiMemberDiff> members =
+        [
+            .. Enumerable.Range(0, memberCount).Select(index =>
+            {
+                string memberName = $"Member{index}";
+                string canonicalSignature =
+                    $"System.Void Transport.MemberContainer::{memberName}()";
+                var anchor = new MemberAnchor(
+                    $"M:Transport.MemberContainer.{memberName}",
+                    canonicalSignature,
+                    MemberAnchor.ComputeFingerprint(canonicalSignature),
+                    typeIdentity.Identifier,
+                    memberName);
+                var memberIdentity = new LibraryApiMemberIdentity(
+                    typeIdentity,
+                    anchor,
+                    memberDisplay ?? memberName);
+                return new LibraryApiMemberDiff(
+                    new LibraryApiMemberRelation(
+                        $"member-relation:{index}",
+                        LibraryApiMemberPairKind.Changed,
+                        memberIdentity,
+                        memberIdentity,
+                        Match: null),
+                    LibraryApiMemberRelationRole.Both);
+            }),
+        ];
+        var type = new LibraryApiTypeDiff(
+            typeIdentity,
+            typeIdentity,
+            LibraryApiTypePairKind.Present,
+            TypeDefinitionChanged: false,
+            [],
+            members);
+        var document = new ComparisonDocument<LibraryApiTypeDiff>(
+            ComparisonDocument<LibraryApiTypeDiff>.CurrentSchemaVersion,
+            SubjectCoordinateBasis.RootRelative,
+            "transport-library",
+            "Transport",
+            new ComparisonSubjectChange.Diff(),
+            new ComparisonRootComparison<
+                LibraryApiTypeDiff>.NotApplicable(),
+            [new(
+                typeIdentity.Identifier,
+                typeIdentity.Display,
+                new ComparisonSubjectChange.Diff(),
+                type)],
+            []);
+        return Inspection(new LibraryApiDiffOutcome.Available(
+            new LibraryApiDiffDocument(
+                endpoint,
+                endpoint,
+                new LibraryApiDiffSummary(
+                    ChangedTypeCount: 1,
+                    AddedTypeCount: 0,
+                    RemovedTypeCount: 0,
+                    ChangedMemberCount: memberCount,
                     BreakingCount: 0,
                     AdditiveCount: 0,
                     PotentiallyBreakingCount: 0),

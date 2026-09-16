@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -117,6 +118,15 @@ internal sealed class ClassicInverseRequest
             && !MatchesMethod(ExecutionBody, execution))
         {
             return "the execution body does not match its owner-issued MethodDef";
+        }
+        if (ExecutionMethod is { } exceptionOwner
+            && ExecutionBody.ExceptionFlow is
+                InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Available exceptionFlow
+            && exceptionFlow.Value.Body.Method != exceptionOwner)
+        {
+            return "the Instructions exception-flow body is not the "
+                + "relationship's MoveNext MethodDef";
         }
 
         if (ExecutionBody.Name != "MoveNext")

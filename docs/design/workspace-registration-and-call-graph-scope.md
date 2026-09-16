@@ -17,6 +17,9 @@ revision-bound replacement subset under #6577. The
 projection and platform/all-known construction under #6786. Population
 realization, persistence and the joined host experience below remain
 **unimplemented and unverified**.
+The focused
+[Workspace top-level inventory](workspace-top-level-inventory.md) consumes this
+document's registration vocabulary without extending its ownership.
 
 The operator explicitly approved this bounded cross-owner replacement:
 

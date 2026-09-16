@@ -298,7 +298,6 @@ static class SlotResidualCensus
         SlotMaterializationVeto.ConflictingTypeTestimony => "conflicting type testimony",
         SlotMaterializationVeto.OutsideCoercionDomain => "outside coercion domain",
         SlotMaterializationVeto.UnrenderableStoreType => "cross-family/unrenderable store",
-        SlotMaterializationVeto.MultiStoreSingleLoadFold => "multi-store/single-load fold",
         SlotMaterializationVeto.BooleanSinkIdentityRecovery => "boolean sink identity recovery",
         SlotMaterializationVeto.ElementStoreIdentityRecovery => "element-store identity recovery",
         SlotMaterializationVeto.IncompleteCopyComponent => "incomplete direct-copy component",
