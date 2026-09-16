@@ -627,7 +627,7 @@ public sealed partial class WorkspaceContextLoaderTests
                 ]),
             predicatePosition: 2,
             facet: null,
-            reason: RowQueryFailureReason.UnknownField);
+            reason: RowQueryFailureReason.UnknownKey);
         AssertVisibilityBindingFailure(
             TypeDeclarationVisibilityPlan.Bind(
                 TypeDeclarationVisibilityPreset.All,

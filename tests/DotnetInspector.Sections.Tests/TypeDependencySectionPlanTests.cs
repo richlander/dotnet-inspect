@@ -69,7 +69,7 @@ public sealed class TypeDependencySectionPlanTests
     public void Resolve_RejectsTraversalAsTopRanking()
     {
         RowQueryResolutionResult<TypeDependencyRelationship> result =
-            TypeDependencyRowQuery.Resolve(
+            TypeDependencyVocabulary.Resolve(
                 RowQueryIntent.Create(
                     [],
                     baselineOrder: null,
@@ -104,7 +104,7 @@ public sealed class TypeDependencySectionPlanTests
                             RowQueryOperator.Equals,
                             new RowQueryValueToken("Interface")),
                     ],
-                    RowQueryOrderIntent.Fields(
+                    RowQueryOrderIntent.Keys(
                         [
                             new RowQueryOrderTermIntent(
                                 "Target",
@@ -168,7 +168,7 @@ public sealed class TypeDependencySectionPlanTests
             Resolve(
                 RowQueryIntent.Create(
                     [],
-                    RowQueryOrderIntent.Fields(
+                    RowQueryOrderIntent.Keys(
                         [
                             new RowQueryOrderTermIntent(
                                 "Kind",
@@ -204,7 +204,7 @@ public sealed class TypeDependencySectionPlanTests
                             RowSelectionIntentOperation<
                                 RowQueryOrderIntent>.Top(
                                     1,
-                                    RowQueryOrderIntent.Fields(
+                                    RowQueryOrderIntent.Keys(
                                         [
                                             new RowQueryOrderTermIntent(
                                                 "Target",
@@ -227,7 +227,7 @@ public sealed class TypeDependencySectionPlanTests
     public void Resolve_RejectsInvalidKindValue()
     {
         RowQueryResolutionResult<TypeDependencyRelationship> result =
-            TypeDependencyRowQuery.Resolve(
+            TypeDependencyVocabulary.Resolve(
                 RowQueryIntent.Create(
                     [
                         new RowQueryPredicateIntent(
@@ -287,7 +287,7 @@ public sealed class TypeDependencySectionPlanTests
         Resolve(RowQueryIntent intent)
     {
         RowQueryResolutionResult<TypeDependencyRelationship> result =
-            TypeDependencyRowQuery.Resolve(intent);
+            TypeDependencyVocabulary.Resolve(intent);
         return result.Plan
             ?? throw new Xunit.Sdk.XunitException(
                 $"Expected Type Dependency query to resolve: "
