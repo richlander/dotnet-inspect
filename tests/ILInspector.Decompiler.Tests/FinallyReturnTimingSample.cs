@@ -356,6 +356,39 @@ public static class FinallyReturnTimingSample
         return result;
     }
 
+    public static int RunNestedFieldExtractionAlias(
+        bool loop,
+        bool setValue,
+        bool exit)
+    {
+        int result = 0;
+        scoped OuterHolder outer = new(ref result);
+        ref int alias = ref outer.Holder.Value;
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            alias += 100;
+        }
+
+    Done:
+        return result;
+    }
+
     public static int RunHelperAlias(
         bool loop,
         bool setValue,
@@ -556,6 +589,16 @@ public static class FinallyReturnTimingSample
         public RefHolder(ref int value)
         {
             Value = ref value;
+        }
+    }
+
+    ref struct OuterHolder
+    {
+        public RefHolder Holder;
+
+        public OuterHolder(ref int value)
+        {
+            Holder = new(ref value);
         }
     }
 }
