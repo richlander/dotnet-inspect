@@ -117,6 +117,22 @@ body is a closed import failure. Metadata-backed production code never
 substitutes the raw range algorithm; explicit synthetic Layer 0 inputs retain
 that compatibility path.
 
+`ProtectedRegionControlFlow` is the step-6 Decompiler policy adapter. For a
+metadata-backed `Leave`, it requires an available `NormalTransferAt` result,
+uses the owner-issued source and destination context to select raisable regions
+actually left by the edge, and rejects a source inside a `finally` or `fault`
+handler. It walks current IR ancestry only to locate structured constructs,
+then requires their exact protected-region or handler associations to match the
+Instructions source context; the bounded form additionally limits that walk to
+constructs below the caller's candidate boundary. Equal ranges, node kinds, or
+an association from a different body observation do not substitute for that
+identity. Missing or stale production evidence declines and reports `DEC0017`;
+detached or non-Metadata Layer 0 trees retain the explicit structural
+compatibility path. `StructuringPass` carries the production function's
+evidence owner into its detached validation/build clones, whose source offsets
+and exact structured associations remain the projection currency; clone
+detachment alone never selects Layer 0 compatibility.
+
 ## Nine-step adoption plan
 
 Tracker #6965 owns this complete sequence:
@@ -131,7 +147,8 @@ Tracker #6965 owns this complete sequence:
    clause-order/range interpretation where the shared contracts apply;
 5. adopt the same facts in Decompiler import and EH structuring, adding exact
    structured-IR association;
-6. migrate `ProtectedRegionControlFlow`;
+6. migrate `ProtectedRegionControlFlow` to shared normal-transfer facts and
+   exact structured associations;
 7. migrate classic async exception-context correspondence;
 8. resume #6907 with shared exited-`finally` facts while keeping alias/write
    closure pass-owned; and
@@ -146,7 +163,10 @@ body-signal and admission consumers, shared reaching-definitions decode, and
 the ArrayPool exception-path adapter. Step 5 is implemented by the
 Metadata-backed Decompiler importer, correlated `MethodInstructions` handoff,
 exact flat-to-structured clause association, and Instructions-backed EH
-membership and normal-edge validation. Steps 6 through 9 remain.
+membership and normal-edge validation. Step 6 is implemented by
+`ProtectedRegionControlFlow`'s shared normal-transfer query, Decompiler-owned
+raisability policy, and exact bounded association check. Steps 7 through 9
+remain.
 
 ## Production-host path
 

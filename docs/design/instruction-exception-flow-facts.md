@@ -19,8 +19,8 @@ This contract is implemented by
 [#6965](https://github.com/richlander/dotnet-inspect/issues/6965). It extends the
 [`ILInspector.Instructions` substrate](instruction-substrate.md), tracked by
 that issue. Analysis adopts the facts in step 4. Decompiler import and EH
-structuring adopt them in step 5; later Decompiler consumers remain separately
-staged.
+structuring adopt them in step 5, and protected-region control-flow policy
+adopts them in step 6; later Decompiler consumers remain separately staged.
 
 Instructions is the right owner because these facts become true only after
 joining decoded opcodes and branch targets with the declared exception
@@ -219,6 +219,15 @@ for supported explicit branch, leave, and return edges. It retains ownership of 
 raisability, node construction, and fidelity; sequential fallthrough relies on
 successful Instructions construction rather than a transfer query.
 
+The step-6 `ProtectedRegionControlFlow` adapter queries `NormalTransferAt` for
+each candidate `Leave`. Decompiler policy permits only a protected region or a
+catch/filter-associated handler actually present in `RegionsLeft`, and rejects
+a source context inside a `finally` or `fault` handler. The bounded form limits
+correlation to exact associations below the candidate construct; both forms use
+ancestry only to locate the current structured projection and do not reconstruct
+EH membership. Instructions does not expose a Decompiler-specific `CanRaise`
+answer.
+
 ## Analogous implementations
 
 The architecture comparison was performed on 2026-09-10 and transfers
@@ -278,6 +287,11 @@ Decompiler `DecompilerExceptionFactAdoptionTests` gate the correlated
 `MethodInstructions` handoff, exact clause and structured-node identity,
 Metadata catch order, visible refusal of missing or rejected evidence, and the
 runtime `TextReader.Read(Span<char>)` cleanup identity.
+`ProtectedRegionControlFlowTests` additionally gate production try/catch
+transfers, exact candidate-relative association, visible missing-correlation
+refusal, same-range foreign-body rejection, and the explicit synthetic
+compatibility path. `ProtectedContinueRecoveryTests` gate the consuming
+`ForLoopPass` outcome.
 
 The .NET runtime's
 [`TextReader.Read(Span<char>)`](https://github.com/dotnet/runtime/blob/f9b470a5ae7dccd67a1d3fb21aea39c3c8410c7c/src/libraries/System.Private.CoreLib/src/System/IO/TextReader.cs#L96-L114)
