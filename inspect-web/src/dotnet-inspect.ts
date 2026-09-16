@@ -2175,6 +2175,10 @@ function captureView(): WorkspaceView | null {
     platformLibrary: state.rootKind === "platform" && !state.atPackageRoot
       ? selectedLibraryShareKey() || null
       : null,
+    platformRootParent:
+      state.rootKind === "platform"
+      && state.atLibraryRoot
+      && historyHasPlatformRootParent(history.state),
   };
 }
 
@@ -2222,6 +2226,11 @@ function applyView(view: WorkspaceView) {
     showToast(capacityError);
     return false;
   }
+  workspaceLocation.replace(
+    location.href,
+    withPlatformRootParentHistory(
+      history.state,
+      view.platformRootParent === true));
   if (view.rootKind !== "platform" && view.platform) {
     const target = state.platformIndex?.target(
       view.platform.tfm,
@@ -5288,9 +5297,7 @@ function renderWorkspaceNavPane() {
 }
 
 function hasPlatformRootHistoryView() {
-  return historyHasPlatformRootParent(history.state)
-    || navigationHistory.snapshot().stack.some(entry =>
-      entry.view.rootKind === "platform" && entry.view.atPackageRoot);
+  return historyHasPlatformRootParent(history.state);
 }
 
 function renderTypeNavPane(

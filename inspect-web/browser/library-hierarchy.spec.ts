@@ -2736,6 +2736,26 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
 });
 
+test("an unrelated Platform history entry does not parent a Spotlight Library", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await openInstalledPlatform(page, true);
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.locator("[data-type-nav-back]").click();
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.locator("[data-workspace-activate]").click();
+  await expect(page.locator(".inspected-target")).toContainText("Example.Package");
+
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+});
+
 test("catalog-only Platform retains its Workspace identity and canonical URL across another Workspace", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(() => localStorage.setItem(

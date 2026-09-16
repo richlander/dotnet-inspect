@@ -4185,6 +4185,10 @@ test("cached Platform roots re-enter Workspace membership before activation", ()
     resetMemberSectionState: () => {},
     invalidateMemberDestinationWork: () => {},
     navigationHistory: { normalizeCurrent: () => {} },
+    history: { state: null },
+    location: { href: "https://example.test/" },
+    workspaceLocation: { replace: () => true },
+    withPlatformRootParentHistory: (historyState: unknown) => historyState,
     render: () => {},
     showToast: () => {},
   };
