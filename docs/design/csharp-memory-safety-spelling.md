@@ -202,7 +202,12 @@ narrower:
   signature only when the declaring layout is known and ordinary, and the
   PropertyDef and every represented get/set MethodDef have same-module,
   same-rules, pointer-absent, contract-neutral evidence and exact metadata-token
-  correspondence. The structured accessor list preserves each accessor's exact
+  correspondence. Every getter callable signature must preserve the
+  PropertyDef return and index-parameter types. Every setter must return
+  `void`, preserve the PropertyDef index-parameter prefix, and accept the
+  PropertyDef return type as its final parameter. Metadata retains that
+  correspondence as an explicit accessor fact; absent or negative evidence is
+  not renderable. The structured accessor list preserves each accessor's exact
   relative accessibility. Explicit- and extended-layout owners, body-owned
   unsafe contexts, readonly accessors, init-only or otherwise structurally
   modified accessor returns, unsupported or ambiguous accessor shapes,

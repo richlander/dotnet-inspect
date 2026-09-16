@@ -718,6 +718,13 @@ public class ApiAccessor
     /// <c>modreq(IsExternalInit)</c> here so call-graph selectors match MemberRef.
     /// </summary>
     public string? StructuralReturnType { get; set; }
+
+    /// <summary>
+    /// Whether this accessor's callable signature corresponds exactly to its
+    /// declaring PropertyDef signature. Null on older serialized surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SignatureMatchesProperty { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<SignatureDecodeStatus>))]

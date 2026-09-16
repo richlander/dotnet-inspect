@@ -198,6 +198,62 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Fact]
+    public void SingleDeclarationOutcomeRejectsDegradedPropertySignature()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.SignatureDecodeStatus = SignatureDecodeStatus.Degraded;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "complete structured signature",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public void SingleDeclarationOutcomeRejectsUnprovenAccessorSignature(
+        bool? signatureMatchesProperty)
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.SignatureModel!.Accessors[0].SignatureMatchesProperty =
+            signatureMatchesProperty;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "accessor callable signature",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void SingleDeclarationOutcomeRejectsIndexedPropertyShape()
     {
         ApiType type = Type(MemorySafetyRulesState.Updated);
@@ -2191,7 +2247,11 @@ public sealed class CSharpMemorySafetySpellingTests
                      MemorySafetyPointerEvidence accessorPointer) in accessors)
         {
             int token = Token($"{kind}_{name}", 0x06000000);
-            accessorModels.Add(new ApiAccessor { Kind = kind });
+            accessorModels.Add(new ApiAccessor
+            {
+                Kind = kind,
+                SignatureMatchesProperty = true,
+            });
             accessorFacts.Add(
                 Facts(
                     token,

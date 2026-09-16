@@ -205,7 +205,8 @@ internal static class NavigationWorkspaceSnapshotEquality
         && Sequence(a.Accessors, b.Accessors, (x, y) =>
             x.Kind == y.Kind && x.Accessibility == y.Accessibility && Sequence(x.ReturnAttributes, y.ReturnAttributes)
             && x.IsReadOnly == y.IsReadOnly && x.IsExplicitInterfaceImplementation == y.IsExplicitInterfaceImplementation
-            && x.Name == y.Name && x.StructuralReturnType == y.StructuralReturnType);
+            && x.Name == y.Name && x.StructuralReturnType == y.StructuralReturnType
+            && x.SignatureMatchesProperty == y.SignatureMatchesProperty);
 
     static bool TypeParameter(TypeParameter a, TypeParameter b) =>
         a.Name == b.Name && a.Variance == b.Variance && a.TypeKind == b.TypeKind

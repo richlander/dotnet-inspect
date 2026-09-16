@@ -5016,7 +5016,8 @@ public static class ApiSurfaceExtractor
             context,
             explicitImplementationBodies,
             beforeRetainText,
-            beforeDecodeWork);
+            beforeDecodeWork,
+            treeSignature);
 
         var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(
                 reader,
@@ -5279,7 +5280,8 @@ public static class ApiSurfaceExtractor
         GenericContext context,
         IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         Action<string>? beforeRetainText,
-        Action<int>? beforeDecodeWork)
+        Action<int>? beforeDecodeWork,
+        MethodSignature<TypeNode>? propertySignature = null)
     {
         foreach (ApiAccessor accessor in accessors)
         {
@@ -5287,15 +5289,26 @@ public static class ApiSurfaceExtractor
             accessor.Name = MethodDefinitionName(reader, handle, beforeDecodeWork);
             if (accessor.Name is not null)
                 beforeRetainText?.Invoke(accessor.Name);
-            accessor.StructuralReturnType = MethodStructuralReturnType(
-                reader,
-                handle,
-                provider,
-                context,
-                beforeRetainText);
             if (!handle.IsNil)
             {
                 MethodDefinition method = reader.GetMethodDefinition(handle);
+                MethodSignature<TypeNode> signature = GuardedProviderDecode.Method(
+                    reader,
+                    method,
+                    provider,
+                    context,
+                    (TypeNode)new DegradedTypeNode());
+                accessor.StructuralReturnType = MethodStructuralReturnType(
+                    signature.ReturnType,
+                    beforeRetainText);
+                if (propertySignature is { } property)
+                {
+                    accessor.SignatureMatchesProperty =
+                        AccessorSignatureMatchesProperty(
+                            accessor.Kind,
+                            signature,
+                            property);
+                }
                 accessor.IsExplicitInterfaceImplementation =
                     explicitImplementationBodies.Contains(handle)
                     && (method.Attributes & MethodAttributes.MemberAccessMask)
@@ -5324,28 +5337,100 @@ public static class ApiSurfaceExtractor
     }
 
     static string? MethodStructuralReturnType(
-        MetadataReader reader,
-        MethodDefinitionHandle handle,
-        TypeNodeProvider provider,
-        GenericContext context,
+        TypeNode returnType,
         Action<string>? beforeRetainText)
     {
-        if (handle.IsNil)
+        if (!returnType.HasStructuralPayload)
             return null;
 
-        var method = reader.GetMethodDefinition(handle);
-        var signature = GuardedProviderDecode.Method(
-            reader,
-            method,
-            provider,
-            context,
-            (TypeNode)new DegradedTypeNode());
-        if (!signature.ReturnType.HasStructuralPayload)
-            return null;
-
-        string identity = signature.ReturnType.StructuralIdentity();
+        string identity = returnType.StructuralIdentity();
         beforeRetainText?.Invoke(identity);
         return identity;
+    }
+
+    static bool AccessorSignatureMatchesProperty(
+        string kind,
+        MethodSignature<TypeNode> accessor,
+        MethodSignature<TypeNode> property)
+    {
+        if (property.Header.Kind != SignatureKind.Property
+            || property.Header.HasExplicitThis
+            || property.GenericParameterCount != 0
+            || property.RequiredParameterCount != property.ParameterTypes.Length
+            || accessor.Header.Kind != SignatureKind.Method
+            || accessor.Header.HasExplicitThis
+            || accessor.GenericParameterCount != 0
+            || accessor.Header.CallingConvention != SignatureCallingConvention.Default
+            || accessor.Header.IsInstance != property.Header.IsInstance
+            || accessor.RequiredParameterCount != accessor.ParameterTypes.Length)
+        {
+            return false;
+        }
+
+        return kind switch
+        {
+            "get" =>
+                SignatureTypeMatches(accessor.ReturnType, property.ReturnType)
+                && SignatureTypesMatch(
+                    accessor.ParameterTypes,
+                    property.ParameterTypes),
+            "set" =>
+                IsVoidReturn(accessor.ReturnType)
+                && accessor.ParameterTypes.Length
+                    == property.ParameterTypes.Length + 1
+                && SignatureTypePrefixMatches(
+                    accessor.ParameterTypes,
+                    property.ParameterTypes)
+                && SignatureTypeMatches(
+                    accessor.ParameterTypes[^1],
+                    property.ReturnType),
+            _ => false,
+        };
+    }
+
+    static bool SignatureTypesMatch(
+        ImmutableArray<TypeNode> left,
+        ImmutableArray<TypeNode> right)
+    {
+        if (left.Length != right.Length)
+            return false;
+
+        for (int index = 0; index < left.Length; index++)
+        {
+            if (!SignatureTypeMatches(left[index], right[index]))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool SignatureTypePrefixMatches(
+        ImmutableArray<TypeNode> left,
+        ImmutableArray<TypeNode> prefix)
+    {
+        if (left.Length < prefix.Length)
+            return false;
+
+        for (int index = 0; index < prefix.Length; index++)
+        {
+            if (!SignatureTypeMatches(left[index], prefix[index]))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool SignatureTypeMatches(TypeNode left, TypeNode right) =>
+        ApiTypeShapeFactory.FromTypeNode(left) is { } leftShape
+        && ApiTypeShapeFactory.FromTypeNode(right) is { } rightShape
+        && leftShape.Equals(rightShape);
+
+    static bool IsVoidReturn(TypeNode type)
+    {
+        while (type is ModifiedTypeNode modified)
+            type = modified.Inner;
+
+        return type is PrimitiveTypeNode { Name: "void" };
     }
 
     /// <summary>

@@ -1119,7 +1119,13 @@ public sealed class CSharpTypePrinter
         {
             Kind = accessor.Kind,
             Accessibility = accessor.Accessibility,
-            ReturnAttributes = returnAttributes?.ToList()!
+            ReturnAttributes = returnAttributes?.ToList()!,
+            IsReadOnly = accessor.IsReadOnly,
+            IsExplicitInterfaceImplementation =
+                accessor.IsExplicitInterfaceImplementation,
+            Name = accessor.Name,
+            StructuralReturnType = accessor.StructuralReturnType,
+            SignatureMatchesProperty = accessor.SignatureMatchesProperty,
         };
     }
 

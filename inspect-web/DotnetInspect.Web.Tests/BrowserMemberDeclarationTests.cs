@@ -48,6 +48,17 @@ public sealed class BrowserMemberDeclarationTests
             ApiType extractedType = Assert.Single(
                 extractedSurface.Types,
                 candidate => candidate.FullName == SpellingType);
+            foreach (string propertyName in
+                new[] { "Type", "InternalSet", "PrivateGet", "InitOnly" })
+            {
+                ApiMember property = Assert.Single(
+                    extractedType.Members,
+                    candidate => candidate.Name == propertyName);
+                Assert.All(
+                    property.SignatureModel!.Accessors,
+                    accessor => Assert.True(
+                        accessor.SignatureMatchesProperty));
+            }
             ApiMember restrictedProperty = Assert.Single(
                 extractedType.Members,
                 candidate => candidate.Name == "InternalSet");
@@ -72,6 +83,9 @@ public sealed class BrowserMemberDeclarationTests
                 candidate => candidate.Name == "Value");
             Assert.True(
                 readonlyProperty.SignatureModel!.Accessors.Single().IsReadOnly);
+            Assert.True(
+                readonlyProperty.SignatureModel.Accessors.Single()
+                    .SignatureMatchesProperty);
         }
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
