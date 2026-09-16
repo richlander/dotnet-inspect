@@ -357,11 +357,13 @@ Serialization never recaptures evidence or projects Share.
 | Discover, schema/query help, or another content operation | Require that operation's own envelope registration. | Require that operation's own evidence registration; never fall through an early ordinary-output return. |
 
 When both explicit destinations are present, their normalized absolute paths
-must be distinct using ordinal comparison on Unix-like hosts and
-ordinal-ignore-case comparison on Windows. An equal destination is rejected
-before inspection or destination mutation. Shell redirection, hard links, and
-excluded symlink/reparse behavior are not explicit CLI destinations and add no
-alias-detection claim.
+must be distinct using ordinal-ignore-case comparison on every host. This
+portable, conservative rule deliberately rejects case-only path pairs even on
+a case-sensitive filesystem so the same invocation cannot admit them on a
+case-insensitive Windows, macOS, or mounted filesystem. An equal destination is
+rejected before inspection or destination mutation. Shell redirection, hard
+links, and excluded symlink/reparse behavior are not explicit CLI destinations
+and add no alias-detection claim.
 
 The semantic-versus-presentation rule follows the actual operation contract,
 not the option's name. For example, a service-issued Count result can be
@@ -459,7 +461,8 @@ likewise exercise their public command entry point:
 - preserve ordinary primary output with and without the attachment, including
   ordinary `--out`, `--json`, rendered shapes, and paired `--envelope`;
 - prove atomic replace-on-success and unchanged or absent destinations after
-  serialization and publication failures, including same-path preflight; and
+  serialization and publication failures, including exact and case-only
+  same-path preflight; and
 - prove the contained stderr locator, Share ordering, explicit nonzero failure,
   and absence of raw envelope JSON from stderr.
 
