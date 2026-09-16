@@ -574,6 +574,23 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    rule for lowered and still-deferred slots instead of maintaining a second
    sink vocabulary.
 
+   A Boolean `box` operand is also a semantic Boolean observer: its metadata
+   token names the boxed value type, not the evaluation-stack storage width.
+   Recovery still requires every producer to be Boolean-valued and every load
+   to agree. Numeric observers conflict; mixed Boolean/integer producers retain
+   the existing decline boundary. This does not add general boxing conversions
+   or make boxing an insertion/invariant sink. Microsoft.CodeAnalysis.CSharp
+   5.0.0 `Binder.FoldNeverOverflowBinaryOperators` motivates this boundary:
+   unifying its disconnected carriers must not make an incorrect Int32-boxing
+   body compilable when both original boxing tokens require Boolean.
+   `RealRoslynBooleanBoxesMaterializeBooleanStorage` gates the actual
+   compiler-produced two-store/two-box web and its typed Boolean operands
+   through the default tail. `BoxObserversParticipateInCrossBlockIdentity`
+   gates shared printer/materialization testimony and numeric/mixed-producer
+   neighbors. Both are PR-fast. The real method's native whole-module fidelity
+   remains unavailable because of its reconstructed private Roslyn context;
+   the shape gate is not a transferred compile-back or whole-method verdict.
+
    The motivating real witness is Newtonsoft.Json 13.0.4,
    `DefaultContractResolver.InitializeContract`: the Boolean conditional
    assigned to `DefaultCreatorNonPublic` retains an integer-typed stack load.
