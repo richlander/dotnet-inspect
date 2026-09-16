@@ -18,7 +18,9 @@ VARIABLES runtime, physical, physicalRoots, base, physicalIssues, baseIssues,
     participantCommit3, commit3, validation3, events3, closed3,
     physicalHistory, scopeHistory, scenario, secondKind, plans, sealed,
     active, admitted, outcomes, snapshots, snapshot, tokens, stopReason,
-    superseder, progress, realization, refreshed, seen, validationOK, readOK
+    superseder, progress, realization, refreshed, seen, validationOK, readOK,
+    requests, requestStates, requestDeadlineValid, submissionCounts,
+    settlementCounts, results, cancellationResponses
 VARIABLE perturbation
 
 Ops == 1..3
@@ -118,9 +120,11 @@ local3 == <<receipt3, participant3, candidate3, phase3, cancellation3, deadline3
     participantCommit3, commit3, validation3, events3, closed3>>
 shared == <<runtime, physical, physicalRoots, base, physicalIssues, baseIssues>>
 artifactVars == <<shared, local1, local2, local3>>
+handoffVars == <<requests, requestStates, requestDeadlineValid, submissionCounts,
+    settlementCounts, results, cancellationResponses>>
 scopeVars == <<scenario, perturbation, secondKind, plans, sealed, active, admitted, outcomes,
     snapshots, snapshot, tokens, stopReason, superseder, progress,
-    realization, refreshed, seen, validationOK, readOK>>
+    realization, refreshed, seen, validationOK, readOK, handoffVars>>
 vars == <<artifactVars, physicalHistory, scopeHistory, scopeVars>>
 phases == <<phase1, phase2, phase3>>
 receipts == <<receipt1, receipt2, receipt3>>
@@ -140,7 +144,10 @@ Kind(i) ==
       [] OTHER -> CASE scenario = "Refresh" -> "Closure"
                       [] scenario = "Readd" -> "Add"
                       [] OTHER -> "Refresh"
-Terminal == {"Committed", "Failed", "Cancelled", "Superseded", "Unavailable"}
+Terminal ==
+    {"Committed", "NoEffect", "Rejected", "Failed", "Cancelled",
+     "Superseded", "Unavailable"}
+Successful == {"Committed", "NoEffect"}
 
 OwnerStep(i, firstAction, secondAction, thirdAction) ==
     CASE i = 1 -> firstAction /\ UNCHANGED <<local2, local3>>
@@ -172,6 +179,22 @@ ScopeAdvance ==
 
 NewOccurrence(i, root) == [id |-> <<"workspace", i, root>>, root |-> root]
 Display(root) == IF root \in {"a", "d"} THEN "same-label" ELSE root
+InputBatch(i) ==
+    CASE Kind(i) \in {"Clear", "Remove", "Refresh", "Closure"} -> <<>>
+      [] i = 1 -> <<"a", "b">>
+      [] Kind(i) = "Replace" -> <<"b", "d">>
+      [] scenario \in {"HandoffDuplicate", "HandoffDuplicateNoIntent"} -> <<"a">>
+      [] scenario = "HandoffMixed" -> <<"a", "d">>
+      [] scenario = "HandoffInvalidTarget" -> <<"d">>
+      [] scenario = "Readd" -> <<"a">>
+      [] OTHER -> <<"c", "d">>
+TargetOptions(i) ==
+    IF Kind(i) \notin {"Add", "Replace"} THEN {"None"}
+    ELSE IF scenario = "HandoffReplace" /\ i = 1 THEN {"b"}
+    ELSE IF scenario = "HandoffDuplicate" /\ i = 2 THEN {"a"}
+    ELSE IF scenario = "HandoffMixed" /\ i = 2 THEN {"a", "d"}
+    ELSE IF scenario = "HandoffInvalidTarget" /\ i = 2 THEN {"c"}
+    ELSE {"None"}
 OccurrenceFor(i, root) ==
     LET matches == {o \in SetOf(snapshot.occurrences) : o.root = root} IN
     IF matches # {} THEN CHOOSE o \in matches : TRUE
@@ -188,11 +211,13 @@ Requested(i) ==
       [] Kind(i) = "Remove" ->
             [j \in 1..(Len(snapshot.occurrences) - 1) |->
                 snapshot.occurrences[j + 1].root]
-      [] i = 1 -> <<"a", "b">>
+      [] Kind(i) = "Replace" -> requests[i].input
       [] Kind(i) = "Add" ->
             [j \in DOMAIN snapshot.occurrences |-> snapshot.occurrences[j].root]
-            \o (IF scenario = "Readd" THEN <<"a">> ELSE <<"c", "d">>)
-      [] OTHER -> <<"b", "d">>
+            \o (IF scenario \in {"HandoffDuplicate", "HandoffDuplicateNoIntent"}
+                THEN <<>>
+                ELSE IF scenario = "HandoffMixed" THEN <<"d">>
+                ELSE requests[i].input)
 CandidateOccurrences(i) ==
     LET req == Requested(i) IN [j \in DOMAIN req |-> OccurrenceFor(i, req[j])]
 MakeSnapshot(rev, occ, policy, epoch, scopeBase, generation, coverage, closure, preparing) ==
@@ -217,6 +242,40 @@ PlanFor(i) ==
 EmptyPlan ==
     [physical |-> 0, base |-> 0, revision |-> 0, occurrences |-> <<>>,
      desired |-> {}, prepared |-> {}, policy |-> FALSE, kind |-> "None"]
+EmptyRequest ==
+    [operation |-> 0, workspace |-> "none", revision |-> 0,
+     hasBaseGuard |-> FALSE, baseGuard |-> 0, deadline |-> 0, kind |-> "None",
+     input |-> <<>>, target |-> "None", evidence |-> FALSE]
+EmptyResult ==
+    [operation |-> 0, outcome |-> "None", reason |-> "None",
+     snapshot |-> InitialSnapshot, requested |-> "None",
+     superseder |-> 0, authority |-> "None"]
+EmptyCancellationResponse ==
+    [kind |-> "None", operation |-> 0, observedOutcome |-> "None",
+     observedSettlements |-> 0]
+RequestFor(i, target) ==
+    [operation |-> i, workspace |-> "workspace",
+     revision |-> snapshot.revision,
+     hasBaseGuard |-> (scenario = "HandoffBaseGuard" /\ i = 2),
+     baseGuard |-> base,
+     deadline |-> i, kind |-> Kind(i), input |-> InputBatch(i),
+     target |-> target, evidence |-> TRUE]
+RequestedResult(i, resultSnapshot, outcome) ==
+    IF outcome \notin Successful \/ requests[i].target = "None"
+    THEN "None"
+    ELSE IF Fault = "RequestedOccurrence" /\ requests[i].target = "d"
+            /\ \E o \in SetOf(resultSnapshot.occurrences) : o.root = "a"
+         THEN (CHOOSE o \in SetOf(resultSnapshot.occurrences) : o.root = "a").id
+         ELSE (CHOOSE o \in SetOf(resultSnapshot.occurrences) :
+                    o.root = requests[i].target).id
+ResultFor(i, outcome, reason, resultSnapshot) ==
+    [operation |->
+        IF Fault = "Association" /\ outcome = "Superseded"
+        THEN superseder ELSE i,
+     outcome |-> outcome, reason |-> reason, snapshot |-> resultSnapshot,
+     requested |-> RequestedResult(i, resultSnapshot, outcome),
+     superseder |-> IF outcome = "Superseded" THEN superseder ELSE 0,
+     authority |-> IF outcome = "Unavailable" THEN "Historical" ELSE "Settlement"]
 Init ==
     /\ scenario \in Scenarios
     /\ perturbation \in Perturbations
@@ -232,12 +291,157 @@ Init ==
     /\ tokens = [i \in Ops |-> InitialSnapshot]
     /\ stopReason = [i \in Ops |-> "None"]
     /\ superseder = 0 /\ progress = {}
-    /\ realization = InitialRealization /\ refreshed = FALSE
+    /\ realization =
+        IF scenario \in {"HandoffDuplicate", "HandoffDuplicateNoIntent"}
+        THEN [identity |-> 0, status |-> "Pending"]
+        ELSE InitialRealization
+    /\ refreshed = FALSE
     /\ seen = {} /\ validationOK = TRUE /\ readOK = TRUE
+    /\ requests = [i \in Ops |-> EmptyRequest]
+    /\ requestStates = [i \in Ops |-> "Unissued"]
+    /\ requestDeadlineValid = [i \in Ops |-> TRUE]
+    /\ submissionCounts = [i \in Ops |-> 0]
+    /\ settlementCounts = [i \in Ops |-> 0]
+    /\ results = [i \in Ops |-> EmptyResult]
+    /\ cancellationResponses = [i \in Ops |-> EmptyCancellationResponse]
+
+IssueEnabled(i) ==
+    /\ requestStates[i] = "Unissued"
+    /\ CASE i = 1 -> TRUE
+       [] i = 2 ->
+            /\ requestStates[1] \in {"Submitted", "Settled"}
+            /\ \/ outcomes[1] \in Terminal
+               \/ /\ active = 1
+                  /\ ((/\ perturbation = "Supersede"
+                       /\ secondKind \in {"Replace", "Clear"})
+                      \/ scenario \in {"HandoffRevision",
+                             "HandoffBaseGuard", "HandoffInvalidTarget"})
+       [] OTHER ->
+            /\ requestStates[1] = "Settled"
+            /\ IF scenario = "Refresh"
+               THEN outcomes[1] = "Committed" /\ 2 \notin admitted
+               ELSE IF scenario = "Readd"
+                    THEN outcomes[2] = "Committed"
+                    ELSE scenario = "PhysicalRace"
+                         /\ outcomes[2] = "AwaitRefresh"
+Issue(i, target) ==
+    /\ IssueEnabled(i) /\ target \in TargetOptions(i)
+    /\ requests' = [requests EXCEPT ![i] = RequestFor(i, target)]
+    /\ requestStates' = [requestStates EXCEPT ![i] = "Issued"]
+    /\ seen' = seen \union {"Issued", "Issued" \o ToString(i)}
+    /\ UNCHANGED <<artifactVars, physicalHistory, scopeHistory, scenario,
+        perturbation, secondKind, plans, sealed, active, admitted, outcomes,
+        snapshots, snapshot, tokens, stopReason, superseder, progress,
+        realization, refreshed, validationOK, readOK, requestDeadlineValid,
+        submissionCounts, settlementCounts, results, cancellationResponses>>
+IssueAny(i) == \E target \in TargetOptions(i) : Issue(i, target)
+Abandon(i) ==
+    /\ scenario = "HandoffIssuance" /\ requestStates[i] = "Issued"
+    /\ requestStates' = [requestStates EXCEPT ![i] = "Abandoned"]
+    /\ seen' = seen \union {"Abandoned"}
+    /\ UNCHANGED <<artifactVars, physicalHistory, scopeHistory, scenario,
+        perturbation, secondKind, plans, sealed, active, admitted, outcomes,
+        snapshots, snapshot, tokens, stopReason, superseder, progress,
+        realization, refreshed, validationOK, readOK, requests,
+        requestDeadlineValid, submissionCounts, settlementCounts, results,
+        cancellationResponses>>
+ExpireIssuedDeadline(i) ==
+    /\ scenario = "HandoffDeadline" /\ requestStates[i] = "Issued"
+    /\ requestDeadlineValid[i]
+    /\ requestDeadlineValid' =
+        [requestDeadlineValid EXCEPT ![i] = FALSE]
+    /\ seen' = seen \union {"IssuedDeadlineExpired"}
+    /\ UNCHANGED <<artifactVars, physicalHistory, scopeHistory, scenario,
+        perturbation, secondKind, plans, sealed, active, admitted, outcomes,
+        snapshots, snapshot, tokens, stopReason, superseder, progress,
+        realization, refreshed, validationOK, readOK, requests, requestStates,
+        submissionCounts, settlementCounts, results, cancellationResponses>>
+ActivationValid(request) ==
+    request.target = "None"
+    \/ /\ request.kind \in {"Add", "Replace"}
+       /\ request.target \in SetOf(request.input)
+ValidateIssued(i) ==
+    CASE runtime = "Closed" -> "Unavailable"
+      [] requests[i].workspace # "workspace" -> "ForeignWorkspace"
+      [] requests[i].revision # snapshot.revision -> "RevisionMismatch"
+      [] requests[i].hasBaseGuard
+            /\ requests[i].baseGuard # snapshot.base -> "ScopeBaseMismatch"
+      [] ~requestDeadlineValid[requests[i].deadline] -> "DeadlineExpired"
+      [] ~requests[i].evidence -> "EvidenceMismatch"
+      [] ~ActivationValid(requests[i]) -> "InvalidTarget"
+      [] OTHER -> "Valid"
+SubmissionDecisionFor(i) ==
+    IF Fault = "HandoffValidation" /\ active # 0 THEN "Busy"
+    ELSE IF ValidateIssued(i) # "Valid" THEN ValidateIssued(i)
+    ELSE IF active # 0
+         THEN IF requests[i].kind \in {"Replace", "Clear"}
+              THEN "Supersede" ELSE "Busy"
+    ELSE IF requests[i].kind = "Add"
+            /\ PlanFor(i).prepared = {}
+         THEN "NoEffect"
+         ELSE "Admit"
+SubmitRejected(i) ==
+    LET reason == SubmissionDecisionFor(i) IN
+    /\ requestStates[i] = "Issued"
+    /\ reason \in {"ForeignWorkspace", "RevisionMismatch",
+                   "ScopeBaseMismatch", "DeadlineExpired",
+                   "EvidenceMismatch", "InvalidTarget", "Busy"}
+    /\ requestStates' = [requestStates EXCEPT ![i] = "Settled"]
+    /\ submissionCounts' = [submissionCounts EXCEPT ![i] = @ + 1]
+    /\ settlementCounts' = [settlementCounts EXCEPT ![i] = @ + 1]
+    /\ outcomes' = [outcomes EXCEPT ![i] = "Rejected"]
+    /\ snapshots' = [snapshots EXCEPT ![i] = snapshot]
+    /\ results' =
+        [results EXCEPT ![i] = ResultFor(i, "Rejected", reason, snapshot)]
+    /\ seen' = seen \union {"Rejected", reason}
+    /\ UNCHANGED <<artifactVars, physicalHistory, scopeHistory, scenario,
+        perturbation, secondKind, plans, sealed, active, admitted, snapshot,
+        tokens, stopReason, superseder, progress, realization, refreshed,
+        validationOK, readOK, requests, requestDeadlineValid,
+        cancellationResponses>>
+SubmitNoEffect(i) ==
+    /\ requestStates[i] = "Issued"
+    /\ SubmissionDecisionFor(i) = "NoEffect"
+    /\ requestStates' = [requestStates EXCEPT ![i] = "Settled"]
+    /\ submissionCounts' = [submissionCounts EXCEPT ![i] = @ + 1]
+    /\ settlementCounts' = [settlementCounts EXCEPT ![i] = @ + 1]
+    /\ outcomes' = [outcomes EXCEPT ![i] = "NoEffect"]
+    /\ snapshots' = [snapshots EXCEPT ![i] = snapshot]
+    /\ results' =
+        [results EXCEPT ![i] = ResultFor(i, "NoEffect", "None", snapshot)]
+    /\ seen' = seen \union {"NoEffect"}
+        \union (IF requests[i].target = "None"
+                THEN {"NoEffectWithoutTarget"}
+                ELSE {"NoEffectWithTarget"})
+        \union (IF \E j \in DOMAIN snapshot.projections :
+                    snapshot.occurrences[j].root = requests[i].target
+                    /\ snapshot.projections[j].status # "Ready"
+                THEN {"NoEffectRetainedNonReady"} ELSE {})
+    /\ UNCHANGED <<artifactVars, physicalHistory, scopeHistory, scenario,
+        perturbation, secondKind, plans, sealed, active, admitted, snapshot,
+        tokens, stopReason, superseder, progress, realization, refreshed,
+        validationOK, readOK, requests, requestDeadlineValid,
+        cancellationResponses>>
+SubmitUnavailable(i) ==
+    /\ requestStates[i] = "Issued"
+    /\ SubmissionDecisionFor(i) = "Unavailable"
+    /\ requestStates' = [requestStates EXCEPT ![i] = "Settled"]
+    /\ submissionCounts' = [submissionCounts EXCEPT ![i] = @ + 1]
+    /\ settlementCounts' = [settlementCounts EXCEPT ![i] = @ + 1]
+    /\ outcomes' = [outcomes EXCEPT ![i] = "Unavailable"]
+    /\ snapshots' = [snapshots EXCEPT ![i] = snapshot]
+    /\ results' =
+        [results EXCEPT ![i] = ResultFor(i, "Unavailable", "Closed", snapshot)]
+    /\ seen' = seen \union {"ClosedSubmission", "Unavailable"}
+    /\ UNCHANGED <<artifactVars, physicalHistory, scopeHistory, scenario,
+        perturbation, secondKind, plans, sealed, active, admitted, snapshot,
+        tokens, stopReason, superseder, progress, realization, refreshed,
+        validationOK, readOK, requests, requestDeadlineValid,
+        cancellationResponses>>
 
 AdmissionEnabled(i) ==
     /\ runtime = "Open" /\ GateFree /\ active = 0
-    /\ i \notin admitted
+    /\ i \notin admitted /\ requestStates[i] \in {"Issued", "Submitted"}
     /\ CASE i = 1 -> TRUE
        [] i = 2 ->
             /\ scenario # "DeadlineOnly"
@@ -254,6 +458,12 @@ AdmissionEnabled(i) ==
                  ELSE scenario = "PhysicalRace" /\ outcomes[2] = "AwaitRefresh"
 Admit(i) ==
     /\ AdmissionEnabled(i)
+    /\ IF requestStates[i] = "Issued"
+       THEN /\ SubmissionDecisionFor(i) = "Admit"
+            /\ requestStates' = [requestStates EXCEPT ![i] = "Submitted"]
+            /\ submissionCounts' = [submissionCounts EXCEPT ![i] = @ + 1]
+       ELSE /\ superseder = i
+            /\ UNCHANGED <<requestStates, submissionCounts>>
     /\ ScopeAdvance
     /\ plans' = [plans EXCEPT ![i] = PlanFor(i)]
     /\ active' = i /\ admitted' = admitted \union {i}
@@ -262,7 +472,8 @@ Admit(i) ==
     /\ snapshot' = [snapshot EXCEPT !.base = base', !.preparing = i]
     /\ seen' = seen \union {IF i = 1 THEN "Admitted" ELSE "Readmitted"}
     /\ UNCHANGED <<scenario, secondKind, sealed, snapshots, tokens, stopReason,
-        progress, realization, refreshed, validationOK, readOK>>
+        progress, realization, refreshed, validationOK, readOK, requests,
+        requestDeadlineValid, settlementCounts, results, cancellationResponses>>
 PrepareBatch(i) ==
     /\ active = i /\ outcomes[i] = "Pending" /\ stopReason[i] = "None"
     /\ Kind(i) # "Refresh"
@@ -275,7 +486,7 @@ Seal(i) ==
     /\ sealed' = sealed \union {i}
     /\ UNCHANGED <<artifactVars, scenario, secondKind, active, admitted, outcomes,
         snapshots, snapshot, tokens, stopReason, superseder, progress,
-        realization, refreshed, seen, validationOK, readOK>>
+        realization, refreshed, seen, validationOK, readOK, handoffVars>>
 Progress(i) ==
     /\ perturbation = "Progress"
     /\ active = i /\ i \notin sealed /\ i \notin progress
@@ -286,7 +497,7 @@ Progress(i) ==
     /\ seen' = seen \union {"Progress"}
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
         outcomes, snapshots, tokens, stopReason, superseder, realization,
-        refreshed, validationOK, readOK>>
+        refreshed, validationOK, readOK, handoffVars>>
 StagePublication(i) ==
     /\ active = i /\ i \in sealed
     /\ stopReason[i] \in {"None", "Superseded"}
@@ -307,38 +518,62 @@ PrepareToken(i) ==
             ELSE IF plans[i].policy THEN "NotEvaluated" ELSE "Closed", 0)]
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
         outcomes, snapshots, snapshot, stopReason, superseder, progress,
-        realization, refreshed, seen, validationOK, readOK>>
+        realization, refreshed, seen, validationOK, readOK, handoffVars>>
 Commit(i) ==
+    LET finalSnapshot ==
+            IF Fault = "Partial" /\ Len(tokens[i].occurrences) > 1
+            THEN [tokens[i] EXCEPT !.occurrences = <<@[1]>>]
+            ELSE tokens[i]
+        settles(j) == j = i \/ outcomes[j] = "AwaitRefresh"
+        finalOutcome(j) ==
+            IF j = i THEN "Committed"
+            ELSE IF stopReason[j] # "None" THEN stopReason[j] ELSE "Failed"
+    IN
     /\ active = i /\ Publish(i)
-    /\ snapshot' =
-        IF Fault = "Partial" /\ Len(tokens[i].occurrences) > 1
-        THEN [tokens[i] EXCEPT !.occurrences = <<@[1]>>]
-        ELSE tokens[i]
+    /\ snapshot' = finalSnapshot
     /\ outcomes' = [j \in Ops |->
-        IF j = i THEN "Committed"
-        ELSE IF outcomes[j] = "AwaitRefresh"
-             THEN IF stopReason[j] # "None" THEN stopReason[j] ELSE "Failed"
-             ELSE outcomes[j]]
+        IF settles(j) THEN finalOutcome(j) ELSE outcomes[j]]
     /\ snapshots' = [j \in Ops |->
-        IF j = i \/ outcomes[j] = "AwaitRefresh" THEN snapshot' ELSE snapshots[j]]
+        IF settles(j) THEN finalSnapshot ELSE snapshots[j]]
+    /\ requestStates' = [j \in Ops |->
+        IF settles(j) THEN "Settled" ELSE requestStates[j]]
+    /\ settlementCounts' = [j \in Ops |->
+        IF settles(j) THEN settlementCounts[j] + 1 ELSE settlementCounts[j]]
+    /\ results' = [j \in Ops |->
+        IF settles(j)
+        THEN ResultFor(j, finalOutcome(j), "None", finalSnapshot)
+        ELSE results[j]]
     /\ active' = 0
     /\ seen' = seen \union {plans[i].kind \o "Committed"}
         \union (IF plans[i].kind = "Refresh" THEN {"RefreshedSnapshot"} ELSE {})
+        \union (IF requests[i].target = "a" THEN {"RequestedExistingCommitted"}
+                ELSE IF requests[i].target = "d"
+                     THEN {"RequestedNewCommitted"}
+                     ELSE IF requests[i].target = "b"
+                          THEN {"RequestedReplaceCommitted"} ELSE {})
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, admitted, tokens,
-        stopReason, superseder, progress, realization, refreshed, validationOK, readOK>>
+        stopReason, superseder, progress, realization, refreshed, validationOK,
+        readOK, requests, requestDeadlineValid, submissionCounts,
+        cancellationResponses>>
 
 Supersede ==
     /\ perturbation = "Supersede"
     /\ runtime = "Open" /\ GateFree /\ active = 1 /\ superseder = 0
     /\ 2 \notin admitted /\ secondKind \in {"Replace", "Clear"}
     /\ scenario = "Edits" /\ stopReason[1] = "None"
+    /\ requestStates[2] = "Issued"
+    /\ SubmissionDecisionFor(2) = "Supersede"
     /\ ScopeAdvance
     /\ superseder' = 2
     /\ stopReason' = [stopReason EXCEPT ![1] = "Superseded"]
+    /\ requestStates' = [requestStates EXCEPT ![2] = "Submitted"]
+    /\ submissionCounts' = [submissionCounts EXCEPT ![2] = @ + 1]
     /\ snapshot' = [snapshot EXCEPT !.base = base']
     /\ seen' = seen \union {secondKind \o "Supersedes"}
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
-        outcomes, snapshots, tokens, progress, realization, refreshed, validationOK, readOK>>
+        outcomes, snapshots, tokens, progress, realization, refreshed,
+        validationOK, readOK, requests, requestDeadlineValid, settlementCounts,
+        results, cancellationResponses>>
 Signal(i, reason) ==
     /\ i \in 1..2
     /\ Kind(i) \notin {"Refresh", "Closure"}
@@ -347,10 +582,18 @@ Signal(i, reason) ==
     /\ active = i /\ stopReason[i] = "None" /\ superseder = 0
     /\ IF reason = "Deadline" THEN Expire(i) ELSE Cancel(i)
     /\ stopReason' = [stopReason EXCEPT ![i] = "Cancelled"]
+    /\ cancellationResponses' =
+        IF reason = "Cancellation"
+        THEN [cancellationResponses EXCEPT ![i] =
+                [kind |-> "Accepted", operation |-> i,
+                 observedOutcome |-> outcomes[i],
+                 observedSettlements |-> settlementCounts[i]]]
+        ELSE cancellationResponses
     /\ seen' = seen \union {reason}
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
         outcomes, snapshots, snapshot, tokens, superseder, progress,
-        realization, refreshed, validationOK, readOK>>
+        realization, refreshed, validationOK, readOK, requests, requestStates,
+        requestDeadlineValid, submissionCounts, settlementCounts, results>>
 Fail(i) ==
     /\ i \in 1..2
     /\ Kind(i) \notin {"Refresh", "Closure"}
@@ -360,7 +603,7 @@ Fail(i) ==
     /\ seen' = seen \union {"Failure"}
     /\ UNCHANGED <<artifactVars, scenario, secondKind, plans, sealed, active,
         admitted, outcomes, snapshots, snapshot, tokens, superseder, progress,
-        realization, refreshed, validationOK, readOK>>
+        realization, refreshed, validationOK, readOK, handoffVars>>
 RejectCompletion(i) ==
     /\ active = i
     /\ Refuse(i)
@@ -371,26 +614,41 @@ RejectForeignCompletion ==
     /\ stopReason' = [stopReason EXCEPT ![2] = "Failed"]
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
         outcomes, snapshots, snapshot, tokens, superseder, progress,
-        realization, refreshed, seen, validationOK, readOK>>
+        realization, refreshed, seen, validationOK, readOK, handoffVars>>
 ReleaseStopped(i) ==
     /\ active = i /\ stopReason[i] # "None"
     /\ Release(i)
     /\ UNCHANGED scopeVars
 Finish(i) ==
+    LET finalSnapshot == [snapshot EXCEPT !.base = base', !.preparing = 0]
+        finalOutcome ==
+            IF snapshot.epoch # physical THEN "AwaitRefresh"
+            ELSE IF stopReason[i] # "None" THEN stopReason[i] ELSE "Failed"
+    IN
     /\ active = i /\ GateFree
     /\ \/ artifactResults[i] = "Refused"
        \/ phases[i] = "Dormant" /\ stopReason[i] # "None"
        \/ Fault = "Cleanup" /\ stopReason[i] = "Cancelled"
     /\ runtime = "Open" /\ ScopeAdvance
-    /\ snapshot' = [snapshot EXCEPT !.base = base', !.preparing = 0]
-    /\ outcomes' = [outcomes EXCEPT ![i] =
-        IF snapshot.epoch # physical THEN "AwaitRefresh"
-        ELSE IF stopReason[i] # "None" THEN stopReason[i] ELSE "Failed"]
-    /\ snapshots' = [snapshots EXCEPT ![i] = snapshot']
+    /\ snapshot' = finalSnapshot
+    /\ outcomes' = [outcomes EXCEPT ![i] = finalOutcome]
+    /\ snapshots' = [snapshots EXCEPT ![i] = finalSnapshot]
+    /\ IF finalOutcome = "AwaitRefresh"
+       THEN UNCHANGED <<requestStates, settlementCounts, results>>
+       ELSE /\ requestStates' = [requestStates EXCEPT ![i] = "Settled"]
+            /\ settlementCounts' =
+                [settlementCounts EXCEPT ![i] = @ + 1]
+            /\ results' =
+                [results EXCEPT ![i] =
+                    ResultFor(i, finalOutcome, stopReason[i], finalSnapshot)]
     /\ active' = 0
-    /\ seen' = seen \union {"Settled", outcomes'[i]}
+    /\ seen' = seen \union {"Settled", finalOutcome}
+        \union (IF finalOutcome = "Superseded"
+                THEN {"SupersededAssociation"} ELSE {})
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, admitted, tokens,
-        stopReason, superseder, progress, realization, refreshed, validationOK, readOK>>
+        stopReason, superseder, progress, realization, refreshed, validationOK,
+        readOK, requests, requestDeadlineValid, submissionCounts,
+        cancellationResponses>>
 
 PhysicalChange ==
     /\ scenario \in {"Refresh", "PhysicalRace"} /\ ~refreshed
@@ -404,27 +662,41 @@ PhysicalChange ==
     /\ seen' = seen \union {"PhysicalChanged"}
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
         outcomes, snapshots, snapshot, tokens, stopReason, superseder, progress,
-        validationOK, readOK>>
+        validationOK, readOK, handoffVars>>
 RefreshScope(i) ==
+    LET finalSnapshot ==
+            MakeSnapshot(snapshot.revision, snapshot.occurrences,
+                snapshot.policy, physical, base', realization,
+                IF Fault = "Refresh" THEN snapshot.coverage ELSE {},
+                IF snapshot.policy THEN "NotEvaluated" ELSE "Closed", 0)
+        settles(j) == j = i \/ outcomes[j] = "AwaitRefresh"
+        finalOutcome(j) ==
+            IF j = i THEN "Committed"
+            ELSE IF stopReason[j] # "None" THEN stopReason[j] ELSE "Failed"
+    IN
     /\ active = i /\ Kind(i) = "Refresh" /\ outcomes[i] = "Pending"
     /\ runtime = "Open" /\ GateFree
     /\ ScopeAdvance
-    /\ snapshot' = MakeSnapshot(snapshot.revision, snapshot.occurrences,
-        snapshot.policy, physical, base', realization,
-        IF Fault = "Refresh" THEN snapshot.coverage ELSE {},
-        IF snapshot.policy THEN "NotEvaluated" ELSE "Closed", 0)
+    /\ snapshot' = finalSnapshot
     /\ outcomes' = [j \in Ops |->
-        IF j = i THEN "Committed"
-        ELSE IF outcomes[j] = "AwaitRefresh"
-             THEN IF stopReason[j] # "None" THEN stopReason[j] ELSE "Failed"
-             ELSE outcomes[j]]
+        IF settles(j) THEN finalOutcome(j) ELSE outcomes[j]]
     /\ snapshots' = [j \in Ops |->
-        IF j = i \/ outcomes[j] = "AwaitRefresh" THEN snapshot' ELSE snapshots[j]]
+        IF settles(j) THEN finalSnapshot ELSE snapshots[j]]
+    /\ requestStates' = [j \in Ops |->
+        IF settles(j) THEN "Settled" ELSE requestStates[j]]
+    /\ settlementCounts' = [j \in Ops |->
+        IF settles(j) THEN settlementCounts[j] + 1 ELSE settlementCounts[j]]
+    /\ results' = [j \in Ops |->
+        IF settles(j)
+        THEN ResultFor(j, finalOutcome(j), "None", finalSnapshot)
+        ELSE results[j]]
     /\ active' = 0
     /\ seen' = seen \union {"RefreshCommitted", "RefreshedSnapshot",
         "Refreshed" \o realization.status}
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, admitted, tokens,
-        stopReason, superseder, progress, realization, refreshed, validationOK, readOK>>
+        stopReason, superseder, progress, realization, refreshed, validationOK,
+        readOK, requests, requestDeadlineValid, submissionCounts,
+        cancellationResponses>>
 Observe ==
     /\ runtime = "Open" /\ GateFree
     /\ "ReadCurrent" \notin seen /\ snapshot.epoch = physical
@@ -433,7 +705,8 @@ Observe ==
     /\ seen' = seen \union {"ReadCurrent"}
     /\ UNCHANGED <<artifactVars, scenario, secondKind, plans, sealed,
         active, admitted, outcomes, snapshots, snapshot, tokens, stopReason,
-        superseder, progress, realization, refreshed, validationOK>>
+        superseder, progress, realization, refreshed, validationOK,
+        handoffVars>>
 Submission(error) ==
     [shape |-> error # "InvalidReplace", deadline |-> error # "DeadlineExpired",
      workspace |-> IF error = "ForeignWorkspace" THEN "foreign" ELSE "workspace",
@@ -467,7 +740,8 @@ ProbeValidation(error) ==
             /\ stopReason' = [stopReason EXCEPT ![active] = "Superseded"]
        ELSE UNCHANGED <<artifactVars, snapshot, stopReason>>
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
-        outcomes, snapshots, tokens, superseder, progress, realization, refreshed, readOK>>
+        outcomes, snapshots, tokens, superseder, progress, realization,
+        refreshed, readOK, handoffVars>>
 Replay(i) ==
     /\ outcomes[i] = "Committed"
     /\ OwnerStep(i,
@@ -482,49 +756,97 @@ LateCancel(i) ==
     /\ seen' = seen \union {"FinalCommitWins"}
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
         snapshots, snapshot, tokens, stopReason, superseder, progress,
-        realization, refreshed, validationOK, readOK>>
+        realization, refreshed, validationOK, readOK, handoffVars>>
+CancellationControl(i, responseKind) ==
+    /\ scenario = "HandoffCancellation"
+    /\ requestStates[i] \in {"Issued", "Settled"}
+    /\ active # i
+    /\ cancellationResponses[i].kind = "None"
+    /\ responseKind \in {"ObservedNoEffect", "Settlement"}
+    /\ (responseKind = "Settlement" => settlementCounts[i] = 1)
+    /\ (requestStates[i] = "Issued" => responseKind = "ObservedNoEffect")
+    /\ cancellationResponses' =
+        [cancellationResponses EXCEPT ![i] =
+            [kind |-> responseKind,
+             operation |->
+                IF responseKind = "Settlement"
+                THEN results[i].operation ELSE i,
+             observedOutcome |-> outcomes[i],
+             observedSettlements |-> settlementCounts[i]]]
+    /\ IF Fault = "CancelControl" /\ responseKind = "ObservedNoEffect"
+       THEN /\ outcomes' = [outcomes EXCEPT ![i] = "NoEffect"]
+            /\ snapshots' = [snapshots EXCEPT ![i] = snapshot]
+            /\ requestStates' = [requestStates EXCEPT ![i] = "Settled"]
+            /\ settlementCounts' =
+                [settlementCounts EXCEPT ![i] = @ + 1]
+            /\ results' =
+                [results EXCEPT ![i] =
+                    ResultFor(i, "NoEffect", "None", snapshot)]
+       ELSE UNCHANGED <<outcomes, snapshots, requestStates,
+            settlementCounts, results>>
+    /\ seen' = seen \union {responseKind}
+    /\ UNCHANGED <<artifactVars, physicalHistory, scopeHistory, scenario,
+        perturbation, secondKind, plans, sealed, active, admitted, snapshot,
+        tokens, stopReason, superseder, progress, realization, refreshed,
+        validationOK, readOK, requests, requestDeadlineValid,
+        submissionCounts>>
 Close ==
     /\ perturbation = "Close"
     /\ First!CloseRuntime /\ Second!CloseRuntime /\ Third!CloseRuntime
     /\ seen' = seen \union {"Closed"}
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
         outcomes, snapshots, snapshot, tokens, stopReason, superseder, progress,
-        realization, refreshed, validationOK, readOK>>
+        realization, refreshed, validationOK, readOK, handoffVars>>
 FinishClosed(i) ==
+    LET settles(j) == j = i \/ outcomes[j] = "AwaitRefresh" IN
     /\ runtime = "Closed" /\ active = i
     /\ receipts[i] = "Released"
     /\ active' = 0
     /\ outcomes' = [j \in Ops |->
-        IF j = i \/ outcomes[j] = "AwaitRefresh" THEN "Unavailable" ELSE outcomes[j]]
+        IF settles(j) THEN "Unavailable" ELSE outcomes[j]]
     /\ snapshots' = [j \in Ops |->
-        IF j = i \/ outcomes[j] = "AwaitRefresh" THEN snapshot ELSE snapshots[j]]
+        IF settles(j) THEN snapshot ELSE snapshots[j]]
+    /\ requestStates' = [j \in Ops |->
+        IF settles(j) THEN "Settled" ELSE requestStates[j]]
+    /\ settlementCounts' = [j \in Ops |->
+        IF settles(j) THEN settlementCounts[j] + 1 ELSE settlementCounts[j]]
+    /\ results' = [j \in Ops |->
+        IF settles(j)
+        THEN ResultFor(j, "Unavailable", "Closed", snapshot)
+        ELSE results[j]]
     /\ seen' = seen \union {"Unavailable"}
     /\ UNCHANGED <<artifactVars, scenario, secondKind, plans, sealed, admitted,
         snapshot, tokens, stopReason, superseder, progress, realization,
-        refreshed, validationOK, readOK>>
+        refreshed, validationOK, readOK, requests, requestDeadlineValid,
+        submissionCounts, cancellationResponses>>
 FinishClosedRefresh ==
+    LET settles(i) == outcomes[i] = "AwaitRefresh" IN
     /\ runtime = "Closed" /\ active = 0
-    /\ \E i \in Ops : outcomes[i] = "AwaitRefresh"
+    /\ \E i \in Ops : settles(i)
     /\ outcomes' = [i \in Ops |->
-        IF outcomes[i] = "AwaitRefresh" THEN "Unavailable" ELSE outcomes[i]]
+        IF settles(i) THEN "Unavailable" ELSE outcomes[i]]
     /\ snapshots' = [i \in Ops |->
-        IF outcomes[i] = "AwaitRefresh" THEN snapshot ELSE snapshots[i]]
+        IF settles(i) THEN snapshot ELSE snapshots[i]]
+    /\ requestStates' = [i \in Ops |->
+        IF settles(i) THEN "Settled" ELSE requestStates[i]]
+    /\ settlementCounts' = [i \in Ops |->
+        IF settles(i) THEN settlementCounts[i] + 1 ELSE settlementCounts[i]]
+    /\ results' = [i \in Ops |->
+        IF settles(i)
+        THEN ResultFor(i, "Unavailable", "Closed", snapshot)
+        ELSE results[i]]
     /\ UNCHANGED <<artifactVars, scenario, secondKind, plans, sealed, active,
         admitted, snapshot, tokens, stopReason, superseder, progress,
-        realization, refreshed, seen, validationOK, readOK>>
-ClosedSubmission ==
-    /\ runtime = "Closed" /\ "ClosedSubmission" \notin seen
-    /\ seen' = seen \union {"ClosedSubmission"}
-    /\ UNCHANGED <<artifactVars, scenario, secondKind, plans, sealed, active,
-        admitted, outcomes, snapshots, snapshot, tokens, stopReason,
-        superseder, progress, realization, refreshed, validationOK, readOK>>
+        realization, refreshed, seen, validationOK, readOK, requests,
+        requestDeadlineValid, submissionCounts, cancellationResponses>>
 RejectLateCompletion ==
     /\ outcomes[1] = "Superseded" /\ outcomes[2] = "Committed"
     /\ "LateSupersededCompletion" \notin seen
     /\ seen' = seen \union {"LateSupersededCompletion"}
     /\ UNCHANGED <<artifactVars, scenario, secondKind, plans, sealed, active,
         admitted, outcomes, snapshots, snapshot, tokens, stopReason,
-        superseder, progress, realization, refreshed, validationOK, readOK>>
+        superseder, progress, realization, refreshed, validationOK, readOK,
+        handoffVars>>
 BrokenRebase ==
     /\ Fault = "ScopeBase" /\ active = 1 /\ superseder = 2
     /\ 1 \in sealed /\ receipts[1] = "Prepared"
@@ -532,27 +854,32 @@ BrokenRebase ==
     /\ plans' = [plans EXCEPT ![1].base = base]
     /\ UNCHANGED <<artifactVars, scenario, secondKind, sealed, active, admitted,
         outcomes, snapshots, snapshot, tokens, stopReason, superseder, progress,
-        realization, refreshed, seen, validationOK, readOK>>
+        realization, refreshed, seen, validationOK, readOK, handoffVars>>
 BrokenGate ==
     /\ Fault = "Gate" /\ phase1 = "Staged"
     /\ ScopeAdvance
     /\ snapshot' = [snapshot EXCEPT !.base = base']
     /\ UNCHANGED <<scenario, secondKind, plans, sealed, active, admitted,
         outcomes, snapshots, tokens, stopReason, superseder, progress,
-        realization, refreshed, seen, validationOK, readOK>>
+        realization, refreshed, seen, validationOK, readOK, handoffVars>>
 Next ==
     /\ \/ \E i \in Ops :
-            Admit(i) \/ PrepareBatch(i) \/ Seal(i) \/ Progress(i)
+            IssueAny(i)
+            \/ Abandon(i) \/ ExpireIssuedDeadline(i)
+            \/ SubmitRejected(i) \/ SubmitNoEffect(i) \/ SubmitUnavailable(i)
+            \/ Admit(i) \/ PrepareBatch(i) \/ Seal(i) \/ Progress(i)
             \/ StagePublication(i) \/ PrepareToken(i) \/ Commit(i)
             \/ (\E reason \in {"Cancellation", "Deadline"} : Signal(i, reason))
             \/ Fail(i) \/ RejectCompletion(i) \/ ReleaseStopped(i) \/ Finish(i)
             \/ RefreshScope(i)
             \/ Replay(i) \/ LateCancel(i) \/ FinishClosed(i)
+            \/ (\E responseKind \in {"ObservedNoEffect", "Settlement"} :
+                    CancellationControl(i, responseKind))
        \/ Supersede \/ PhysicalChange \/ Observe
        \/ \E error \in {"RevisionMismatch", "ForeignWorkspace", "InvalidReplace",
                        "DeadlineExpired", "Busy", "EvidenceMismatch"} :
             ProbeValidation(error)
-       \/ RejectForeignCompletion \/ Close \/ ClosedSubmission
+       \/ RejectForeignCompletion \/ Close
        \/ FinishClosedRefresh
        \/ RejectLateCompletion
        \/ BrokenRebase \/ BrokenGate
@@ -643,12 +970,129 @@ SnapshotPointerSwapIsFresh ==
     [][snapshot' # snapshot =>
         /\ base' # base
         /\ base' \notin scopeHistory]_vars
+RequestLifecycleIsOneShot ==
+    \A i \in Ops :
+        /\ submissionCounts[i] \in 0..1
+        /\ settlementCounts[i] \in 0..1
+        /\ settlementCounts[i] <= submissionCounts[i]
+        /\ requests[i].operation \in {0, i}
+        /\ CASE requestStates[i] = "Unissued" ->
+                /\ submissionCounts[i] = 0
+                /\ settlementCounts[i] = 0
+                /\ outcomes[i] = "None"
+           [] requestStates[i] = "Issued" ->
+                /\ requests[i].operation = i
+                /\ submissionCounts[i] = 0
+                /\ settlementCounts[i] = 0
+                /\ outcomes[i] = "None"
+           [] requestStates[i] = "Abandoned" ->
+                /\ requests[i].operation = i
+                /\ submissionCounts[i] = 0
+                /\ settlementCounts[i] = 0
+                /\ outcomes[i] = "None"
+           [] requestStates[i] = "Submitted" ->
+                /\ requests[i].operation = i
+                /\ submissionCounts[i] = 1
+                /\ settlementCounts[i] = 0
+                /\ outcomes[i] \in {"None", "Pending", "AwaitRefresh"}
+           [] OTHER ->
+                /\ requestStates[i] = "Settled"
+                /\ requests[i].operation = i
+                /\ submissionCounts[i] = 1
+                /\ settlementCounts[i] = 1
+                /\ outcomes[i] \in Terminal
+TerminalResultsPreserveAssociation ==
+    \A i \in Ops : outcomes[i] \in Terminal =>
+        /\ results[i].operation = i
+        /\ results[i].outcome = outcomes[i]
+        /\ results[i].snapshot = snapshots[i]
+        /\ results[i].authority =
+            IF outcomes[i] = "Unavailable" THEN "Historical" ELSE "Settlement"
+        /\ IF outcomes[i] = "Superseded"
+           THEN /\ results[i].superseder \in Ops \ {i}
+                /\ requests[results[i].superseder].operation =
+                    results[i].superseder
+           ELSE results[i].superseder = 0
+RequestedOccurrenceIsExact ==
+    \A i \in Ops :
+        /\ (outcomes[i] \notin Successful =>
+                results[i].requested = "None")
+        /\ (outcomes[i] \in Successful /\ requests[i].target = "None" =>
+                results[i].requested = "None")
+        /\ (outcomes[i] \in Successful /\ requests[i].target # "None" =>
+                \E o \in SetOf(results[i].snapshot.occurrences) :
+                    /\ o.id = results[i].requested
+                    /\ o.root = requests[i].target
+                    /\ requests[i].target \in SetOf(requests[i].input))
+InvalidActivationNeverSubmits ==
+    \A i \in Ops :
+        ~ActivationValid(requests[i])
+        /\ requestStates[i] = "Settled"
+        /\ requests[i].revision = results[i].snapshot.revision
+        /\ (~requests[i].hasBaseGuard
+            \/ requests[i].baseGuard = results[i].snapshot.base)
+        /\ requestDeadlineValid[requests[i].deadline]
+        /\ requests[i].evidence =>
+            /\ outcomes[i] = "Rejected"
+            /\ results[i].reason = "InvalidTarget"
+            /\ i \notin admitted
+DuplicateNoEffectPreservesRetainedState ==
+    \A i \in Ops : outcomes[i] = "NoEffect" =>
+        /\ snapshots[i] = results[i].snapshot
+        /\ snapshots[i].revision = requests[i].revision
+        /\ Correspondences(snapshots[i].occurrences) = physicalRoots
+        /\ (scenario \in {"HandoffDuplicate", "HandoffDuplicateNoIntent"} =>
+            \E j \in DOMAIN snapshots[i].projections :
+                /\ snapshots[i].occurrences[j].root = "a"
+                /\ snapshots[i].projections[j].status = "Pending")
+CancellationResponsesAreTyped ==
+    \A i \in Ops :
+        /\ cancellationResponses[i].kind \in
+            {"None", "Accepted", "ObservedNoEffect", "Settlement"}
+        /\ (cancellationResponses[i].kind # "None" =>
+                cancellationResponses[i].operation = i)
+        /\ (cancellationResponses[i].kind = "Settlement" =>
+                /\ cancellationResponses[i].observedSettlements = 1
+                /\ cancellationResponses[i].observedOutcome \in Terminal
+                /\ cancellationResponses[i].operation =
+                    results[i].operation)
+inertScopeState ==
+    <<artifactVars, physicalHistory, scopeHistory, plans, sealed, active,
+      admitted, outcomes, snapshots, snapshot, tokens, stopReason, superseder,
+      progress, realization, refreshed, validationOK, readOK>>
+IssueOrAbandonStep(i) ==
+    \/ requestStates[i] = "Unissued" /\ requestStates'[i] = "Issued"
+    \/ requestStates[i] = "Issued" /\ requestStates'[i] = "Abandoned"
+IssuanceAndAbandonmentAreInert ==
+    [][\A i \in Ops : IssueOrAbandonStep(i) =>
+        UNCHANGED inertScopeState]_vars
+IssuedRequestIsFrozen ==
+    [][\A i \in Ops :
+        requestStates[i] # "Unissued"
+        /\ requestStates'[i] # "Unissued" =>
+            requests'[i] = requests[i]]_vars
+ControlNoEffectCannotSettleMutation ==
+    [][\A i \in Ops :
+        cancellationResponses[i].kind = "None"
+        /\ cancellationResponses'[i].kind = "ObservedNoEffect" =>
+            /\ settlementCounts' = settlementCounts
+            /\ outcomes' = outcomes
+            /\ results' = results]_vars
+DuplicateNoEffectHasNoPhysicalWork ==
+    [][\A i \in Ops :
+        outcomes[i] # "NoEffect" /\ outcomes'[i] = "NoEffect" =>
+            UNCHANGED <<artifactVars, physicalHistory, scopeHistory, plans,
+                sealed, active, admitted, snapshot, tokens, stopReason,
+                superseder, progress, realization, refreshed>>]_vars
 ScopeSafety ==
     /\ CompleteSnapshot /\ ExactOccurrenceRetention /\ NoPartialPublication
     /\ OnePreparingMutation /\ SettledReleasesAuthority /\ SupersededCannotCommit
     /\ FinalCommitWins /\ CurrentCoverageIsExact /\ ClosureRefreshRetainsOccurrences
     /\ RefusalPreservesLogicalRevision
-    /\ ReaddedOccurrenceIsFresh
+    /\ ReaddedOccurrenceIsFresh /\ RequestLifecycleIsOneShot
+    /\ TerminalResultsPreserveAssociation /\ RequestedOccurrenceIsExact
+    /\ InvalidActivationNeverSubmits
+    /\ DuplicateNoEffectPreservesRetainedState /\ CancellationResponsesAreTyped
     /\ validationOK /\ readOK
 ObservedEvents ==
     seen \union ownerEvents
@@ -674,6 +1118,7 @@ Framed(action) ==
     /\ UNCHANGED perturbation
 Fairness ==
     /\ \A i \in Ops :
+        /\ WF_vars(Framed(IssueAny(i)))
         /\ WF_vars(Framed(PrepareBatch(i)))
         /\ WF_vars(Framed(Seal(i)))
         /\ WF_vars(Framed(StagePublication(i)))
@@ -689,6 +1134,8 @@ Fairness ==
     /\ WF_vars(Framed(Admit(3)))
     /\ WF_vars(Framed(FinishClosedRefresh))
 Spec == SafetySpec /\ Fairness
+HandoffSpec == SafetySpec /\ secondKind = "Add"
+HandoffSupersedeSpec == SafetySpec /\ secondKind = "Replace"
 RefreshProgressAddSpec == Spec /\ secondKind = "Add"
 RefreshProgressReplaceSpec == Spec /\ secondKind = "Replace"
 RefreshProgressRemoveSpec == Spec /\ secondKind = "Remove"

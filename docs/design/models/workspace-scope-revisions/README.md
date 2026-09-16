@@ -28,6 +28,14 @@ This is bounded design evidence, **not implementation conformance**. It neither
 claims shipped support nor substitutes for the named Release implementation
 gates.
 
+Issue [#7256](https://github.com/richlander/dotnet-inspect/issues/7256)
+extends the same Scope owner with pre-effect operation handoff. The model now
+checks that a complete request and fresh operation identity exist before
+submission, that submission retains the existing validation/admission order,
+and that every terminal result preserves the original operation association.
+It also checks exact requested-occurrence projection and typed cancellation
+control without importing or copying a Navigation state machine.
+
 ## Architecture and substitutions
 
 `WorkspaceScopeRevisionsModel.tla` is one finite consumer harness. Its three
@@ -84,6 +92,28 @@ preparation, progress, failure, cancellation, and supersession swap the Scope
 base without changing the physical epoch or logical revision. Membership
 publication changes the revision; closure and refresh retain it.
 
+The handoff extension adds Scope-owned, operation-indexed records alongside
+those existing Artifact instances:
+
+- `requests[i]` freezes the exact Workspace, revision, optional Scope-base
+  guard, finite deadline identity, operation kind, complete opaque input batch,
+  exact activation target, and evidence bit at issuance;
+- `requestStates`, `submissionCounts`, and `settlementCounts` distinguish
+  unissued, issued, abandoned, submitted, and settled identities and enforce
+  at most one submission and one settlement;
+- `results[i]` retains the original operation, terminal arm, frozen result
+  snapshot, exact requested occurrence identity, distinct superseder identity,
+  and historical-only authority for `Unavailable`; and
+- `cancellationResponses[i]` distinguishes accepted control, stale
+  `ObservedNoEffect`, and return of the original mutation settlement.
+
+Issuance and abandonment are separate inert actions. Their temporal property
+checks that they do not change Artifact state, current membership, revision or
+publication pointers, Preparing/admission state, physical epoch, plans, or
+deadline/cancellation state. The retained descriptor contains only symbolic
+identities, booleans, and opaque correspondence values; concrete object-graph
+resource erasure remains an implementation gate.
+
 ## Finite behaviors
 
 The bound uses one accepting Workspace plus a foreign identity, three
@@ -139,6 +169,22 @@ fairness.
 the admitted operation must still settle through finite deadline observation
 and fair release/Scope cleanup, even if preparation never completes.
 
+`HandoffSpec` fixes the second operation to Add and adds nine focused scenarios:
+issuance/abandonment, explicit Replace target, mixed Add with either an existing
+or new target, duplicate-only Add with and without intent, revision drift,
+deadline expiry, invalid target, and cancellation control. A focused
+Scope-base-guard witness uses the existing Progress perturbation; superseder
+association reuses the existing Replace supersession behavior. The existing
+Close profile now settles a pre-issued closed submission as correlated
+`Unavailable` with a historical snapshot.
+
+The duplicate-only scenarios start retained correspondence `a` as Pending.
+Their Add request contains only `a`, produces `NoEffect` without activating an
+Artifact receipt or changing physical/Scope state, and preserves the existing
+Pending occurrence. The mixed scenario's input batch contains existing `a` and
+new `d`; issuance nondeterministically freezes either as the explicit target,
+then the successful result must return that exact occurrence.
+
 ## Gates
 
 All configurations are registered with their exact semantic verdict in
@@ -159,12 +205,19 @@ All configurations are registered with their exact semantic verdict in
 | No new operation after runtime close | `CompositionSafety`, `ReachabilityClosed`, `NoAdmissionAfterClose` | inherited runtime commit invariant |
 | Every admitted operation settles | `Liveness`, seventeen `Liveness<Profile>` partitions, `DeadlineLiveness` | cleanup/final-commit safety mutations |
 | Shared-gate composition refines Artifact behavior | every positive configuration | `BrokenGate` |
+| Issuance/abandonment is inert and the request remains frozen | `OperationHandoffSafety`, `ReachabilityIssuedAbandoned` | temporal action checks in every handoff witness |
+| Submission rechecks current revision, Scope-base guard, deadline, and activation validity before Busy/supersession | `ReachabilityIssuedRevisionRejected`, `ReachabilityIssuedBaseGuardRejected`, `ReachabilityIssuedDeadlineRejected`, `ReachabilityInvalidTargetRejected` | `BrokenHandoffValidation` |
+| Every terminal arm retains its issued identity; supersession names a distinct operation | `OperationHandoffSafety`, all existing terminal-arm reachability profiles, `ReachabilitySupersederAssociation` | `BrokenOperationAssociation` |
+| Add/Replace success returns the exact requested occurrence; no intent/non-success returns none | `ReachabilityRequestedReplace`, `ReachabilityRequestedMixedExisting`, `ReachabilityRequestedMixedNew`, `ReachabilityRequestedDuplicate`, `ReachabilityDuplicateNoIntent` | `BrokenRequestedOccurrence` |
+| Duplicate-only Add performs no physical work and does not repair Pending | `ReachabilityRequestedDuplicate`, `ReachabilityDuplicateNoIntent` | exact NoEffect temporal/state properties |
+| Cancellation control cannot manufacture mutation settlement and may return only the original association | `ReachabilityCancellationNoEffect`, `ReachabilityCancellationSettlement` | `BrokenCancellationControl` |
 
 `Safety`, `CompositionSafety`, the eighteen liveness partitions, and
-`DeadlineLiveness` expect exit 0.
+`DeadlineLiveness` expect exit 0. `OperationHandoffSafety` also expects exit 0.
 Reachability configurations expect exit 12 at `NoWitness`, with safety checks
 still enabled. All mutations expect exit 12 at their named invariant except
-`BrokenGate`: its temporal behavior-refinement property expects exit 13.
+`BrokenGate` and `BrokenCancellationControl`: their temporal action properties
+expect exit 13.
 Direct aliases and refinement are overlapping diagnostics, not independent
 proofs of the same fact.
 
@@ -212,6 +265,32 @@ The broken-base control recaptures the replacement base for the superseded
 operation. Artifact then correctly accepts that newly presented base, exposing
 the Scope bug: a superseded operation commits. The detecting invariant is
 `SupersededCannotCommit`, not a weakened Artifact publication implementation.
+
+Operation handoff adds these bounded demonstrations:
+
+```text
+Issue Replace(a,b), target b
+  -> no Scope/Artifact state change
+  -> submit and publish through the existing Artifact owner actions
+  -> Committed(operation 1, exact b occurrence)
+
+Commit Replace(a,b) with a Pending
+  -> issue Add(a), target a
+  -> NoEffect(operation 2, unchanged snapshot, exact existing a occurrence)
+
+Issue invalid Add(d), target c while operation 1 is Preparing
+  -> Rejected(InvalidTarget), not Busy and not supersession
+
+Observe stale cancellation for an issued or settled identity
+  -> control ObservedNoEffect, original mutation outcome/count unchanged
+```
+
+`BrokenRequestedOccurrence` deliberately uses `a` for requested `d`; both have
+the same display label, so the exact-correspondence invariant rejects label
+inference. `BrokenCancellationControl` manufactures mutation `NoEffect` from a
+stale control observation. `BrokenOperationAssociation` replaces a superseded
+operation's identity with its superseder. `BrokenHandoffValidation` returns
+Busy before checking an invalid target.
 
 ## Running and limits
 
@@ -268,6 +347,51 @@ Witness runs stop at their first intended violation, not at exhaustion.
 Worker scheduling can change counterexample counts without changing the
 registered semantic verdict.
 
+### Operation handoff extension
+
+The extension was checked on Linux with `/usr/bin/java` OpenJDK `21.0.12` and
+immutable TLA+ mirror build `2026.08.11.125311`, revision `0894c34`, SHA-256
+`ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f`.
+The directory runner used its automatic worker selection and a 120-second
+per-configuration bound:
+
+```bash
+export TMPDIR="$PWD/artifacts/tla-scratch"
+export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$PWD/artifacts/java"
+export TLA_TOOLS_JAR=/home/rich/.local/share/tlaplus/tla2tools-2026.08.11.125311.jar
+export TLA_CHECK_TIMEOUT_SECONDS=120
+./eng/run-tla-checks.sh docs/design/models/workspace-scope-revisions
+```
+
+It checked one module and all 68 configurations: 68 exact semantic outcomes
+matched and none timed out or remained unverified. This includes all 50
+pre-extension Scope profiles and rechecks every imported Artifact safety and
+composition-refinement property under the new state and actions.
+
+| New configuration | Exit | Generated | Distinct | Depth |
+| --- | ---: | ---: | ---: | ---: |
+| `OperationHandoffSafety` | 0 | 17,747 | 4,808 | 24 |
+| `ReachabilityIssuedAbandoned` | 12 | 6 | 6 | 4 |
+| `ReachabilityRequestedReplace` | 12 | 20 | 16 | 9 |
+| `ReachabilityRequestedMixedExisting` | 12 | 708 | 300 | 22 |
+| `ReachabilityRequestedMixedNew` | 12 | 807 | 328 | 22 |
+| `ReachabilityRequestedDuplicate` | 12 | 108 | 62 | 14 |
+| `ReachabilityDuplicateNoIntent` | 12 | 108 | 62 | 14 |
+| `ReachabilityIssuedRevisionRejected` | 12 | 318 | 158 | 16 |
+| `ReachabilityIssuedDeadlineRejected` | 12 | 48 | 37 | 11 |
+| `ReachabilityIssuedBaseGuardRejected` | 12 | 249 | 158 | 13 |
+| `ReachabilityInvalidTargetRejected` | 12 | 128 | 88 | 13 |
+| `ReachabilityCancellationNoEffect` | 12 | 61 | 48 | 13 |
+| `ReachabilityCancellationSettlement` | 12 | 167 | 108 | 14 |
+| `ReachabilitySupersederAssociation` | 12 | 175 | 109 | 13 |
+| `BrokenOperationAssociation` | 12 | 211 | 122 | 14 |
+| `BrokenRequestedOccurrence` | 12 | 769 | 319 | 22 |
+| `BrokenHandoffValidation` | 12 | 155 | 94 | 13 |
+| `BrokenCancellationControl` | 13 | 148 | 91 | 14 |
+
+Witness and mutation runs stop at their intended violation, so their queues
+need not be exhausted. `OperationHandoffSafety` exhausts its bounded graph.
+
 The initial, unpartitioned configuration set completed locally through the
 existing runner: all 33 Scope exact outcomes and all 28 unchanged Artifact
 exact outcomes matched under its default 600-second budget. The runner used
@@ -283,8 +407,9 @@ four TLC workers for these results:
 That initial `Liveness` matrix exceeded the existing 120-second CI budget in
 [run 33929995717](https://github.com/richlander/dotnet-inspect/actions/runs/33929995717).
 Local completion under a longer budget did not establish CI eligibility.
-The eighteen disjoint partitions replace that single matrix without raising
-the budget or weakening its properties; there are now 50 Scope configurations.
+The eighteen disjoint partitions replaced that single matrix without raising
+the budget or weakening its properties; before the operation-handoff extension
+there were 50 Scope configurations.
 
 All 50 final configuration outcomes were observed with a 120-second
 per-configuration limit and two TLC workers. The eighteen successful liveness
@@ -304,3 +429,10 @@ occurrence/generation relation; the full expansion algorithm remains outside
 issue #5796. There are no Browser effects, Navigation, persistence, packets, or
 multiple active Workspace behavior. Historical snapshots contain symbolic
 facts; this does not prove implementation object-graph resource erasure.
+
+The handoff extension additionally abstracts request payload objects to finite
+opaque correspondence sequences, deadline passage to a boolean validity flip,
+and cancellation responses to one operation-indexed observation record. It
+does not prove API readiness/equivalence, Navigation acceptance or external
+effect ordering, concrete binding disposal, website behavior, or producer
+implementation conformance.
