@@ -83,6 +83,8 @@ public sealed class AssemblyPairCallUseQueryTests
 
         AssemblyPairCallUseProjection projection =
             AssemblyPairCallUseProjection.Create(result);
+        AssemblyPairDirectUseClusterProjection clusters =
+            AssemblyPairDirectUseClusterProjection.Create(result);
 
         Assert.Same(result, projection.Pair);
         Assert.True(projection.IsComplete);
@@ -95,6 +97,11 @@ public sealed class AssemblyPairCallUseQueryTests
             Enumerable.Range(0, result.Occurrences.Length),
             projection.ProviderApiTypes
                 .SelectMany(type => type.OccurrenceIndexes)
+                .Order());
+        Assert.Equal(
+            Enumerable.Range(0, result.Occurrences.Length),
+            clusters.Clusters
+                .SelectMany(cluster => cluster.OccurrenceIndexes)
                 .Order());
         Assert.All(
             projection.ConsumerUseSites,
@@ -167,6 +174,55 @@ public sealed class AssemblyPairCallUseQueryTests
                         .Distinct(),
                     type.TargetMethods);
             });
+        Assert.All(
+            clusters.Clusters,
+            cluster =>
+            {
+                AssemblyPairCallUseOccurrence[] occurrences =
+                [.. cluster.OccurrenceIndexes.Select(
+                    index => result.Occurrences[index])];
+                Assert.All(
+                    occurrences,
+                    occurrence =>
+                    {
+                        Assert.Same(
+                            cluster.Identity.Source.Registration,
+                            occurrence.Source.Registration);
+                        Assert.Equal(
+                            cluster.Identity.SourceModuleVersionId,
+                            occurrence.SourceModuleVersionId);
+                        Assert.Same(
+                            cluster.Identity.Target.Registration,
+                            occurrence.Target.Registration);
+                        Assert.Equal(
+                            cluster.Identity.TargetModuleVersionId,
+                            occurrence.TargetModuleVersionId);
+                    });
+                Assert.Equal(
+                    occurrences
+                        .Select(occurrence => occurrence.SourceMethod)
+                        .Distinct(),
+                    cluster.SourceMethods);
+                Assert.Equal(
+                    occurrences
+                        .Select(occurrence =>
+                            occurrence.TargetMethod.DeclaringType)
+                        .Distinct(),
+                    cluster.TargetTypes);
+                Assert.Equal(
+                    occurrences
+                        .Select(occurrence => occurrence.TargetMethod)
+                        .Distinct(),
+                    cluster.TargetMethods);
+                Assert.Equal(
+                    cluster.SourceMethods.Min(
+                        method => method.MetadataToken),
+                    cluster.Identity.AnchorSourceMethodToken);
+                Assert.Equal(
+                    cluster.TargetMethods.Min(
+                        method => method.MetadataToken),
+                    cluster.Identity.AnchorTargetMethodToken);
+            });
 
         AssemblyPairCallUseConsumerUseSite repeated =
             Assert.Single(
@@ -175,6 +231,66 @@ public sealed class AssemblyPairCallUseQueryTests
         Assert.Equal(2, repeated.CallSiteCount);
         Assert.Single(repeated.TargetTypes);
         Assert.Single(repeated.TargetMethods);
+    }
+
+    [Fact]
+    public async Task ProjectionBuildsExactDirectUseConnectedComponents()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairCallUseResult pair =
+            AssemblyPairCallUseQuery.Execute(
+                context.Group,
+                context.First,
+                context.Second);
+        AssemblyPairDirectUseClusterProjection projection =
+            AssemblyPairDirectUseClusterProjection.Create(pair);
+
+        AssemblyPairDirectUseCluster echo = Assert.Single(
+            projection.Clusters,
+            cluster =>
+                cluster.TargetMethods.Length == 1
+                && cluster.TargetMethods[0].Name == "Echo");
+        Assert.Equal(
+            ["RunTwice", "UseEcho"],
+            echo.SourceMethods.Select(method => method.Name));
+        Assert.Single(echo.TargetTypes);
+        Assert.Equal(3, echo.CallSiteCount);
+        Assert.Equal(1, echo.ExtensionMethodCount);
+
+        AssemblyPairDirectUseCluster box = Assert.Single(
+            projection.Clusters,
+            cluster => cluster.SourceMethods.Any(
+                method => method.Name == "UseBox"));
+        Assert.Equal(
+            ["UseBox", "UseBoxList"],
+            box.SourceMethods.Select(method => method.Name));
+        Assert.Equal(3, box.TargetMethods.Length);
+        Assert.Equal(4, box.CallSiteCount);
+
+        AssemblyPairDirectUseCluster runInt = Assert.Single(
+            projection.Clusters,
+            cluster => cluster.SourceMethods.Any(
+                method => method.Name == "RunInt"));
+        AssemblyPairDirectUseCluster runString = Assert.Single(
+            projection.Clusters,
+            cluster => cluster.SourceMethods.Any(
+                method => method.Name == "RunString"));
+        Assert.NotEqual(runInt.Identity, runString.Identity);
+        Assert.Equal(runInt.TargetTypes, runString.TargetTypes);
+
+        AssemblyPairDirectUseClusterProjection incomplete =
+            AssemblyPairDirectUseClusterProjection.Create(
+                pair with
+                {
+                    Diagnostics =
+                        new AssemblyPairCallUseDiagnostics(1),
+                });
+        Assert.False(incomplete.IsComplete);
+        Assert.Equal(
+            projection.Clusters.Select(ClusterFingerprint),
+            incomplete.Clusters.Select(ClusterFingerprint));
     }
 
     [Fact]
@@ -196,6 +312,10 @@ public sealed class AssemblyPairCallUseQueryTests
                     context.Group,
                     context.Second,
                     context.First));
+        AssemblyPairDirectUseClusterProjection forwardClusters =
+            AssemblyPairDirectUseClusterProjection.Create(forward.Pair);
+        AssemblyPairDirectUseClusterProjection reverseClusters =
+            AssemblyPairDirectUseClusterProjection.Create(reverse.Pair);
 
         Assert.Equal(
             forward.ConsumerUseSites.Select(ConsumerFingerprint),
@@ -203,6 +323,9 @@ public sealed class AssemblyPairCallUseQueryTests
         Assert.Equal(
             forward.ProviderApiTypes.Select(ProviderFingerprint),
             reverse.ProviderApiTypes.Select(ProviderFingerprint));
+        Assert.Equal(
+            forwardClusters.Clusters.Select(ClusterFingerprint),
+            reverseClusters.Clusters.Select(ClusterFingerprint));
     }
 
     [Fact]
@@ -399,6 +522,32 @@ public sealed class AssemblyPairCallUseQueryTests
             type.TargetMethods.Select(
                 method => method.MetadataToken)),
         string.Join(",", type.OccurrenceIndexes));
+
+    static string ClusterFingerprint(
+        AssemblyPairDirectUseCluster cluster) =>
+        string.Join(
+        "|",
+        cluster.Identity.Source.Identity.Name,
+        cluster.Identity.SourceModuleVersionId,
+        cluster.Identity.AnchorSourceMethodToken,
+        cluster.Identity.Target.Identity.Name,
+        cluster.Identity.TargetModuleVersionId,
+        cluster.Identity.AnchorTargetMethodToken,
+        cluster.Derivation,
+        cluster.Ordinal,
+        string.Join(
+            ",",
+            cluster.SourceMethods.Select(
+                method => method.MetadataToken)),
+        string.Join(
+            ",",
+            cluster.TargetTypes.Select(
+                type => type.ToQualifiedDisplayString())),
+        string.Join(
+            ",",
+            cluster.TargetMethods.Select(
+                method => method.MetadataToken)),
+        string.Join(",", cluster.OccurrenceIndexes));
 
     [Fact]
     public async Task ExecuteSeparatesFunctionPointerDependenciesInPlanCache()

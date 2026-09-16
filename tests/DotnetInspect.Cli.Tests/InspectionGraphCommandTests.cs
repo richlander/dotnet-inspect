@@ -168,6 +168,7 @@ public sealed class InspectionGraphCommandTests
         Assert.Equal(0, captured.ExitCode);
         Assert.Contains("Consumer Use Sites", captured.Output);
         Assert.Contains("Provider API Types", captured.Output);
+        Assert.Contains("Direct Use Clusters", captured.Output);
         Assert.Contains("Call Sites", captured.Output);
         Assert.Empty(captured.Error);
     }
@@ -183,6 +184,7 @@ public sealed class InspectionGraphCommandTests
             [
                 LibraryCallUseCommand.ConsumerUseSitesSection,
                 LibraryCallUseCommand.ProviderApiTypesSection,
+                LibraryCallUseCommand.DirectUseClustersSection,
                 LibraryCallUseCommand.CallSitesSection,
             ],
             schema.SectionNames);
@@ -201,6 +203,27 @@ public sealed class InspectionGraphCommandTests
             ],
             schema.GetSection(
                     LibraryCallUseCommand.ConsumerUseSitesSection)!
+                .Items
+                .Select(item => item.Key));
+        Assert.Equal(
+            [
+                "source_library",
+                "source_mvid",
+                "target_library",
+                "target_mvid",
+                "cluster",
+                "derivation",
+                "anchor_source_token",
+                "anchor_target_token",
+                "source_members",
+                "provider_types",
+                "target_members",
+                "extension_methods",
+                "call_sites",
+                "call_site_rows",
+            ],
+            schema.GetSection(
+                    LibraryCallUseCommand.DirectUseClustersSection)!
                 .Items
                 .Select(item => item.Key));
         Assert.Equal(
@@ -238,6 +261,10 @@ public sealed class InspectionGraphCommandTests
             document.RootElement.GetProperty("consumer_use_sites");
         JsonElement providerApiTypes =
             document.RootElement.GetProperty("provider_api_types");
+        Assert.False(
+            document.RootElement.TryGetProperty(
+                "direct_use_clusters",
+                out _));
         Assert.Equal(15, consumerUseSites.GetArrayLength());
         Assert.Equal(9, providerApiTypes.GetArrayLength());
         Assert.Equal(
@@ -250,6 +277,57 @@ public sealed class InspectionGraphCommandTests
             providerApiTypes[0]
                 .GetProperty("target_type")
                 .GetString());
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ProjectsDirectUseClusters()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "-S",
+                        "Direct Use Clusters",
+                        "--jsonl",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        JsonElement[] clusters =
+        [
+            .. captured.Output
+                .ReplaceLineEndings("\n")
+                .Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line =>
+                {
+                    using JsonDocument row = JsonDocument.Parse(line);
+                    return row.RootElement.Clone();
+                }),
+        ];
+        JsonElement echo = Assert.Single(
+            clusters,
+            cluster =>
+                cluster.GetProperty("source_members").GetString() == "2"
+                && cluster.GetProperty("target_members").GetString() == "1"
+                && cluster.GetProperty("extension_methods").GetString() == "1"
+                && cluster.GetProperty("call_sites").GetString() == "3");
+        Assert.Equal(
+            "exact-bipartite-connected-component",
+            echo.GetProperty("derivation").GetString());
+        Assert.False(
+            string.IsNullOrEmpty(
+                echo.GetProperty("call_site_rows").GetString()));
         Assert.Empty(captured.Error);
     }
 
@@ -462,6 +540,7 @@ public sealed class InspectionGraphCommandTests
         async Task<(
             int UseSites,
             int ProviderTypes,
+            int DirectUseClusters,
             int CallSites)> Counts(
             string consumer)
         {
@@ -495,15 +574,23 @@ public sealed class InspectionGraphCommandTests
                     .GetInt32(),
                 document.RootElement[2]
                     .GetProperty("count")
+                    .GetInt32(),
+                document.RootElement[3]
+                    .GetProperty("count")
                     .GetInt32());
         }
 
+        var presentation =
+            await Counts("DotnetInspector.Presentation.dll");
         Assert.Equal(
-            (38, 12, 1258),
-            await Counts("DotnetInspector.Presentation.dll"));
+            (38, 12, 8, 1258),
+            presentation);
+
+        var metadataRendering =
+            await Counts("DotnetInspector.MetadataRendering.dll");
         Assert.Equal(
-            (13, 4, 72),
-            await Counts("DotnetInspector.MetadataRendering.dll"));
+            (13, 4, 1, 72),
+            metadataRendering);
     }
 
     [Fact]
