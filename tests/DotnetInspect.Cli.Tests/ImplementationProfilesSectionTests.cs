@@ -287,6 +287,79 @@ public class ImplementationProfilesSectionTests
 
     [Fact]
     public async Task
+        TypeImplementationProfiles_JsonlPreservesRawProfileAndExactEdges()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(new TypeOptions
+            {
+                TypeName =
+                    "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "ImplementationProfileSample",
+                AssemblyPath =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                IncludeSections =
+                    [SectionNames.ImplementationProfiles],
+                IncludeAll = true,
+                Jsonl = true,
+                Tabular = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Minimal,
+                FormatExplicitlySet = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        string[] lines = result.Output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        string profileLine = Assert.Single(
+            lines,
+            line =>
+            {
+                using JsonDocument candidate =
+                    JsonDocument.Parse(line);
+                return candidate.RootElement
+                    .GetProperty("member")
+                    .GetString() == "Analyze(int)";
+            });
+        using JsonDocument row = JsonDocument.Parse(profileLine);
+        JsonElement root = row.RootElement;
+        foreach (string property in new[]
+        {
+            "member_token",
+            "evidence_token",
+            "basic_blocks",
+            "conditional_branches",
+            "switches",
+            "switch_targets",
+            "catch_regions",
+            "filter_regions",
+            "finally_regions",
+            "fault_regions",
+            "locals",
+            "distinct_callees",
+            "throws",
+            "complete",
+            "overload_relationships",
+        })
+        {
+            Assert.True(
+                root.TryGetProperty(property, out _),
+                $"Missing JSONL property '{property}'.");
+        }
+
+        string relationships =
+            root.GetProperty("overload_relationships")
+                .GetString()!;
+        Assert.Contains("caller=0x", relationships);
+        Assert.Contains(";callee=0x", relationships);
+        Assert.Contains(";evidence=0x", relationships);
+        Assert.Contains(";offset=IL_", relationships);
+        Assert.Contains(";kind=Call", relationships);
+    }
+
+    [Fact]
+    public async Task
         TypeImplementationProfiles_RejectsDocumentJson()
     {
         var result = await ConsoleCapture.RunAsync(

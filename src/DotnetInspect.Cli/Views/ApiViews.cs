@@ -1843,22 +1843,36 @@ public record TopLeverageRow(
 [MarkoutSerializable]
 public record ImplementationProfileRow(
     string Member,
+    string MemberToken,
     string? EvidenceMethod,
-    string? EvidenceToken,
+    string EvidenceToken,
     int ILBytes,
     int Instructions,
     int Opcodes,
+    int BasicBlocks,
     int Branches,
+    int ConditionalBranches,
+    int Switches,
+    int SwitchTargets,
     int Loops,
     int Exceptions,
+    int CatchRegions,
+    int FilterRegions,
+    int FinallyRegions,
+    int FaultRegions,
+    int Locals,
     int Calls,
+    int DistinctCallees,
     int Allocations,
+    int Throws,
     string? Async,
     string? Unsafe,
     int Reflection,
     int IncomingOverloads,
     int OutgoingOverloads,
     string? OverloadTargets = null,
+    string? OverloadRelationships = null,
+    bool Complete = true,
     string? Incomplete = null,
     string? Visibility = null,
     string? Generated = null,
@@ -1867,14 +1881,16 @@ public record ImplementationProfileRow(
 {
     public string Member { get; init; } = Member;
 
+    [MarkoutPropertyName("Member Token")]
+    public string MemberToken { get; init; } = MemberToken;
+
     [MarkoutPropertyName("Evidence Method")]
     [MarkoutSkipNull]
     public string? EvidenceMethod { get; init; } =
         EvidenceMethod;
 
     [MarkoutPropertyName("Evidence Token")]
-    [MarkoutSkipNull]
-    public string? EvidenceToken { get; init; } =
+    public string EvidenceToken { get; init; } =
         EvidenceToken;
 
     [MarkoutPropertyName("IL Bytes")]
@@ -1884,15 +1900,47 @@ public record ImplementationProfileRow(
 
     public int Opcodes { get; init; } = Opcodes;
 
+    [MarkoutPropertyName("Basic Blocks")]
+    public int BasicBlocks { get; init; } = BasicBlocks;
+
     public int Branches { get; init; } = Branches;
+
+    [MarkoutPropertyName("Conditional Branches")]
+    public int ConditionalBranches { get; init; } =
+        ConditionalBranches;
+
+    public int Switches { get; init; } = Switches;
+
+    [MarkoutPropertyName("Switch Targets")]
+    public int SwitchTargets { get; init; } = SwitchTargets;
 
     public int Loops { get; init; } = Loops;
 
     public int Exceptions { get; init; } = Exceptions;
 
+    [MarkoutPropertyName("Catch Regions")]
+    public int CatchRegions { get; init; } = CatchRegions;
+
+    [MarkoutPropertyName("Filter Regions")]
+    public int FilterRegions { get; init; } = FilterRegions;
+
+    [MarkoutPropertyName("Finally Regions")]
+    public int FinallyRegions { get; init; } = FinallyRegions;
+
+    [MarkoutPropertyName("Fault Regions")]
+    public int FaultRegions { get; init; } = FaultRegions;
+
+    public int Locals { get; init; } = Locals;
+
     public int Calls { get; init; } = Calls;
 
+    [MarkoutPropertyName("Distinct Callees")]
+    public int DistinctCallees { get; init; } =
+        DistinctCallees;
+
     public int Allocations { get; init; } = Allocations;
+
+    public int Throws { get; init; } = Throws;
 
     [MarkoutSkipNull]
     public string? Async { get; init; } = Async;
@@ -1914,6 +1962,13 @@ public record ImplementationProfileRow(
     [MarkoutSkipNull]
     public string? OverloadTargets { get; init; } =
         OverloadTargets;
+
+    [MarkoutPropertyName("Overload Relationships")]
+    [MarkoutSkipNull]
+    public string? OverloadRelationships { get; init; } =
+        OverloadRelationships;
+
+    public bool Complete { get; init; } = Complete;
 
     [MarkoutSkipNull]
     public string? Incomplete { get; init; } = Incomplete;

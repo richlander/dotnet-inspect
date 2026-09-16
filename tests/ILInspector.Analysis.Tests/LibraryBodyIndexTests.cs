@@ -12273,6 +12273,147 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OverloadRelationships_ExternalAssemblyMemberReferenceDoesNotResolveLocally()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "SelfCollision.dll",
+                EmitExternalScopeCollisionAssembly(),
+                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+        DirectCall call = Assert.Single(index.DirectCalls);
+        Assert.Equal(
+            0x0A000001,
+            call.CalleeDefinitionToken);
+        Assert.Equal(
+            "SelfCollision",
+            call.Callee.DeclaringType.Assembly);
+        Assert.Empty(index.OverloadRelationships());
+    }
+
+    static ImmutableArray<byte>
+        EmitExternalScopeCollisionAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("SelfCollision.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("SelfCollision"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle externalAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("SelfCollision"),
+                new Version(2, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x01, 0x23, 0x45, 0x67,
+                        0x89, 0xab, 0xcd, 0xef,
+                    }),
+                default,
+                default);
+        TypeReferenceHandle externalType =
+            metadata.AddTypeReference(
+                externalAssembly,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString("Sample"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Probe"),
+            metadata.GetOrAddString("Sample"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        BlobHandle noParameters = AddSignature(0x01);
+        BlobHandle takesInt = AddSignature(0x01, 0x08);
+        MemberReferenceHandle externalTarget =
+            metadata.AddMemberReference(
+                externalType,
+                metadata.GetOrAddString("Route"),
+                noParameters);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int targetBody = AddBody(0x2a);
+        var callerIl = new BlobBuilder();
+        callerIl.WriteByte(0x28);
+        callerIl.WriteInt32(
+            MetadataTokens.GetToken(externalTarget));
+        callerIl.WriteByte(0x2a);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerIl),
+            maxStack: 1);
+
+        AddMethod(noParameters, targetBody);
+        AddMethod(takesInt, callerBody);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.CreateRange(image.ToArray());
+
+        BlobHandle AddSignature(
+            byte returnType,
+            params byte[] parameters)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x00);
+            signature.WriteCompressedInteger(
+                parameters.Length);
+            signature.WriteByte(returnType);
+            foreach (byte parameter in parameters)
+                signature.WriteByte(parameter);
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        int AddBody(params byte[] il)
+        {
+            var code = new BlobBuilder();
+            code.WriteBytes(il);
+            return bodyEncoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        }
+
+        void AddMethod(
+            BlobHandle signature,
+            int bodyOffset)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Route"),
+                signature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
+    }
+
+    [Fact]
     public void ImplementationProfiles_AttributeAsyncBodiesToSourceMethods()
     {
         var index = LibraryBodyIndex.Open(

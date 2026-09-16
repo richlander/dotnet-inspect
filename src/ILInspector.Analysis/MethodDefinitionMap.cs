@@ -9,11 +9,20 @@ internal sealed class MethodDefinitionMap
     readonly Dictionary<string, List<MethodIdentity>> _methodsByKey =
         new(StringComparer.Ordinal);
     readonly Dictionary<string, List<MethodIdentity>> _methodsByDeclaringTypeAndName = new(StringComparer.Ordinal);
+    readonly AssemblyReferenceIdentity? _currentAssembly;
 
     MethodDefinitionMap(ImmutableArray<MethodIdentity> methods)
     {
         foreach (var method in methods)
         {
+            if (_currentAssembly is null
+                && Definition(method.DeclaringType).Resolution?.Origin
+                    is TypeReferenceOrigin.CurrentAssembly
+                    { Assembly: { } currentAssembly })
+            {
+                _currentAssembly = currentAssembly;
+            }
+
             _methodTokens.Add(method.MetadataToken);
             string key = Key(
                 method.DeclaringType,
@@ -43,6 +52,11 @@ internal sealed class MethodDefinitionMap
             return call.CalleeDefinitionToken;
         if (call.Callee.Kind == MemberKind.Unsupported)
             return 0;
+        if (!CanResolveToCurrentModule(
+                call.Callee.DeclaringType))
+        {
+            return 0;
+        }
         ImmutableArray<TypeRef> requiredParameters =
             call.Callee.RequiredParameterPrefix(
                 call.Callee.OpenSignatureParameters);
@@ -94,6 +108,26 @@ internal sealed class MethodDefinitionMap
 
         return resolvedToken;
     }
+
+    bool CanResolveToCurrentModule(TypeRef type)
+    {
+        TypeReferenceOrigin? origin =
+            Definition(type).Resolution?.Origin;
+        return origin switch
+        {
+            null => true,
+            TypeReferenceOrigin.CurrentAssembly => true,
+            TypeReferenceOrigin.AssemblyReference reference =>
+                _currentAssembly is { } current
+                && reference.Assembly.IsEquivalentTo(current),
+            _ => false,
+        };
+    }
+
+    static TypeRef Definition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
 
     static bool LocalSignatureMatches(
         MethodIdentity candidate,

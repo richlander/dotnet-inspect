@@ -2863,11 +2863,21 @@ public static class ApiOutputFormatter
                 profile.Method.Name,
                 profile.Method.ParameterTypes,
                 []);
-        string? overloadTargets = overloadRelationships.Count == 0
+        Analysis.OverloadCallRelationship[] orderedRelationships =
+        [
+            .. overloadRelationships
+                .OrderBy(relationship =>
+                    relationship.ILOffset)
+                .ThenBy(relationship =>
+                    relationship.Callee.MetadataToken)
+                .ThenBy(relationship =>
+                    relationship.Kind),
+        ];
+        string? overloadTargets = orderedRelationships.Length == 0
             ? null
             : string.Join(
                 ", ",
-                overloadRelationships
+                orderedRelationships
                     .Select(relationship =>
                         MarkoutInline.Code(FormatMember(
                             null,
@@ -2875,34 +2885,59 @@ public static class ApiOutputFormatter
                             relationship.Callee.ParameterTypes,
                             [])))
                     .Distinct(StringComparer.Ordinal));
+        string? exactRelationships =
+            orderedRelationships.Length == 0
+                ? null
+                : string.Join(
+                    ", ",
+                    orderedRelationships.Select(
+                        relationship =>
+                            $"caller=0x{relationship.Caller.MetadataToken:x8};"
+                            + $"callee=0x{relationship.Callee.MetadataToken:x8};"
+                            + $"evidence=0x{relationship.EvidenceMethod.MetadataToken:x8};"
+                            + $"offset=IL_{relationship.ILOffset:X4};"
+                            + $"kind={relationship.Kind}"));
 
         return new ImplementationProfileRow(
             MarkoutInline.Code(member),
+            MarkoutInline.Code(
+                $"0x{profile.Method.MetadataToken:x8}"),
             profile.EvidenceMethod == profile.Method
                 ? null
                 : MarkoutInline.Code(
                     FormatMethod(profile.EvidenceMethod)),
-            profile.EvidenceMethod == profile.Method
-                ? null
-                : MarkoutInline.Code(
-                    $"0x{profile.EvidenceMethod.MetadataToken:x8}"),
+            MarkoutInline.Code(
+                $"0x{profile.EvidenceMethod.MetadataToken:x8}"),
             profile.ILBytes,
             profile.InstructionCount,
             profile.DistinctOpcodeCount,
+            profile.BasicBlockCount,
             profile.BranchCount,
+            profile.ConditionalBranchCount,
+            profile.SwitchCount,
+            profile.SwitchTargetCount,
             profile.LoopCount,
             profile.CatchCount
                 + profile.FilterCount
                 + profile.FinallyCount
                 + profile.FaultCount,
+            profile.CatchCount,
+            profile.FilterCount,
+            profile.FinallyCount,
+            profile.FaultCount,
+            profile.LocalCount,
             profile.DirectCallCount,
+            profile.DistinctCalleeCount,
             profile.AllocationCount,
+            profile.ThrowCount,
             profile.Async ? "Yes" : null,
             profile.Unsafe ? "Yes" : null,
             profile.ReflectionCallCount,
             profile.IncomingOverloadCallerCount,
             profile.OutgoingOverloadTargetCount,
             overloadTargets,
+            exactRelationships,
+            profile.IsComplete,
             profile.IsComplete
                 ? null
                 : string.Join("; ", profile.IncompleteReasons),

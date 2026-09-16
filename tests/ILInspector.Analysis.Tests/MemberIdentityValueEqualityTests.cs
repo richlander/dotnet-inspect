@@ -486,6 +486,91 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void MethodDefinitionMap_ExactFallbackRequiresLocalTypeScope()
+    {
+        AssemblyReferenceIdentity currentAssembly = new(
+            "Sample",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Value"]))
+            .Name;
+        TypeRef localOwner = TypeRef.Definition(
+            "Sample",
+            "Sample",
+            "Value",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(
+                    currentAssembly),
+                exactName));
+        TypeRef selfReference = TypeRef.Definition(
+            "Sample",
+            "Sample",
+            "Value",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    currentAssembly),
+                exactName));
+        TypeRef externalCollision = TypeRef.Definition(
+            "Sample",
+            "Sample",
+            "Value",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    currentAssembly with
+                    {
+                        Version = new Version(2, 0, 0, 0),
+                        PublicKeyToken = "0123456789abcdef",
+                    }),
+                exactName));
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            localOwner,
+            "Route",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            localOwner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        MethodDefinitionMap map =
+            MethodDefinitionMap.Create([target, caller]);
+
+        Assert.Equal(
+            target.MetadataToken,
+            map.Resolve(Call(selfReference)));
+        Assert.Equal(
+            0,
+            map.Resolve(Call(externalCollision)));
+
+        DirectCall Call(TypeRef declaringType) =>
+            new(
+                caller,
+                new MemberRef(
+                    declaringType,
+                    "Route",
+                    [],
+                    TypeRef.CoreLib("System", "Void"),
+                    MemberKind.Method),
+                0,
+                0x0A000001,
+                0x0A000001,
+                CallKind.Call);
+    }
+
+    [Fact]
     public void MemberPattern_ConversionReturnUsesExactRetainedIdentity()
     {
         TypeRef owner =
