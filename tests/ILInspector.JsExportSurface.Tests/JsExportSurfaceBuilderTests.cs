@@ -2264,7 +2264,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(22, surface.Records.Count);
+        Assert.Equal(23, surface.Records.Count);
         Assert.Contains(nameof(ByteEnvelopeDto), recordNames);
         Assert.Contains(nameof(BytePayloadDto), recordNames);
         Assert.Contains(nameof(CustomNamedDto), recordNames);
@@ -2284,6 +2284,7 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("DirectionalAccessorInputDto", recordNames);
         Assert.Contains("DirectionalRoundTripDto", recordNames);
         Assert.Contains("DirectionalNote", recordNames);
+        Assert.Contains("DirectionalConditionalNote", recordNames);
         Assert.Contains(nameof(ClosedGenericRootDto), recordNames);
         Assert.Contains(nameof(ContextSerializationOnlyDto), recordNames);
         Assert.Contains(nameof(MetadataOverrideDto), recordNames);
@@ -4773,6 +4774,9 @@ public sealed class JsExportSurfaceBuilderTests
     [InlineData(
         nameof(DirectionalNote),
         JsonWireDirection.Serialize)]
+    [InlineData(
+        nameof(DirectionalConditionalNote),
+        JsonWireDirection.Serialize)]
     public void Build_RecordsSerializeOnlyDirectionForReturnOnlyDto(
         string typeName,
         JsonWireDirection expected)
@@ -4795,6 +4799,39 @@ public sealed class JsExportSurfaceBuilderTests
             surface.Records,
             candidate => candidate.Name == typeName);
         Assert.Equal(expected, surface.WireDirections[record]);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(DirectionalOutputDto.DefaultHidden),
+        JsonWireIgnoreCondition.WhenWritingDefault)]
+    [InlineData(
+        nameof(DirectionalOutputDto.NullHidden),
+        JsonWireIgnoreCondition.WhenWritingNull)]
+    public void Build_PreservesConditionalPresenceFromCompiledMetadata(
+        string memberName,
+        JsonWireIgnoreCondition condition)
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurface();
+        ApiType record = Assert.Single(
+            surface.Records,
+            candidate => candidate.Name == nameof(DirectionalOutputDto));
+        ApiMember member = Assert.Single(
+            record.Members,
+            candidate => candidate.Name == memberName);
+
+        Assert.Equal([condition], member.JsonIgnoreConditions);
+        Assert.Equal(
+            JsonWireMemberPresence.Conditional,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Serialize));
+        Assert.Equal(
+            JsonWireMemberPresence.Present,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Deserialize));
     }
 
     /// <summary>

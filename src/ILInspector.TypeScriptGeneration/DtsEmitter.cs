@@ -1083,7 +1083,9 @@ static class DtsEmitter
                     validateName: !converterControlled);
                 ValidateWireMemberAttributes(
                     FormatMemberLocation(type, member),
-                    member);
+                    member,
+                    assemblyIdentity,
+                    declaredTypesByScopedIdentity);
             }
 
             foreach (FilteredJsonPropertyNameFact fact
@@ -1175,7 +1177,10 @@ static class DtsEmitter
     /// </remarks>
     static void ValidateWireMemberAttributes(
         string location,
-        ApiMember member)
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity)
     {
         if (member.JsonIgnoreConditions.Contains(null))
         {
@@ -1194,6 +1199,25 @@ static class DtsEmitter
             throw new UnsupportedWireContractException(
                 location,
                 "[JsonInclude] metadata could not be decoded");
+        }
+        if (JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Serialize,
+                assemblyIdentity,
+                declaredTypesByScopedIdentity)
+                == JsonWireMemberPresence.Unsupported
+            || JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Deserialize,
+                assemblyIdentity,
+                declaredTypesByScopedIdentity)
+                == JsonWireMemberPresence.Unsupported)
+        {
+            throw new UnsupportedWireContractException(
+                location,
+                "[JsonIgnore] condition is invalid for the member type, or "
+                + "the member type's null capability could not be "
+                + "authenticated");
         }
     }
 
