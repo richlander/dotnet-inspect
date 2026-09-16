@@ -1753,7 +1753,13 @@ methods this PR changed still compile back faithfully?" The input is the
 per-method artifact from `--emit-corpus-delta`; removed methods are skipped and
 current changed methods are attempted exactly, with `Exact`, `OpcodeDiff`,
 `OperandDiff`, `FidelityUnavailable`, `RecompileFail`, `ContextFail`, and
-`NotFull` buckets. Changed methods on
+`NotFull` buckets. The default raised view resolves each current row against the
+live module, validates its persisted signature, and runs the resulting typed
+method address through product-artifact ReturnToSender with the legacy
+compile-back floor disabled. The report contains one result per supported row;
+missing native output and assembly-context failures remain explicit. Passing
+`--lowered` selects the labelled legacy whole-module evaluator because the
+product artifact API does not yet own a lowered-body request. Changed methods on
 **nested types** are matched through their declaring type (`Outer.Inner`), so a
 risky PR's nested-type changes are measured rather than silently dropped.
 Compiler-synthesized rows the skeleton can never recompile — regex
@@ -1765,7 +1771,9 @@ miss: most often a **stale delta** whose method signature has drifted from the
 current corpus build (e.g. a return type changed since the snapshot), so the
 exact method no longer exists to attempt.
 
-*Reconstruction-closure (cluster) capture* (`CB_CLUSTER=1`, opt-in). The
+*Lowered reconstruction-closure (cluster) capture* (`CB_CLUSTER=1`, opt-in).
+This applies to the retained `--lowered` legacy path; raised changed-method
+fidelity uses product-artifact RTS instead. The
 whole-module skeleton is all-or-nothing: because the target assembly cannot be
 referenced (the reconstructed type would collide with it), **every** top-level
 type must be stubbed, so a single un-reconstructable sibling type — an unrelated
@@ -1804,8 +1812,8 @@ ordinary closure stall. Return-to-sender failures use the same reason shape in
 their `Detail`, making extractor coverage gaps visible in JSON and summary
 output without enabling debug logging.
 
-Each row carries its capture provenance (whole-module, cluster-rescued, or
-cluster-bailed), and the changed-method report prints the segmented
+Each lowered legacy row carries its capture provenance (whole-module,
+cluster-rescued, or cluster-bailed), and that changed-method report prints the segmented
 **safely-capturable bands** — checkable whole-module, checkable cluster-rescued,
 and not-safely-capturable — so a go/no-go comment can separate the rows it may
 cite as compile-back evidence from the rows it must not count as passing. The
