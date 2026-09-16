@@ -37,7 +37,7 @@ public class PackageQueryCliTests
             PackageQuery.ToolV1FacetId,
             PackageQuery.ToolV2FacetId,
         };
-        Assert.Equal(expected, PackageQueryOptions.QueryFacet.Values);
+        Assert.Equal(expected, PackageQueryOptions.QueryKey.Values);
         foreach (string facet in expected)
         {
             Assert.True(

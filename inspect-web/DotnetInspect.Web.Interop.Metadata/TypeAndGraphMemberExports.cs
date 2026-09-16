@@ -431,7 +431,7 @@ public static partial class MetadataExports
         ResolveTypeDependencyRows(RowQueryIntent intent)
     {
         RowQueryResolutionResult<TypeDependencyRelationship> result =
-            TypeDependencyRowQuery.Resolve(intent);
+            TypeDependencyVocabulary.Resolve(intent);
         return result.Plan
             ?? throw new InvalidOperationException(
                 "The canonical Browser Type Dependency row query "

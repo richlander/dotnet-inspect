@@ -155,7 +155,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                                         new RowQueryValueToken(
                                             "Interface")),
                                 ],
-                                RowQueryOrderIntent.Fields(
+                                RowQueryOrderIntent.Keys(
                                     [
                                         new RowQueryOrderTermIntent(
                                             "Target",
@@ -182,7 +182,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         ResolveAuthenticTypeDependencyQuery(RowQueryIntent intent)
     {
         RowQueryResolutionResult<TypeDependencyRelationship> result =
-            TypeDependencyRowQuery.Resolve(intent);
+            TypeDependencyVocabulary.Resolve(intent);
         return result.Plan
             ?? throw new Xunit.Sdk.XunitException(
                 $"Expected Type Dependency query to resolve: "

@@ -3,37 +3,37 @@ using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Sections;
 
-internal sealed record RowQueryFacetValuePresentation(
+internal sealed record RowQueryKeyValuePresentation(
     string ValueKind,
     ImmutableArray<string> Values,
     string ExampleValue);
 
-internal static class RowQueryFacetProjection
+internal static class RowQueryKeyProjection
 {
-    internal static ImmutableArray<SectionQueryFacet> Create<TRow>(
-        RowQuerySchema<TRow> schema,
+    internal static ImmutableArray<SectionQueryKey> Create<TRow>(
+        RowQueryVocabulary<TRow> vocabulary,
         Func<
-            RowQueryField<TRow>,
-            RowQueryFacetValuePresentation> valuePresentation,
+            RowQueryKey<TRow>,
+            RowQueryKeyValuePresentation> valuePresentation,
         IReadOnlyList<RowQueryNamedOrder<TRow>> namedOrders)
     {
-        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(vocabulary);
         ArgumentNullException.ThrowIfNull(valuePresentation);
         ArgumentNullException.ThrowIfNull(namedOrders);
 
-        var facets = ImmutableArray.CreateBuilder<SectionQueryFacet>();
+        var projectedKeys = ImmutableArray.CreateBuilder<SectionQueryKey>();
         var keys = new HashSet<string>(StringComparer.Ordinal);
-        foreach (RowQueryField<TRow> field in schema.Fields)
+        foreach (RowQueryKey<TRow> key in vocabulary.Keys)
         {
-            bool filterable = field.Operators.Count > 0;
-            if (!filterable && !field.SupportsOrdering)
+            bool filterable = key.Operators.Count > 0;
+            if (!filterable && !key.SupportsOrdering)
                 continue;
 
-            RowQueryFacetValuePresentation? presentation =
+            RowQueryKeyValuePresentation? presentation =
                 filterable
-                    ? valuePresentation(field)
+                    ? valuePresentation(key)
                         ?? throw new InvalidOperationException(
-                            $"Query facet {field.Key} has no value presentation.")
+                            $"Query facet {key.Key} has no value presentation.")
                     : null;
             if (presentation is not null)
             {
@@ -44,43 +44,43 @@ internal static class RowQueryFacetProjection
             }
 
             Add(
-                facets,
+                projectedKeys,
                 keys,
                 new(
-                    field.Key,
+                    key.Key,
                     [
                         .. filterable
                             ? new[] { "--where" }
                             : [],
-                        .. field.SupportsOrdering
+                        .. key.SupportsOrdering
                             ? new[] { "--order-by", "--top" }
                             : [],
                     ],
-                    [.. field.Operators.Select(Comparison)],
+                    [.. key.Operators.Select(Comparison)],
                     presentation?.ValueKind ?? "order",
                     presentation?.Values ?? [],
                     filterable
-                        ? $"--where \"{field.Key}"
-                            + $"{ExampleComparison(field)}"
+                        ? $"--where \"{key.Key}"
+                            + $"{ExampleComparison(key)}"
                             + $"{presentation!.ExampleValue}\""
-                        : $"--top 10 --order-by \"{field.Key} desc\""));
+                        : $"--top 10 --order-by \"{key.Key} desc\""));
         }
 
         foreach (RowQueryNamedOrder<TRow> namedOrder in namedOrders)
         {
             ArgumentNullException.ThrowIfNull(namedOrder);
-            if (!schema.NamedOrders.Any(
+            if (!vocabulary.NamedOrders.Any(
                     declared => ReferenceEquals(declared, namedOrder)))
             {
                 throw new ArgumentException(
-                    $"Named order {namedOrder.Key} is not declared by the row schema.",
+                    $"Named order {namedOrder.Key} is not declared by the row vocabulary.",
                     nameof(namedOrders));
             }
 
             bool ranking =
                 namedOrder.Purpose is RowQueryOrderPurpose.Ranking;
             Add(
-                facets,
+                projectedKeys,
                 keys,
                 new(
                     namedOrder.Key,
@@ -98,28 +98,28 @@ internal static class RowQueryFacetProjection
                         : $"--order-by \"{namedOrder.Key} asc\""));
         }
 
-        return facets.ToImmutable();
+        return projectedKeys.ToImmutable();
     }
 
     private static void Add(
-        ImmutableArray<SectionQueryFacet>.Builder facets,
+        ImmutableArray<SectionQueryKey>.Builder projectedKeys,
         ISet<string> keys,
-        SectionQueryFacet facet)
+        SectionQueryKey key)
     {
-        if (!keys.Add(facet.Name))
+        if (!keys.Add(key.Name))
         {
             throw new InvalidOperationException(
-                $"Query facet {facet.Name} is duplicated.");
+                $"Query facet {key.Name} is duplicated.");
         }
 
-        facets.Add(facet);
+        projectedKeys.Add(key);
     }
 
     private static string ExampleComparison<TRow>(
-        RowQueryField<TRow> field) =>
-        field.Operators.Contains(RowQueryOperator.GreaterOrEqual)
+        RowQueryKey<TRow> key) =>
+        key.Operators.Contains(RowQueryOperator.GreaterOrEqual)
             ? ">="
-            : Comparison(field.Operators[0]);
+            : Comparison(key.Operators[0]);
 
     internal static string Comparison(RowQueryOperator @operator) =>
         @operator switch

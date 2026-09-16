@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/DotnetInspector.PortableQueries/DotnetInspector.PortableQueries.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.QueryEngine/DotnetInspector.QueryEngine.csproj" />
   </ItemGroup>
 
   <ItemGroup>

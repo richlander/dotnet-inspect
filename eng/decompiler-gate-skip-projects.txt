@@ -57,6 +57,8 @@ fixtures/js-export/TsJsExport.ContextFixtures.Host
 fixtures/js-export/TsJsExport.ContextFixtures.NormalizationComposed
 fixtures/js-export/TsJsExport.ContextFixtures.NormalizationDecomposed
 fixtures/js-export/TsJsExport.ContextFixtures.WrongContract
+fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1
+fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2
 fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures
 fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew
 fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld
@@ -125,6 +127,7 @@ tests/DotnetInspector.PlatformHouse.Packages.Tests
 tests/DotnetInspector.PlatformHouse.Tests
 tests/DotnetInspector.Platforms.Formats.Tests
 tests/DotnetInspector.Platforms.Tests
+tests/DotnetInspector.PortableQueries.Tests
 tests/DotnetInspector.Presentation.Tests
 tests/DotnetInspector.Queries.Consumer
 tests/DotnetInspector.Queries.Tests

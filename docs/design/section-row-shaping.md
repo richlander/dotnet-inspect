@@ -41,6 +41,12 @@ L2 `DotnetInspector.Sections` is the authority that binds resolved row-shaping
 intent to owner-declared logical row sets and returns typed row or reduction
 outcomes.
 
+`RowSelectionIntent` is physically carried by
+`DotnetInspector.QueryEngine` because `RowQueryIntent` embeds it and row-query
+resolution consumes it. This design retains ownership of that unresolved
+selection intent. Declared-row-set binding and the `RowsCohort*` family remain
+in `DotnetInspector.Sections`.
+
 This design owns:
 
 - the typed unresolved semantic-selection operation intent received from

@@ -2,8 +2,9 @@
 
 ## Status
 
-**Partly implemented.** `DotnetInspector.PortableQueries` carries the intent
-type, identity texts, semantic orders, and canonical payload codec.
+**Partly implemented.** `DotnetInspector.QueryEngine` carries the intent type,
+identity texts, semantic orders, and canonical payload codec under the
+existing `DotnetInspector.PortableQueries` namespace.
 **Resolution is not implemented**: no vocabulary binds an intent yet, so every
 gate in [Required gates](#required-gates) remains a requirement on that work
 rather than a property enforced today, and statements below about what a
