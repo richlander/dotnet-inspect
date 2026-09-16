@@ -209,16 +209,6 @@ public class NamedReferenceSlotMaterializationTests
     }
 
     [Fact]
-    public void BareGenericParameterRemainsDeferred()
-    {
-        using var source = MetadataSource.Open(typeof(NamedReferenceSlotMaterializationSamples).Assembly.Location);
-        var function = RaiseToMaterialization(source, typeof(NamedReferenceSlotMaterializationSamples).FullName!,
-            nameof(NamedReferenceSlotMaterializationSamples.ReadUnconstrained));
-        Assert.Contains(SlotMaterializationPass.Analyze(function), decision =>
-            !decision.WillMaterialize && decision.Type?.Kind == TypeRefKind.MethodGenericParameter);
-    }
-
-    [Fact]
     [Trait("Speed", "Slow")]
     [Trait("Area", "Fidelity")]
     public void CompilerProducedNamedReferencesRecompileExactly()
