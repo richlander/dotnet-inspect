@@ -17,6 +17,9 @@
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
+    <!-- LibraryMetadata owns exact Library-bound correspondence and constructs
+         Metadata's existing projection currency from the same borrowed bytes. -->
+    <InternalsVisibleTo Include="DotnetInspector.LibraryMetadata" />
     <!-- The renderer tests cross a subsystem boundary to build projection
          fixtures with the same containment policy the projector applies,
          rather than duplicating TextPolicy.Field in test code. This grants
