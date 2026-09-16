@@ -550,10 +550,12 @@ turns the other's incompleteness into success-shaped absence.
 
 ## Sections and disclosure
 
-The command uses ordinary verbosity and section selection instead of adding
-`--evidence` or `--details`. Those proposed flags would duplicate an axis
-already owned by progressive disclosure and would not say which evidence is
-wanted.
+The asset dependency route uses ordinary verbosity and section selection
+instead of adding `--evidence` or `--details`. At the target placement,
+`graph dependencies` retains this sectioned Dependency document. `type graph`
+instead composes the selected-Type producer result into the Inspection Graph
+document. The proposed flags would duplicate an axis already owned by
+progressive disclosure and would not say which evidence is wanted.
 
 The retail base section ladder is:
 
@@ -564,8 +566,9 @@ The retail base section ladder is:
 | `Pruning` | One direct declaration's pruning applicability or candidate-bound policy result. | Explicit only |
 | `Failures` | One typed root, acquisition, projection, or traversal failure occurrence. | Normal when present |
 
-`Dependency Graph` is the command's single high-value minimal section. It
-preserves the current reason to invoke `depends`: seeing what depends on what.
+`Dependency Graph` is the asset route's single high-value minimal section. It
+preserves the current reason to invoke the Dependency operation: seeing what
+depends on what.
 
 `-v:n` adds normalized direct dependency evidence and any failures needed to
 interpret the result. `Pruning` is unbounded because it may read an installed
@@ -579,14 +582,14 @@ declaration evidence without traversal selects the public evidence and failure
 sections it needs:
 
 ```console
-dotnet-inspect depends --project ./App.csproj \
+dotnet-inspect graph dependencies --project ./App.csproj \
   -S Dependencies -S Failures
 ```
 
 Pruning policy evidence is a separate explicit projection:
 
 ```console
-dotnet-inspect depends --package Some.Package@1.2.3 \
+dotnet-inspect graph dependencies --package Some.Package@1.2.3 \
   --tfm net11.0 -S Pruning
 ```
 
@@ -620,10 +623,10 @@ typed JSON section output. Their descriptor, view, and owner-issued evidence
 types may remain compiled where the retail graph and dependency projections
 reuse them; those types do not make a section public.
 
-For `depends`, `@Dependencies` is the base category. The same category name may
-have different authored membership in another command; package inspection
-continues to use its own dependency-section membership. Automatic verbosity
-selects only the `depends` base category.
+For the asset dependency route, `@Dependencies` is the base category. The same
+category name may have different authored membership in another command;
+package inspection continues to use its own direct dependency-section
+membership. Automatic verbosity selects only the asset route's base category.
 
 `Dependency Graph` declares conditional acquisition cost. It is network-free
 for restored assets and already-admitted local facts, and package-acquiring
@@ -1020,11 +1023,11 @@ historical. This document is the sole command owner.
 
 ## Demonstration
 
-The target project experience combines traversal and evidence without changing
-commands:
+The target asset-root experience combines traversal and evidence under
+`graph dependencies`:
 
 ```console
-$ dotnet-inspect depends --project ./src/App/App.csproj \
+$ dotnet-inspect graph dependencies --project ./src/App/App.csproj \
     --depth 2 -S "Dependency Graph" -S Dependencies
 
 # App dependencies
@@ -1047,11 +1050,12 @@ App
 | App | net10.0 | Microsoft.Extensions.Hosting | 10.* | 10.0.0 |
 ```
 
-The neighboring direct-only package case uses the same command and graph row
+The neighboring direct-only package case uses the same route and graph row
 currency:
 
 ```console
-dotnet-inspect depends --package Microsoft.Extensions.Hosting@10.0.0 \
+dotnet-inspect graph dependencies \
+  --package Microsoft.Extensions.Hosting@10.0.0 \
   --depth 1 --table
 ```
 
@@ -1072,7 +1076,7 @@ The explicit pruning projection shows direct-declaration policy evidence
 without changing that graph:
 
 ```console
-$ dotnet-inspect depends --package Some.Package@1.2.3 \
+$ dotnet-inspect graph dependencies --package Some.Package@1.2.3 \
     --tfm net11.0 -S Pruning
 
 ## Pruning
@@ -1086,6 +1090,18 @@ $ dotnet-inspect depends --package Some.Package@1.2.3 \
 The second row is not a downgrade: `4.3.2` remains the package candidate, and
 the older platform-supplied version explains why the package path is retained.
 
+The selected-Type workflow instead begins with its local subject:
+
+```console
+dotnet-inspect type graph System.Int128 --platform net10.0 \
+  --depth 2 --table
+```
+
+Package, library, project, and platform options remain search scope for this
+route. They do not become asset roots, and its base-type/interface relationships
+compose into the Inspection Graph document rather than the asset Dependency
+document above.
+
 ## Evidence and gates
 
 The implementation slices must provide focused gates. Product correctness
@@ -1094,8 +1110,8 @@ targeted Debug-build probe.
 
 | Claim | Gate |
 | --- | --- |
-| Type-present options remain source scopes; type-absent options become roots; mode-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`, plus rejected cross-mode gestures. |
-| One positional type gesture resolves to one owner-issued root or a typed ambiguity/failure. | Multi-source type fixture with equal display names and distinct typed identities. |
+| `type graph` source options remain search scopes; `graph dependencies` options become asset roots; route-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`, plus rejected cross-route gestures. |
+| One `type graph` subject resolves to one owner-issued seed or a typed ambiguity/failure. | Multi-source type fixture with equal display names and distinct typed identities. |
 | `.csproj` and direct assets with identical bytes produce equivalent graph and evidence identities except locator provenance. | CLI tests over the same checked-in restored assets fixture through both locators. |
 | Restored-project depth is measured from the explicit project through project-reference and package edges. | #5998 fixture containing `App -> ProjectB -> PackageC`, asserted at depths 1, 2, and unbounded without opening package manifests. |
 | Missing restored assets fail visibly without changing valid sibling results. | Multi-root CLI test with one unrestored project and one valid root. |
@@ -1114,7 +1130,7 @@ targeted Debug-build probe.
 | Retail builds expose only sections with documented consumer scenarios. | Release catalog, category, exact and wildcard selection, discovery/schema, verbosity, count-order, and typed JSON absence tests; Debug exact-selection tests for the diagnostic farm team. |
 | Partial or truncated evidence never renders or counts as complete. | Multi-root and package-prefix completion tests across Markdown and typed JSON. |
 | Source-authored labels remain inert and never supply graph identity. | Existing hostile-text fixtures extended through graph, evidence, and JSON sinks. |
-| The removed command cannot enter implicit package routing. | Product-entry reservation test for `dependency-evidence`. |
+| Removed commands cannot enter implicit package routing or forward obsolete input. | Product-entry reservation tests for `dependency-evidence` and `depends`, including selected-Type and asset-root guidance. |
 
 Documentation-only #5993 is gated by Markdown lint. These named product gates
 become obligations of the implementation slices; they do not claim current

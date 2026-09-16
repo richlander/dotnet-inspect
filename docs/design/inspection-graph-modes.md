@@ -173,8 +173,8 @@ The placement path has **9 steps**:
 | 3 | Top-level Workspace reopening from canonical packets without another packet grammar. |
 | 4 | `member graph`, followed by retirement of the duplicate member `Call Graph` section after equivalent direct Calls/Callers, traversal, fields, limits, failures, and rendering coverage. |
 | 5 | `type graph` with the Dependency-backed base-type and interface relationship family, preserving the current selected-Type search scope, traversal, evidence, failure, and output contracts before retiring that `depends` mode. |
-| 6 | `library graph` with one explicitly supported relationship family and owner-defined local scope. |
-| 7 | `package graph` with one explicitly supported relationship family and owner-defined local scope. |
+| 6 | `library graph` with the existing resolved assembly-reference traversal, followed by retirement of duplicate `References --tree` traversal after equivalent edge, unresolved-target, limit, failure, and rendering coverage. |
+| 7 | `package graph` with the existing package-dependency traversal for one selected Package, followed by retirement of the duplicate subject `Dependency Graph` section after equivalent declaration, edge, limit, failure, and rendering coverage. |
 | 8 | `graph dependencies` over the existing Dependency-owned heterogeneous asset-root request and sectioned result, preserving complete asset-mode parity before retiring that `depends` mode. |
 | 9 | Help, discovery, sharing/replay, completion, examples, relationship-skill adoption, and Type- and Package-oriented production demos. |
 
@@ -182,10 +182,11 @@ Steps 4-7 are separate subject-owner adoptions and may use separate issues and
 PRs. No subject child advertises Graph before its relationship, local-scope,
 completeness, and failure contracts are executable. Step 4 removes the old
 section only after replacement parity. Step 5 specifically closes the
-selected-Type Dependency workflow; steps 6-7 do not require every relationship
-family before one coherent local Graph can ship. Step 8 retains asset-mode
-Dependency ownership and does not depend on steps 1-3. `depends` retires only
-after steps 5, 8, and the applicable step 9 discovery and obsolete-token work.
+selected-Type Dependency workflow. Steps 6-7 close the initial local Library
+and Package traversal routes and retire their duplicate section traversal only
+after parity. Step 8 retains asset-mode Dependency ownership and does not
+depend on steps 1-3. `depends` retires only after steps 5, 8, and the applicable
+step 9 discovery and obsolete-token work.
 
 The required pathological cases are a local subject whose selected
 relationship has no edges, a Workspace packet containing disconnected
