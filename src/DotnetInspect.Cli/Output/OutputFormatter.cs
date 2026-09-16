@@ -154,7 +154,7 @@ public static class OutputFormatter
         if (columns is { Length: > 0 }
             && fields is { Length: > 0 })
         {
-            manifest.MergeFieldsFrom(Capture(null, fields));
+            manifest.MergeRenderedFieldTablesFrom(Capture(null, fields));
         }
 
         return manifest;

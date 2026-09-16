@@ -2324,6 +2324,31 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void RenderedSectionManifest_MergesReplayedFieldsOnlyForRenderedTables()
+    {
+        var projected = new RenderedSectionManifest();
+        projected.RecordTable(null, ["Signature"]);
+        projected.RecordTable("Visible", ["Signature"]);
+
+        var fieldReplay = new RenderedSectionManifest();
+        fieldReplay.RecordField(null, "Root Field");
+        fieldReplay.RecordField("Visible", "Visible Field");
+        fieldReplay.RecordField("Suppressed", "Suppressed Field");
+
+        projected.MergeRenderedFieldTablesFrom(fieldReplay);
+
+        Assert.Contains(
+            "Root Field",
+            projected.GetRootRenderedNames("field"));
+        Assert.Contains(
+            "Visible Field",
+            projected.GetSectionRenderedNames("field", "Visible"));
+        Assert.DoesNotContain(
+            "Suppressed Field",
+            projected.GetSectionRenderedNames("field", "Suppressed"));
+    }
+
+    [Fact]
     public void RenderManifestFormatter_UsesFieldColumnIdentityAfterReordering()
     {
         var schema = new DocumentSchema()

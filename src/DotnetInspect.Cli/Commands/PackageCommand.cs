@@ -1366,7 +1366,7 @@ public class PackageCommand
                             fieldWriterOptions,
                             options.Tsv,
                             options.Jsonl);
-                        manifest.MergeFieldsFrom(
+                        manifest.MergeRenderedFieldTablesFrom(
                             RenderManifestFormatter.Capture(
                                 view,
                                 InspectionContext.Default,
@@ -1421,7 +1421,7 @@ public class PackageCommand
                                 result,
                                 options with { Columns = null },
                                 pipeline);
-                        manifest.MergeFieldsFrom(
+                        manifest.MergeRenderedFieldTablesFrom(
                             RenderManifestFormatter.Capture(
                                 view,
                                 InspectionContext.Default,

@@ -1040,6 +1040,37 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--markdown")]
     [InlineData("--plaintext")]
+    public async Task Type_FieldReplayDoesNotCreditProjectedAwayFieldTable(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "Type Info,Methods",
+            "--fields",
+            "Interfaces",
+            "--columns",
+            "Signature",
+            "--rows",
+            "1",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Methods", output);
+        Assert.DoesNotContain("Type Info", output);
+        Assert.Contains(
+            "Note: 1 field has no data: Interfaces",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
     public async Task Type_NonTabularUnknownFieldWithoutSectionFails(
         string format)
     {

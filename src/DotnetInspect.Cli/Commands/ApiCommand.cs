@@ -1906,7 +1906,7 @@ public class ApiCommand
                         fieldOptions);
                 fieldWriterOptions.RowWindow =
                     RowWindow.ToMarkout(options.Rows);
-                manifest.MergeFieldsFrom(
+                manifest.MergeRenderedFieldTablesFrom(
                     RenderManifestFormatter.Capture(
                         view,
                         ApiViewContext.Default,
@@ -3265,7 +3265,7 @@ public class ApiCommand
                         view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                         explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, fieldManifestWriter);
                     fieldManifestWriter.Flush();
-                    projectionManifest.MergeFieldsFrom(
+                    projectionManifest.MergeRenderedFieldTablesFrom(
                         fieldFormatter.Manifest);
                 }
             }
@@ -3375,7 +3375,8 @@ public class ApiCommand
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, fieldManifestWriter);
                 fieldManifestWriter.Flush();
-                projectionManifest.MergeFieldsFrom(fieldFormatter.Manifest);
+                projectionManifest.MergeRenderedFieldTablesFrom(
+                    fieldFormatter.Manifest);
             }
 
             if (!DiagnoseProjection(
@@ -3427,11 +3428,26 @@ public class ApiCommand
             return false;
 
         MarkoutProjection? projection = writerOptions.Projection;
-        if (projection is null)
+        if (projection?.IncludeColumns is null)
             return true;
 
         var table = GraphLowering.ToEdgeTable(graph);
-        return projection.TryResolveColumns(table.Headers.AsSpan(), out _);
+        if (!projection.TryResolveColumns(
+                table.Headers.AsSpan(),
+                out ColumnProjectionResolution resolution))
+        {
+            return false;
+        }
+
+        return resolution.ColumnMap.Any(index =>
+            index >= 0
+            && index < table.Headers.Length
+            && (table.Headers[index].Equals(
+                    "From",
+                    StringComparison.OrdinalIgnoreCase)
+                || table.Headers[index].Equals(
+                    "To",
+                    StringComparison.OrdinalIgnoreCase)));
     }
 
     private static async Task<int> PrintApiProjectionAsync(TypeView view, ApiOptions options)

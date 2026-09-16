@@ -167,11 +167,17 @@ internal sealed class RenderedSectionManifest
         }
     }
 
-    internal void MergeFieldsFrom(RenderedSectionManifest source)
+    internal void MergeRenderedFieldTablesFrom(
+        RenderedSectionManifest source)
     {
-        _rootFields.UnionWith(source._rootFields);
+        if (_rootTableColumns.Count > 0)
+            _rootFields.UnionWith(source._rootFields);
+
         foreach ((string section, HashSet<string> fields) in source._fields)
-            GetOrCreateFields(section).UnionWith(fields);
+        {
+            if (_tableColumns.ContainsKey(section))
+                GetOrCreateFields(section).UnionWith(fields);
+        }
     }
 
     private HashSet<string> GetOrCreateFields(string? section)
