@@ -59,6 +59,23 @@ public sealed class PackageSourceOperationLease : IDisposable
     internal bool OwnsCandidate(PackageAcquisitionCandidate candidate) =>
         _generation.OwnsCandidate(candidate);
 
+    /// <summary>
+    /// Validates that every candidate in a frozen population belongs to this
+    /// operation's package-source generation.
+    /// </summary>
+    public void ValidatePopulationOwnership(
+        PackageAcquisitionPopulation population)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        using ActiveWorkRegistration work = StartWork();
+        if (population.Candidates.Any(
+                candidate => !work.Generation.OwnsCandidate(candidate)))
+        {
+            throw new InvalidOperationException(
+                "The package acquisition population belongs to another Package Source root generation.");
+        }
+    }
+
     public ValueTask<PackageAcquisitionCandidateResult> ResolvePinnedCandidateAsync(
         IPackageSourceAuthorization sourceAuthorization,
         PackageSourceCoordinate coordinate)

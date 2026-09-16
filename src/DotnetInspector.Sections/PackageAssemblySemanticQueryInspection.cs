@@ -39,11 +39,14 @@ public static class PackageAssemblySemanticQueryInspection
                 sourceOperation,
                 payloadAcquisition,
                 cancellationToken);
+            sourceOperation.CancellationToken.ThrowIfCancellationRequested();
             NuGetFetch.PackageSourceTimeout? deadline =
                 PackageAssemblySemanticQueryCompletion.OperationDeadline(
                     request.Population);
             if (deadline is not null)
             {
+                sourceOperation.ValidatePopulationOwnership(
+                    request.Population);
                 return CreateEnvelope(
                     new PackageAssemblySemanticQueryDocument(
                         request.Population,

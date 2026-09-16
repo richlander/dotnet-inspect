@@ -562,6 +562,70 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     [Fact]
+    public async Task OperationDeadlinePreservesCallerCancellation()
+    {
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        await using var fixture = new SemanticFindSourceFixture();
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(cancellation.Token);
+        PackageAcquisitionPopulation admitted =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                ["Contoso.Cancelled"]);
+        var population = OperationDeadlinePopulation(
+            admitted.Candidates);
+        cancellation.Cancel();
+
+        OperationCanceledException failure =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                    await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                        Request(population),
+                        operation,
+                        fixture.PayloadAcquisition,
+                        cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Throws<ObjectDisposedException>(operation.ThrowIfExpired);
+        Assert.Equal(0, fixture.Client.PackageRequests);
+    }
+
+    [Fact]
+    public async Task OperationDeadlineRejectsForeignPopulation()
+    {
+        await using var owner = new SemanticFindSourceFixture();
+        await using var foreign = new SemanticFindSourceFixture();
+        PackageSourceOperationLease ownerOperation =
+            owner.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation admitted =
+            await owner.ResolvePopulationAsync(
+                ownerOperation,
+                ["Contoso.Foreign"]);
+        PackageAcquisitionPopulation population =
+            OperationDeadlinePopulation(admitted.Candidates);
+        PackageSourceOperationLease foreignOperation =
+            foreign.IssueOperation(
+                TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () =>
+                await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                    Request(population),
+                    foreignOperation,
+                    foreign.PayloadAcquisition,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Throws<ObjectDisposedException>(
+            foreignOperation.ThrowIfExpired);
+        ownerOperation.ThrowIfExpired();
+        ownerOperation.Dispose();
+        Assert.Equal(0, foreign.Client.PackageRequests);
+    }
+
+    [Fact]
     public async Task CancellationBeforeAcquisitionPublishesNoOutcomeAndReleasesOperation()
     {
         using var cancellation =
@@ -1008,6 +1072,28 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 PackageAssemblyPatterns.StringLiteralContains,
                 Marker),
             budget);
+
+    private static PackageAcquisitionPopulation OperationDeadlinePopulation(
+        ImmutableArray<PackageAcquisitionCandidate> candidates) =>
+        new(
+            requestedCandidates: Math.Min(
+                PackageAcquisitionPopulation.MaximumCandidates,
+                candidates.Length + 1),
+            candidates,
+            [
+                PackageAcquisitionPopulationFailure.ForSource(
+                    new PackageAuthorityFailure(
+                        InertString.Empty,
+                        PackageAuthorityFailureKind.Timeout,
+                        "Package selection exhausted its operation deadline.")
+                    {
+                        Timeout = new(
+                            PackageSourceTimeoutKind.Operation,
+                            PackageAssemblySemanticFindBudget.Default
+                                .MaximumDuration),
+                    }),
+            ],
+            PackageAcquisitionPopulationCompletionKind.SourceFailed);
 
     private static PackageAssemblyEvaluationOutcome Evaluation(
         PackageAssemblySemanticFindCandidateOutcome outcome) =>

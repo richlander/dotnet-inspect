@@ -38,7 +38,8 @@ The operation uses the existing owners in this order:
 3. When population resolution exhausts that deadline, every admitted candidate
    instead receives a typed `NotEvaluated` outcome and the inspection adapter
    constructs the terminal Document without transferring the expired lease to
-   the semantic evaluator.
+   the semantic evaluator. Caller cancellation is observed first, and every
+   admitted candidate must belong to that lease's source-settlement generation.
 4. Each matched candidate becomes one
    `PackageAssemblySemanticQueryResult` containing the exact package
    coordinate, selected library, Root reopening request, and complete typed
@@ -137,6 +138,8 @@ Focused Release gates cover:
 - operation-timeout population failure disclosure before semantic evaluator
   handoff;
 - serialized `notEvaluated` and `operationDeadline` discriminators;
+- caller-cancellation precedence and population/lease ownership on the
+  operation-deadline path;
 - one package Result for a candidate with multiple occurrences;
 - semantic miss, not applicable, acquisition failure, and a later match in one
   five-candidate population;
