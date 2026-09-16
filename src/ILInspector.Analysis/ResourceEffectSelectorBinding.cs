@@ -181,19 +181,23 @@ public abstract class ResourceEffectSelectorBinding
             DirectCallDefinitionResolution.Resolved directCall,
             ImmutableArray<ResolvedResourceEffectGenericBinding>
                 genericBindings,
-            ImmutableArray<ResolvedResourceKindReference> resourceKinds)
+            ImmutableArray<ResolvedResourceKindReference> resourceKinds,
+            DirectCallDefinitionOccurrence? declarationOrigin = null)
             : base(declaration, directCall)
         {
             GenericBindings = genericBindings;
             ResourceKinds = resourceKinds;
+            DeclarationOrigin = declarationOrigin ?? directCall.Definition;
         }
 
         public new DirectCallDefinitionResolution.Resolved DirectCall =>
             (DirectCallDefinitionResolution.Resolved)base.DirectCall;
         public ImmutableArray<ResolvedResourceEffectGenericBinding>
-            GenericBindings { get; }
+            GenericBindings
+        { get; }
         public ImmutableArray<ResolvedResourceKindReference> ResourceKinds
             { get; }
+        internal DirectCallDefinitionOccurrence DeclarationOrigin { get; }
     }
 
     public sealed class Unmatched : ResourceEffectSelectorBinding
@@ -368,7 +372,7 @@ public static class ResourceEffectSelectorBinder
             ResourceEffectSelectorBindingGapKind.DirectCallDefinition,
             gap);
 
-    static bool CouldMatch(
+    internal static bool CouldMatch(
         ResourceEffectMemberSelector selector,
         MemberRef member)
     {
@@ -417,7 +421,7 @@ public static class ResourceEffectSelectorBinder
         return TypeNameCouldMatch(selector.DeclaringType, declaring);
     }
 
-    static bool TypeNameCouldMatch(
+    internal static bool TypeNameCouldMatch(
         ResourceTypeExpression.Named selector,
         TypeRef actual)
     {

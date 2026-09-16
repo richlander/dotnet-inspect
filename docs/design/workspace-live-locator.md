@@ -12,6 +12,11 @@ implemented for loader-issued declaration contexts. The
 [reference-population adapter](#implemented-reference-population-admission)
 adds package-backed reference realizations under
 [#7077](https://github.com/richlander/dotnet-inspect/issues/7077).
+The
+[Package Scope admission adapter](#implemented-package-scope-declaration-admission)
+is implemented under
+[#7198](https://github.com/richlander/dotnet-inspect/issues/7198) for retained
+Browser/Wasm adoption.
 Other population producers and host adoption remain pending. The interaction
 model supplements, rather than certifies, the implementation.
 
@@ -363,8 +368,82 @@ existing unfiltered daily Queries suite. Small-fixture cases are PR-fast.
 The shared [Sections projection](output-shapes.md#reverse-type-declaration-locator-projection)
 consumes the reference alternatives; CLI and TypeScript/Browser production
 adoption remain steps 7 and 8 of the
-[delivery map](reverse-type-locator-adoption.md). Artifact Root/Scope,
-installed-reference, local/project, and other producer adapters remain separate.
+[delivery map](reverse-type-locator-adoption.md). Installed-reference,
+local/project, and other producer adapters remain separate.
+
+## Implemented Package Scope declaration admission
+
+Inspect Web is the first consumer of an active Workspace whose Package Scope
+grows while one resident declaration locator remains active. Scope publication
+continues to mean logical membership only. The Browser host explicitly submits
+one exact current `WorkspacePackageOccurrenceDescriptor` to the Queries-owned
+admission adapter; neither Scope publication nor Artifact Root publication
+implicitly makes an occurrence searchable.
+
+The admission input joins four owner-issued currencies without replacing any
+of them: Workspace identity, Scope occurrence identity, Artifact Root
+correspondence, and physical Root generation. Under Artifact Root composition
+coordination, admission validates that the same open Workspace still owns the
+exact Scope occurrence and that the submitted Ready projection identifies the
+current Root generation. Foreign, removed/root-only, Pending, Failed, stale,
+and closing inputs produce typed admission failures. A point-in-time Scope
+snapshot is evidence for the request, not authority to reopen a historical
+Root.
+
+A successful admission borrows the current Root's already-realized
+reference-preferred surface role. It does not reacquire package content,
+repeat asset selection, create another role realization, or choose an
+implementation participant. One retained Root query lease pins that
+exact generation. One declaration context preserves all selected surface
+participants in Package asset order; each member retains its exact
+asset-to-participant association, selected asset path and target framework,
+Metadata assembly identity, Package coordinate, producer, and assembly
+selection provenance. A Ready Root with no surface role becomes one attributed
+unrealized context carrying the Package selection status rather than a
+complete empty population.
+
+Admission publishes the complete context atomically as one population addition
+and notifies the resident locator only after leaving publication coordination.
+The exact occurrence identity and Root generation form the idempotence key:
+repeating that admission returns its existing result and neither republishes
+the context nor rereads declarations. Equal Package coordinates in distinct
+Scope occurrences remain distinct because coordinate equality never replaces
+the Scope-issued occurrence identity.
+
+The retained Root query lease is live access, not part of the detached receipt
+or locator answer. It allows the existing synchronous scoped Metadata borrow
+to remain lazy until locator demand. Once activated, resident maintenance
+inventories each newly admitted member at most once and reuses prior outcomes
+under the existing bounds. Earlier receipts and answers remain unchanged.
+Removal and replacement policy is not introduced here; an already admitted
+occurrence's exact generation remains pinned under the append-only locator
+lifecycle.
+
+Workspace close first prevents publication and asks locator maintenance to
+stop. It returns every retained Package lease only after that maintenance
+drains, then allows Artifact Root release to complete. Projection-return
+failures join the existing artifact cleanup report. Detached receipts and
+locator results remain usable after close. This ordering uses the existing
+cooperative async lifecycle and introduces no thread, filesystem, assembly
+loading, Browser-private cache, or process-static state.
+
+The focused Release gates for #7198 cover:
+
+| Claim | Gate |
+| --- | --- |
+| Exact current admission, Package/asset order and origin preservation | `PackageScopeDeclarationAdmission_PreservesExactOccurrenceAndSurfaceAssets` |
+| Foreign, removed/root-only, Pending, Failed and stale typed outcomes | `PackageScopeDeclarationAdmission_RejectsInputsWithoutCurrentAuthority` |
+| Repeated exact admission and distinct equal-coordinate occurrences | `PackageScopeDeclarationAdmission_IsIdempotentByOccurrenceAndGeneration` |
+| Lazy first demand, append maintenance and unchanged prior evidence | `PackageScopeDeclarationAdmission_MaintainsResidentLocatorWithoutRescanning` |
+| No-surface selection gap remains attributed | `PackageScopeDeclarationAdmission_PreservesTypedRealizationGap` |
+| Close drains locator work before returning the Root lease | `PackageScopeDeclarationAdmission_CloseReturnsLeaseAfterMaintenance` |
+| Real Package evidence and distinct source choices | `PackageScopeDeclarationAdmission_RealJsonPackagesRemainDistinctChoices` |
+
+The synthetic boundary cases are PR-fast. The real-package gate uses
+`System.Text.Json@10.0.0` and a second source occurrence defining
+`System.Text.Json.JsonSerializer`; it is `Speed=Slow` and remains in daily
+Deep Inspect's unfiltered Queries suite. Browser transport, selection and
+Type/Member navigation remain step 8 rather than becoming Queries behavior.
 
 ## Resident inventories and shared work
 

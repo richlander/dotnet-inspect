@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Routes Inspect Web Package Activity at `/activity`, exposes it beside Query
+  and Workspace with Spotlight as the responsive alternate entry, and retires
+  the `/query` Packages/Activity peer mode while preserving report state,
+  cancellation, Worker operation, bridge, and wire contracts (#7179).
+- **Breaking:** Renames `package changes` to `package activity` and removes the
+  old spelling with direct replacement guidance. Inspect Web now presents the
+  same report as **Package Activity** while retaining the existing
+  `package-changes` Worker operation, bridge route, wire contracts, and report
+  semantics (#7175).
 - **Breaking:** Corrects Type `find` match vocabulary so direct non-glob
   discoveries emit `Direct` in typed JSON and `direct` in rendered output
   instead of the misleading `Exact`. Matching remains lenient and one-to-many;

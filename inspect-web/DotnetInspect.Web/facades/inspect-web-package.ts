@@ -6,6 +6,14 @@ export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Am
 
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
 
+export type BrowserExactLibraryApiAssetKind = number;
+
+export type BrowserExactLibraryApiInspectionFailureKind = number;
+
+export type BrowserExactLibraryApiInspectionOutcome = number;
+
+export type BrowserExactLibraryApiProjectionLimit = number;
+
 export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
 
 export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
@@ -96,6 +104,97 @@ export interface BrowserDependencyCoordinateCandidate {
 export interface BrowserDependencyCoordinateMatch {
   readonly outcome: BrowserDependencyCoordinateMatchOutcome;
   readonly candidateKey: string | null;
+}
+
+export interface BrowserExactLibraryApiAssemblyIdentity {
+  readonly identity: BrowserExactLibraryApiAssemblyReferenceIdentity;
+  readonly moduleVersionId: string;
+}
+
+export interface BrowserExactLibraryApiAssemblyReferenceIdentity {
+  readonly name: string;
+  readonly version: string | null;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
+}
+
+export interface BrowserExactLibraryApiAsset {
+  readonly id: string;
+  readonly path: string;
+  readonly assemblyName: string;
+  readonly targetFramework: string;
+  readonly kind: BrowserExactLibraryApiAssetKind;
+}
+
+export interface BrowserExactLibraryApiFacet {
+  readonly id: string;
+  readonly singularLabel: string;
+  readonly pluralLabel: string;
+  readonly weight: number;
+  readonly count: number;
+  readonly isDefault: boolean;
+}
+
+export interface BrowserExactLibraryApiInspection {
+  readonly content: BrowserExactLibraryApiInspectionResult;
+  readonly share: BrowserInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserExactLibraryApiInspectionFailure {
+  readonly kind: BrowserExactLibraryApiInspectionFailureKind;
+  readonly detail: string;
+  readonly subjectAssembly: BrowserExactLibraryApiAssemblyReferenceIdentity | null;
+}
+
+export interface BrowserExactLibraryApiInspectionResult {
+  readonly outcome: BrowserExactLibraryApiInspectionOutcome;
+  readonly packageId: string;
+  readonly packageVersion: string;
+  readonly requestedTargetFramework: string;
+  readonly requestedLibrary: string;
+  readonly source: BrowserExactLibraryApiSourceCoordinate | null;
+  readonly asset: BrowserExactLibraryApiAsset | null;
+  readonly assembly: BrowserExactLibraryApiAssemblyIdentity | null;
+  readonly inventory: BrowserExactLibraryApiInventory | null;
+  readonly truncation: BrowserExactLibraryApiProjectionTruncation | null;
+  readonly failures: ReadonlyArray<BrowserExactLibraryApiInspectionFailure>;
+  readonly isComplete: boolean;
+  readonly isAvailable: boolean;
+}
+
+export interface BrowserExactLibraryApiInventory {
+  readonly publicTypeCount: number;
+  readonly publicMemberCount: number;
+  readonly publicMethodCount: number;
+  readonly publicPropertyCount: number;
+  readonly typeKinds: ReadonlyArray<BrowserExactLibraryApiFacet>;
+  readonly namespaces: ReadonlyArray<BrowserExactLibraryApiNamespace>;
+}
+
+export interface BrowserExactLibraryApiNamespace {
+  readonly name: string;
+  readonly count: number;
+}
+
+export interface BrowserExactLibraryApiProjectionTruncation {
+  readonly limit: BrowserExactLibraryApiProjectionLimit;
+  readonly bound: number;
+  readonly projectedParticipants: number;
+  readonly omittedParticipants: number;
+  readonly projectedTypes: number;
+  readonly projectedMembers: number;
+  readonly projectedInspectionFailures: number;
+  readonly projectedTypeForwarders: number;
+  readonly inspectedMetadataRows: number;
+  readonly projectedRetainedTextCharacters: number;
+}
+
+export interface BrowserExactLibraryApiSourceCoordinate {
+  readonly packageId: string;
+  readonly packageVersion: string;
+  readonly producer: string;
+  readonly framework: string | null;
 }
 
 export interface BrowserExceptionSurface {
@@ -756,20 +855,21 @@ type $ManagedExports = {
         readonly "Package": {
           readonly "PackageExports": {
             readonly "ActivateWorkspacePackageOccurrence.976702342": (action: string) => Promise<string>;
-            readonly "CancelPackageChanges.271973316": (operationId: string, reason: string) => string;
+            readonly "CancelPackageActivity.271973316": (operationId: string, reason: string) => string;
             readonly "CancelPackageQuery.271973316": (operationId: string, reason: string) => string;
             readonly "ClassifyPackageGraphIdentities.271973316": (inspectedPackageId: string, packageIdsJson: string) => string;
             readonly "ClearWorkspacePackageOccurrences.1731052262": () => Promise<void>;
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
-            readonly "ListPackageChangesPackageSets.1310674786": () => string;
+            readonly "ListPackageActivityPackageSets.1310674786": () => string;
             readonly "ListPackageQueryCatalog.1310674786": () => string;
             readonly "LoadRuntimePack.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "LoadRuntimePackAssembly.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string) => Promise<string>;
             readonly "MatchPackageDependencyCoordinate.1537767637": (packageId: string, declaredRange: string | null, candidatesJson: string) => string;
             readonly "PackageCacheStats.1310674786": () => string;
             readonly "PrefetchPlatformPacks.1782598084": (targetFramework: string, platformVersion: string) => Promise<void>;
+            readonly "QueryLibraryApi.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
             readonly "QueryMemberDocumentation.1330709314": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>;
             readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
             readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
@@ -778,7 +878,7 @@ type $ManagedExports = {
             readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
             readonly "RequestPackageQueryMatches.146925470": (operationId: string, additionalMatchCredit: number) => string;
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
-            readonly "RunPackageChanges.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
+            readonly "RunPackageActivity.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
             readonly "RunPackageQuery.1685943924": (operationId: string, prefix: string, facetIdsJson: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
             readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
           };
@@ -849,9 +949,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "CancelPackageChanges.271973316");
+    value = $ownDataProperty(value, "CancelPackageActivity.271973316");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageChanges.271973316\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageActivity.271973316\u0027 is not callable.");
     }
   }
   {
@@ -933,9 +1033,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "ListPackageChangesPackageSets.1310674786");
+    value = $ownDataProperty(value, "ListPackageActivityPackageSets.1310674786");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageChangesPackageSets.1310674786\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageActivityPackageSets.1310674786\u0027 is not callable.");
     }
   }
   {
@@ -1008,6 +1108,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "PrefetchPlatformPacks.1782598084");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.PrefetchPlatformPacks.1782598084\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "QueryLibraryApi.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryLibraryApi.1579276339\u0027 is not callable.");
     }
   }
   {
@@ -1113,9 +1225,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "RunPackageChanges.1791926993");
+    value = $ownDataProperty(value, "RunPackageActivity.1791926993");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageChanges.1791926993\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageActivity.1791926993\u0027 is not callable.");
     }
   }
   {
@@ -1185,8 +1297,8 @@ export async function activateWorkspacePackageOccurrence(action: string): Promis
   return $parsed as BrowserWorkspacePackageOccurrenceActivation;
 }
 
-export function cancelPackageChanges(operationId: string, reason: string): BrowserPackageChangesCancellation {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageChanges.271973316"](operationId, reason);
+export function cancelPackageActivity(operationId: string, reason: string): BrowserPackageChangesCancellation {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageActivity.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageChangesCancellation;
 }
@@ -1225,8 +1337,8 @@ export async function getPlatformVersions(targetFramework: string): Promise<Read
   return $parsed as ReadonlyArray<string>;
 }
 
-export function listPackageChangesPackageSets(): BrowserPackageChangesPackageSetCatalog {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageChangesPackageSets.1310674786"]();
+export function listPackageActivityPackageSets(): BrowserPackageChangesPackageSetCatalog {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageActivityPackageSets.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageChangesPackageSetCatalog;
 }
@@ -1259,6 +1371,12 @@ export function packageCacheStats(): BrowserPackageCacheStats {
 
 export async function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void> {
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["PrefetchPlatformPacks.1782598084"](targetFramework, platformVersion);
+}
+
+export async function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserExactLibraryApiInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryLibraryApi.1579276339"](packageId, version, targetFramework, assemblyId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserExactLibraryApiInspection;
 }
 
 export async function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation> {
@@ -1307,8 +1425,8 @@ export async function resolvePackageDependencyVersion(packageId: string, declare
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
 }
 
-export async function runPackageChanges(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageChanges.1791926993"](operationId, requestJson, eventSink);
+export async function runPackageActivity(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageActivity.1791926993"](operationId, requestJson, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageChangesResult;
 }

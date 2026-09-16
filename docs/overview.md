@@ -345,6 +345,12 @@ substrates, and inspection producers that will extend that space.
   contracts and core now implement the bounded compiled-XML attempt and
   resource-free receipt; adapters, authored settlement, and host adoption
   remain staged.
+- `src/DotnetInspector.LibraryMetadata/` owns
+  [Library-Metadata correspondence](design/library-metadata-correspondence.md):
+  bounded Metadata extraction inside one exact Library API-content snapshot
+  and resource-free correspondence between the resulting `ApiSurface` and
+  that exact realized content. It composes Library borrowing and Metadata
+  extraction without redefining either.
 - The target
   [Library Ownership and Borrowing](design/library-ownership-and-borrowing.md)
   owner defines the shared lifetime seam beneath those Houses: one
@@ -516,6 +522,12 @@ substrates, and inspection producers that will extend that space.
   destinations, host-local Platform Libraries, and uncovered packages that
   require a fresh curated Workspace. It consumes Scope, registration,
   Navigation, Platform, source, and host-publication outcomes without
+  redefining them.
+- [Inspect Web Type Find](design/inspect-web-type-find.md) owns the
+  Browser-specific active-Workspace Type discovery operation, typed candidate
+  presentation, and exact candidate-to-activation association. It consumes the
+  resident reverse locator, shared visibility and Sections projection,
+  Spotlight destination activation, and Navigation authority without
   redefining them.
 - [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
   session-local Package Diff baseline, inheritance during subject navigation,

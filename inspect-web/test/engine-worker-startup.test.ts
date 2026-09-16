@@ -85,11 +85,11 @@ const cases = [
   { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "facets",
     read: (client: EngineStartupClient) => client.package.listPackageQueryCatalog() },
   {
-    operation: engineStartupOperations.listPackageChangesPackageSets,
+    operation: engineStartupOperations.listPackageActivityPackageSets,
     expected: packageSets,
     field: "packageSets",
     read: (client: EngineStartupClient) =>
-      client.package.listPackageChangesPackageSets(),
+      client.package.listPackageActivityPackageSets(),
   },
 ];
 
@@ -114,7 +114,7 @@ function fixture(options: {
     async listVocabulary() { calls.push("vocabulary"); return vocabulary; },
     async listHomeDemos() { calls.push("demos"); return demos; },
     async listPackageQueryCatalog() { calls.push("catalog"); return catalog; },
-    async listPackageChangesPackageSets() {
+    async listPackageActivityPackageSets() {
       calls.push("package-sets");
       return packageSets;
     },

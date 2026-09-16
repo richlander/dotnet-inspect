@@ -778,13 +778,13 @@ internal static class ResourceEffectOccurrenceBinder
             }
 
             ResolvedAssemblyReference assembly =
-                selector.DirectCall.Definition.AssemblyReference;
+                selector.DeclarationOrigin.AssemblyReference;
             try
             {
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Open(assembly);
                 if (session.ModuleVersionId()
-                    != selector.DirectCall.Definition.ModuleVersionId)
+                    != selector.DeclarationOrigin.ModuleVersionId)
                 {
                     FailIncomplete(
                         ResourceEffectOccurrenceBindingGapKind.OutcomeType);
@@ -799,7 +799,7 @@ internal static class ResourceEffectOccurrenceBinder
                         var resolved =
                             new ResolvedResourceEffectTypeDefinition(
                                 assembly,
-                                selector.DirectCall.Definition.ModuleVersionId,
+                                        selector.DeclarationOrigin.ModuleVersionId,
                                 defined.Definition,
                                 name);
                         return new ResolvedResourceEffectOutcomeTest(

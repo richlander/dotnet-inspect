@@ -124,6 +124,35 @@ public sealed class PackageVersionCellMetadataInspectionTests
     }
 
     [Fact]
+    public async Task
+        InspectionPreservesOwnerDefaultRuntimeIdentifierAsNoContribution()
+    {
+        CellFixture fixture = CellFixture.Create();
+        IPackageContent content = fixture.Content(
+            ($"lib/{Framework}/Contoso.Metadata.dll", Image));
+
+        var result = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.NoContribution>(
+                await PackageVersionCellMetadataInspector.ExecuteAsync(
+                    fixture.Request(
+                        targetContext:
+                            PackageHouseTargetContext.OwnerDefault(
+                                "linux-x64")),
+                    new SettlementExecutor(
+                        execution => fixture.Realize(
+                            execution,
+                            content)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageHouseRootNoContributionReason.CoordinateNotRepresentable,
+            result.Reason);
+        Assert.NotNull(result.Evidence.CompileRealization);
+        Assert.Null(result.Evidence.RootCoordinate);
+        Assert.Null(result.Cleanup);
+    }
+
+    [Fact]
     public async Task InspectionPreservesExplicitEmptyCompileSelection()
     {
         CellFixture fixture = CellFixture.Create();
@@ -599,12 +628,14 @@ public sealed class PackageVersionCellMetadataInspectionTests
         public PackageVersionCellMetadataInspectionRequest Request(
             PackageVersionCellMetadataInspectionLimits? limits = null,
             string framework = Framework,
-            DateTimeOffset? deadline = null) =>
+            DateTimeOffset? deadline = null,
+            PackageHouseTargetContext? targetContext = null) =>
             new(
                 cell,
                 PackageHouseOperation.Create(
                     PackageHouseOperationProfile.Realize),
-                PackageHouseTargetContext.Exact(framework),
+                targetContext
+                    ?? PackageHouseTargetContext.Exact(framework),
                 limits
                     ?? new PackageVersionCellMetadataInspectionLimits(
                         16,

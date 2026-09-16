@@ -306,7 +306,7 @@ public sealed record PerformanceTriageOptions
                 return false;
             }
 
-            var queryField = PerformanceTriageRowQuery.Field(field);
+            var queryField = PerformanceTriageRowQuery.Key(field);
             var value = syntax.Value;
             if (!TryBindPredicateOperator(
                     queryField,
@@ -343,13 +343,13 @@ public sealed record PerformanceTriageOptions
         => PerformanceTriageRowQuery.IsRankedValue(value);
 
     private static bool IsRankedField(string field)
-        => PerformanceTriageRowQuery.IsRankedField(field);
+        => PerformanceTriageRowQuery.IsRankedKey(field);
 
     internal static bool IsNumericField(string field)
-        => PerformanceTriageRowQuery.IsNumericField(field);
+        => PerformanceTriageRowQuery.IsNumericKey(field);
 
     internal static bool TryBindPredicateOperator<TRow>(
-        RowQueryField<TRow> field,
+        RowQueryKey<TRow> field,
         RowPredicateOperator syntax,
         out RowQueryOperator @operator)
     {
@@ -373,7 +373,7 @@ public sealed record PerformanceTriageOptions
     {
         string[] comparisons =
         [
-            .. operators.Select(RowQueryFacetProjection.Comparison),
+            .. operators.Select(RowQueryKeyProjection.Comparison),
         ];
         return comparisons.Length switch
         {

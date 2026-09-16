@@ -112,7 +112,9 @@ public sealed partial class InspectionWorkspace
                     return new WorkspaceDeclarationPopulationCapture.Rejected(
                         WorkspaceDeclarationPopulationFailure.DuplicateContext);
                 }
-                if (context.Group is { } group && !_groups.Contains(group))
+                if (context.Group is { } group
+                    && !_groups.Contains(group)
+                    && !IsPackageDeclarationContext(context))
                 {
                     return new WorkspaceDeclarationPopulationCapture.Rejected(
                         WorkspaceDeclarationPopulationFailure.ContextUnavailable);

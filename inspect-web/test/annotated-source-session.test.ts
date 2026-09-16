@@ -28,6 +28,7 @@ import type {
 import {
   validateDocument,
 } from "../src/document-model.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 import type {
   AnnotatedSourceDocument,
 } from "../src/document-model.ts";
@@ -47,7 +48,7 @@ function sampleResult(
   return {
     document,
     viewerCatalog: sampleViewerCatalog,
-    provenance: "test",
+    provenance: inertStringFixture("test"),
     contextLimitation: null,
   };
 }

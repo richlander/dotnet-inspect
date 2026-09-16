@@ -8,7 +8,8 @@ It defines the intended replacement for the semantic-selection portion of the
 existing umbrella design. The
 [composition map](item-and-line-limits.md#composition) adopts this component
 and retires the umbrella assignment. The product implementation lives in
-`src/DotnetInspector.RowSelection`.
+`src/DotnetInspector.QueryEngine` under the existing
+`DotnetInspector.RowSelection` namespace.
 
 The executable Release gates in
 `tests/DotnetInspector.RowSelection.Tests` and the non-friend consumer in
@@ -37,8 +38,8 @@ Related designs:
 
 ## Authority and scope
 
-The `DotnetInspector.RowSelection` library is the authority for two distinct
-capabilities:
+This design is the authority for two distinct capabilities carried by the
+dependency-free `DotnetInspector.QueryEngine` assembly:
 
 - the typed declaration language expressed by `RowSelectionStage` and
   `RowSelectionPlan`; and

@@ -2,8 +2,9 @@
 
 ## Status and ownership
 
-**Design only; the new composition and its gates are unimplemented and
-unverified.** `DotnetInspector.Queries` owns this focused operation, tracked by
+**Implemented with public Queries composition, a completed host-neutral
+inspection envelope, and CLI `--match` adoption.**
+`DotnetInspector.Queries` owns this focused operation, tracked by
 [#7158](https://github.com/richlander/dotnet-inspect/issues/7158) within
 [coordinate retention #7061](https://github.com/richlander/dotnet-inspect/issues/7061).
 
@@ -119,8 +120,11 @@ Source validation remains with the strict correspondence producer. Invalid
 source evidence cannot be repaired by finding a destination lookalike.
 
 The entry pair carries the existing same-Workspace, same-package-ID,
-same-producer and generation/selection obligations. A non-exact entry-pair
-result stops at that boundary; this composition never scans for another entry.
+same-producer and generation/selection obligations. Pairing refusal or failure
+stops at that boundary. Pairing absence or ambiguity remains native evidence,
+but the composition validates the requested source declaration before
+classifying the overall result; an unresolved source cannot become destination
+absence. This composition never scans for another entry.
 An already forwarded source view must first identify its real source
 declaration under its owning operation; this contract does not reinterpret a
 source `ExportedType` as a `TypeDef`.
@@ -231,18 +235,66 @@ adds no lease, publication or scheduling protocol.
 
 The CLI matching consumer is [#7107](https://github.com/richlander/dotnet-inspect/issues/7107).
 It can report the actual destination coordinate and the route explaining the
-Library move. Navigation's separate
-[ancestry-adoption decision #7169](https://github.com/richlander/dotnet-inspect/issues/7169)
-must settle how a returned B'.T fits its retained path, including when Library
-A is active and T is only lower-path context. This Queries design does not
-change that active-subject policy or authorize a Browser override.
+Library move. Navigation's
+[forwarded ancestry policy](inspection-subject-navigation.md#forwarded-api-ancestry),
+tracked by [#7169](https://github.com/richlander/dotnet-inspect/issues/7169),
+owns how B'.T fits its retained path, including when Library A is active and
+T is only lower-path context. Runtime Navigation adoption remains #5584.
+This Queries design does not change that active-subject policy or authorize a
+Browser override.
 
-Illustrative call sites only, not implemented API signatures:
+The public prerequisite API accepts the source identity already selected once
+in the source Package:
 
 ```csharp
-var envelope = await matching.MatchCoordinateAsync(
-    sourceDeclaration, entryLibraryPair, destinationApiContext, cancellationToken);
+ApiCoordinateCorrespondenceResult result =
+    await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+        workspace, sourceType, beforeObservation, afterObservation,
+        cancellationToken);
+
+ApiCoordinateCorrespondenceResult memberResult =
+    await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+        workspace, sourceMember, sourceDeclarationKind,
+        beforeObservation, afterObservation, cancellationToken);
 ```
+
+The Member overload requires Metadata's declaration kind because
+`StructuralSubjectIdentity.MemberSubject` intentionally retains its
+`MemberAnchor`, not an inferred declaration kind. The caller supplies the kind
+from the same one-time source selection; Queries never parses the anchor or
+replays an ordinal or digest against the destination.
+
+The result retains Library pairing, strict source binding, detached resolution,
+strict declaration correspondence, and a destination structural subject only
+for an exact result. `CoordinateTypeResolutionEvidence` projects all six native
+resolution arms and query-level refusal without retaining an image opener,
+borrowed context, or catalog-local definition key.
+
+A non-exact source binding is not destination evidence. Source `Absent` or
+`Ambiguous` remains visible in the retained binding result but maps to overall
+`Refused`; source `Failed` maps to overall `Failed`. Destination resolution
+`NotFound` with no hops and strict destination correspondence `Absent` remain
+the two complete absence paths. `NotFound` after one or more forwarding hops
+is a failed dangling route, not ordinary absence. An `Absent` or `Ambiguous`
+entry Library pairing is reported only after strict source binding establishes
+the physical source declaration.
+
+The completed host boundary is
+`DotnetInspector.Presentation.ApiCoordinateMatchInspection`. A caller with
+resident observations uses the same public operation as a standalone host:
+
+```csharp
+InspectionEnvelope<ApiCoordinateMatchContent> envelope =
+    await ApiCoordinateMatchInspection.ExecuteAsync(
+        workspace, sourceType, before, after, cancellationToken);
+```
+
+Its Member overload also takes the source-issued `ApiDeclarationKind`.
+The standalone overload takes an `ApiCoordinateMatchRequest` and
+`IPackageRootPayloadProvider`; acquisition capability remains explicit.
+`DotnetInspector.Queries.Consumer` exercises these APIs without friend access.
+
+Future TypeScript consumer sketch, not a bridge exported by this slice:
 
 ```typescript
 const envelope = await inspection.matchCoordinate(request);
@@ -256,6 +308,19 @@ because coordinate selection needs typed identities rather than rendered
 CLI text. Its host-owned projection preserves those identities and route
 content. Website retention consumes Navigation's completed result rather than
 installing this raw match itself.
+
+`ApiCoordinateMatchContent` owns structured endpoint, location, candidate,
+ordered forwarding-hop, and stage-outcome data. Its source-generated JSON
+lowering is shared by content-only and envelope output. Process-local detached
+evidence is not serialized. Share explicitly returns `nonProjectable` at
+`correspondence/endpoints`: the existing Share protocol does not represent
+ordered Package endpoint correspondence.
+
+The shared Markout lowering keeps ordinary exact and absent results compact.
+Absence reports the evaluated candidate count; ambiguity/refusal shows at most
+ten candidate rows with an explicit truncation notice. JSON retains complete
+candidate evidence. An absent strict match is not a universal API-removal
+claim, even when another candidate has the same display digest.
 
 This is a prerequisite within producer step 2 of #7061's six-step plan.
 Step 1's Navigation policy design is landed; step 2 includes Library pairing,
@@ -276,18 +341,25 @@ supports the resolver's own path, cycle, bound and scope claims, not this
 cross-operation join. Existing Scope/Navigation models likewise retain their
 own authority; no proof or bounded result is transferred to this composition.
 
-Future focused gates run in `DotnetInspector.Queries.Tests` in Release.
-Use production package acquisition for the Avalonia witness and independently
-compiled boundary assets under `fixtures/queries/`. All new gates below are
-**unimplemented and unverified**:
+Focused gates run in `DotnetInspector.Queries.Tests` in Release. Pinned Avalonia
+and System.Text.Json archives enter through production package acquisition.
+The acceptance cohort is PR-fast: its slowest observed individual case was
+1.08 seconds. No whole-assembly or corpus sweep is added.
 
-| Gate obligation | Required outcome evidence |
+| Gate | Outcome evidence |
 | --- | --- |
-| `ForwardedCoordinate_RealPackageMove` | Avalonia 11.3.14 -> 12.1.2/net8.0 establishes the Markup entry, Base terminal, exact MultiBinding Type and parameterless constructor correspondence, with ordered route evidence. |
-| `ForwardedCoordinate_EntryAndPopulation` | Direct definition, explicit route, same-named Type without that route, and a target outside the admitted destination API population remain distinct; no wrong-entry or wrong-occurrence match. |
-| `ForwardedCoordinate_ExactTerminalJoin` | Destination registration/Type and strict matching result stay associated across changed generation/selection and policy evidence; a relocated Type does not relax Member signature or addressability requirements. |
-| `ForwardedCoordinate_NativeNonSuccess` | Preserve readable terminal absence versus unbound/unavailable, ambiguous, rejected and bounded/cyclic routes, plus strict Member non-match after successful resolution. Reuse resolver fixtures/gates rather than reimplementing their algorithms. |
+| `Avalonia_MoveUsesTheExplicitMarkupToBaseForwarder` | Avalonia 11.3.14 -> 12.1.2/net8.0 establishes the Markup entry, Base terminal, exact MultiBinding Type and parameterless constructor, with ordered route evidence. |
+| `ForwardedTypeSuccess_DoesNotProveMemberCorrespondence` | MultiBinding's Converter Property remains strict Absent after successful forwarding, preserving the Base candidate and route. |
+| `ForwarderTargetOmittedFromSelectedPopulation_IsNotApiAbsence` | A fixture containing the pinned facades without Base produces Refused/UnboundBinding with its target and route, never API absence. |
+| `ApiCoordinateCorrespondenceQueryTests` | Direct exact correspondence, retired Root refusal, and source-binding precedence over Library absence. |
+| `CoordinateLibraryPairingQueryTests` | Complete API populations, identity-profile differences, ambiguity, incomplete observations, occurrence association, and retirement. |
+| `OverloadOrdinalMoves_MatchingUsesSourceAnchorNotDestinationOrdinal` | Independently compiled Metadata fixtures insert an earlier destination overload; matching follows the source declaration, not its ordinal. |
+
+Existing resolver gates own cycle, bound, ambiguous, rejected and unavailable
+route behavior. A dedicated composed forwarded-NotFound fixture is still
+**unverified**; no existing resolver proof is transferred to this join.
 
 Host adoption must exercise the same evidence through CLI matching and the
 separately owned Navigation/Browser result path. This design does not claim
-that either host has shipped forwarded-coordinate retention.
+that either host has shipped forwarded-coordinate retention. CLI `--match`
+is the completed direct consumer; protected retention remains separately owned.

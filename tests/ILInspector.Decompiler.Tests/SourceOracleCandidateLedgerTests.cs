@@ -1136,7 +1136,7 @@ public class SourceOracleCandidateLedgerTests
 
         Assert.IsType<FindingInspection<string>.Absent>(inspection.Lines.Value);
         Assert.Equal(
-            DotnetInspector.Services.SourceChecksumVerification.Exact,
+            SourceChecksumVerification.Exact,
             inspection.ChecksumVerification);
         Assert.Equal(
             SourceOracleCandidateLedger.CandidateReason.BodyExtractionFailed,

@@ -113,4 +113,21 @@ public abstract class PlatformHouseOutcome<TValue>
 
         public PlatformHouseTermination.Incomplete Evidence { get; }
     }
+
+    public sealed class Failed : PlatformHouseOutcome<TValue>
+    {
+        internal Failed(
+            PlatformHouseTermination.Failed evidence,
+            PlatformHouseReceipt receipt)
+            : base(receipt, PlatformHouseSettlementKind.Failed)
+        {
+            if (!ReferenceEquals(receipt.Termination, evidence))
+                throw new ArgumentException(
+                    "Failure evidence must be the receipt's exact termination.",
+                    nameof(evidence));
+            Evidence = evidence;
+        }
+
+        public PlatformHouseTermination.Failed Evidence { get; }
+    }
 }

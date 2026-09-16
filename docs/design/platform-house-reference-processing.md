@@ -87,10 +87,23 @@ source contributions, source-to-target correspondence, target selection, or
 documentation attempts. The completion identity remains because it binds a
 detached completion receipt to its separately live operation value.
 
-Shared Library construction, owning realization results, internal Library
-operation leases, and the `Failed` House terminal arm remain design-only and
-unverified. Their PlatformHouse adoption is tracked by #6984 and #6621 slice 5
-after the concrete Library owner lands.
+Exact-target, one-Library shared ownership handoff is implemented in
+`DotnetInspector.PlatformHouse.Execution` under #7237. It validates selected
+resource-free source content against the exact request, target, population,
+view, Artifact reference, and assembly identity before atomically constructing
+one `LibraryReference` and `LibraryContentOwner`. Artifact registration
+provenance binds the exact source realization to the published content, and
+Metadata's owner-issued Artifact projection binds managed identity and MVID to
+that exact Artifact. The owning outcome transfers the owner separately from its
+resource-free value and composed receipt.
+Reference-only, reference-plus-implementation, and implementation-only role
+closure are gated in Release.
+
+The `Failed` House terminal arm and resource-free typed failure-stage evidence
+are implemented. Internal Library operation leases, cleanup-failure production
+by non-owning operations, whole-population realization, source-adapter Artifact
+materialization, and product adoption remain unverified. Their PlatformHouse
+adoption continues under #7237, #7177, and #6621 slice 5.
 
 This is one owner claim. The design specifies the House request, settlement,
 result, evidence-retention, and encapsulation contracts. It consumes the
@@ -679,9 +692,17 @@ settled platform Library demand into the shared Library shape without
 discarding platform target, source, or view correspondence. For every selected
 Library, the House validates that the resource-free source contribution and
 live source content obligations describe the same exact target, source, and
-views. The resulting `LibraryReference` retains the exact Platform arm of
-`ExactLibrarySourceCoordinate`; an opaque House operation identity or assembly
-display name cannot replace it.
+views. The source adapter registers content with
+`PlatformLibraryArtifactProvenance`, which retains the exact realization
+contribution beside source-specific resource-free provenance. Content selection
+recovers the contribution from that registration rather than accepting an
+independent caller pairing. It accepts only Metadata's owner-issued
+`ArtifactAssemblyProjection` for the exact Artifact generation and identity and
+derives the managed assembly identity from that projection. The resulting
+`LibraryReference` retains the exact Platform arm of
+`ExactLibrarySourceCoordinate`; an opaque House operation identity,
+caller-supplied assembly display name, or projection for another Artifact
+cannot replace it.
 
 View demand closes the required Library roles before construction:
 
@@ -1180,13 +1201,18 @@ Workspace registration snapshot
 does not acquire House request, source, package, pruning, Metadata, or result
 dependencies.
 
-The operational House belongs in a separate host-neutral project boundary
-above Metadata and any package-backed platform-source adapter. `PackageHouse`
-does not call into that implementation project; it returns its typed
-delegation to an orchestration layer that can issue an ordinary House request.
-If source-adapter dependency inversion requires a smaller contract seam, that
-seam remains part of the same House owner rather than expanding the identity
-floor. Exact project names and moves are tracked by
+The operational House begins in the separate host-neutral
+`DotnetInspector.PlatformHouse.Execution` project above the
+`DotnetInspector.PlatformHouse` contract seam, Metadata, Artifact content
+children, and shared Library ownership. Source adapters continue to depend only
+on the contract seam while producing their source results. During Artifact
+materialization, application orchestration wraps each selected realization in
+`PlatformLibraryArtifactProvenance`, retains Metadata's owner-issued projection
+from the Artifact admission callback, and passes the resulting resource-free
+selection plus separate content lease into execution.
+`PackageHouse` does not call into that implementation project; it returns its
+typed delegation to an orchestration layer that can issue an ordinary House
+request. Further project moves are tracked by
 [#6335](https://github.com/richlander/dotnet-inspect/issues/6335).
 
 Source-specific implementations remain focused:
@@ -1349,16 +1375,25 @@ step 5 is staged by
 [Package-backed Platform realization](package-backed-platform-realization.md).
 Step 5a implements package-backed target discovery, reference-pack realization,
 and the package PlatformHouse adapter. It supplies source contributions, not
-completed House receipts or a target-selection executor. Step 5b adds RID-specific runtime-pack
-acquisition and manifest-defined implementation closure through the same
-adapter. The two sub-slices preserve the ten-step count. Step 6 follows after
-both and the concrete Library owner in #6621 slice 3 are implemented.
+completed House receipts or a target-selection executor. Step 5b implements
+RID-specific runtime-pack acquisition and manifest-defined implementation
+closure through the same adapter. The two implemented sub-slices preserve the
+ten-step count. With both package-backed sub-slices and the concrete Library
+owner in #6621 slice 3 implemented, step 6 is active. Step 6a, implemented
+under #7237, accepts already selected Artifact-backed content for one exact
+Library, closes its requested roles, constructs the shared Library owner and
+reference atomically, and transfers the owner beside a resource-free composed
+receipt. Step 6b adapts installed and package-backed source values into that
+Artifact-backed handoff; complete-population realization remains a later
+step-6 slice.
 
-The step-6 ownership correction is tracked by
+The step-6 ownership correction was designed under
 [#6984](https://github.com/richlander/dotnet-inspect/issues/6984). It adopts
-the shared Library contract without changing the ten-step PlatformHouse count.
-Workspace and direct-library construction remain the separate #6621 slice 6
-and do not enter this PlatformHouse adoption.
+the shared Library contract without changing the ten-step PlatformHouse count;
+implementation is tracked by
+[#7237](https://github.com/richlander/dotnet-inspect/issues/7237). Workspace and
+direct-library construction remain the separate #6621 slice 6 and do not enter
+this PlatformHouse adoption.
 
 No CLI flag is retained solely for compatibility. User-facing platform
 coordinates project to the shared target and House request, and unsupported
@@ -1560,8 +1595,30 @@ The implementation and adoption slices own these Release gates:
 | Installed boundary | Browser composition does not reference desktop installed adapters, and installed realization remains package-free. |
 | Encapsulation | Representative ladder, Query, CLI, and Browser paths use the House. Per user choice, no automated repository-wide bypass-absence gate is required. |
 
-The design-only PR is Markdown-only and requires `markdownlint`. Each
-implementation slice adds the smallest gate covering its adopted property.
+The implemented step-6a gates are:
+
+- `ExactLibraryRealizer_TransfersReferenceAndImplementationOwner` for exact
+  Platform provenance, role closure, owner transfer, post-House borrowing, and
+  adjacent Artifact-session retirement;
+- `ExactLibraryRealizer_ClosesReferenceOnlyRole` and
+  `ExactLibraryRealizer_AssignsBothRolesWithDeclarationEvidence` for the two
+  neighboring successful role shapes;
+- `ExactLibraryRealizer_RequiresImplementationDeclarationSurface` for typed
+  pre-construction unavailability;
+- `ExactLibraryRealizer_RejectsForeignContentWithoutAcceptingLease`,
+  `ExactLibraryRealizer_RejectsUnauthorizedSourceWithoutAcceptingLease`, and
+  `ExactLibraryRealizer_CancellationPrecedesOwnershipAcceptance` for source
+  authorization and atomic transfer;
+- `ContentSelection_RejectsForeignMetadataProjection` for owner-issued
+  source-to-Artifact and Artifact-to-managed-identity binding; and
+- `PlatformLibraryCompletedEvidence_IsResourceFree` and
+  `PlatformHouseFailedOutcome_RetainsTypedResourceFreeEvidence` for the
+  receipt and failure boundaries.
+
+Source-adapter adoption must add the real installed and package-backed
+`System.Text.Json` path before the full shared-Library construction row above
+is satisfied. Each later implementation slice adds the smallest gate covering
+its adopted property.
 
 The House carries typed operation data but defines no presentation. Markout
 and host-specific rendering are not part of this owner.

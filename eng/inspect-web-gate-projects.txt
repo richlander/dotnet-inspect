@@ -10,12 +10,12 @@ src/DotnetInspector.Networking
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
 src/DotnetInspector.Platforms
+src/DotnetInspector.Platforms.Formats
 src/DotnetInspector.Platforms.Packages
-src/DotnetInspector.PortableQueries
 src/DotnetInspector.Presentation
 src/DotnetInspector.Queries
+src/DotnetInspector.QueryEngine
 src/DotnetInspector.ResearchQueries
-src/DotnetInspector.RowSelection
 src/DotnetInspector.Sections
 src/DotnetInspector.Services
 src/DotnetInspector.SourceSelection

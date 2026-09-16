@@ -609,7 +609,7 @@ static class Program
         {
             if (!fidelityCheck)
                 return Fail("--fidelity-method-delta requires --fidelity-check.");
-            return FidelityCheck.RunMethodDelta(assemblies, fidelityMethodDelta, maxExamples, lowered);
+            return await FidelityCheck.RunMethodDelta(assemblies, fidelityMethodDelta, maxExamples, lowered);
         }
 
         if (fidelityCheck)

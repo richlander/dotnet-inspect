@@ -11,43 +11,45 @@ route and its placement among the working surfaces.
 transport, cancellation, and physical settlement.
 
 The end-to-end production tracker is
-[#6124](https://github.com/richlander/dotnet-inspect/issues/6124). Two
-production slices remain:
+[#6124](https://github.com/richlander/dotnet-inspect/issues/6124). Its final
+two independently landable production slices were:
 
 1. [#7179](https://github.com/richlander/dotnet-inspect/issues/7179) owns the
    `/activity` route, retirement of the `/query` peer mode, and the gates that
    move with them.
-2. [#7175](https://github.com/richlander/dotnet-inspect/issues/7175) owns the
-   rename across CLI and Browser.
+2. [#7175](https://github.com/richlander/dotnet-inspect/issues/7175) completed
+   the rename across CLI and Browser.
 
-The slices are independent and may land in either order. Together they complete
-issue #6124's remaining Browser adoption and cross-host
-evidence/documentation steps.
+The slices landed independently. Together they complete the Browser adoption
+tracked by #6124.
 
 [#7118](https://github.com/richlander/dotnet-inspect/issues/7118) delivered this
 surface's product catalog projection, startup discovery, progressive
 controller/source adaptation, bounded typed rendering, and real-Wasm
 publication evidence, and is closed. Its `Packages | Changes` peer-mode outcome
-is superseded by #7179 rather than reopened; #6124 points its remaining Browser
-work at that replacement. This owner introduces no replacement architecture.
+is superseded by #7179 rather than reopened. This owner introduces no
+replacement architecture.
 
 **Normative claim.** The `/activity` surface preserves the product-issued
 package scope, requested interval, progressive event sequence, and typed
 terminal completion without deriving report semantics from display strings.
 
-**Status: the route and the name are target behavior, not enforced behavior.**
-At the time of writing the CLI command is still `package changes`, the browser
-still presents the retired peer mode, and the suites still carry the Changes
-name. Those are pre-migration evidence for everything this document says about
-scope, interval, progressive sequence, and completion, all of which survive the
-move unchanged.
+**Status: enforced.** The CLI command is `package activity`; the Browser route
+is `/activity`; and the Browser label, heading, title, diagnostics, focused
+frontend gates, real-Wasm scenario, and generated-facade inventory use Package
+Activity. The former `changes` peer mode and selector on `/query` are retired.
 
-The two target properties gain evidence independently. When #7179 lands, the
-moved frontend suite, Worker startup tests, and package-adoption Browser
-scenario enforce `/activity`; until then the route is **unverified**. When
-issue #7175 lands, its focused CLI and Browser gates and generated-facade
-inventory enforce the Package Activity name; until then the name is
-**unverified**.
+The existing `package-changes` Worker operation kind, same-origin bridge path,
+DOM implementation identifiers, and `BrowserPackageChanges*` wire records are
+deliberately retained as stable internal contracts. The generated facade's
+host-facing operations are `ListPackageActivityPackageSets`,
+`RunPackageActivity`, and `CancelPackageActivity`; no compatibility aliases
+retain the former generated export names.
+
+The frontend route and view suites, Worker startup tests, and package-adoption
+Browser scenario enforce `/activity`, including direct load, refresh, in-app
+entry, Back, and Forward. The name is independently enforced by #7175's focused
+CLI and Browser gates and generated-facade inventory.
 
 ## Placement and lifetime
 

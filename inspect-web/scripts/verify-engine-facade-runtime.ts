@@ -7,14 +7,23 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { BrowserTypeSourceResult } from "../src/facades/inspect-web-source.d.ts";
+import type {
+  BrowserTypeSourceResult,
+  InertString,
+} from "../src/facades/inspect-web-source.d.ts";
+
+function inertString(value: string): InertString {
+  // The probe models a value returned by the generated JSON facade.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as InertString;
+}
 
 const typeSourceResult: BrowserTypeSourceResult = {
   version: 1,
   kind: "Succeeded",
   value: {
     provider: "decompiled",
-    provenance: "facade transport probe",
+    provenance: inertString("facade transport probe"),
     url: null,
     pdbSourceLimitation: null,
     text: "class Example {}",
