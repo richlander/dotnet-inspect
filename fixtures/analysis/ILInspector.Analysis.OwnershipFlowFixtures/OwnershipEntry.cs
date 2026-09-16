@@ -210,6 +210,16 @@ public static class Entry
         return owner.Apply(42, static value => value);
     }
 
+    public static BindingOutcome BindOpenGenericReferences<T>(T value) =>
+        new BindingOpenOwner<T>().Apply(
+            value,
+            static item => new BindingBox<T> { Value = item });
+
+    public static BindingOutcome BindClosedGenericReferences() =>
+        new BindingOpenOwner<int>().Apply(
+            42,
+            static item => new BindingBox<int> { Value = item });
+
     public static BindingOutcome InvokeMalformedCallback() =>
         new BindingOwnerWithExtra<byte, int>()
             .BindMalformedCallback(42);
@@ -295,6 +305,8 @@ public static class Entry
 
 public delegate T BindingCallback<T>(T value);
 
+public delegate BindingBox<T> BindingBoxCallback<T>(T value);
+
 public enum BindingStatus
 {
     Rejected = 0,
@@ -333,6 +345,17 @@ public sealed class BindingOwnerWithExtra<T, TExtra>
         {
             ReturnedChild = box.Value,
         };
+}
+
+public sealed class BindingOpenOwner<T>
+{
+    public BindingBox<T>? Child;
+
+    public BindingOutcome Apply(T value, BindingBoxCallback<T> callback)
+    {
+        Child = callback(value);
+        return new BindingRejectedOutcome();
+    }
 }
 
 public sealed class BindingBox<T>

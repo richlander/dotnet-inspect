@@ -1119,6 +1119,105 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void OpenGenericStructuralFieldTypeBindsFromFieldMetadata()
+    {
+        DirectCallDefinitionResolutionOutcome.Completed calls =
+            ResolveOwnershipFixture();
+        DirectCallDefinitionResolution.Resolved apply =
+            Assert.Single(
+                calls.Results
+                    .OfType<DirectCallDefinitionResolution.Resolved>(),
+                result =>
+                    result.Call.Caller.Name
+                        == "BindOpenGenericReferences"
+                    && result.Definition.Member.Name == "Apply");
+        (
+            ResourceEffectTargetSelector target,
+            ResourceTypeExpression.Named owner,
+            ResourceTypeExpression.Named box) =
+                OpenGenericSignatureTarget(apply);
+        var field = new ResourceEffectMemberSelector(
+            owner,
+            "Child",
+            ResourceEffectMemberKind.Field,
+            isStatic: false,
+            genericArity: 0,
+            ResourceEffectCallingConvention.Default,
+            hasThis: false,
+            explicitThis: false,
+            [],
+            box);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.open-generic-field",
+                target,
+                new ResourceEffect.Pass(
+                    new ResourceEffectLocation.StructuralField(
+                        new ResourceEffectLocation.Receiver(),
+                        field),
+                    new ResourceEffectLocation.Return(),
+                    Identity: null)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResolveEffects(admission, calls));
+
+        Assert.Equal(2, complete.Snapshot.Effects.Length);
+        Assert.Contains(
+            complete.Snapshot.Effects,
+            effect =>
+                effect.DirectCall.Call.Caller.Name
+                    == "BindOpenGenericReferences");
+        Assert.Contains(
+            complete.Snapshot.Effects,
+            effect =>
+                effect.DirectCall.Call.Caller.Name
+                    == "BindClosedGenericReferences");
+    }
+
+    [Fact]
+    public void OpenGenericCallbackReturnTypeBindsFromMetadata()
+    {
+        DirectCallDefinitionResolutionOutcome.Completed calls =
+            ResolveOwnershipFixture();
+        DirectCallDefinitionResolution.Resolved apply =
+            Assert.Single(
+                calls.Results
+                    .OfType<DirectCallDefinitionResolution.Resolved>(),
+                result =>
+                    result.Call.Caller.Name
+                        == "BindOpenGenericReferences"
+                    && result.Definition.Member.Name == "Apply");
+        ResourceEffectTargetSelector target =
+            OpenGenericSignatureTarget(apply).Target;
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.open-generic-callback",
+                target,
+                new ResourceEffect.Callback(
+                    new ResourceEffectLocation.Parameter(1),
+                    new ResourceBorrowScope.Callback(1),
+                    ResourceCallbackExecution.Synchronous,
+                    ResourceCallbackCardinality.ExactlyOnce)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResolveEffects(admission, calls));
+
+        Assert.Equal(2, complete.Snapshot.Effects.Length);
+        Assert.Contains(
+            complete.Snapshot.Effects,
+            effect =>
+                effect.DirectCall.Call.Caller.Name
+                    == "BindOpenGenericReferences");
+        Assert.Contains(
+            complete.Snapshot.Effects,
+            effect =>
+                effect.DirectCall.Call.Caller.Name
+                    == "BindClosedGenericReferences");
+    }
+
+    [Fact]
     public void MissingExactOutcomeTypeIsIncomplete()
     {
         DirectCallDefinitionResolutionOutcome.Completed calls =
@@ -2079,6 +2178,62 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 target,
                 effect,
                 [Provenance(model.Value, ordinal++)]);
+    }
+
+    static (
+        ResourceEffectTargetSelector Target,
+        ResourceTypeExpression.Named Owner,
+        ResourceTypeExpression.Named Box)
+        OpenGenericSignatureTarget(
+            DirectCallDefinitionResolution.Resolved apply)
+    {
+        AssemblyReferenceIdentity identity = apply.Definition.Assembly;
+        var assembly = new ResourceAssemblySelector(
+            identity.Name,
+            identity.PublicKeyToken,
+            ResourceAssemblyVersionPolicy.Exact(identity.Version!));
+        ResourceEffectGenericVariable variable =
+            new(ResourceEffectGenericVariableKind.Type, 0);
+        ResourceTypeExpression.Variable value = new(variable);
+        var box = new ResourceTypeExpression.Named(
+            assembly,
+            "Ownership",
+            [new ResourceTypeNameSegment("BindingBox", 1)],
+            [value]);
+        var callback = new ResourceTypeExpression.Named(
+            assembly,
+            "Ownership",
+            [new ResourceTypeNameSegment("BindingBoxCallback", 1)],
+            [value]);
+        var owner = new ResourceTypeExpression.Named(
+            assembly,
+            "Ownership",
+            [new ResourceTypeNameSegment("BindingOpenOwner", 1)],
+            [value]);
+        var outcome = new ResourceTypeExpression.Named(
+            assembly,
+            "Ownership",
+            [new ResourceTypeNameSegment("BindingOutcome", 0)]);
+        var target = new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                owner,
+                "Apply",
+                ResourceEffectMemberKind.Method,
+                isStatic: false,
+                genericArity: 0,
+                ResourceEffectCallingConvention.Default,
+                hasThis: true,
+                explicitThis: false,
+                [
+                    new ResourceEffectParameterSelector(
+                        value,
+                        ResourceEffectRefKind.Value),
+                    new ResourceEffectParameterSelector(
+                        callback,
+                        ResourceEffectRefKind.Value),
+                ],
+                outcome));
+        return (target, owner, box);
     }
 
     static ResourceEffectTargetSelector TargetWithAssembly(

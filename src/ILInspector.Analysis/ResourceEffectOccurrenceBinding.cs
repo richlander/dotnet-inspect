@@ -1210,6 +1210,7 @@ internal static class ResourceEffectOccurrenceBinder
                 || !TryBuildExactSignatureType(
                     type,
                     definingAssembly,
+                    selector.DirectCall,
                     out resolved))
             {
                 Fail(result.Kind, gapKind, location);
@@ -1251,16 +1252,26 @@ internal static class ResourceEffectOccurrenceBinder
         static bool TryBuildExactSignatureType(
             TypeRef type,
             ResolvedAssemblyReference currentAssembly,
+            DirectCallDefinitionResolution.Resolved directCall,
             out ResolvedResourceEffectType resolved)
         {
             if (type.Kind
                 is TypeRefKind.Unsupported
-                    or TypeRefKind.Pinned
-                    or TypeRefKind.GenericParameter
-                    or TypeRefKind.MethodGenericParameter)
+                    or TypeRefKind.Pinned)
             {
                 resolved = null!;
                 return false;
+            }
+            if (type.Kind
+                is TypeRefKind.GenericParameter
+                    or TypeRefKind.MethodGenericParameter)
+            {
+                return ResourceEffectSelectorBinder.TryResolveType(
+                        type,
+                        directCall,
+                        out resolved)
+                    .Kind
+                    == ResourceEffectSelectorBinder.MatchKind.Match;
             }
 
             ResolvedResourceEffectType? element = null;
@@ -1268,6 +1279,7 @@ internal static class ResourceEffectOccurrenceBinder
                 && !TryBuildExactSignatureType(
                     type.ElementType,
                     currentAssembly,
+                    directCall,
                     out element))
             {
                 resolved = null!;
@@ -1282,6 +1294,7 @@ internal static class ResourceEffectOccurrenceBinder
                 if (!TryBuildExactSignatureType(
                         argument,
                         currentAssembly,
+                        directCall,
                         out ResolvedResourceEffectType resolvedArgument))
                 {
                     resolved = null!;
