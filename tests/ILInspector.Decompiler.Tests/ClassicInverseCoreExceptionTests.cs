@@ -79,6 +79,50 @@ public sealed partial class ClassicInverseCoreTests
 
     [Fact]
     public void
+        ClassicInverseCanonicalizesRematerializedSameObservationClauses()
+    {
+        using MetadataSource source = OpenClassicFixture();
+        using RequestScope scope = OpenRequest(
+            source,
+            "TwoSequentialAwaits");
+        int executionToken =
+            Assert.IsType<MetadataMethodAddress>(
+                scope.Request.ExecutionMethod).Token;
+        MethodBodyData body = Assert.IsType<MethodBodyReadResult.Available>(
+            MethodBodySource.Read(source.Pe, executionToken)).Body;
+        MethodInstructions receiving = MethodInstructions.Decode(body);
+        MethodInstructions rematerialized = MethodInstructions.Decode(body);
+        InstructionExceptionFlowFacts receivingFacts =
+            AvailableFacts(receiving);
+        InstructionExceptionFlowFacts rematerializedFacts =
+            AvailableFacts(rematerialized);
+        Assert.Equal(
+            receivingFacts.Clauses.Select(static clause => clause.Id),
+            rematerializedFacts.Clauses.Select(static clause => clause.Id));
+        Assert.NotSame(
+            receivingFacts.Clauses[0],
+            rematerializedFacts.Clauses[0]);
+
+        IrFunction execution = (IrFunction)scope.Request.ExecutionBody.Clone();
+        execution.ExceptionInstructions = receiving;
+        execution.ExceptionClauseImports =
+        [
+            .. execution.ExceptionClauseImports.Select(
+                (imported, index) =>
+                    new DecompilerExceptionClauseImport(
+                        imported.Region,
+                        rematerializedFacts.Clauses[index])),
+        ];
+
+        ClassicInverseRequest rematerializedRequest = CopyRequest(
+            scope.Request,
+            executionBody: execution);
+
+        Reconstruct(rematerializedRequest);
+    }
+
+    [Fact]
+    public void
         ClassicInverseCompletionCatchUsesSharedFactsInsteadOfCompatibilityRanges()
     {
         using RequestScope baseline = OpenRequest("AwaitValue");
@@ -572,6 +616,13 @@ public sealed partial class ClassicInverseCoreTests
         => Assert.IsType<ILInspector.Instructions.InstructionExceptionFlowResult<
             InstructionExceptionFlowFacts>.Available>(
                 function.ExceptionFlow).Value;
+
+    static InstructionExceptionFlowFacts AvailableFacts(
+        MethodInstructions instructions)
+        => Assert.IsType<
+            ILInspector.Instructions.InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available>(
+                instructions.ExceptionFlow).Value;
 
     static InstructionExceptionRegion Region(
         InstructionExceptionFlowFacts facts,
