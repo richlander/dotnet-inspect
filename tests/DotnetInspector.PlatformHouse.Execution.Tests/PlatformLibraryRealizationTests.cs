@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Reflection.Metadata;
 using System.Text.Json;
 using DotnetInspector.Libraries;
 using DotnetInspector.Platforms;
@@ -440,6 +441,71 @@ public class PlatformLibraryRealizationTests
             property =>
                 typeof(Exception).IsAssignableFrom(
                     property.PropertyType));
+    }
+
+    [Fact]
+    public async Task
+        ArtifactMaterializer_RejectsInvalidViewShapeBeforePublication()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PlatformLibraryIdentity library =
+            PlatformLibraryIdentityAuthority.Create("runtime-catalog")
+                .Issue("System.Text.Json");
+        var request = Request(
+            library,
+            PlatformViewDemand.ReferenceAndImplementation,
+            cancellationToken);
+        PlatformSourceContribution.Realization contribution =
+            Contribution(
+                request.Request,
+                request.Reference,
+                PlatformSourceFacet.Reference);
+        byte[] content = await File.ReadAllBytesAsync(
+            typeof(JsonSerializer).Assembly.Location,
+            cancellationToken);
+        using var reader = new System.Reflection.PortableExecutable.PEReader(
+            new MemoryStream(content, writable: false));
+        AssemblyReferenceIdentity identity =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                reader.GetMetadataReader());
+        int opens = 0;
+        var item = new PlatformLibraryArtifactMaterializationItem(
+            contribution,
+            new Provenance("reference"),
+            identity,
+            content.LongLength,
+            _ =>
+            {
+                opens++;
+                return new MemoryStream(content, writable: false);
+            });
+        var consumed = new PlatformHouseConsumedWork(
+            sourceOperations: 1,
+            targetCandidates: 0,
+            assemblies: 1,
+            xmlDocuments: 0,
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes: 0,
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed: TimeSpan.Zero);
+
+        var terminal = Assert.IsType<
+            PlatformLibraryArtifactMaterializationOutcome.Terminal>(
+                await PlatformHouseArtifactMaterializer.MaterializeAsync(
+                    request.Request,
+                    PlatformViewDemand.ReferenceAndImplementation,
+                    [item],
+                    consumed,
+                    "test-platform-library"));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformLibraryRealizationValue>.Rejected>(
+                    terminal.TerminalRealization.Outcome);
+        Assert.Equal(0, opens);
     }
 
     [Fact]
