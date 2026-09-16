@@ -258,7 +258,7 @@ dotnet-inspect type graph <type> \
   [--package <package>]... \
   [--library <library>]... \
   [--project <project>]... \
-  [--platform [<framework>...]] \
+  [--platform [<platform-library>]] \
   [--platform-library <library>]... \
   [--extensions] \
   [--aspnetcore] \
@@ -282,8 +282,9 @@ traversal, evidence, failures, and output-format eligibility before the
 positional `depends` mode can retire. Its section names, discovery schema, row
 fields, JSON shape, and envelope content intentionally transition to the
 Inspection Graph contract. Package, library, project, platform,
-platform-library, Extensions-package, ASP.NET Core-package, and target
-framework gestures remain search scope there; they never become graph roots.
+platform-library, Extensions-package, and ASP.NET Core-package gestures remain
+search scope there; target framework refines the selected or implicit sources.
+None becomes a graph root.
 
 ### Type relationship mode
 
@@ -292,7 +293,7 @@ dotnet-inspect depends <type> \
   [--package <package>]... \
   [--library <library>]... \
   [--project <project>]... \
-  [--platform [<framework>...]] \
+  [--platform [<platform-library>]] \
   [--platform-library <library>]... \
   [--extensions] \
   [--aspnetcore] \
@@ -301,10 +302,10 @@ dotnet-inspect depends <type> \
 ```
 
 The positional type is the focus. Package, library, project, platform,
-platform-library, Extensions-package, ASP.NET Core-package, and
-target-framework options identify the bounded search scope in which that type
-and its base-type or interface relationships are resolved. They are not graph
-roots.
+platform-library, Extensions-package, and ASP.NET Core-package options identify
+the bounded search scope in which that type and its base-type or interface
+relationships are resolved. `--tfm` refines those sources and does not select
+or suppress them. They are not graph roots.
 
 This preserves the existing source-context distinction:
 
@@ -359,7 +360,7 @@ than silently ignoring them:
 | `--package`, `--library`, `--project` | Search scope | Explicit roots |
 | `--platform`, `--platform-library`, `--extensions`, `--aspnetcore` | Search scope | Rejected |
 | `--nuspec`, `--package-prefix`, `--max-packages`, `--preview` | Rejected | Root or root-set policy |
-| `--tfm` | Source selection | Root-owner selection |
+| `--tfm` | Source refinement; does not suppress the implicit Platform default | Root-owner selection |
 | `--depth` | Hierarchy traversal bound | Dependency traversal bound |
 | NuGet source options | Accepted when package scope consumes them | Accepted when the selected plan performs remote package acquisition |
 | `-D`, `-S`, verbosity, rows, count, and output formats | Dependency document projection | Dependency document projection |
@@ -1235,9 +1236,11 @@ depends <asset roots and traversal>
 
 `type graph` adopts the complete selected-Type relationship mode. The Type is
 its already selected local subject, and every current package, library,
-project, platform, platform-library, Extensions-package, ASP.NET Core-package,
-and target-framework option remains bounded search scope. Its focused Graph
-adoption composes owner-issued Dependency relationships into
+project, platform, platform-library, Extensions-package, and ASP.NET
+Core-package option remains bounded search scope. `--tfm` refines the explicit
+or implicit source population without suppressing the default Platform
+frameworks. Its focused Graph adoption composes owner-issued Dependency
+relationships into
 `InspectionGraphDocument`; that adaptation does not transfer relationship,
 scope, evidence, or failure ownership from this document.
 
@@ -1374,11 +1377,12 @@ dotnet-inspect type graph System.Int128 --platform --tfm net10.0 \
   --depth 2 --table
 ```
 
-Package, library, project, platform, platform-library, Extensions-package,
-ASP.NET Core-package, and target-framework options remain search scope for this
-route. They do not become asset roots, and its base-type/interface
-relationships compose into the Inspection Graph document rather than the asset
-Dependency document above.
+Package, library, project, platform, platform-library, Extensions-package, and
+ASP.NET Core-package options remain search scope for this route. `--tfm`
+refines explicit sources or the implicit Platform default; it does not become a
+source selector or asset root. The base-type/interface relationships compose
+into the Inspection Graph document rather than the asset Dependency document
+above.
 
 ## Evidence and gates
 
@@ -1388,7 +1392,7 @@ targeted Debug-build probe.
 
 | Claim | Gate |
 | --- | --- |
-| `type graph` source options remain search scopes; `--platform --tfm net10.0` selects Platform scope at that target framework; `graph dependencies` options become asset roots; route-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`; valued versus unvalued `--platform`; repeatable `--platform-library`; `--extensions`; `--aspnetcore`; separate `--tfm`; and rejected cross-route gestures. |
+| `type graph` source options remain search scopes; bare `--platform` selects all Platform frameworks; valued `--platform <library>` selects one Platform library; TFM-only input refines the implicit Platform default without suppressing it; `graph dependencies` options become asset roots; route-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`; bare `--platform`; valued `--platform System.Private.CoreLib`; repeatable `--platform-library`; `--extensions`; `--aspnetcore`; `--tfm net10.0` with no explicit source; explicit source plus `--tfm`; and rejected cross-route gestures. |
 | Selected-Type migration preserves subject, relationship/evidence facts, scope, traversal, typed failures, exit status, and output-format classes while intentionally replacing the `type-dependencies` JSON/envelope and Dependency structural-discovery schemas with Inspection Graph schemas. | Fixed-fixture before/after Release contracts for the old command and new child across text, Markdown, table, JSON, envelope, and structural discovery; obsolete selected-Type section and field names reject with discovery guidance. |
 | Type Graph effective discovery is a new bounded capability rather than a claimed old/new migration surface. | Target-only Release gate for effective Graph discovery plus a current-command guard proving selected-Type `depends -D --effective` remains rejected until retirement. |
 | One `type graph` subject resolves to one owner-issued seed or a typed ambiguity/failure. | Multi-source type fixture with equal display names and distinct typed identities. |
