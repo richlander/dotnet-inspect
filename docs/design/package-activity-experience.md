@@ -40,11 +40,14 @@ At the time of writing the CLI command is still `package changes`, the browser
 still presents the retired peer mode, and the suites still carry the Changes
 name. Those are pre-migration evidence for everything this document says about
 scope, interval, progressive sequence, and completion, all of which survive the
-move unchanged. They are not evidence for the route or the name. The managed
-and frontend suites, generated-facade inventory, Worker startup tests, and
-package-adoption Browser scenario become the enforcing gates for `/activity`
-when the rename and route land; until then this section is **unverified** for
-those two properties.
+move unchanged.
+
+The two target properties gain evidence independently. When #7179 lands, the
+moved frontend suite, Worker startup tests, and package-adoption Browser
+scenario enforce `/activity`; until then the route is **unverified**. When
+issue #7175 lands, its focused CLI and Browser gates and generated-facade
+inventory enforce the Package Activity name; until then the name is
+**unverified**.
 
 ## Placement and lifetime
 
