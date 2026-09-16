@@ -461,8 +461,14 @@ public sealed partial class InspectionWorkspace
         {
             RootLifetime? root = Interlocked.Exchange(ref _root, null);
             if (root is null) return;
-            Interlocked.Exchange(ref _lease, null)?.Dispose();
-            root.Exit();
+            try
+            {
+                Interlocked.Exchange(ref _lease, null)?.Dispose();
+            }
+            finally
+            {
+                root.Exit();
+            }
         }
     }
 }

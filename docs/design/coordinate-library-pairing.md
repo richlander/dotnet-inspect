@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-**Design only; implementation and all new gates are unverified.**
+**Implemented with a shared matching consumer and focused Release gates.**
 `DotnetInspector.Queries` owns this focused composition contract, tracked by
 [#7072](https://github.com/richlander/dotnet-inspect/issues/7072), within step 2
 of [coordinate retention #7061](https://github.com/richlander/dotnet-inspect/issues/7061).
@@ -232,26 +232,50 @@ direct CLI matching scenario; #7061 retains the protected Navigation and
 Browser Version/TFM adoption, including retirement of interim preferences.
 The CLI matcher does not by itself complete that Navigation adoption.
 
-Illustrative composition only, not implemented API signatures:
+The public Queries API separates the scoped population observation from the
+directional pairing. `CoordinateLibraryPairingQuery.ObserveAsync` takes the
+Workspace, exact `PackageRootBinding`, and committed occurrence descriptor;
+`Execute` consumes the two complete observations and the source Library.
+Observations retain no opener and cannot reopen a retired Root.
 
 ```csharp
-var pair = queries.PairLibrary(sourceLibrary, sourceObservation, destinationObservation);
-var envelope = await matching.MatchMemberAsync(pair, sourceMember, cancellationToken);
+var pair = CoordinateLibraryPairingQuery.Execute(
+    sourceLibrary, sourceObservation, destinationObservation);
 ```
+
+The completed host-neutral matching boundary is
+`ApiCoordinateMatchInspection.ExecuteAsync`. A host with resident observations
+can pass its existing Workspace and exact Type or Member subject. A standalone
+consumer supplies an explicit payload-acquisition capability:
+
+```csharp
+var request = new ApiCoordinateMatchRequest(
+    "System.Text.Json", "9.0.0", "10.0.0",
+    "System.Text.Json.JsonSerializer", "Deserialize~25fdd4cc7c");
+InspectionEnvelope<ApiCoordinateMatchContent> envelope =
+    await ApiCoordinateMatchInspection.ExecuteAsync(
+        request, payloadProvider, cancellationToken);
+```
+
+The future Browser transport remains an illustrative adoption sketch:
 
 ```typescript
 const envelope = await inspection.matchMember(request);
 renderMatch(envelope.content);
 ```
 
-The first sketch shows the shared query's exact pairing input to declaration
-matching; the second shows a Browser consumer of completed shared content.
+The C# calls use public shared APIs, not CLI helpers. The TypeScript sketch
+shows a Browser consumer of completed shared content.
 Actual Browser retention consumes Navigation's completed result rather than
 installing this raw Library pair. Completed host boundaries follow
 [Inspection envelopes](inspection-envelope.md); CLI rendering uses existing
 Markout lowering and Browser rendering remains its host-owned projection.
-No new command, transport schema, comparison policy, or scheduling protocol
-is implemented here.
+The standalone operation resolves the source selector only once. Content-only
+JSON and complete envelope JSON serialize the same content. Staged native
+outcomes, exact descriptive coordinates, and forwarding edges are transport
+data; process-local Workspace identities remain in detached in-process
+evidence rather than becoming portable authority. Share is explicitly
+non-projectable until its owner represents this ordered comparison.
 
 Pairing is a deterministic query over associated observations, not a new
 stateful replacement mechanism. Existing
@@ -260,16 +284,18 @@ stateful replacement mechanism. Existing
 the adjacent ordering contracts; they do not prove this matching profile.
 No model-checking claim is transferred to this design.
 
-Future focused Release gates belong in `DotnetInspector.Queries.Tests`, with
-independently compiled boundary inputs under `fixtures/queries/`. All are
-**unimplemented and unverified**:
+Focused Release gates belong in `DotnetInspector.Queries.Tests`. The existing
+versioned caller-graph and unsigned lookalike fixtures are reused rather than
+duplicated. Pinned System.Text.Json and Avalonia archives enter through
+production typed payload acquisition, with no test-created match result.
+The integrated evidence obligations are:
 
 | Gate obligation | Required evidence |
 | --- | --- |
-| `CoordinateLibraryPairing_RealPackageCoordinates` | Production acquisition of the observed System.Text.Json version and TFM pairs yields exact destination Library identities and preserves both endpoint associations. |
-| `CoordinateLibraryPairing_ProfileAndPopulation` | Culture/token/version rules, unsigned versus signed, changed paths, multi-Library packages, compile fallback versus implementation-only roles, duplicate candidates, sparse materialization, and genuine empty groups. |
-| `CoordinateLibraryPairing_EndpointAssociation` | Foreign occurrences, same-coordinate re-admission, changed generation/selection, unavailable source access, and mismatched candidate evidence do not receive relabeled or success-shaped results. |
-| `CoordinateLibraryPairing_NonSuccess` | Failed/unsupported selection and unreadable or bounded-out candidates remain distinct from absence, including one apparent match beside incomplete evidence. |
+| `ApiCoordinateMatchInspectionTests` | Real System.Text.Json exact/strict-non-match and descending absence cases; Avalonia's defining-Library move; source ambiguity and missing source; completed envelopes through a non-friend consumer. |
+| `CoordinateLibraryPairingQueryTests` | Assembly-version changes, unsigned versus signed, changed paths, compile fallback versus implementation/other-TFM roles, duplicate candidates, and genuine empty groups. |
+| `CoordinateLibraryPairingQueryTests` | Foreign Workspaces, same-coordinate fresh bindings, retired Roots, different Packages/producers, and incomplete producer evidence do not receive relabeled or success-shaped results. |
+| `ApiCoordinateSourceSelectionQueryTests` | Source-only selection over real packages without destination selector acquisition. |
 
 Host-level retention and `--match` outcomes remain gates of their respective
 adoption slices. This design makes no claim that either feature has shipped.
