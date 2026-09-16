@@ -1020,7 +1020,12 @@ test.describe("Package Query website over real Wasm", () => {
     const draft = page.locator("[data-query-term-draft-value]");
     await expect(draft).toBeFocused();
     expect(searchRequests).toBe(0);
+    await draft.fill("   ");
+    await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
+    await expect(draft).toHaveJSProperty("validationMessage", "Enter a term value.");
+    expect(searchRequests).toBe(0);
     await draft.fill("Microsoft.Extensions.Hosting");
+    await expect(draft).toHaveJSProperty("validationMessage", "");
     await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
 
     const rows = page.locator(".query-row h2");

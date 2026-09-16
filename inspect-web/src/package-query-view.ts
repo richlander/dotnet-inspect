@@ -373,32 +373,41 @@ function bindPackageQueryTerms(
     button.addEventListener("click", () =>
       actions.onTermAdd?.(button.dataset.queryTermAdd ?? "")));
   root.querySelectorAll<HTMLFormElement>("[data-query-term-form]")
-    .forEach(form => form.addEventListener("submit", event => {
-      event.preventDefault();
-      const value = form.querySelector<HTMLInputElement>(
+    .forEach(form => {
+      const termValue = form.querySelector<HTMLInputElement>(
         "[data-query-term-value]");
-      const operator = form.querySelector<HTMLInputElement | HTMLSelectElement>(
-        "[data-query-term-operator]");
-      if (!value || !operator) {
-        throw new Error("Package-query term controls are incomplete.");
+      if (termValue) {
+        const clearError = () => termValue.setCustomValidity("");
+        termValue.addEventListener("input", clearError);
+        termValue.addEventListener("change", clearError);
       }
-      value.setCustomValidity("");
-      if (value.value.trim().length === 0) {
-        value.setCustomValidity("Enter a term value.");
-        value.reportValidity();
-        return;
-      }
-      const indexText = form.dataset.queryTermForm;
-      const index = indexText === "draft" ? null : Number(indexText);
-      if (index !== null && (!Number.isInteger(index) || index < 0)) {
-        throw new Error("Package-query term index is invalid.");
-      }
-      actions.onTermApply?.(
-        index,
-        operator.value,
-        value.value,
-        prefixInput()?.value ?? "");
-    }));
+      form.addEventListener("submit", event => {
+        event.preventDefault();
+        const value = form.querySelector<HTMLInputElement>(
+          "[data-query-term-value]");
+        const operator = form.querySelector<HTMLInputElement | HTMLSelectElement>(
+          "[data-query-term-operator]");
+        if (!value || !operator) {
+          throw new Error("Package-query term controls are incomplete.");
+        }
+        value.setCustomValidity("");
+        if (value.value.trim().length === 0) {
+          value.setCustomValidity("Enter a term value.");
+          value.reportValidity();
+          return;
+        }
+        const indexText = form.dataset.queryTermForm;
+        const index = indexText === "draft" ? null : Number(indexText);
+        if (index !== null && (!Number.isInteger(index) || index < 0)) {
+          throw new Error("Package-query term index is invalid.");
+        }
+        actions.onTermApply?.(
+          index,
+          operator.value,
+          value.value,
+          prefixInput()?.value ?? "");
+      });
+    });
   root.querySelectorAll<HTMLElement>("[data-query-term-remove]")
     .forEach(button => button.addEventListener("click", () => {
       const index = Number(button.dataset.queryTermRemove);

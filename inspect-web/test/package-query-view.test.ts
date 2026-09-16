@@ -1432,6 +1432,8 @@ test("bindPackageQueryView applies exact term values and keeps empty drafts idle
   assert.equal(value.customValidity, "Enter a term value.");
   assert.equal(value.validityReports, 1);
   value.value = "  Microsoft.Extensions.Hosting  ";
+  value.dispatch("input");
+  assert.equal(value.customValidity, "");
   form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
   remove.dispatch("click");
   cancel.dispatch("click");
