@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
-import type { PlatformAssemblyRow, PlatformCatalogTarget } from "../src/platform-index.ts";
+import {
+  DEFAULT_PLATFORM_FRAMEWORK,
+  parsePlatformIndex,
+  type PlatformAssemblyRow,
+  type PlatformCatalogTarget,
+} from "../src/platform-index.ts";
 import {
   platformInventory, platformLibraryKey, platformLibraryRole, platformTargetKey,
   parsePlatformVersions, requireMatchingPlatformTarget, renderPlatformSubject,
   platformSupportsRuntimeAcquisition,
   platformAssemblyRequest, platformLibraryMatchesDescriptor,
+  rankPlatformLibraryMatches,
 } from "../src/platform-subject.ts";
 import { renderScopeBar } from "../src/scope-bar.ts";
 import { spotlightResultIdentity } from "../src/spotlight.ts";
@@ -34,6 +41,18 @@ test("reference membership, not implementation kind or public type count, define
   assert.equal(platformInventory(target, true, "").length, 4);
   assert.deepEqual(platformInventory(target, true, "PRIVATE"), [privateLibrary]);
   assert.deepEqual(platformInventory(target, false, "PRIVATE"), []);
+});
+
+test("exact framework Library names rank ahead of partial catalog matches", async () => {
+  const value: unknown = JSON.parse(await readFile(
+    new URL("../assets/platform-index.json", import.meta.url), "utf8"));
+  const catalog = parsePlatformIndex(value).target(DEFAULT_PLATFORM_FRAMEWORK);
+  assert.ok(catalog);
+  const matches = rankPlatformLibraryMatches(
+    platformInventory(catalog, true, "Microsoft.AspNetCore"),
+    "Microsoft.AspNetCore");
+  assert.equal(matches[0]?.assembly, "Microsoft.AspNetCore");
+  assert.ok(matches.length > 5);
 });
 
 test("roles distinguish facade, implementation, private implementation and unsupported reference without color", () => {

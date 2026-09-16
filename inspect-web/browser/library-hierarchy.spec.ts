@@ -872,7 +872,17 @@ async function installFacades(
           callGraph: null,
         };
       }
-      export function encodeWorkspaceShareState(json) {
+      let holdNextWorkspaceEncode = false;
+      document.addEventListener("hold-workspace-encode", () => {
+        holdNextWorkspaceEncode = true;
+      });
+      export async function encodeWorkspaceShareState(json) {
+        if (holdNextWorkspaceEncode) {
+          holdNextWorkspaceEncode = false;
+          document.documentElement.dataset.workspaceEncodePending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-workspace-encode", resolve, { once: true }));
+        }
         return { succeeded: true, packet: btoa(json), failure: null };
       }
       export function decodeWorkspaceShareState(packet) {
@@ -2952,15 +2962,21 @@ test("a fresh Spotlight Library preserves the predecessor Platform parent", asyn
   await openPlatform(page);
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
   await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
+  const predecessorLocation = page.url();
+  const predecessorWorkspace = await currentWorkspaceHistoryState(page);
 
   await page.getByRole(
     "button",
     { name: "Search types, members, packages", exact: true },
   ).click();
   await page.locator("#spotlight-input").fill("System.Facade");
+  await releaseFacade(page, "hold-workspace-encode");
   await page.locator('[data-sl-framework-lib="System.Facade"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-workspace-encode-pending", "true");
   await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+  await releaseFacade(page, "finish-workspace-encode");
   await page.getByRole("button", { name: "Application menu", exact: true }).click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await page.locator('#settings-dialog [data-theme="light"]').click();
@@ -2970,12 +2986,12 @@ test("a fresh Spotlight Library preserves the predecessor Platform parent", asyn
   await expect(page.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
 
   await page.goBack();
+  await expect(page).toHaveURL(predecessorLocation);
+  await expect.poll(() => currentWorkspaceHistoryState(page)).toEqual(predecessorWorkspace);
   await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
-  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
   await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
   await page.reload();
   await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
-  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
   await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
 });
 

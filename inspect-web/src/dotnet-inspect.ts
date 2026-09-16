@@ -419,7 +419,7 @@ import {
   platformLibraryRole, platformTargetKey, parsePlatformVersions, requireMatchingPlatformTarget,
   platformSupportsRuntimeAcquisition,
   platformAssemblyRequest, platformGraphLibraryForTarget,
-  platformLibraryMatchesDescriptor,
+  platformLibraryMatchesDescriptor, rankPlatformLibraryMatches,
   type PlatformNavigationState, type PlatformSubjectStatus,
 } from "./platform-subject.ts";
 import {
@@ -5360,6 +5360,11 @@ function platformIsPresentedAsRoot() {
       && hasPlatformRootHistoryView());
 }
 
+function currentViewHasPlatformRootParent() {
+  return pendingWorkspaceConstruction === null
+    && hasPlatformRootHistoryView();
+}
+
 function navigationSnapshotHasPlatformRootParent(
   snapshot: NavigationHistorySnapshot<WorkspaceView>,
 ) {
@@ -5383,7 +5388,7 @@ function renderTypeNavPane(
     accessibilityControlHtml: accessibilityControl(),
     library: selectedLibraryName(),
     parentSubject: state.atLibraryRoot
-      ? state.rootKind === "platform" && !hasPlatformRootHistoryView()
+      ? state.rootKind === "platform" && !currentViewHasPlatformRootParent()
         ? null
         : state.rootKind
       : "library",
@@ -5420,7 +5425,7 @@ function renderScopeBar(
   const selected = selectedType();
   const rootScopes: readonly WorkspaceScope[] =
     state.rootKind === "platform"
-      && !hasPlatformRootHistoryView()
+      && !currentViewHasPlatformRootParent()
       ? []
       : [state.rootKind];
   availableScopes ??= [
@@ -9061,11 +9066,7 @@ function platformLibraryRoster(query: string) {
     loaded: runtimeAssemblyIsResident(rt, row.assembly, row.pack),
     ranges: computeHighlightRanges(row.assembly, lower),
   }));
-  rows.sort((a, b) =>
-    (a.pack === b.pack ? 0 : a.pack === "netcore.app" ? -1 : 1)
-    || b.publicTypes - a.publicTypes
-    || a.assembly.localeCompare(b.assembly));
-  return rows;
+  return rankPlatformLibraryMatches(rows, lower);
 }
 
 // Which shared framework an assembly ships in. Product-supplied provenance from
@@ -11532,6 +11533,7 @@ async function restoreRetainedWorkspaceFromHistory(
       discardPendingWorkspaceConstruction();
       activeWorkspaceUrl = destination;
       workspaceLocation.replace(destination, history.state);
+      render({ synchronizeUrl: false });
     }
   } catch (error) {
     if (navigationSequence.isCurrent(navigationSeq)) {
