@@ -857,6 +857,52 @@ methods containing direct calls, and the provider declaring types selected by
 those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
 
+`-S "Direct Use Clusters"` partitions the exact directed call rows into
+connected components of source and target methods. Each explicit row retains
+its call-site references and separately counts source members, provider types,
+target members, extension methods, and physical sites. A one-extension-method
+row exposes a small direct-use footprint; it is not yet proof that the package
+is removable or that copying source is safe. The section remains outside the
+default and bare `-S` views.
+
+Use the pair-wide cluster ordinal to reopen one component as exact calls:
+Run `dotnet-inspect graph libraries -Q "Call Sites"` to discover the predicate
+and its supported operator without inspecting a pair.
+
+```bash
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  -S "Direct Use Clusters"
+
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  --where "Cluster=3"
+```
+
+The drill-down names every source member, source token, target member, target
+token, call kind, evidence method, evidence token, and IL offset in that
+cluster. Use source and target identities for ordinary `member` inspection.
+Use the evidence token with the IL offset for `library --il-offset`, because a
+compiler-generated physical body can differ from the attributed source member.
+The cluster remains structural evidence rather than a source-inlining verdict.
+
+```bash
+dotnet-inspect member "<SourceType>" \
+  --library ./Consumer.dll \
+  -m "<SourceMember>" \
+  -S @Source
+
+dotnet-inspect member "<TargetType>" \
+  --library ./Provider.dll \
+  -m "<TargetMember>" \
+  -S @Source
+
+dotnet-inspect library ./Consumer.dll \
+  --il-offset "<EvidenceToken>+<ILOffset>"
+```
+
 ### Workspace sharing and built-in guidance
 
 ```bash
