@@ -38,7 +38,9 @@ createServer((request, response) => {
   }
   const file = resolve(
     site,
-    pathname === "/query" || pathname === "/query/"
+    pathname === "/"
+    || pathname === "/query" || pathname === "/query/"
+    || pathname === "/activity" || pathname === "/activity/"
       ? "index.html"
       : `.${pathname}`,
   );

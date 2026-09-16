@@ -928,6 +928,106 @@ public class LibraryInspectionView
         }
     }
 
+    public bool HasImplementationProfiles =>
+        _data.ImplementationProfilesQueryResult
+            is ImplementationProfilesResult.Available
+            { Profiles.IsEmpty: false };
+
+    [MarkoutSection(
+        Name = SectionNames.ImplementationProfiles,
+        ShowWhenProperty = nameof(HasImplementationProfiles))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileUnsafeEmpty),
+        nameof(ImplementationProfileRow.Unsafe))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileAsyncEmpty),
+        nameof(ImplementationProfileRow.Async))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileTargetsEmpty),
+        nameof(ImplementationProfileRow.OverloadTargets))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileEvidenceEmpty),
+        nameof(ImplementationProfileRow.EvidenceMethod))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileEvidenceEmpty),
+        nameof(ImplementationProfileRow.EvidenceToken))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileIncompleteEmpty),
+        nameof(ImplementationProfileRow.Incomplete))]
+    public List<ImplementationProfileRow>?
+        ImplementationProfilesSection
+    {
+        get
+        {
+            if (_data.ImplementationProfilesQueryResult
+                is not ImplementationProfilesResult.Available
+                    available)
+            {
+                return null;
+            }
+
+            var drillByToken =
+                _data.ImplementationProfilesDrillMap;
+            var relationshipsByBody =
+                available.OverloadRelationships
+                    .GroupBy(relationship => (
+                        relationship.Caller.MetadataToken,
+                        relationship.EvidenceMethod.MetadataToken))
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.ToArray());
+            var rows = available.Profiles
+                .Select(profile =>
+                {
+                    (string? Stable, string Visibility, string Selector)
+                        drill = default;
+                    drillByToken?.TryGetValue(
+                        profile.Method.MetadataToken,
+                        out drill);
+                    relationshipsByBody.TryGetValue(
+                        (
+                            profile.Method.MetadataToken,
+                            profile.EvidenceMethod.MetadataToken),
+                        out var relationships);
+                    return ApiOutputFormatter
+                        .ToImplementationProfileRow(
+                            profile,
+                            relationships ?? [],
+                            drill,
+                            LibraryMetadataService
+                                .IsGeneratedMethod(
+                                    profile.Method,
+                                    available
+                                        .GeneratedFrameworkTypes),
+                            includeDeclaringType: true);
+                })
+                .ToList();
+            return rows.Count > 0 ? rows : null;
+        }
+    }
+
+    public static bool ImplementationProfileUnsafeEmpty(
+        List<ImplementationProfileRow>? rows)
+        => rows is null || rows.All(row => row.Unsafe is null);
+
+    public static bool ImplementationProfileAsyncEmpty(
+        List<ImplementationProfileRow>? rows)
+        => rows is null || rows.All(row => row.Async is null);
+
+    public static bool ImplementationProfileTargetsEmpty(
+        List<ImplementationProfileRow>? rows)
+        => rows is null
+            || rows.All(row => row.OverloadTargets is null);
+
+    public static bool ImplementationProfileEvidenceEmpty(
+        List<ImplementationProfileRow>? rows)
+        => rows is null
+            || rows.All(row => row.EvidenceMethod is null);
+
+    public static bool ImplementationProfileIncompleteEmpty(
+        List<ImplementationProfileRow>? rows)
+        => rows is null || rows.All(row => row.Incomplete is null);
+
     // Kind-scoped performance sections. The optimization-opportunity scan is holistic; each
     // section renders the subset whose shape maps to it (see PerformanceKinds) with a tight,
     // human column set. Rows arrive pre-ordered by triage priority. Deep per-row diagnostics

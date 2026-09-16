@@ -67,6 +67,88 @@ public class ExceptionFlowFactsTests
     }
 
     [Fact]
+    public void IdentityLookupReturnsCanonicalFactsAcrossRematerialization()
+    {
+        (MethodBodyData body, MethodInstructions method) =
+            Decode(nameof(ExceptionFlowFactsSamples.SharedCatchExtent));
+        InstructionExceptionFlowFacts facts = AvailableFacts(method);
+        InstructionExceptionFlowFacts rematerialized =
+            AvailableFacts(MethodInstructions.Decode(body));
+
+        Assert.Equal(
+            facts.Clauses.Select(clause => clause.Id),
+            rematerialized.Clauses.Select(clause => clause.Id));
+        Assert.Equal(
+            facts.Regions.Select(region => region.Id),
+            rematerialized.Regions.Select(region => region.Id));
+        Assert.NotSame(facts.Clauses[0], rematerialized.Clauses[0]);
+        Assert.NotSame(facts.Regions[0], rematerialized.Regions[0]);
+
+        foreach (InstructionExceptionClause candidate
+            in rematerialized.Clauses)
+        {
+            InstructionExceptionClause resolved = Assert.IsType<
+                InstructionExceptionFlowResult<
+                    InstructionExceptionClause>.Available>(
+                        facts.GetClause(candidate.Id)).Value;
+            Assert.Same(
+                facts.Clauses.Single(clause => clause.Id == candidate.Id),
+                resolved);
+        }
+
+        foreach (InstructionExceptionRegion candidate
+            in rematerialized.Regions)
+        {
+            InstructionExceptionRegion resolved = Assert.IsType<
+                InstructionExceptionFlowResult<
+                    InstructionExceptionRegion>.Available>(
+                        facts.GetRegion(candidate.Id)).Value;
+            Assert.Same(
+                facts.Regions.Single(region => region.Id == candidate.Id),
+                resolved);
+        }
+    }
+
+    [Fact]
+    public void IdentityLookupRejectsEqualShapeFromAnotherObservation()
+    {
+        (_, MethodInstructions method) =
+            Decode(nameof(ExceptionFlowFactsSamples.SharedCatchExtent));
+        (_, MethodInstructions foreignMethod) =
+            Decode(nameof(ExceptionFlowFactsSamples.SharedCatchExtent));
+        InstructionExceptionFlowFacts facts = AvailableFacts(method);
+        InstructionExceptionFlowFacts foreign = AvailableFacts(foreignMethod);
+        InstructionExceptionClause foreignClause = foreign.Clauses[0];
+        InstructionExceptionRegion foreignRegion = foreign.Regions[0];
+
+        Assert.Equal(facts.Body.Method, foreign.Body.Method);
+        Assert.NotEqual(facts.Body, foreign.Body);
+        Assert.Equal(
+            facts.Clauses[0].Clause.ProtectedExtent,
+            foreignClause.Clause.ProtectedExtent);
+        Assert.Equal(
+            facts.Clauses[0].Clause.HandlerExtent,
+            foreignClause.Clause.HandlerExtent);
+        Assert.Equal(facts.Regions[0].Extent, foreignRegion.Extent);
+
+        var clauseUnavailable = Assert.IsType<
+            InstructionExceptionFlowResult<
+                InstructionExceptionClause>.Unavailable>(
+                    facts.GetClause(foreignClause.Id));
+        Assert.Equal(
+            InstructionExceptionFlowUnavailableReason.BodyIdentityMismatch,
+            clauseUnavailable.Reason);
+
+        var regionUnavailable = Assert.IsType<
+            InstructionExceptionFlowResult<
+                InstructionExceptionRegion>.Unavailable>(
+                    facts.GetRegion(foreignRegion.Id));
+        Assert.Equal(
+            InstructionExceptionFlowUnavailableReason.BodyIdentityMismatch,
+            regionUnavailable.Reason);
+    }
+
+    [Fact]
     public void SharedProtectedClausesMaySurroundAClauseNestedInAHandler()
     {
         (_, MethodInstructions method) =
