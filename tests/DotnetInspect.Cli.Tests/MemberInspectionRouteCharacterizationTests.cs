@@ -322,7 +322,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:94:53B0080492B4]",
+                "ApiMemberOverload[schema:92:63C2A33EB458]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
@@ -334,7 +334,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:187:BC5DFA386CA1]",
+                "ApiType[schema:185:AB82C3E6A44F]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];

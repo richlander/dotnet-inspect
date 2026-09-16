@@ -54,6 +54,10 @@ probe budget. Rendering may spend a larger content budget.
 Categories are authored, typed grouping declarations. They are not computed
 from section names.
 
+On a target-aware command, a category is a lens over the current route's
+catalog; selecting it does not change target granularity. A direct section
+selector may choose a narrower route when that section requires one.
+
 Most selectable sections belong to at least one authored category. A section
 may belong to more than one category when it is genuine evidence in multiple
 domains. A deliberately standalone section may remain uncategorized when no
@@ -591,7 +595,9 @@ The member command's current authored ownership is:
 `@Member` is the base category; the remaining categories are domains.
 `Member Index` and `Finding Census` remain exact-name sections: their focused
 selector and indivisible-document contracts are not coherent promises for a
-broader category.
+broader category. On an overload inventory, `Signature` and
+`Custom Attributes` also remain exact-name sections because both require one
+selected overload.
 
 ## Registration invariants
 
@@ -604,7 +610,8 @@ The section pipeline and derived catalog gates enforce these invariants:
    selectable library section is categorized except the explicitly pinned
    standalone `Unsafe Members` and coordinate-gated `Body Shapes` sections.
    Every selectable member section is categorized except the explicitly pinned
-   `Member Index` and `Finding Census` sections. Gates:
+   `Member Index` and `Finding Census` sections and overload-inventory
+   `Signature` and `Custom Attributes` sections. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
    `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles`.

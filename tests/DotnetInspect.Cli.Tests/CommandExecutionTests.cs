@@ -10650,6 +10650,53 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("@Member", "Methods")]
+    [InlineData("@Calls", "Called Types")]
+    public async Task Member_BroadCategoryDiscovery_UsesBroadRoute(
+        string category,
+        string expectedSection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            category,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(expectedSection, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_OverloadMemberCategoryDiscovery_UsesInventoryRoute()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "Serialize",
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            SectionCategoryNames.Member,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(SectionNames.Methods, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "requires exactly one member name",
+            output,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData("@All")]
     [InlineData("@Default")]
     [InlineData("@Hidden")]

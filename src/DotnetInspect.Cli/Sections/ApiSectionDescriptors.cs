@@ -811,13 +811,11 @@ public static class ApiMemberOverloadSectionDescriptors
                 SectionNames.Finalizer,
                 SectionNames.Fields,
                 SectionNames.Properties,
-                SectionNames.Signature,
                 SectionNames.Methods,
                 SectionNames.Operators,
                 SectionNames.ExplicitInterfaceImplementations,
                 SectionNames.ExtensionMethods,
                 SectionNames.Events,
-                SectionNames.CustomAttributes,
             ]);
     }
 

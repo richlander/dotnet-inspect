@@ -7949,7 +7949,12 @@ public class SectionPipelineTests
             [SectionNames.MemberIndex],
             Uncategorized(broad));
         Assert.Equal(
-            [SectionNames.MemberIndex, SectionNames.FindingCensus],
+            [
+                SectionNames.Signature,
+                SectionNames.MemberIndex,
+                SectionNames.CustomAttributes,
+                SectionNames.FindingCensus,
+            ],
             Uncategorized(overload));
         Assert.Equal(
             [SectionNames.FindingCensus],

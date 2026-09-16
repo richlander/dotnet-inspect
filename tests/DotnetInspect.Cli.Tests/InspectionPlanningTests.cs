@@ -174,7 +174,6 @@ public sealed class InspectionPlanningTests
     [InlineData("Original Source")]
     [InlineData("Finding Census")]
     [InlineData("*Source*")]
-    [InlineData("@Source")]
     public void SectionDemandIndex_PromotesExactMemberSelectors(
         string selector)
     {
@@ -224,6 +223,65 @@ public sealed class InspectionPlanningTests
             InspectionTargetRequirement.MemberSet,
             result.RequiredTarget);
         Assert.Empty(result.MatchedSections);
+    }
+
+    [Theory]
+    [InlineData("@Member")]
+    [InlineData("@Calls")]
+    public void SectionDemandIndex_BroadCategoriesPreserveBroadRoute(
+        string selector)
+    {
+        SectionDemandClassification result =
+            ApiSectionDemandIndex.Classify(
+                InspectionSurface.Member,
+                [selector],
+                selectDefault: false,
+                InspectionTargetRequirement.Type);
+
+        Assert.Equal(
+            InspectionTargetRequirement.Type,
+            result.RequiredTarget);
+        Assert.NotEmpty(result.MatchedSections);
+        Assert.Empty(result.UnresolvedSelectors);
+    }
+
+    [Fact]
+    public void SectionDemandIndex_OverloadMemberCategoryPreservesInventoryRoute()
+    {
+        SectionDemandClassification result =
+            ApiSectionDemandIndex.Classify(
+                InspectionSurface.Member,
+                [SectionCategoryNames.Member],
+                selectDefault: false,
+                InspectionTargetRequirement.MemberSet);
+
+        Assert.Equal(
+            InspectionTargetRequirement.MemberSet,
+            result.RequiredTarget);
+        Assert.DoesNotContain(
+            SectionNames.Signature,
+            result.MatchedSections);
+        Assert.DoesNotContain(
+            SectionNames.CustomAttributes,
+            result.MatchedSections);
+        Assert.Empty(result.UnresolvedSelectors);
+    }
+
+    [Fact]
+    public void SectionDemandIndex_DomainCategoryPreservesOverloadRoute()
+    {
+        SectionDemandClassification result =
+            ApiSectionDemandIndex.Classify(
+                InspectionSurface.Member,
+                [SectionCategoryNames.Source],
+                selectDefault: false,
+                InspectionTargetRequirement.MemberSet);
+
+        Assert.Equal(
+            InspectionTargetRequirement.MemberSet,
+            result.RequiredTarget);
+        Assert.NotEmpty(result.MatchedSections);
+        Assert.Empty(result.UnresolvedSelectors);
     }
 
     [Fact]
@@ -1549,7 +1607,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task EffectiveDiscovery_MemberSelectionRetainsExactDemand()
+    public async Task EffectiveDiscovery_MemberCategoryPreservesInventoryDemand()
     {
         var result = await RunAppAsync(
             "member",
@@ -1561,16 +1619,14 @@ public sealed class InspectionPlanningTests
             "-S",
             SectionCategoryNames.Member,
             "-D",
-            SectionNames.Signature,
+            SectionCategoryNames.Member,
             "--markdown",
             "--tips",
             "q");
 
-        Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
-        Assert.Contains(
-            "require a single selected overload for member 'Contains'",
-            result.Error);
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(SectionNames.Methods, result.Output);
+        Assert.Empty(result.Error);
     }
 
     [Fact]
@@ -2992,9 +3048,9 @@ public sealed class InspectionPlanningTests
         var result = await RunAppAsync(
             "Missing.Type.Run",
             "-S",
-            SectionCategoryNames.Member,
-            "-D",
             SectionNames.Signature,
+            "-D",
+            SectionCategoryNames.Member,
             "--schema",
             "--table",
             "--tips",
