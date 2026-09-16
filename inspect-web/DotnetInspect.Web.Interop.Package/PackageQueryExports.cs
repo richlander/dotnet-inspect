@@ -747,18 +747,6 @@ namespace DotnetInspect.Web.Interop.Package
 public static partial class PackageExports
 {
     [JSExport]
-    public static string ListPackageAssemblyQueryPatterns() =>
-        JsonSerializer.Serialize(
-            PackageAssemblyPatterns.Descriptors.Select(pattern =>
-                new BrowserPackageAssemblyQueryPattern(
-                    pattern.Id,
-                    pattern.Label,
-                    pattern.Summary,
-                    pattern.MaximumOperandLength,
-                    PackageAssemblyQuery.MaximumPackages)).ToArray(),
-            BrowserPackageJsonContext.Default.BrowserPackageAssemblyQueryPatternArray);
-
-    [JSExport]
     public static string ListPackageQueryCatalog()
     {
         string result = JsonSerializer.Serialize(
@@ -797,76 +785,6 @@ public static partial class PackageExports
             result,
             BrowserPackageJsonContext.Default
                 .BrowserPackageQueryMatchCreditResponse);
-    }
-
-    [JSExport]
-    public static async Task<string> RunPackageAssemblyQuery(
-        string operationId,
-        string patternId,
-        string operand,
-        string packageCoordinatesJson,
-        string targetFramework,
-        int initialMatchCredit,
-        JSObject eventSink)
-    {
-        ArgumentNullException.ThrowIfNull(eventSink);
-        string[] coordinates = JsonSerializer.Deserialize(
-            packageCoordinatesJson, BrowserPackageJsonContext.Default.StringArray)
-            ?? throw new ArgumentException("Exact package coordinates are required.", nameof(packageCoordinatesJson));
-        PackageAssemblyQueryPlan plan = PackageAssemblyQuery.Plan(
-            patternId, operand, coordinates, targetFramework);
-        BrowserManagedOperationResult<
-            BrowserPackageQueryEvent,
-            string,
-            string> result =
-            await BrowserPackageQueryOperationCoordinator.RunAsync<
-                BrowserPackageQueryEvent,
-                BrowserPackageQueryEvent>(
-                BrowserManagedOperationId.From(operationId),
-                initialMatchCredit,
-                queryEvent => eventSink.SetProperty(
-                    "event",
-                    BrowserPackageQueryOperations.Serialize(queryEvent)),
-                async (matchCredit, events, token) =>
-                {
-                    await BrowserPackageQueryOperations
-                        .WaitForSerializationPreparationAsync()
-                        .WaitAsync(token)
-                        .ConfigureAwait(false);
-                    return await BrowserPackageWorkspace.RunPackageOperationAsync(
-                        deadline =>
-                            BrowserPackageQueryOperations.ExecuteAssemblyAsync(
-                                plan,
-                                matchCredit,
-                                events.Report,
-                                deadline.Token,
-                                deadline),
-                        BrowserPackageWorkspace.PackageOperationTimeout,
-                        token).ConfigureAwait(false);
-                });
-        return JsonSerializer.Serialize(
-            BrowserPackageQueryResult.From(result),
-            BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
-    }
-
-    [JSExport]
-    public static async Task<string> OpenPackageAssemblyQueryResult(string rootRequest)
-    {
-        if (!PackageRootReacquisitionRequest.TryDecode(rootRequest, out var request))
-            throw new ArgumentException("Invalid package Root reopening request.", nameof(rootRequest));
-
-        BrowserPackageSurface surface = await BrowserPackageWorkspace.RunPackageOperationAsync(
-            async deadline =>
-            {
-                BrowserPackageCoordinate coordinate =
-                    await BrowserPackageWorkspace.ReacquireAsync(request, deadline.Token);
-                await using BrowserScopeLease<BrowserInspectionScope> lease =
-                    await BrowserPackageWorkspace.OpenScopeAsync([coordinate], deadline.Token);
-                return BrowserPackageWireProjection.Project(
-                    BrowserPackageSurfaceProjection.ProjectSurface(lease.Scope, coordinate));
-            },
-            BrowserPackageWorkspace.PackageOperationTimeout);
-        return JsonSerializer.Serialize(surface, BrowserPackageJsonContext.Default.BrowserPackageSurface);
     }
 
     [JSExport]

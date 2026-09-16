@@ -290,13 +290,6 @@ public sealed record BrowserPackageQueryTerm(
     string Operator,
     string Value);
 
-public sealed record BrowserPackageAssemblyQueryPattern(
-    string Id,
-    string Label,
-    string Summary,
-    int MaximumOperandLength,
-    int MaximumPackages);
-
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEvidenceScope>))]
 public enum BrowserPackageQueryEvidenceScope
 {
@@ -838,7 +831,6 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryTerm[]))]
-[JsonSerializable(typeof(BrowserPackageAssemblyQueryPattern[]))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageQueryDocument))]
 [JsonSerializable(typeof(BrowserPackageQueryInspection))]

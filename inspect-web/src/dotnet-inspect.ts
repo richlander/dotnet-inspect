@@ -489,7 +489,6 @@ import {
   withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
-  type QueryAssemblyPatternDescriptor,
   type QueryFacetTerm,
   type QueryRequest,
   type QuerySourceSelection,
@@ -501,7 +500,6 @@ import {
 } from "./package-query-announcements.ts";
 import {
   createBrowserPackageQueryDataSource,
-  packageQueryAssemblyPatterns,
   packageQueryCatalog,
   type BrowserPackageQueryInspection,
 } from "./package-query-source.ts";
@@ -605,10 +603,6 @@ let inspectRequestPackageQueryMatches:
   EngineClient["package"]["requestPackageQueryMatches"];
 let inspectRunPackageQuery: EngineClient["package"]["runPackageQuery"];
 let inspectRunPackageChanges: EngineClient["package"]["runPackageChanges"];
-let inspectRunPackageAssemblyQuery:
-  EngineClient["package"]["runPackageAssemblyQuery"];
-let inspectOpenPackageAssemblyQueryResult:
-  EngineClient["package"]["openPackageAssemblyQueryResult"];
 let inspectSearchTypes: EngineClient["package"]["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
   EngineClient["package"]["queryWorkspacePackageOccurrences"];
@@ -734,8 +728,6 @@ async function loadEngineModule() {
       resolvePackageDependencyVersion: resolveDependencyVersion,
       runPackageChanges: inspectRunPackageChanges,
       runPackageQuery: inspectRunPackageQuery,
-      runPackageAssemblyQuery: inspectRunPackageAssemblyQuery,
-      openPackageAssemblyQueryResult: inspectOpenPackageAssemblyQueryResult,
       searchTypes: inspectSearchTypes,
       queryWorkspacePackageOccurrences:
         inspectQueryWorkspacePackageOccurrences,
@@ -961,7 +953,6 @@ const initialState = {
   packageQueryInspection: null,
   packageQueryFacets: [],
   packageQueryTerms: [],
-  packageQueryAssemblyPatterns: [],
   packageChangesPackageSets: [],
   packageChangesState: initialPackageChangesState(),
   platformIndex: null,
@@ -1184,7 +1175,6 @@ interface StateOverrides {
   packageQueryInspection: BrowserPackageQueryInspection | null;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryTerms: QueryTermDescriptor[];
-  packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
   packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
@@ -1515,7 +1505,6 @@ function captureRetainedHostState() {
     packageQueryInspection: state.packageQueryInspection,
     packageQueryFacets: state.packageQueryFacets,
     packageQueryTerms: state.packageQueryTerms,
-    packageQueryAssemblyPatterns: state.packageQueryAssemblyPatterns,
     packageChangesPackageSets: state.packageChangesPackageSets,
     packageChangesState: state.packageChangesState,
     platformIndex: state.platformIndex,
@@ -1942,22 +1931,6 @@ const packageQueryController = createPackageQueryController(
       cancelPackageQuery(operationId, reason),
     requestMatches: (operationId, additionalMatchCredit) =>
       inspectRequestPackageQueryMatches(operationId, additionalMatchCredit),
-    runAssembly: (
-      operationId,
-      patternId,
-      operand,
-      packageCoordinatesJson,
-      targetFramework,
-      initialMatchCredit,
-      eventSink,
-    ) => inspectRunPackageAssemblyQuery(
-      operationId,
-      patternId,
-      operand,
-      packageCoordinatesJson,
-      targetFramework,
-      initialMatchCredit,
-      eventSink),
     run: (
       operationId,
       prefix,
@@ -12037,12 +12010,6 @@ const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
   onModeChange: switchPackageQueryMode,
-  onAssemblyRun: request => {
-    state.packageQueryNavigationError = "";
-    state.packageQueryState.termDraft = null;
-    packageQueryLiveAnnouncer.reset();
-    void packageQueryController.run(request);
-  },
   onFacetToggle: togglePackageQueryFacet,
   onTermAdd: addPackageQueryTerm,
   onTermApply: applyPackageQueryTerm,
@@ -12165,7 +12132,6 @@ function renderPackageQueryPage() {
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
     availableTerms: state.packageQueryTerms,
-    availableAssemblyPatterns: state.packageQueryAssemblyPatterns,
     navigationError: [
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
@@ -14922,8 +14888,6 @@ function isRuntimePackId(id: string | null | undefined) {
 const packageAcquisition = createPackageAcquisition({
   queryPackage: (packageId, version, framework) =>
     inspectPackage(packageId, version, framework),
-  queryPackageRoot: rootRequest =>
-    inspectOpenPackageAssemblyQueryResult(rootRequest),
   loadRuntimePack: (framework, platformVersion) =>
     inspectLoadRuntimePack(framework, platformVersion),
   loadRuntimePackAssembly: (
@@ -16005,14 +15969,6 @@ async function bootstrap() {
       state.packageQueryTerms = [];
       state.packageQueryCatalogError =
         `Package-query vocabulary is unavailable: ${errorMessage(error) || "Unknown error."}`;
-    }
-    try {
-      state.packageQueryAssemblyPatterns =
-        packageQueryAssemblyPatterns(
-          await engineClient.package.listPackageAssemblyQueryPatterns());
-    } catch (error) {
-      state.packageQueryAssemblyPatterns = [];
-      console.error("Package-query assembly patterns are unavailable.", error);
     }
     state.engineReady = true;
     state.engineStatus = "";

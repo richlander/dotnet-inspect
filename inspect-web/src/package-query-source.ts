@@ -2,7 +2,6 @@ import type {
   BrowserPackageQueryCatalog,
   BrowserPackageQueryFacetDescriptor,
   BrowserPackageQueryTermDescriptor,
-  BrowserPackageAssemblyQueryPattern,
   BrowserPackageAssemblyAssessment,
   BrowserPackageQueryCompletion as BrowserPackageQueryCompletionPayload,
   BrowserPackageQueryFailure as BrowserPackageQueryFailurePayload,
@@ -17,8 +16,6 @@ import type {
 import type {
   PackageQueryDataSource,
   QueryAssemblyAssessment,
-  QueryAssemblyPatternDescriptor,
-  QueryAssemblyPatternRequest,
   QueryFacetTerm,
   QueryProgress,
   QueryResultRow,
@@ -27,7 +24,6 @@ import type {
 } from "./package-query.ts";
 import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
 
-export type { BrowserPackageAssemblyQueryPattern } from "./facades/inspect-web-package.d.ts";
 export type { BrowserPackageQueryInspection } from "./facades/inspect-web-package.d.ts";
 
 type PackageQueryManifestFailureReason = Extract<
@@ -93,18 +89,6 @@ export function packageQueryCatalog(
     facets: catalog.facets.map(toQueryFacet),
     terms: catalog.terms.map(toQueryTermDescriptor),
   };
-}
-
-export function packageQueryAssemblyPatterns(
-  patterns: readonly BrowserPackageAssemblyQueryPattern[],
-): QueryAssemblyPatternDescriptor[] {
-  return patterns.map(pattern => ({
-    id: pattern.id,
-    label: pattern.label,
-    summary: pattern.summary,
-    maximumOperandLength: pattern.maximumOperandLength,
-    maximumPackages: pattern.maximumPackages,
-  }));
 }
 
 function toQueryFacet(
@@ -253,26 +237,20 @@ export function createBrowserPackageQueryDataSource(
         engine.cancel(operationId, cancellationReason(abortSignal.reason));
       abortSignal.addEventListener("abort", cancel, { once: true });
       try {
-        const result = request.assemblyPattern
-          ? await runAssemblyQuery(
-              engine,
-              operationId,
-              request.assemblyPattern,
-              eventSink)
-          : await engine.run(
-              operationId,
-              request.scopeQuery,
-              JSON.stringify(request.facets.map(facet => facet.key)),
-              JSON.stringify(request.terms.map(term => ({
-                key: term.descriptor.key,
-                operator: term.operator,
-                value: term.value,
-              }))),
-              request.requestedLimit,
-              request.requestedMatchLimit,
-              request.includePrerelease,
-              PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-              eventSink);
+        const result = await engine.run(
+          operationId,
+          request.scopeQuery,
+          JSON.stringify(request.facets.map(facet => facet.key)),
+          JSON.stringify(request.terms.map(term => ({
+            key: term.descriptor.key,
+            operator: term.operator,
+            value: term.value,
+          }))),
+          request.requestedLimit,
+          request.requestedMatchLimit,
+          request.includePrerelease,
+          PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+          eventSink);
         flushEvents();
         let unexpectedFailure: Error | null = null;
         if (result.version === 3
@@ -310,27 +288,18 @@ export function createBrowserPackageQueryDataSource(
             "The Browser package-query result was not a supported terminal result.");
         }
         if (abortSignal.aborted) return { kind: "cancelled" };
-        let finalEvent: BrowserPackageQueryEventPayload;
-        if (request.assemblyPattern) {
-          if (result.value === null || result.inspection !== null) {
-            throw new TypeError(
-              "The Browser assembly-query result had invalid inspection data.");
-          }
-          finalEvent = result.value;
-        } else {
-          if (result.value !== null || result.inspection === null) {
-            throw new TypeError(
-              "The Browser package-query result did not contain its inspection envelope.");
-          }
-          finalEvent = {
-            kind: "Completed",
-            row: null,
-            failure: null,
-            completion: result.inspection.content.completion,
-            progress: null,
-            assessment: null,
-          };
+        if (result.value !== null || result.inspection === null) {
+          throw new TypeError(
+            "The Browser package-query result did not contain its inspection envelope.");
         }
+        const finalEvent: BrowserPackageQueryEventPayload = {
+          kind: "Completed",
+          row: null,
+          failure: null,
+          completion: result.inspection.content.completion,
+          progress: null,
+          assessment: null,
+        };
         if (finalEvent.kind !== "Completed") {
           throw new TypeError(
             "The Browser package-query result was not a terminal event.");
@@ -349,9 +318,7 @@ export function createBrowserPackageQueryDataSource(
               "The Browser package-query stream ended without a completion event.",
           };
         }
-        if (!request.assemblyPattern) {
-          onInspection(result.inspection);
-        }
+        onInspection(result.inspection);
         return completion;
       } catch (error) {
         flushEvents();
@@ -365,26 +332,6 @@ export function createBrowserPackageQueryDataSource(
       }
     },
   };
-}
-
-async function runAssemblyQuery(
-  engine: BrowserPackageQueryEngine,
-  operationId: string,
-  request: QueryAssemblyPatternRequest,
-  eventSink: unknown,
-): Promise<BrowserPackageQueryResult> {
-  if (!engine.runAssembly) {
-    throw new Error(
-      "Assembly-pattern package queries are unavailable in this Browser engine.");
-  }
-  return await engine.runAssembly(
-    operationId,
-    request.patternId,
-    request.operand,
-    JSON.stringify(request.packageCoordinates),
-    request.targetFramework,
-    PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-    eventSink);
 }
 
 function cancellationReason(reason: unknown): string {
