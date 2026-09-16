@@ -26,7 +26,7 @@ public enum PortableQueryFailureReason
     /// <summary>Two distinct terms the binder maps to one predicate, which this vocabulary refuses.</summary>
     DuplicateAfterBinding,
 
-    /// <summary>Two bound terms the vocabulary declares mutually exclusive.</summary>
+    /// <summary>Two bound terms the vocabulary declares incompatible.</summary>
     TermsIncompatible,
 
     /// <summary>No bound term belongs to a family the vocabulary requires.</summary>
