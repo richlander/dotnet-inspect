@@ -239,7 +239,7 @@ This operation is step 2 of the seven-step temporal ownership path:
    [matched API Member Analysis](matched-api-member-analysis.md).
 4. Diff History detached baseline receipt with stable Finding subject, exact
    pair-local source binding, direct source-to-checkpoint correspondence, and
-   checkpoint Finding projection — owned by
+   baseline/checkpoint Finding projection — owned by
    [Diff History inspection](diff-history.md).
 5. Bounded PackageHouse baseline-cell and source/destination cell-pair
    Analysis — #7248.

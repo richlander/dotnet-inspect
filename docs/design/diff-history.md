@@ -366,10 +366,22 @@ Analysis for the baseline Member with the receipt's `FindingSubject`. It is
 producer-adapter evidence only: History publishes the detached baseline Finding
 observation and receipt, not a same-Version declaration edge.
 
-A non-exact internal self-correspondence or baseline Analysis non-success
-remains the baseline evaluation's native non-success. It does not erase a
-successfully issued receipt or prevent later independent checkpoints. The
-baseline Workspace closes before its detached result is published.
+Diff History applies its Finding projection to non-exact internal baseline
+correspondence before the Workspace closes:
+
+- strict declaration absence produces
+  `FindingInspection<T>.Absent(SubjectAbsent)` with the native absence detail;
+  and
+- ambiguous, refused, or failed correspondence produces
+  `FindingInspection<T>.Failed` with the receipt's `FindingSubject`, the
+  selected producer's descriptor, and the native non-success detail.
+
+The baseline evaluation retains that internal correspondence evidence beside
+the projected inspection but does not publish it as a declaration self-edge.
+Baseline Analysis non-success after exact correspondence preserves the matched
+query's native inspection. None of these outcomes erases a successfully issued
+receipt or prevents later independent checkpoints. The baseline Workspace
+closes before its detached result is published.
 
 For every other selected checkpoint, the checkpoint form executes the exact
 prepared source and destination cells in one fresh bounded Workspace. It
@@ -443,6 +455,8 @@ requested Count result defined below. The Document preserves:
   source-selection outcome, never a Workspace-local structural subject;
 - each completed evaluation's version address, provenance, resolved subject,
   producer, and native Finding inspection;
+- the baseline's internal correspondence evidence when source selection
+  succeeded, never represented as a declaration self-edge;
 - each exact-Member checkpoint's native source-binding outcome;
 - native source-to-checkpoint declaration correspondence edges for exact-Member
   Analysis when source binding succeeded;
@@ -788,8 +802,12 @@ The implementation slices must supply Release gates for:
 - baseline execution producing one detached native Finding observation through
   exact internal same-cell correspondence, publishing no same-Version
   declaration edge, and retaining that observation after its Workspace closes;
-- internal baseline correspondence or Analysis non-success remaining visible
-  without erasing a valid receipt or preventing later independent checkpoints;
+- internal baseline exact correspondence preserving matched Analysis, strict
+  absence projecting to `SubjectAbsent`, and ambiguous, refused, or failed
+  correspondence projecting to Finding failure while retaining the internal
+  evidence without a declaration self-edge;
+- baseline correspondence or Analysis non-success remaining visible without
+  erasing a valid receipt or preventing later independent checkpoints;
 - baseline and checkpoint matched-Analysis invocations reusing the receipt's
   same `FindingSubject`, with equal subject keys across at least three detached
   observations and successful exact-identity Finding correlation;

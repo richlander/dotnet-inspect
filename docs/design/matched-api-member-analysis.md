@@ -213,7 +213,8 @@ Member produced by each exact pair binding does not survive that pair, while
 the baseline-issued `FindingSubject` remains unchanged across observations.
 That owner invokes this query only for exact correspondence; it separately
 projects strict declaration absence to `SubjectAbsent` and binding,
-correspondence, or operational non-success to Finding failure.
+correspondence, or operational non-success to Finding failure for both the
+internal baseline correspondence and later checkpoint correspondence.
 
 ## Evidence
 
