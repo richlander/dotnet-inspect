@@ -2413,12 +2413,12 @@ Definition records and product demos (this slice):
 - `CompleteRestorationCoordinator` invokes one trusted host construction
   continuation, loads contexts in plan order, deduplicates Package Roots by
   owner-issued logical request, preserves compatible implementation selection
-  including RID-specific universes with its requested compile target, associates
-  navigation through normalized Root request identity, replaces Scope once,
-  resolves every direct Package state, validates exact Registry facets
-  including inactive states, prepares canonical Navigation, captures one
-  detached complete snapshot, and classifies projection. Direct-Package
-  version-1 restoration retains the exact source
+  including RID-specific universes without a neutral compile group, with its
+  requested compile target, associates navigation through normalized Root
+  request identity, replaces Scope once, resolves every direct Package state,
+  validates exact Registry facets including inactive states, prepares canonical
+  Navigation, captures one detached complete snapshot, and classifies
+  projection. Direct-Package version-1 restoration retains the exact source
   definitions plus the explicit Workspace state, focused Package state,
   inactive Package recommendation states, and dormant non-Package rows.
   Packet-v1 restoration retains its canonical packet; definition restoration

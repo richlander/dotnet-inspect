@@ -188,7 +188,9 @@ public static class PackageCompileAssetSelector
     /// <summary>
     /// Selects compile roles for an already-selected compatible implementation
     /// universe while reducing explicit empty reference groups against the
-    /// original requested framework.
+    /// original requested framework. When the implementation target has no
+    /// neutral compile group, its selected libraries also provide the surface
+    /// role.
     /// </summary>
     public static PackageCompileAssetSelection SelectForCompatibleImplementation(
         IPackageContent content,
@@ -199,12 +201,108 @@ public static class PackageCompileAssetSelector
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetFramework);
         ArgumentException.ThrowIfNullOrWhiteSpace(implementationTargetFramework);
-        return SelectCore(
+        PackageCompileAssetSelection selection = SelectCore(
             content,
             packageId,
             implementationTargetFramework,
             runtimeIdentifier,
             requestedTargetFramework);
+        if (selection.Status
+                is not PackageCompileAssetSelectionStatus
+                    .NoMatchingTargetFramework)
+        {
+            return selection;
+        }
+
+        PackageAssetSelection implementationSelection =
+            PackageAssetSelector.Select(
+                content,
+                implementationTargetFramework,
+                runtimeIdentifier);
+        if (implementationSelection is PackageAssetSelection.Ambiguous ambiguous)
+        {
+            return selection with
+            {
+                Status =
+                    PackageCompileAssetSelectionStatus
+                        .InvalidImplementationAssets,
+                Message = ambiguous.Message,
+            };
+        }
+        if (implementationSelection is PackageAssetSelection.Invalid invalid)
+        {
+            return selection with
+            {
+                Status =
+                    PackageCompileAssetSelectionStatus
+                        .InvalidImplementationAssets,
+                Message = invalid.Message,
+            };
+        }
+        if (implementationSelection
+            is not PackageAssetSelection.Selected implementation)
+        {
+            return selection;
+        }
+
+        PackageCompileAsset[] implementationAssets =
+        [
+            .. implementation.Universe.Assets.Select(asset =>
+                new PackageCompileAsset(
+                    AssetIdPrefix + asset.EntryPath,
+                    asset.EntryPath,
+                    asset.FileName,
+                    implementation.Universe.TargetFramework,
+                    PackageCompileAssetKind.Library)),
+        ];
+        if (implementationAssets.Length == 0)
+        {
+            return selection with
+            {
+                Status = PackageCompileAssetSelectionStatus.NoCompileAssets,
+                TargetFramework = implementation.Universe.TargetFramework,
+                ImplementationAssets = implementationAssets,
+                Message = null,
+            };
+        }
+
+        string[] emptyReferenceGroups =
+        [
+            .. content
+                .EnumerateEntries()
+                .Select(ParseEmptyReferenceGroup)
+                .OfType<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        if (NearestCompatibleEmptyGroup(
+                emptyReferenceGroups,
+                requestedTargetFramework) is not null)
+        {
+            return selection with
+            {
+                Status = PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+                TargetFramework = implementation.Universe.TargetFramework,
+                Assets = [],
+                DefaultAsset = null,
+                ImplementationAssets = implementationAssets,
+                Message = null,
+            };
+        }
+
+        PackageCompileAsset defaultAsset =
+            implementationAssets.FirstOrDefault(
+                asset => Path.GetFileNameWithoutExtension(asset.AssemblyName)
+                    .Equals(packageId, StringComparison.OrdinalIgnoreCase))
+            ?? implementationAssets[0];
+        return selection with
+        {
+            Status = PackageCompileAssetSelectionStatus.Selected,
+            TargetFramework = implementation.Universe.TargetFramework,
+            Assets = implementationAssets,
+            DefaultAsset = defaultAsset,
+            ImplementationAssets = implementationAssets,
+            Message = null,
+        };
     }
 
     /// <summary>

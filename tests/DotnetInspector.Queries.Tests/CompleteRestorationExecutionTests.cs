@@ -1742,7 +1742,6 @@ public sealed class CompleteRestorationExecutionTests
                 typeof(CompleteRestorationExecutionTests).Assembly.Location);
         byte[] content = Archive(
             ($"lib/net8.0/{assemblyName}", assembly),
-            ($"ref/net9.0/{assemblyName}", assembly),
             ($"runtimes/linux-x64/lib/net9.0/{assemblyName}", assembly));
         var store = new InMemoryPackageStore();
         await store.CommitAsync(
