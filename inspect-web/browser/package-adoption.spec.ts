@@ -1635,7 +1635,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 test.describe("bounded network-backed two-host demo", () => {
   test.describe.configure({ timeout: 240_000 });
 
-  test("opens ordinary and large net10.0 packages over the real Gallery CDN", async ({
+  test("opens ordinary and pathological packages over the real Gallery CDN", async ({
     page,
   }) => {
     await boot(page);
@@ -1667,6 +1667,19 @@ test.describe("bounded network-backed two-host demo", () => {
     expect(largeSurface.activeFramework).toBe("net10.0");
     expect(largeSurface.assemblies.length).toBeGreaterThan(0);
     expect(largeSurface.types.length).toBeGreaterThan(0);
+
+    // Aspire.Hosting is the current ordinary-package pathological case. Its
+    // complete net8.0 surface crosses both former transport bounds.
+    const aspireSurface = await engine.queryCoordinate(
+      "Aspire.Hosting",
+      "13.5.4",
+      "net8.0",
+    );
+    expect(aspireSurface.package).toBe("Aspire.Hosting");
+    expect(aspireSurface.version).toBe("13.5.4");
+    expect(aspireSurface.activeFramework).toBe("net8.0");
+    expect(aspireSurface.assemblies.length).toBeGreaterThan(0);
+    expect(aspireSurface.types.length).toBeGreaterThan(0);
 
     // The awaitable Workspace occurrence for the same real coordinate activates
     // and yields the same package surface.

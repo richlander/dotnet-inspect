@@ -384,8 +384,8 @@ test("transport rejection has no partial baseline", async () => {
         kind: "CollectionEntryLimitExceeded",
         target: null,
         current: null,
-        bound: 262144,
-        observed: 262145,
+        bound: 524288,
+        observed: 524289,
       },
     };
     const state: LibraryApiDiffStateHost = { libraryApiDiff: { status: "idle" } };

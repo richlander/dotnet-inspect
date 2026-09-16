@@ -26,16 +26,17 @@ internal sealed record BrowserLibraryApiDiffEndpointContext(
 /// at most 10,000 changed Types and 6,000,000 characters across the repeated
 /// document, display, and structured endpoint Type identities. It then
 /// checks the entire result, including the complete service baseline, against
-/// the ordinary Worker's character and collection-entry limits. An excess
-/// rejects the whole result and never truncates the baseline or inventory.
+/// the ordinary Worker's collection-entry and <c>JSON.stringify</c> character
+/// limits. An excess rejects the whole result and never truncates the baseline
+/// or inventory.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserLibraryApiDiffWireProjection
 {
     internal const int MaxChangedTypes = 10_000;
     internal const int MaxTypeTextCharacters = 6_000_000;
-    internal const int MaxOrdinaryWorkerJsonCharacters = 8_388_608;
-    internal const int MaxOrdinaryWorkerCollectionEntries = 262_144;
+    internal const int MaxOrdinaryWorkerJsonCharacters = 16_777_216;
+    internal const int MaxOrdinaryWorkerCollectionEntries = 524_288;
     internal const int OrdinaryWorkerResultTupleOverhead = 2;
 
     internal static BrowserLibraryApiDiffResult Project(
@@ -157,22 +158,9 @@ internal static class BrowserLibraryApiDiffWireProjection
         BrowserLibraryApiDiffRequest request,
         BrowserLibraryApiDiffResult result)
     {
-        string serialized = JsonSerializer.Serialize(
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
             result,
             BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
-        long transportedCharacters =
-            (long)serialized.Length + OrdinaryWorkerResultTupleOverhead;
-        if (transportedCharacters > MaxOrdinaryWorkerJsonCharacters)
-        {
-            return TransportRejected(
-                request,
-                BrowserLibraryApiDiffRejectionKind
-                    .SerializedResultLimitExceeded,
-                MaxOrdinaryWorkerJsonCharacters,
-                transportedCharacters);
-        }
-
-        using JsonDocument document = JsonDocument.Parse(serialized);
         long collectionEntries = OrdinaryWorkerResultTupleOverhead
             + CollectionEntries(document.RootElement);
         if (collectionEntries > MaxOrdinaryWorkerCollectionEntries)
@@ -184,7 +172,19 @@ internal static class BrowserLibraryApiDiffWireProjection
                 MaxOrdinaryWorkerCollectionEntries,
                 collectionEntries);
         }
-        return result;
+        long transportedCharacters =
+            JsonStringifyCharacters(document.RootElement)
+            + OrdinaryWorkerResultTupleOverhead;
+        if (transportedCharacters <= MaxOrdinaryWorkerJsonCharacters)
+        {
+            return result;
+        }
+
+        return TransportRejected(
+            request,
+            BrowserLibraryApiDiffRejectionKind.SerializedResultLimitExceeded,
+            MaxOrdinaryWorkerJsonCharacters,
+            transportedCharacters);
     }
 
     static BrowserLibraryApiDiffResult TransportRejected(
@@ -209,13 +209,13 @@ internal static class BrowserLibraryApiDiffWireProjection
             Error: null,
             Diagnostic: null,
             Reason: null);
-        string serialized = JsonSerializer.Serialize(
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
             result,
             BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
-        using JsonDocument document = JsonDocument.Parse(serialized);
         if (OrdinaryWorkerResultTupleOverhead + CollectionEntries(document.RootElement)
                 > MaxOrdinaryWorkerCollectionEntries
-            || (long)serialized.Length + OrdinaryWorkerResultTupleOverhead
+            || JsonStringifyCharacters(document.RootElement)
+                + OrdinaryWorkerResultTupleOverhead
                 > MaxOrdinaryWorkerJsonCharacters)
         {
             throw new InvalidOperationException(
@@ -233,6 +233,95 @@ internal static class BrowserLibraryApiDiffWireProjection
             .Sum(item => 1 + CollectionEntries(item)),
         _ => 0,
     };
+    static long JsonStringifyCharacters(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+            {
+                long count = 2;
+                bool first = true;
+                foreach (JsonProperty property in element.EnumerateObject())
+                {
+                    if (!first)
+                        count++;
+                    first = false;
+                    count += JsonStringifyStringCharacters(property.Name);
+                    count++;
+                    count += JsonStringifyCharacters(property.Value);
+                }
+                return count;
+            }
+            case JsonValueKind.Array:
+            {
+                long count = 2;
+                bool first = true;
+                foreach (JsonElement item in element.EnumerateArray())
+                {
+                    if (!first)
+                        count++;
+                    first = false;
+                    count += JsonStringifyCharacters(item);
+                }
+                return count;
+            }
+            case JsonValueKind.String:
+                return JsonStringifyStringCharacters(
+                    element.GetString()
+                        ?? throw new InvalidOperationException(
+                            "A JSON string had no value."));
+            case JsonValueKind.Number:
+                return element.GetRawText().Length;
+            case JsonValueKind.True:
+                return 4;
+            case JsonValueKind.False:
+                return 5;
+            case JsonValueKind.Null:
+                return 4;
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported JSON value kind {element.ValueKind}.");
+        }
+    }
+
+    static long JsonStringifyStringCharacters(string value)
+    {
+        long count = 2;
+        for (int index = 0; index < value.Length; index++)
+        {
+            char current = value[index];
+            if (current is '"' or '\\' or '\b' or '\f' or '\n' or '\r' or '\t')
+            {
+                count += 2;
+            }
+            else if (current <= '\u001f')
+            {
+                count += 6;
+            }
+            else if (char.IsHighSurrogate(current))
+            {
+                if (index + 1 < value.Length
+                    && char.IsLowSurrogate(value[index + 1]))
+                {
+                    count += 2;
+                    index++;
+                }
+                else
+                {
+                    count += 6;
+                }
+            }
+            else if (char.IsLowSurrogate(current))
+            {
+                count += 6;
+            }
+            else
+            {
+                count++;
+            }
+        }
+        return count;
+    }
 
     static BrowserLibraryApiDiffResult Rejected(
         BrowserLibraryApiDiffRequest request,

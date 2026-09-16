@@ -186,11 +186,13 @@ The Browser wire result retains:
 The wire projection is all-or-nothing. The displayed inventory admits at most
 10,000 changed Types and a 6,000,000-character retained Type-text budget.
 The **entire result**, including native Content, Share, and diagnostics, must
-fit the ordinary Worker's 8,388,608-character and 262,144-collection-entry
+fit the ordinary Worker's 16,777,216-character and 524,288-collection-entry
 limits, reserving its one-element result tuple. Collection accounting follows
 the serialized value: each object contributes its property count plus one,
 each array its length plus one, and contained objects and arrays contribute
-recursively. The complete baseline can therefore reject a result whose
+recursively. Character accounting uses the Worker's `JSON.stringify`
+representation, not managed JSON escaping. The complete baseline can therefore
+reject a result whose
 displayed inventory alone would fit. Exceeding any bound produces typed
 `Rejected`; it never returns a truncated successful inventory or baseline.
 

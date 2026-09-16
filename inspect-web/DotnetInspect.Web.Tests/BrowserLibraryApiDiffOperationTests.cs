@@ -336,10 +336,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 rejected.Rejected);
         Assert.Equal(
             BrowserLibraryApiDiffRejectionKind
-                .SerializedResultLimitExceeded,
+                .CollectionEntryLimitExceeded,
             evidence.Kind);
         Assert.Equal(
-            BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerJsonCharacters,
+            BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerCollectionEntries,
             evidence.Bound);
         Assert.True(evidence.Observed > evidence.Bound);
         Assert.Null(rejected.Inspection);
@@ -352,7 +352,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffResult result =
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
-                Available(2_000, new string('x', 2_000)),
+                Available(2_000, new string('x', 4_000)),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
 
@@ -382,8 +382,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
                 Available(
-                    5_000,
-                    segmentCount: 2),
+                    BrowserLibraryApiDiffWireProjection.MaxChangedTypes,
+                    segmentCount: 15),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
 
@@ -405,13 +405,65 @@ public sealed class BrowserLibraryApiDiffOperationTests
     }
 
     [Fact]
+    public void ExactWorkerCollectionBoundaryIsInclusive()
+    {
+        BrowserLibraryApiDiffRequest request = Request("Transport.Package");
+        InspectionEnvelope<LibraryApiDiffOutcome> baseline = Available(0);
+        var endpoint = Assert.IsType<LibraryApiDiffOutcome.Available>(
+            baseline.Content).Document.After;
+        var diagnostic = new InspectionDiagnostic(
+            "code", InspectionDiagnosticSeverity.Warning, "summary");
+        var issue = new LibraryApiDiffEndpointIssue.Failed(
+            new InertString(TextPolicy.Field, "Endpoint failed."));
+        BrowserLibraryApiDiffResult Project(int issueCount, int diagnosticCount) =>
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                new InspectionEnvelope<LibraryApiDiffOutcome>(
+                    new LibraryApiDiffOutcome.Unavailable(
+                        LibraryApiDiffUnavailableKind.BeforeIncomplete,
+                        new LibraryApiDiffEndpointSummary(
+                            endpoint.Identity, endpoint.Scope, IsComplete: false,
+                            [.. Enumerable.Repeat<LibraryApiDiffEndpointIssue>(issue, issueCount)]),
+                        endpoint),
+                    baseline.Share,
+                    Enumerable.Repeat(diagnostic, diagnosticCount)),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        // An issue contributes 13 entries across Content and view; a diagnostic
+        // contributes six. These valid populations can hit the exact bound.
+        const int bound = BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerCollectionEntries;
+        for (int issueCount = 1; issueCount <= 6; issueCount++)
+        {
+            long fixedEntries = WorkerCollectionEntries(Project(issueCount, 0));
+            if ((bound - fixedEntries) % 6 != 0)
+                continue;
+            int diagnosticCount = (int)((bound - fixedEntries) / 6);
+            BrowserLibraryApiDiffResult admitted = Project(issueCount, diagnosticCount);
+            Assert.Equal(BrowserLibraryApiDiffResultKind.Unavailable, admitted.Kind);
+            Assert.NotNull(admitted.Inspection);
+            Assert.Equal(bound, WorkerCollectionEntries(admitted));
+            Assert.Equal(diagnosticCount, admitted.Inspection.Diagnostics.Length);
+
+            BrowserLibraryApiDiffResult rejected = Project(issueCount + 1, diagnosticCount - 2);
+            Assert.Equal(
+                BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
+                rejected.Rejected!.Kind);
+            Assert.Equal(bound + 1, rejected.Rejected.Observed);
+            Assert.Null(rejected.Inspection);
+            return;
+        }
+        Assert.Fail("The fixture did not reach the exact collection-entry boundary.");
+    }
+
+    [Fact]
     public void EscapedJsonCannotExceedTheOrdinaryWorkerTransport()
     {
         BrowserLibraryApiDiffRequest request = Request("Transport.Package");
         BrowserLibraryApiDiffResult result =
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
-                Available(1, new string('\u0001', 500_000)),
+                Available(1, new string('\u0001', 1_000_000)),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
 
@@ -437,6 +489,56 @@ public sealed class BrowserLibraryApiDiffOperationTests
     }
 
     [Fact]
+    public void NonAsciiJsonUsesWorkerCompatibleCharacterAdmission()
+    {
+        BrowserLibraryApiDiffRequest request = Request("Transport.Package");
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                Available(1, new string('\u00e9', 1_000_000)),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            result.Kind);
+        string escapedJson = JsonSerializer.Serialize(
+            result,
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
+        Assert.True(
+            escapedJson.Length
+                + BrowserLibraryApiDiffWireProjection
+                    .OrdinaryWorkerResultTupleOverhead
+                > BrowserLibraryApiDiffWireProjection
+                    .MaxOrdinaryWorkerJsonCharacters);
+    }
+
+    [Fact]
+    public void SupplementaryUnicodeUsesWorkerCompatibleCharacterAdmission()
+    {
+        BrowserLibraryApiDiffRequest request = Request("Transport.Package");
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                Available(1, SupplementaryLetters(900_000)),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            result.Kind);
+        string escapedJson = JsonSerializer.Serialize(
+            result,
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
+        Assert.True(
+            escapedJson.Length
+                + BrowserLibraryApiDiffWireProjection
+                    .OrdinaryWorkerResultTupleOverhead
+                > BrowserLibraryApiDiffWireProjection
+                    .MaxOrdinaryWorkerJsonCharacters);
+    }
+
+    [Fact]
     public void OversizedEndpointEvidenceProducesABoundedTransportRejection()
     {
         BrowserLibraryApiDiffRequest request = Request("Transport.Package");
@@ -444,7 +546,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         var operation = new InertString(TextPolicy.Field, "constraint");
         var kind = new InertString(TextPolicy.Field, "MalformedSignature");
         var detail = new InertString(TextPolicy.Field, "failure");
-        const int failureCount = 30_000;
+        const int failureCount = 60_000;
         var failures =
             new LibraryApiDiffEndpointIssue.InspectionFailures(failureCount)
             {
@@ -485,7 +587,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffRejected evidence =
             Assert.IsType<BrowserLibraryApiDiffRejected>(result.Rejected);
         Assert.Equal(
-            BrowserLibraryApiDiffRejectionKind.SerializedResultLimitExceeded,
+            BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
             evidence.Kind);
         Assert.Null(evidence.Target);
         Assert.Null(evidence.Current);
@@ -580,48 +682,6 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(
             "available",
             result.Inspection.Content.GetProperty("outcome").GetString());
-    }
-
-    [Fact]
-    public void DiagnosticEntriesParticipateInTheExactWorkerBoundary()
-    {
-        InspectionEnvelope<LibraryApiDiffOutcome> baseline = Available(0);
-        var diagnostic = new InspectionDiagnostic(
-            "code", InspectionDiagnosticSeverity.Warning, "summary");
-        BrowserLibraryApiDiffResult Project(int count) =>
-            BrowserLibraryApiDiffWireProjection.Project(
-                Request("Envelope.Package"),
-                new InspectionEnvelope<LibraryApiDiffOutcome>(
-                    baseline.Content, baseline.Share,
-                    Enumerable.Repeat(diagnostic, count)),
-                EndpointContext(TargetVersion), EndpointContext(CurrentVersion));
-
-        const int entriesPerDiagnostic = 6;
-        int probeCount =
-            BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerCollectionEntries
-                / entriesPerDiagnostic + 1;
-        BrowserLibraryApiDiffResult probe = Project(probeCount);
-        Assert.Equal(
-            BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
-            probe.Rejected!.Kind);
-        long fixedEntries = probe.Rejected.Observed!.Value
-            - (long)probeCount * entriesPerDiagnostic;
-        int admittedCount = (int)(
-            (BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerCollectionEntries
-                - fixedEntries) / entriesPerDiagnostic);
-        BrowserLibraryApiDiffResult admitted = Project(admittedCount);
-        Assert.Equal(BrowserLibraryApiDiffResultKind.Succeeded, admitted.Kind);
-        Assert.Equal(admittedCount, admitted.Inspection!.Diagnostics.Length);
-        BrowserLibraryApiDiffResult rejected = Project(admittedCount + 1);
-        Assert.Equal(
-            BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
-            rejected.Rejected!.Kind);
-        Assert.InRange(
-            rejected.Rejected.Observed!.Value,
-            BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerCollectionEntries + 1,
-            BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerCollectionEntries
-                + entriesPerDiagnostic);
-        Assert.Null(rejected.Inspection);
     }
 
     [Fact]
@@ -844,6 +904,46 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "comparison/endpoints",
                 "The comparison endpoints cannot be shared."));
 
+    static long WorkerCollectionEntries(BrowserLibraryApiDiffResult result)
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                result,
+                BrowserMetadataJsonContext.Default
+                    .BrowserLibraryApiDiffResult));
+        return BrowserLibraryApiDiffWireProjection
+            .OrdinaryWorkerResultTupleOverhead
+            + Count(document.RootElement);
+
+        static long Count(JsonElement element) =>
+            element.ValueKind switch
+            {
+                JsonValueKind.Array =>
+                    1
+                    + element.GetArrayLength()
+                    + element.EnumerateArray().Sum(Count),
+                JsonValueKind.Object =>
+                    1
+                    + element.EnumerateObject().Count()
+                    + element.EnumerateObject()
+                        .Sum(property => Count(property.Value)),
+                _ => 0,
+            };
+    }
+
+    static string SupplementaryLetters(int count) =>
+        string.Create(
+            checked(count * 2),
+            count,
+            static (characters, letterCount) =>
+            {
+                for (int index = 0; index < letterCount; index++)
+                {
+                    characters[index * 2] = '\ud801';
+                    characters[index * 2 + 1] = '\udc00';
+                }
+            });
+
     static MetadataTypeDefinitionName TypeName(
         string segment,
         int segmentCount = 1) =>
@@ -854,8 +954,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     ? [segment]
                     :
                     [
-                        .. Enumerable.Range(0, segmentCount)
-                            .Select(index => $"{segment}_{index}"),
+                        segment,
+                        .. Enumerable.Repeat("T", segmentCount - 1),
                     ])).Name;
 
     static BrowserLibraryApiDiffRequest Request(string packageId) =>
