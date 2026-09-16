@@ -1246,10 +1246,15 @@ scope, evidence, or failure ownership from this document.
 
 This selected-Type cutover intentionally changes the presentation and machine
 contract. Current `depends <type> --json` and `--envelope` expose the versioned
-`type-dependencies` result and `DependencyGraphDocument`. Target
-`type graph --json` and `--envelope` expose the Inspection Graph schema and an
-`InspectionEnvelope<InspectionGraphDocument>`. Structural discovery uses the
-Graph section and field schemas rather than the Dependency section catalog.
+`type-dependencies` result whose Content is `TypeDependencySectionResult`.
+That Content carries the complete `AssemblyContextTypeDependencyResult`—the
+matched dependency relationships plus ordered completed/rejected participant
+outcomes and their provenance—and the separate
+`TypeDependencyRowSelectionResult`. `DependencyGraphDocument` is only the
+later human-rendering projection and is not the current machine content.
+Target `type graph --json` and `--envelope` expose the Inspection Graph schema
+and an `InspectionEnvelope<InspectionGraphDocument>`. Structural discovery uses
+the Graph section and field schemas rather than the Dependency section catalog.
 Effective discovery is a new target-only Type Graph capability because current
 selected-Type `depends` rejects `-D --effective`; it has no old-command schema
 baseline. Obsolete selected-Type section or field names fail with `type graph`
@@ -1257,14 +1262,21 @@ discovery guidance; they do not forward or silently select a similarly named
 Graph projection.
 
 The migration gate compares the selected subject, base-type and interface
-relationships, search-scope behavior, traversal depth, evidence, typed
-failures, exit status, and supported output-format classes. Separate
-before/after machine-contract fixtures prove that the old `type-dependencies`
-schema and structural discovery remain stable until retirement and that the
-replacement emits the versioned Inspection Graph schema. A separate target-only
-gate proves bounded effective discovery. Byte-for-byte rendering, old section
-names, old row fields, and the old JSON or envelope content type are
-intentionally not parity requirements.
+relationships, search-scope behavior, traversal depth, participant completion
+and rejection outcomes, provenance, row-selection success or typed failure,
+exit status, and supported output-format classes. The Inspection Graph
+adaptation must preserve those facts in typed graph content, occurrences,
+failures, diagnostics, or envelope metadata; it must not discard them merely
+because the old wrapper retires. Exact target field placement remains with the
+focused Type Graph adaptation.
+
+Separate before/after machine-contract fixtures prove that the old
+`TypeDependencySectionResult` schema and structural discovery remain stable
+until retirement and that the replacement emits the versioned Inspection Graph
+schema with equivalent participant/provenance and row-selection outcomes. A
+separate target-only gate proves bounded effective discovery. Byte-for-byte
+rendering, old section names, old row fields, and the old JSON or envelope
+content type are intentionally not parity requirements.
 
 `graph dependencies` adopts the complete asset dependency mode. It does not
 construct a Workspace, consume a Workspace packet, or convert the Dependency
@@ -1393,7 +1405,7 @@ targeted Debug-build probe.
 | Claim | Gate |
 | --- | --- |
 | `type graph` source options remain search scopes; bare `--platform` selects all Platform frameworks; valued `--platform <library>` selects one Platform library; TFM-only input refines the implicit Platform default without suppressing it; `graph dependencies` options become asset roots; route-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`; bare `--platform`; valued `--platform System.Private.CoreLib`; repeatable `--platform-library`; `--extensions`; `--aspnetcore`; `--tfm net10.0` with no explicit source; explicit source plus `--tfm`; and rejected cross-route gestures. |
-| Selected-Type migration preserves subject, relationship/evidence facts, scope, traversal, typed failures, exit status, and output-format classes while intentionally replacing the `type-dependencies` JSON/envelope and Dependency structural-discovery schemas with Inspection Graph schemas. | Fixed-fixture before/after Release contracts for the old command and new child across text, Markdown, table, JSON, envelope, and structural discovery; obsolete selected-Type section and field names reject with discovery guidance. |
+| Selected-Type migration preserves subject, relationship/evidence facts, scope, traversal, participant completion/rejection and provenance, row-selection outcomes, typed failures, exit status, and output-format classes while intentionally replacing the `TypeDependencySectionResult` JSON/envelope and Dependency structural-discovery schemas with Inspection Graph schemas. | Fixed-fixture before/after Release contracts for the old command and new child across text, Markdown, table, JSON, envelope, and structural discovery; machine fixtures assert old `QueryResult` participant/provenance plus `RowSelection` semantics against their typed target representations; obsolete selected-Type section and field names reject with discovery guidance. |
 | Type Graph effective discovery is a new bounded capability rather than a claimed old/new migration surface. | Target-only Release gate for effective Graph discovery plus a current-command guard proving selected-Type `depends -D --effective` remains rejected until retirement. |
 | One `type graph` subject resolves to one owner-issued seed or a typed ambiguity/failure. | Multi-source type fixture with equal display names and distinct typed identities. |
 | `.csproj` and direct assets with identical bytes produce equivalent graph and evidence identities except locator provenance. | CLI tests over the same checked-in restored assets fixture through both locators. |
