@@ -2307,6 +2307,47 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_ExactDiscoveryUsesSharedMemberCatalog()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(SectionCategoryNames.Audit, output, StringComparison.Ordinal);
+        Assert.Contains(SectionCategoryNames.Member, output, StringComparison.Ordinal);
+        Assert.Contains(SectionNames.MethodGroups, output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@All", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@Default", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@Hidden", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_ExactComputedAllSelectorIsRejected()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "@All",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value '@All' not found", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Type_FixedOverview_IsExactlyTypeInfo()
     {
         // Non-vacuity for the whole slice: every `type X -S` assertion below is only meaningful
@@ -2523,30 +2564,30 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
-        Assert.Contains("| Methods | section (verbose) |", output);
-        Assert.Contains("| Source Files | section |", output);
+        Assert.Contains("| Methods | section |", output);
+        Assert.DoesNotContain("| Source Files | section |", output);
         Assert.DoesNotContain("| Fields | section |", output);
     }
 
     [Fact]
-    public async Task Type_SingleType_DiscoverEffective_IncludesSelectableCodeSections()
+    public async Task Type_SingleType_SourceDiscovery_IncludesSelectableCodeSections()
     {
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = []
+            Discover = [SectionCategoryNames.Source]
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Properties | section |", output);
-        Assert.Contains("| Method Groups | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| PDB Source | section |", output);
         Assert.Contains("| IL | section |", output);
+        Assert.DoesNotContain("| Properties | section |", output);
+        Assert.DoesNotContain("| Method Groups | section |", output);
         Assert.DoesNotContain("| Facts | section", output);
     }
 

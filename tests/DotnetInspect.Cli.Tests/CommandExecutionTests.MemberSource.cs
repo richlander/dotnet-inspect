@@ -432,13 +432,22 @@ public partial class CommandExecutionTests
             Namespace = "N",
             Name = "C",
             Kind = "class",
-            Members = [new ApiMember { Name = "M", Kind = "method" }],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "M",
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                },
+            ],
         };
         var options = new MemberOptions
         {
             JsonOutput = true,
             Verbosity = Verbosity.Detailed,
             MemberSourceTooComplex = true,
+            OverloadIndex = 1,
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -705,7 +714,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("@Source", false)]
-    [InlineData("@All", false)]
     [InlineData("*", false)]
     [InlineData("PDB Source", true)]
     [InlineData("Source Diff", true)]
