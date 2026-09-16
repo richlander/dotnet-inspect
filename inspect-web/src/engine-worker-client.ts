@@ -245,38 +245,6 @@ function packageQueryRequest(
   };
 }
 
-function packageAssemblyQueryRequest(
-  patternId: string,
-  operand: string,
-  packageCoordinatesJson: string,
-  targetFramework: string,
-  initialMatchCredit: number,
-): QueryRequest {
-  if (initialMatchCredit !== PACKAGE_QUERY_INITIAL_MATCH_CREDIT) {
-    throw new Error(
-      `Package Query initial credit must be ${PACKAGE_QUERY_INITIAL_MATCH_CREDIT}.`);
-  }
-  const rawCoordinates: unknown = JSON.parse(packageCoordinatesJson);
-  if (!Array.isArray(rawCoordinates)
-    || !rawCoordinates.every(value => typeof value === "string")) {
-    throw new TypeError(
-      "Package Query coordinates must be a JSON string array.");
-  }
-  return {
-    scopeQuery: "",
-    facets: [],
-    requestedLimit: Math.max(1, rawCoordinates.length),
-    requestedMatchLimit: Math.max(1, rawCoordinates.length),
-    includePrerelease: false,
-    assemblyPattern: {
-      patternId,
-      operand,
-      packageCoordinates: rawCoordinates,
-      targetFramework,
-    },
-  };
-}
-
 function publishPackageQueryEvent(
   eventSink: unknown,
   event: BrowserPackageQueryEvent,
@@ -421,7 +389,6 @@ export function bindPackageQueryFacade(
   EngineClient["package"],
   | "cancelPackageQuery"
   | "requestPackageQueryMatches"
-  | "runPackageAssemblyQuery"
   | "runPackageQuery"
 > & { readonly dispose: () => void } {
   interface ActivePackageQuery {
@@ -562,27 +529,6 @@ export function bindPackageQueryFacade(
           maximumCandidates,
           maximumMatches,
           includePrerelease,
-          initialMatchCredit,
-        ),
-        eventSink,
-      );
-    },
-    runPackageAssemblyQuery(
-      operationId,
-      patternId,
-      operand,
-      packageCoordinatesJson,
-      targetFramework,
-      initialMatchCredit,
-      eventSink,
-    ) {
-      return run(
-        operationId,
-        packageAssemblyQueryRequest(
-          patternId,
-          operand,
-          packageCoordinatesJson,
-          targetFramework,
           initialMatchCredit,
         ),
         eventSink,

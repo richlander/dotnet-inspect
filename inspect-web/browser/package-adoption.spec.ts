@@ -125,9 +125,6 @@ const healthyAssembly = locateFixtureAssembly(
 const brokenReferenceAssembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBB_DLL",
 );
-const literalAssembly = locateFixtureAssembly(
-  "INSPECT_WEB_PACKAGE_ADOPTION_LITERALS_DLL",
-);
 const libraryDiffV1Assembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V1_DLL",
 );
@@ -152,19 +149,6 @@ interface FixtureCoordinate {
   readonly version: string;
   readonly archive: Buffer;
   readonly manifest?: Buffer;
-}
-
-interface Deferred<T> {
-  readonly promise: Promise<T>;
-  readonly resolve: (value: T) => void;
-}
-
-function deferred<T>(): Deferred<T> {
-  let complete!: (value: T) => void;
-  const promise = new Promise<T>(accept => {
-    complete = accept;
-  });
-  return { promise, resolve: complete };
 }
 
 const version = "1.0.0";
@@ -292,33 +276,6 @@ const allFixtures: readonly FixtureCoordinate[] = [
   libraryDiffV1,
   libraryDiffV2,
   ...scopeCoordinates,
-];
-
-const literalFixtures: readonly FixtureCoordinate[] = [
-  {
-    packageId: "InspectWeb.Query.LiteralMatch",
-    version,
-    archive: healthyNupkg(literalAssembly, "ILInspector.Analysis.Fixtures.dll"),
-  },
-  {
-    packageId: "InspectWeb.Query.SemanticMiss",
-    version,
-    archive: healthyArchive,
-  },
-  {
-    packageId: "InspectWeb.Query.ReferenceOnly",
-    version,
-    archive: storedZip([
-      { name: `ref/${fixtureFramework}/Primary.dll`, bytes: literalAssembly },
-    ]),
-  },
-  {
-    packageId: "InspectWeb.Query.InvalidAssembly",
-    version,
-    archive: storedZip([
-      { name: `lib/${fixtureFramework}/Primary.dll`, bytes: malformedAssemblyBytes() },
-    ]),
-  },
 ];
 
 class GalleryFixtureRegistry {
@@ -760,6 +717,19 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
   await expect(rows.nth(1))
     .toHaveAttribute("data-before-type-id", "Example.A\nB");
 });
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let complete!: (value: T) => void;
+  const promise = new Promise<T>(accept => {
+    complete = accept;
+  });
+  return { promise, resolve: complete };
+}
 
 test.describe("Package Query website over real Wasm", () => {
   test("keeps blank input idle and exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
@@ -1261,133 +1231,6 @@ test.describe("Package Changes website over real Wasm", () => {
     expect(requests.some(request =>
       request.pathname.endsWith("/advisories")
       && request.searchParams.has("after"))).toBe(true);
-  });
-});
-
-test.describe("Assembly Package Query website over real Wasm", () => {
-  test("evaluates disposable candidates and reopens a match through its exact Root", async ({
-    page, context,
-  }) => {
-    const registry = new GalleryFixtureRegistry(literalFixtures);
-    const releaseCompletion = deferred<void>();
-    const heldArchive = galleryDownloadPath(
-      literalFixtures.at(-1)!.packageId,
-      literalFixtures.at(-1)!.version,
-    );
-    await installGalleryRoutes(context, registry, pathname =>
-      pathname === heldArchive ? releaseCompletion.promise : Promise.resolve());
-    await page.goto("/query");
-    await expect(page.locator(".query-assembly-controls summary")).toBeVisible({ timeout: 120_000 });
-    await page.locator(".query-assembly-controls summary").click();
-    const packages = page.locator("#package-query-assembly-packages");
-    await page.locator("#package-query-assembly-operand").fill("shared-literal-use-marker");
-    await page.locator("#package-query-assembly-tfm").fill(fixtureFramework);
-    await packages.fill("System.Text.Json");
-    await page.locator("#package-query-assembly-run").click();
-    await expect(packages).toHaveJSProperty(
-      "validationMessage",
-      "Enter one exact ID@VERSION package per line.");
-    await packages.fill(
-      literalFixtures.map(fixture => `${fixture.packageId}@${fixture.version}`).join("\n"));
-    await expect(packages).toHaveJSProperty("validationMessage", "");
-    await page.evaluate(() => {
-      const timing: NonNullable<Window["__queryResponsiveness"]> = {
-        startAt: performance.timeOrigin + performance.now(),
-        inputAt: null,
-        firstRowAt: null,
-        frameAt: null,
-        completedAt: null,
-        renderCount: 0,
-        longestTimerDelay: 0,
-        timer: 0,
-        observer: new MutationObserver(() => {
-          timing.renderCount++;
-        }),
-      };
-      let previousTimerAt = performance.now();
-      timing.timer = window.setInterval(() => {
-        const currentTimerAt = performance.now();
-        timing.longestTimerDelay = Math.max(
-          timing.longestTimerDelay,
-          currentTimerAt - previousTimerAt,
-        );
-        previousTimerAt = currentTimerAt;
-      }, 10);
-      const input = document.createElement("button");
-      input.id = "query-responsiveness-input";
-      input.type = "button";
-      input.textContent = "Responsiveness input";
-      input.style.position = "fixed";
-      input.style.inset = "1rem";
-      input.style.zIndex = "10000";
-      input.addEventListener("pointerdown", () => {
-        timing.inputAt = performance.timeOrigin + performance.now();
-      }, { once: true });
-      document.body.append(input);
-      timing.observer.observe(document.body, { childList: true, subtree: true });
-      window.__queryResponsiveness = timing;
-    });
-    await page.locator("#package-query-assembly-run").click();
-
-    await expect(page.locator(".query-row")).toHaveCount(1, { timeout: 60_000 });
-    await page.evaluate(() => {
-      window.__queryResponsiveness!.firstRowAt =
-        performance.timeOrigin + performance.now();
-    });
-    await page.locator("#query-responsiveness-input").click();
-    await page.evaluate(async () => {
-      await new Promise<void>(resolveFirstFrame => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            window.__queryResponsiveness!.frameAt =
-              performance.timeOrigin + performance.now();
-            resolveFirstFrame();
-          });
-        });
-      });
-    });
-    releaseCompletion.resolve();
-    await expect(page.locator(".query-row")).toContainText("shared-literal-use-marker");
-    await expect(page.locator(".query-assessments")).toContainText("inspectweb.query.semanticmiss");
-    await expect(page.locator(".query-assessments")).toContainText("inspectweb.query.referenceonly");
-    await expect(page.locator(".query-failures")).toContainText("ImageAdmission");
-    await expect(page.locator(".query-footer")).toContainText("not all package assemblies");
-    const responsiveness = await page.evaluate(() => {
-      const timing = window.__queryResponsiveness!;
-      timing.completedAt = performance.timeOrigin + performance.now();
-      clearInterval(timing.timer);
-      timing.observer.disconnect();
-      document.querySelector("#query-responsiveness-input")?.remove();
-      return {
-        startAt: timing.startAt,
-        inputAt: timing.inputAt,
-        firstRowAt: timing.firstRowAt,
-        frameAt: timing.frameAt,
-        completedAt: timing.completedAt,
-        renderCount: timing.renderCount,
-        longestTimerDelay: timing.longestTimerDelay,
-      };
-    });
-    expect(responsiveness.firstRowAt).toBeGreaterThan(responsiveness.startAt);
-    expect(responsiveness.inputAt).toBeGreaterThan(responsiveness.startAt);
-    expect(responsiveness.frameAt).toBeGreaterThan(responsiveness.startAt);
-    expect(responsiveness.completedAt).toBeGreaterThan(responsiveness.firstRowAt!);
-    expect(responsiveness.inputAt).toBeLessThan(responsiveness.completedAt);
-    expect(responsiveness.frameAt).toBeLessThan(responsiveness.completedAt);
-    expect(responsiveness.renderCount).toBeGreaterThan(0);
-    expect(responsiveness.longestTimerDelay).toBeLessThan(250);
-    const match = literalFixtures[0]!;
-    for (const fixture of literalFixtures) expect(registry.downloadCount(fixture)).toBe(1);
-    const open = page.locator("[data-query-root-request]");
-    await expect(open).toHaveAttribute("data-query-root-request", /^pkgroot3\./);
-    await open.click();
-
-    await expect(page).not.toHaveURL(
-      /\/query(?:[?#].*)?$/,
-      { timeout: 60_000 },
-    );
-    await expect(page.locator("body")).toContainText(match.packageId.toLowerCase());
-    expect(registry.downloadCount(match)).toBe(2);
   });
 });
 
