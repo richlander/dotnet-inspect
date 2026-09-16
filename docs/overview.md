@@ -84,6 +84,11 @@ substrates, and inspection producers that will extend that space.
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. Its
+  [assembly-context Library adapter](design/assembly-context-library-adapter.md)
+  owns the bounded conversion of one exact selected participant's retained
+  image into independently owned direct-Library input for later House adoption.
+  It preserves the original-to-Artifact association without replacing
+  source-native PackageHouse or PlatformHouse realization. Its
   proposed [coordinate Library pairing](design/coordinate-library-pairing.md)
   selects one exact destination API Library within an explicitly designated
   Package-occurrence pair, using a complete selected population and a
