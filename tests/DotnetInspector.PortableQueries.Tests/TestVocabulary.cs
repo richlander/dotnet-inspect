@@ -104,9 +104,19 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
 
     public bool CollapsesDuplicates { get; init; }
 
+    public IReadOnlyList<string> RequiredFamilies { get; init; } = [];
+
+    public IReadOnlyList<string> RequiredBounds { get; init; } = [];
+
     public int PlansCreated { get; private set; }
 
     public override string Identity => VocabularyIdentity;
+
+    public override IReadOnlyList<string> RequiredTermFamilies =>
+        RequiredFamilies;
+
+    public override IReadOnlyList<string> RequiredDimensions =>
+        RequiredBounds;
 
     public override string? DefaultRanking => DeclaredDefaultRanking;
 
