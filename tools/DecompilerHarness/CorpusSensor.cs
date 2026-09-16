@@ -1279,7 +1279,7 @@ internal static class CorpusSensor
 
     static FidelityOracleEvaluation CompleteReturnToSenderCutover(
         IndependentReturnToSenderTargetSet targetSet,
-        ReturnToSenderEvaluation returnToSender)
+        ReturnToSenderFidelityEvaluator.Evaluation returnToSender)
     {
         var compileBackResults = EvaluateTargetsInAttemptOrder(
             [targetSet.AssemblyPath],
@@ -1300,7 +1300,7 @@ internal static class CorpusSensor
 
     static FidelityOracleEvaluation CompleteReturnToSenderNative(
         IndependentReturnToSenderTargetSet targetSet,
-        ReturnToSenderEvaluation returnToSender)
+        ReturnToSenderFidelityEvaluator.Evaluation returnToSender)
     {
         if (returnToSender.CompileBackFloorAppliedMethods != 0)
         {
@@ -1329,88 +1329,34 @@ internal static class CorpusSensor
             .ToArray();
     }
 
-    static async Task<ReturnToSenderEvaluation> EvaluateReturnToSenderTargets(
+    static Task<ReturnToSenderFidelityEvaluator.Evaluation> EvaluateReturnToSenderTargets(
         string assemblyPath,
         IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
         string captureDetail)
-    {
-        var requestedTargets = selectedTargets
-            .Select(target => new ReturnToSender.RequestedTarget(
-                target.Type,
-                target.Method,
-                target.Overload,
-                target.Signature))
-            .ToArray();
-        var returnToSenderResults = (await ReturnToSender.CompileBackTargets(
-                assemblyPath,
-                requestedTargets,
-                applyCompileBackFloor: false))
-            .ToArray();
-        return new ReturnToSenderEvaluation(
-            AlignReturnToSenderResults(selectedTargets, returnToSenderResults, captureDetail),
-            returnToSenderResults.Count(result => result.UsedCompileBackFloor));
-    }
-
-    static Task<ReturnToSenderEvaluation> EvaluateIndependentReturnToSenderTargets(
-        string assemblyPath,
-        IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
-        string captureDetail)
-        => EvaluateIndependentReturnToSenderTargetsAsync(
+        => ReturnToSenderFidelityEvaluator.EvaluateAsync(
             assemblyPath,
             selectedTargets,
-            captureDetail,
-            () => EvaluateReturnToSenderTargets(assemblyPath, selectedTargets, captureDetail));
+            captureDetail);
 
-    static async Task<ReturnToSenderEvaluation> EvaluateIndependentReturnToSenderTargetsAsync(
+    static Task<ReturnToSenderFidelityEvaluator.Evaluation> EvaluateIndependentReturnToSenderTargets(
         string assemblyPath,
         IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
-        string captureDetail,
-        Func<Task<ReturnToSenderEvaluation>> evaluate)
-    {
-        try
-        {
-            return await evaluate();
-        }
-        catch (Exception ex) when (
-            ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
-        {
-            HarnessLog.Status($"RTS unavailable {PortablePath(assemblyPath)}: {ex.Message}");
-            return new ReturnToSenderEvaluation(
-                selectedTargets
-                    .Select(target => new FidelityCheck.CompileBackResult(
-                        target.Type,
-                        target.Method,
-                        target.Overload,
-                        target.Signature,
-                        FidelityCheck.CompileBackStatus.ContextFail,
-                        "",
-                        "",
-                        $"return-to-sender-context-unavailable: {ex.Message}",
-                        FidelityCheck.CaptureMode.WholeModule,
-                        captureDetail))
-                    .ToArray(),
-                CompileBackFloorAppliedMethods: 0);
-        }
-    }
+        string captureDetail)
+        => EvaluateReturnToSenderTargets(
+            assemblyPath,
+            selectedTargets,
+            captureDetail);
 
     internal static async Task<IReadOnlyList<FidelityCheck.CompileBackResult>>
         EvaluateIndependentReturnToSenderTargetsForTesting(
             IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
             Func<IReadOnlyList<ReturnToSender.Result>> evaluate)
-        => (await EvaluateIndependentReturnToSenderTargetsAsync(
+        => (await ReturnToSenderFidelityEvaluator.EvaluateAsync(
             "test.dll",
             selectedTargets,
             "return-to-sender-cutover; compile-back-floor=false",
-            () =>
-            {
-                var results = evaluate().ToArray();
-                return Task.FromResult(new ReturnToSenderEvaluation(
-                    AlignReturnToSenderResults(
-                        selectedTargets,
-                        results,
-                        "return-to-sender-cutover; compile-back-floor=false"),
-                    results.Count(result => result.UsedCompileBackFloor)));
-            })).Results;
+            FidelityCheck.CaptureMode.WholeModule,
+            () => Task.FromResult(evaluate()))).Results;
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateTargetsInAttemptOrderUntilUseful(
         IReadOnlyList<string> assemblies,
@@ -1464,7 +1410,7 @@ internal static class CorpusSensor
     internal static IReadOnlyList<FidelityCheck.CompileBackResult> AlignReturnToSenderResultsForTesting(
         IReadOnlyList<FidelityCheck.CompileBackResult> targetSample,
         IReadOnlyList<ReturnToSender.Result> returnToSenderResults)
-        => AlignReturnToSenderResults(
+        => ReturnToSenderFidelityEvaluator.Align(
             targetSample.Select(result => new FidelityCheck.CompileBackTarget(
                 "",
                 result.Type,
@@ -1473,50 +1419,6 @@ internal static class CorpusSensor
                 result.Signature)).ToArray(),
             returnToSenderResults,
             "return-to-sender");
-
-    static IReadOnlyList<FidelityCheck.CompileBackResult> AlignReturnToSenderResults(
-        IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
-        IReadOnlyList<ReturnToSender.Result> returnToSenderResults,
-        string captureDetail)
-    {
-        var resultsByTarget = returnToSenderResults
-            .GroupBy(ReturnToSenderKey, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-        var results = new FidelityCheck.CompileBackResult[selectedTargets.Count];
-        for (int i = 0; i < selectedTargets.Count; i++)
-        {
-            var target = selectedTargets[i];
-            if (!resultsByTarget.TryGetValue(CompileBackTargetKey(target), out var result))
-            {
-                results[i] = new FidelityCheck.CompileBackResult(
-                    target.Type,
-                    target.Method,
-                    target.Overload,
-                    target.Signature,
-                    FidelityCheck.CompileBackStatus.ContextFail,
-                    "",
-                    "",
-                    "return-to-sender-target-unavailable",
-                    FidelityCheck.CaptureMode.WholeModule,
-                    captureDetail);
-                continue;
-            }
-
-            results[i] = new FidelityCheck.CompileBackResult(
-                result.Plan.TargetMethod.Type,
-                result.Plan.TargetMethod.Method,
-                result.Plan.TargetMethod.Overload,
-                result.Plan.TargetMethod.Signature,
-                result.Status,
-                result.OriginalOpcodes,
-                result.RecompiledOpcodes,
-                result.Detail,
-                result.CompileBackFloor?.Capture ?? FidelityCheck.CaptureMode.WholeModule,
-                result.UsedCompileBackFloor ? $"{captureDetail}; compile-back-floor" : captureDetail,
-                result.FidelityDiff);
-        }
-        return results;
-    }
 
     static ReturnToSenderParityMetrics SummarizeReturnToSenderParity(
         IReadOnlyList<FidelityCheck.CompileBackResult> referenceResults,
@@ -1829,19 +1731,12 @@ internal static class CorpusSensor
     static string CompileBackTargetKey(FidelityCheck.CompileBackTarget target)
         => $"{target.Type}::{target.Method}::{target.Overload}::{target.Signature}";
 
-    static string ReturnToSenderKey(ReturnToSender.Result result)
-        => $"{result.Plan.TargetMethod.Type}::{result.Plan.TargetMethod.Method}::{result.Plan.TargetMethod.Overload}::{result.Plan.TargetMethod.Signature}";
-
     sealed record FidelityOracleEvaluation(
         IReadOnlyList<FidelityCheck.CompileBackResult> Results,
         IReadOnlyList<FidelityCheck.CompileBackResult> AllResults,
         IReadOnlyDictionary<string, FidelityCheck.CompileBackStatus>? ReferenceStatuses = null,
         ReturnToSenderParityMetrics? Parity = null,
         ReturnToSenderCutoverMetrics? Cutover = null);
-
-    sealed record ReturnToSenderEvaluation(
-        IReadOnlyList<FidelityCheck.CompileBackResult> Results,
-        int CompileBackFloorAppliedMethods);
 
     sealed record IndependentReturnToSenderTargetSet(
         string AssemblyPath,
