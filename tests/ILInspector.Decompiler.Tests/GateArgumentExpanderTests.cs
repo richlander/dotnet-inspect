@@ -7,14 +7,14 @@ public class GateArgumentExpanderTests
     private static readonly IReadOnlyList<GatePreset> Presets =
     [
         new("all", "everything"),
-        new("fast", "skip slow", "-trait-", "Speed=Slow"),
-        new("no-corpus", "skip corpus", "-trait-", "Area=Corpus"),
+        new("fast", "skip slow", "--filter-not-trait", "Speed=Slow"),
+        new("no-corpus", "skip corpus", "--filter-not-trait", "Area=Corpus"),
     ];
 
     [Fact]
     public void NoGateFlag_PassesArgumentsThroughUnchanged()
     {
-        string[] args = ["-class", "Foo", "-parallel", "none"];
+        string[] args = ["--filter-class", "Foo", "--maximum-parallel-tests", "1"];
 
         GateExpansion result = GateArgumentExpander.Expand(args, Presets);
 
@@ -25,23 +25,25 @@ public class GateArgumentExpanderTests
     [Fact]
     public void KnownPreset_PrependsTraitArgsAndDropsTheGatePair()
     {
-        string[] args = ["--gate", "fast", "-class", "Foo"];
+        string[] args = ["--gate", "fast", "--filter-class", "Foo"];
 
         GateExpansion result = GateArgumentExpander.Expand(args, Presets);
 
         Assert.Equal(GateOutcome.Run, result.Outcome);
-        Assert.Equal(["-trait-", "Speed=Slow", "-class", "Foo"], result.Args);
+        Assert.Equal(
+            ["--filter-not-trait", "Speed=Slow", "--filter-class", "Foo"],
+            result.Args);
     }
 
     [Fact]
     public void EmptyPreset_ProducesNoFilterButRemovesTheGatePair()
     {
-        string[] args = ["--gate", "all", "-class", "Foo"];
+        string[] args = ["--gate", "all", "--filter-class", "Foo"];
 
         GateExpansion result = GateArgumentExpander.Expand(args, Presets);
 
         Assert.Equal(GateOutcome.Run, result.Outcome);
-        Assert.Equal(["-class", "Foo"], result.Args);
+        Assert.Equal(["--filter-class", "Foo"], result.Args);
     }
 
     [Fact]
@@ -52,7 +54,7 @@ public class GateArgumentExpanderTests
         GateExpansion result = GateArgumentExpander.Expand(args, Presets);
 
         Assert.Equal(GateOutcome.Run, result.Outcome);
-        Assert.Equal(["-trait-", "Area=Corpus"], result.Args);
+        Assert.Equal(["--filter-not-trait", "Area=Corpus"], result.Args);
     }
 
     [Theory]
@@ -73,7 +75,7 @@ public class GateArgumentExpanderTests
     [Fact]
     public void GateFlagWithNoValue_RequestsThePresetTable()
     {
-        string[] args = ["-class", "Foo", "--gate"];
+        string[] args = ["--filter-class", "Foo", "--gate"];
 
         GateExpansion result = GateArgumentExpander.Expand(args, Presets);
 
@@ -108,7 +110,7 @@ public class GateArgumentExpanderTests
 
         Assert.Contains("all", table);
         Assert.Contains("(no filter)", table);
-        Assert.Contains("-trait- Speed=Slow", table);
-        Assert.Contains("-trait- Area=Corpus", table);
+        Assert.Contains("--filter-not-trait Speed=Slow", table);
+        Assert.Contains("--filter-not-trait Area=Corpus", table);
     }
 }

@@ -98,7 +98,7 @@ public sealed class CSharpDeclarationFormatterTests
     }
 
     [Fact]
-    public void MemberSignatureSection_ShowsModelAwareUnavailability()
+    public void MemberSignatureSection_ShowsIncompletePropertyEvidence()
     {
         ApiMember member = UpdatedMember(
             "Current",
@@ -120,7 +120,7 @@ public sealed class CSharpDeclarationFormatterTests
         MemberSignatureRow row = Assert.Single(view.SignatureRows!);
         Assert.Equal("Unavailable", row.Signature);
         Assert.Contains(
-            "not supported",
+            "defining metadata token",
             Assert.IsType<string>(row.Unavailable),
             StringComparison.OrdinalIgnoreCase);
     }

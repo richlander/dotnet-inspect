@@ -113,6 +113,8 @@ internal static class CSharpMemorySafetySpelling
 
         bool isStandaloneEnumMember =
             IsStandaloneEnumMember(type, member, isStandaloneMember);
+        bool isStandaloneProperty =
+            isStandaloneMember && member.Kind == "property";
         string? typeFailure = isStandaloneMember
                 && (member.Kind == "extension-method"
                     || isStandaloneEnumMember)
@@ -120,8 +122,12 @@ internal static class CSharpMemorySafetySpelling
             : TypeFailure(type, selectedLanguage);
         if (typeFailure is not null)
             return Refuse(typeFailure);
-        if (member.Kind is not ("method" or "extension-method" or "explicit-interface-implementation" or "constructor" or "finalizer" or "field")
-            || member.SignatureModel?.Accessors is { Count: > 0 })
+        if (member.Kind is not ("method" or "extension-method"
+                or "explicit-interface-implementation" or "constructor"
+                or "finalizer" or "field" or "property")
+            || (member.Kind == "property" && !isStandaloneProperty)
+            || (member.Kind != "property"
+                && member.SignatureModel?.Accessors is { Count: > 0 }))
         {
             return Refuse($"model-aware {member.Kind} spelling is not supported.");
         }
@@ -147,7 +153,7 @@ internal static class CSharpMemorySafetySpelling
         {
             return Refuse("the declaring module's memory-safety evidence does not match the member.");
         }
-        int? declarationToken = member.Kind == "field"
+        int? declarationToken = member.Kind is "field" or "property"
             ? member.DeclarationMetadataToken
             : member.MetadataToken;
         if (declarationToken is not int memberToken)
@@ -167,6 +173,196 @@ internal static class CSharpMemorySafetySpelling
                 return Refuse("enum-member pointer evidence is unavailable or invalid.");
             if (member.EnumValueLiteral is null)
                 return Refuse("the enum value literal is unavailable.");
+            return new(null, null);
+        }
+
+        if (isStandaloneProperty)
+        {
+            if (requiresUnsafeContext)
+            {
+                return Refuse(
+                    "standalone property spelling does not support a body-owned unsafe context.");
+            }
+            if (facts.CallerContract is not MemorySafetyMemberContractResult.None)
+                return Refuse("standalone property spelling requires a contract-neutral property declaration.");
+            if (facts.SignaturePointer != MemorySafetyPointerEvidence.Absent)
+                return Refuse("standalone property spelling requires pointer-free property evidence.");
+            if (type.Layout is null)
+                return Refuse("the declaring type's layout is unavailable.");
+            if (type.Layout is ApiTypeLayout.Explicit or ApiTypeLayout.Extended)
+            {
+                return Refuse(
+                    "standalone property spelling is unavailable for explicit- or extended-layout types.");
+            }
+            if (member.SignatureModel is not { } propertyModel
+                || string.IsNullOrWhiteSpace(propertyModel.ReturnType)
+                || propertyModel.ReturnTypeShape is null
+                || string.IsNullOrWhiteSpace(propertyModel.MemberName)
+                || propertyModel.MemberName == "this[]"
+                || propertyModel.MemberName.Contains('.', StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(member.Name)
+                || member.Name.Contains('.', StringComparison.Ordinal)
+                || member.IndexParameterCount != 0
+                || propertyModel.Parameters.Count != 0)
+            {
+                return Refuse(
+                    "a complete non-indexed ordinary property signature is unavailable.");
+            }
+            if (propertyModel.ReturnTypeShape is
+                {
+                    Kind: ApiTypeShapeKind.Primitive,
+                    Primitive: ApiPrimitiveType.Void,
+                })
+            {
+                return Refuse("a property cannot have a void return type.");
+            }
+            if (!PropertyTypeShapeIsRepresentable(
+                    propertyModel.ReturnTypeShape))
+            {
+                return Refuse(
+                    "the property type shape is not representable in C#.");
+            }
+            if (propertyModel.Accessors is not { Count: > 0 } accessors)
+                return Refuse("a complete structured property accessor shape is unavailable.");
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.Kind is not ("get" or "set")))
+            {
+                return Refuse("the structured property contains an unsupported accessor kind.");
+            }
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.SignatureMatchesProperty is not true))
+            {
+                return Refuse(
+                    "an accessor callable signature does not correspond to the property signature.");
+            }
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.AccessibilityIsRepresentable is not true))
+            {
+                return Refuse(
+                    "an accessor accessibility is unavailable or not representable in C#.");
+            }
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.DeclarationModifiersMatchProperty is not true))
+            {
+                return Refuse(
+                    "the property accessors do not share one declaration modifier shape.");
+            }
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.DeclarationModifiersAreRepresentable is not true))
+            {
+                return Refuse(
+                    "an accessor declaration modifier shape is not representable in C#.");
+            }
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.IsExplicitInterfaceImplementation is not false))
+            {
+                return Refuse(
+                    "the structured property contains an unsupported explicit-interface accessor.");
+            }
+            if (accessors.Any(static accessor => accessor.IsReadOnly))
+            {
+                return Refuse(
+                    "the structured property contains an unsupported readonly accessor.");
+            }
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.StructuralReturnType is not null))
+            {
+                return Refuse(
+                    "the structured property contains an unsupported accessor return shape.");
+            }
+            if (accessors.GroupBy(static accessor => accessor.Kind)
+                    .Any(static group => group.Count() != 1))
+            {
+                return Refuse("the structured property accessor shape is ambiguous.");
+            }
+            if (!PropertyAccessibilityIsRepresentable(
+                    member.Accessibility,
+                    accessors))
+            {
+                return Refuse(
+                    "the property accessor accessibility combination is not representable in C#.");
+            }
+            if (type.Kind == "struct"
+                && type.IsReadOnly
+                && !member.IsStatic
+                && accessors.Any(
+                    static accessor => accessor.Kind == "set"))
+            {
+                return Refuse(
+                    "an instance property setter is not representable in a readonly struct declaration.");
+            }
+            if (!PropertyDeclarationModifiersAreRepresentable(type, member))
+            {
+                return Refuse(
+                    "the property declaration modifiers are not representable in C#.");
+            }
+            if (propertyModel.IsRequired
+                && !RequiredPropertyIsRepresentable(type, member, accessors))
+            {
+                return Refuse(
+                    "the required property shape is not representable in C#.");
+            }
+
+            int[] accessorTokens = accessors.Select(accessor => accessor.Kind switch
+                {
+                    "get" => member.GetterToken,
+                    "set" => member.SetterToken,
+                    _ => null,
+                })
+                .OfType<int>()
+                .Distinct()
+                .ToArray();
+            if (accessorTokens.Length != accessors.Count)
+                return Refuse("the defining accessor tokens are unavailable or ambiguous.");
+            if (member.AccessorMemorySafety is not { } accessorFacts
+                || accessorFacts.Length != accessorTokens.Length)
+            {
+                return Refuse("complete accessor memory-safety facts are unavailable.");
+            }
+            foreach (ApiMemberMemorySafetyFacts accessorFact in accessorFacts)
+            {
+                if (accessorFact.ModuleVersionId != type.MemorySafety.ModuleVersionId)
+                    return Refuse("accessor memory-safety evidence comes from a different module.");
+                MemorySafetyMemberContractEvidence evidence =
+                    accessorFact.CallerContract.Evidence;
+                if (!accessorTokens.Contains(evidence.MemberToken))
+                    return Refuse("accessor memory-safety evidence identifies a different declaration.");
+                if (evidence.RulesState != rules.State)
+                    return Refuse("the declaring module's rules state does not match an accessor.");
+                if (accessorFact.CallerContract
+                    is MemorySafetyMemberContractResult.Unavailable accessorUnavailable)
+                {
+                    return Refuse(
+                        $"accessor caller contract is unavailable: {accessorUnavailable.Failure.Detail}");
+                }
+                if (accessorFact.CallerContract
+                    is not MemorySafetyMemberContractResult.None)
+                {
+                    return Refuse(
+                        "standalone property spelling does not support accessor caller contracts.");
+                }
+                if (accessorFact.SignaturePointer
+                    != MemorySafetyPointerEvidence.Absent)
+                {
+                    return Refuse(
+                        "standalone property spelling requires pointer-free accessor evidence.");
+                }
+            }
+            if (accessorFacts.Select(
+                    static accessor =>
+                        accessor.CallerContract.Evidence.MemberToken)
+                .Distinct()
+                .Count() != accessorTokens.Length)
+            {
+                return Refuse("accessor memory-safety evidence is ambiguous.");
+            }
             return new(null, null);
         }
 
@@ -239,6 +435,189 @@ internal static class CSharpMemorySafetySpelling
         CSharpMemorySafetyDecision Refuse(string reason)
             => new(null, $"Member '{type.FullName}.{member.Name}': {reason}");
     }
+
+    static bool PropertyAccessibilityIsRepresentable(
+        string? propertyAccessibility,
+        IReadOnlyList<ApiAccessor> accessors)
+    {
+        string property = propertyAccessibility ?? "public";
+        if (!IsCSharpAccessibility(property))
+            return false;
+
+        ApiAccessor[] modified =
+        [
+            .. accessors.Where(
+                static accessor => accessor.Accessibility is not null),
+        ];
+        if (modified.Length == 0)
+            return true;
+        if (accessors.Count != 2 || modified.Length != 1)
+            return false;
+
+        return IsStrictlyMoreRestrictive(
+            modified[0].Accessibility!,
+            property);
+    }
+
+    static bool PropertyDeclarationModifiersAreRepresentable(
+        ApiType type,
+        ApiMember member)
+    {
+        if (type.Kind is not ("class" or "struct" or "interface"))
+            return false;
+        if (member.Accessibility == "private"
+            && (member.IsVirtual
+                || member.IsAbstract
+                || member.IsOverride))
+        {
+            return false;
+        }
+
+        if (member.IsStatic)
+        {
+            if (member.IsOverride || member.IsSealed)
+                return false;
+            if (type.Kind == "interface")
+                return member.IsVirtual && member.IsAbstract;
+            return !member.IsVirtual && !member.IsAbstract;
+        }
+
+        if (member.IsAbstract && !member.IsVirtual
+            || member.IsOverride && !member.IsVirtual
+            || member.IsSealed && (!member.IsOverride || member.IsAbstract))
+        {
+            return false;
+        }
+
+        return type.Kind switch
+        {
+            "struct" =>
+                !member.IsVirtual
+                && !member.IsAbstract
+                && !member.IsOverride
+                && !member.IsSealed,
+            "interface" =>
+                member.IsVirtual
+                && member.IsAbstract
+                && !member.IsOverride
+                && !member.IsSealed,
+            _ =>
+                !(type.IsStatic || type.IsAbstract && type.IsSealed)
+                && (!member.IsAbstract || type.IsAbstract)
+                && (!type.IsSealed
+                    || !member.IsVirtual
+                    || member.IsOverride),
+        };
+    }
+
+    static bool PropertyTypeShapeIsRepresentable(ApiTypeShape shape)
+    {
+        if (shape.Kind == ApiTypeShapeKind.Primitive
+            && shape.Primitive == ApiPrimitiveType.Void)
+        {
+            return false;
+        }
+        if (shape.Kind is
+            ApiTypeShapeKind.Named or ApiTypeShapeKind.GenericInstance)
+        {
+            if (shape.Definition?.DefinitionName is not { } definitionName)
+                return false;
+            int argumentCount = shape.Kind == ApiTypeShapeKind.GenericInstance
+                ? shape.TypeArguments.Length
+                : 0;
+            bool arityMatches =
+                shape.DefinitionArityMatchesTypeArguments
+                ?? MetadataNameArity.MatchesArgumentCount(
+                    definitionName.Segments,
+                    argumentCount);
+            if (!arityMatches
+                || shape.Kind == ApiTypeShapeKind.GenericInstance
+                    && shape.TypeArguments.IsEmpty)
+            {
+                return false;
+            }
+        }
+        if (shape.Kind == ApiTypeShapeKind.Array
+            && (shape.ArrayRank < 2
+                || !shape.ArraySizes.IsEmpty
+                || !shape.ArrayLowerBounds.IsEmpty))
+        {
+            return false;
+        }
+        if (shape.ElementType is { } element
+            && !PropertyTypeShapeIsRepresentable(element))
+        {
+            return false;
+        }
+        return shape.TypeArguments.All(PropertyTypeShapeIsRepresentable);
+    }
+
+    static bool RequiredPropertyIsRepresentable(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<ApiAccessor> accessors)
+    {
+        if (member.IsStatic
+            || type.Kind is not ("class" or "struct"))
+        {
+            return false;
+        }
+
+        string typeAccessibility = type.Accessibility ?? "public";
+        string propertyAccessibility = member.Accessibility ?? "public";
+        if (!IsAtLeastAsAccessibleAs(
+                propertyAccessibility,
+                typeAccessibility))
+        {
+            return false;
+        }
+
+        ApiAccessor? setter =
+            accessors.SingleOrDefault(static accessor => accessor.Kind == "set");
+        return setter is not null
+            && IsAtLeastAsAccessibleAs(
+                setter.Accessibility ?? propertyAccessibility,
+                typeAccessibility);
+    }
+
+    static bool IsAtLeastAsAccessibleAs(
+        string candidate,
+        string required) =>
+        IsCSharpAccessibility(candidate)
+        && IsCSharpAccessibility(required)
+        && (candidate == required
+            || IsStrictlyMoreRestrictive(required, candidate));
+
+    static bool IsCSharpAccessibility(string accessibility) =>
+        accessibility is
+            "public"
+            or "protected internal"
+            or "protected"
+            or "internal"
+            or "private protected"
+            or "private";
+
+    static bool IsStrictlyMoreRestrictive(
+        string accessor,
+        string property) =>
+        property switch
+        {
+            "public" => accessor is
+                "protected internal"
+                or "protected"
+                or "internal"
+                or "private protected"
+                or "private",
+            "protected internal" => accessor is
+                "protected"
+                or "internal"
+                or "private protected"
+                or "private",
+            "protected" => accessor is "private protected" or "private",
+            "internal" => accessor is "private protected" or "private",
+            "private protected" => accessor is "private",
+            _ => false,
+        };
 
     internal static bool IsStandaloneEnumMember(
         ApiType type,

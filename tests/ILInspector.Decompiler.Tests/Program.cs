@@ -14,12 +14,12 @@ namespace ILInspector.Decompiler.Tests;
 /// wrap the <c>Speed</c>/<c>Area</c> trait taxonomy documented in
 /// <c>docs/decompiler-correctness-pipeline.md</c> so callers and CI can bound
 /// which gates run (notably skipping the multi-hour <c>Corpus</c> sweep)
-/// without memorizing <c>-trait</c>/<c>-trait-</c> incantations.
+/// without memorizing MTP filter options.
 /// </para>
 /// <para>
-/// Everything after the <c>--gate</c> handling mirrors the xUnit v3
-/// auto-generated entry point verbatim, so Microsoft Testing Platform server
-/// mode and the console runner behave exactly as before.
+/// Everything after the <c>--gate</c> handling preserves the xUnit v3
+/// auto-generated entry point's automated-mode dispatch and otherwise uses
+/// Microsoft Testing Platform.
 /// </para>
 /// </remarks>
 internal static class Program
@@ -30,47 +30,43 @@ internal static class Program
     internal static readonly IReadOnlyList<GatePreset> Presets =
     [
         new("all", "Every test, including all slow gates (default with no --gate)."),
-        new("fast", "Skip every slow gate (fast unit lane; matches the PR CI test job).", "-trait-", "Speed=Slow"),
-        new("slow", "Only the slow gates.", "-trait", "Speed=Slow"),
-        new("no-corpus", "Everything except the multi-hour Corpus sweep.", "-trait-", "Area=Corpus"),
+        new("fast", "Skip every slow gate (fast unit lane; matches the PR CI test job).", "--filter-not-trait", "Speed=Slow"),
+        new("slow", "Only the slow gates.", "--filter-trait", "Speed=Slow"),
+        new("no-corpus", "Everything except the multi-hour Corpus sweep.", "--filter-not-trait", "Area=Corpus"),
         new(
             "pre-merge",
             "The bounded compile-back receipt (matches the PR CI decompiler-gates job).",
-            "-class", "ILInspector.Decompiler.Tests.ByteNeutralityGateTests",
-            "-class", "ILInspector.Decompiler.Tests.ByteDivergentGateTests",
-            "-class", "ILInspector.Decompiler.Tests.SkeletonEmitTests",
-            "-class", "ILInspector.Decompiler.Tests.DiffFixtureFidelityTests",
-            "-class", "ILInspector.Decompiler.Tests.NestedTargetLookupTests",
-            "-class", "ILInspector.DecompilerHarness.AuthoredRebuildFidelityTests",
-            "-class", "ILInspector.Decompiler.Tests.AnnotatedCompileBackFailureTests",
+            "--filter-class", "ILInspector.Decompiler.Tests.ByteNeutralityGateTests",
+            "--filter-class", "ILInspector.Decompiler.Tests.ByteDivergentGateTests",
+            "--filter-class", "ILInspector.Decompiler.Tests.SkeletonEmitTests",
+            "--filter-class", "ILInspector.Decompiler.Tests.DiffFixtureFidelityTests",
+            "--filter-class", "ILInspector.Decompiler.Tests.NestedTargetLookupTests",
+            "--filter-class", "ILInspector.DecompilerHarness.AuthoredRebuildFidelityTests",
+            "--filter-class", "ILInspector.Decompiler.Tests.AnnotatedCompileBackFailureTests",
             // The gate's own plumbing guard rides along in the preset it guards.
-            // Running it as a separate CI step was vacuous: a filter naming a
-            // renamed or deleted class discovers nothing and exits 0. Inside the
-            // preset it is covered by the same discovery/coverage checks as the
-            // correctness gates, so it cannot silently stop running.
-            "-class", "ILInspector.Decompiler.Tests.GateExpectedClassesTests"),
-        new("corpus", "Only the Corpus area (the multi-hour sweep).", "-trait", "Area=Corpus"),
-        new("roundtrip", "Only the RoundTrip area (compile-back / ReturnToSender).", "-trait", "Area=RoundTrip"),
-        new("fidelity", "Only the Fidelity area.", "-trait", "Area=Fidelity"),
-        new("validity", "Only the Validity area.", "-trait", "Area=Validity"),
+            // Inside the preset it is covered by the same discovery/coverage
+            // checks as the correctness gates, so it cannot silently stop running.
+            "--filter-class", "ILInspector.Decompiler.Tests.GateExpectedClassesTests",
+            "--filter-class", "ILInspector.Decompiler.Tests.MtpGateReceiptTests"),
+        new("corpus", "Only the Corpus area (the multi-hour sweep).", "--filter-trait", "Area=Corpus"),
+        new("roundtrip", "Only the RoundTrip area (compile-back / ReturnToSender).", "--filter-trait", "Area=RoundTrip"),
+        new("fidelity", "Only the Fidelity area.", "--filter-trait", "Area=Fidelity"),
+        new("validity", "Only the Validity area.", "--filter-trait", "Area=Validity"),
     ];
 
     public static int Main(string[] args)
     {
-        int preflightArgumentIndex = args.Length > 0
-            && args[0] == ExplicitFilterGuard.PreflightArgument
-                ? 0
-                : args.Length > 1
-                    && args[0] == typeof(Program).Assembly.Location
-                    && args[1] == ExplicitFilterGuard.PreflightArgument
-                        ? 1
-                        : -1;
-        bool isFilterPreflight = preflightArgumentIndex >= 0;
-        ReadOnlySpan<string> inputArgs = isFilterPreflight
-            ? args.AsSpan(preflightArgumentIndex + 1)
-            : args;
+        DiscoveryReceiptExpansion discoveryReceipt =
+            MtpDiscoveryReceiptClient.RemoveReceiptArgument(args);
+        if (discoveryReceipt.Error is not null)
+        {
+            Console.Error.WriteLine(discoveryReceipt.Error);
+            return 2;
+        }
 
-        GateExpansion expansion = GateArgumentExpander.Expand(inputArgs.ToArray(), Presets);
+        GateExpansion expansion = GateArgumentExpander.Expand(
+            discoveryReceipt.Args,
+            Presets);
         switch (expansion.Outcome)
         {
             case GateOutcome.Help:
@@ -80,36 +76,56 @@ internal static class Program
                 Console.Error.WriteLine(expansion.Message);
                 return 2;
         }
-
         string[] runArgs = expansion.Args as string[] ?? expansion.Args.ToArray();
-
-        if (isFilterPreflight)
+        if (discoveryReceipt.Path is not null)
         {
-            return ExplicitFilterGuard
-                .RunPreflightAsync(runArgs, typeof(Program).Assembly)
+            try
+            {
+                return MtpDiscoveryReceiptClient
+                    .CaptureAsync(discoveryReceipt.Path, runArgs)
+                    .GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"error: MTP discovery receipt failed: {ex.Message}");
+                return 2;
+            }
+        }
+
+        string? receiptPath = Environment.GetEnvironmentVariable(
+            MtpGateReceiptConsumer.ReceiptPathEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(receiptPath))
+        {
+            MtpGateReceiptWriter.Initialize(receiptPath);
+        }
+
+        // Preserve xUnit's internal automated-mode dispatch. Ordinary direct
+        // execution uses MTP and its aggregate zero-test failure contract.
+        if (global::System.Linq.Enumerable.Any(runArgs, arg => arg == "-automated" || arg == "@@"))
+        {
+            return global::Xunit.Runner.InProc.SystemConsole.ConsoleRunner
+                .Run(runArgs)
                 .GetAwaiter().GetResult();
         }
 
-        // Mirror the xUnit v3 auto-generated entry point: honor the Microsoft
-        // Testing Platform server handshake, otherwise use the console runner.
-        if (global::System.Linq.Enumerable.Any(runArgs, arg => arg == "--server" || arg == "--internal-msbuild-node"))
-        {
-            return global::Xunit.MicrosoftTestingPlatform.TestPlatformTestFramework
-                .RunAsync(runArgs, SelfRegisteredExtensions.AddSelfRegisteredExtensions)
-                .GetAwaiter().GetResult();
-        }
-
-        string? filterError = ExplicitFilterGuard
-            .ValidateAsync(runArgs, typeof(Program).Assembly)
+        return global::Xunit.MicrosoftTestingPlatform.TestPlatformTestFramework
+            .RunAsync(runArgs, AddExtensions)
             .GetAwaiter().GetResult();
-        if (filterError is not null)
-        {
-            Console.Error.WriteLine(filterError);
-            return 2;
-        }
+    }
 
-        return global::Xunit.Runner.InProc.SystemConsole.ConsoleRunner
-            .Run(runArgs)
-            .GetAwaiter().GetResult();
+    private static void AddExtensions(
+        Microsoft.Testing.Platform.Builder.ITestApplicationBuilder builder,
+        string[] args)
+    {
+        SelfRegisteredExtensions.AddSelfRegisteredExtensions(builder, args);
+
+        string? receiptPath = Environment.GetEnvironmentVariable(
+            MtpGateReceiptConsumer.ReceiptPathEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(receiptPath))
+        {
+            builder.TestHost.AddDataConsumer(
+                _ => new MtpGateReceiptConsumer(receiptPath));
+        }
     }
 }

@@ -10,6 +10,12 @@ public static unsafe class Widget
 
     public static int Transform(int value) => value + 2;
 
+    public static Helper Allocate(int value) =>
+        new() { Value = value };
+
+    public static int CallHelper(Helper helper) =>
+        helper.Read();
+
     public static int Invoke(
         delegate* unmanaged[Cdecl]<int, int> callback,
         int value) =>
@@ -21,9 +27,16 @@ public static unsafe class Widget
 public sealed class Helper
 {
     public int Value { get; init; }
+
+    public int Read() => Value;
 }
 
 public struct KindShape
 {
     public static int TransformKind(KindShape value) => 2;
+}
+
+public abstract class Bodyless
+{
+    public abstract int Run();
 }

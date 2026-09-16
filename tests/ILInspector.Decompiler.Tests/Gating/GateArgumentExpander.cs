@@ -7,7 +7,7 @@ namespace ILInspector.Decompiler.Tests.Gating;
 /// </summary>
 public enum GateOutcome
 {
-    /// <summary>Run xUnit with <see cref="GateExpansion.Args"/>.</summary>
+    /// <summary>Run MTP xUnit with <see cref="GateExpansion.Args"/>.</summary>
     Run,
 
     /// <summary>Print <see cref="GateExpansion.Message"/> to stdout and exit 0.</summary>
@@ -18,14 +18,14 @@ public enum GateOutcome
 }
 
 /// <summary>
-/// The result of expanding a <c>--gate</c> request into concrete xUnit
-/// console-runner arguments.
+/// The result of expanding a <c>--gate</c> request into concrete MTP xUnit
+/// arguments.
 /// </summary>
 public sealed record GateExpansion(GateOutcome Outcome, IReadOnlyList<string> Args, string? Message);
 
 /// <summary>
 /// Translates a discoverable <c>--gate &lt;preset&gt;</c> flag into concrete
-/// xUnit v3 console-runner arguments. This type carries no project-specific
+/// MTP xUnit arguments. This type carries no project-specific
 /// knowledge: callers supply their own preset table, so the same expander can
 /// be shared across test executables.
 /// </summary>
@@ -116,7 +116,7 @@ public static class GateArgumentExpander
 
         int width = presets.Count == 0 ? 0 : presets.Max(p => p.Name.Length);
         var sb = new StringBuilder();
-        sb.AppendLine($"Usage: {Flag} <preset> [additional xUnit args]");
+        sb.AppendLine($"Usage: {Flag} <preset> [additional MTP xUnit args]");
         sb.AppendLine();
         sb.AppendLine("Presets:");
         foreach (GatePreset preset in presets)
