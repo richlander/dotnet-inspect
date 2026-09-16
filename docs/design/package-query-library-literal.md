@@ -123,6 +123,8 @@ Focused Release gates cover:
 
 - exact-ID latest-version selection without prefix fallback;
 - prefix bounds, ordering, and source completion;
+- operation-timeout population failure disclosure before semantic evaluator
+  handoff;
 - one package Result for a candidate with multiple occurrences;
 - semantic miss, not applicable, acquisition failure, and a later match in one
   five-candidate population;

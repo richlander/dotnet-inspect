@@ -140,6 +140,13 @@ internal static class PackageQueryCommand
                     _ => throw new InvalidOperationException(
                         "Unknown library-literal Package Query population plan."),
                 };
+            if (TryCompleteLibraryLiteralPopulation(
+                    population,
+                    out int populationExitCode))
+            {
+                return populationExitCode;
+            }
+
             var request = new PackageAssemblySemanticFindRequest(
                 population,
                 plan.Target,
@@ -170,6 +177,27 @@ internal static class PackageQueryCommand
             options,
             plan,
             document);
+    }
+
+    internal static bool TryCompleteLibraryLiteralPopulation(
+        PackageAcquisitionPopulation population,
+        out int exitCode)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        if (!population.Failures.Any(failure =>
+                failure.Failure.Kind == PackageAuthorityFailureKind.Timeout
+                && failure.Failure.Timeout?.Kind
+                    == PackageSourceTimeoutKind.Operation))
+        {
+            exitCode = default;
+            return false;
+        }
+
+        WriteLibraryLiteralPopulationDiagnostics(
+            population,
+            evaluatedCandidateCount: 0);
+        exitCode = 1;
+        return true;
     }
 
     internal static int CompleteLibraryLiteralExecution(
@@ -463,17 +491,9 @@ internal static class PackageQueryCommand
     private static void WriteLibraryLiteralDiagnostics(
         PackageAssemblySemanticQueryDocument document)
     {
-        foreach (PackageAcquisitionPopulationFailure failure
-            in document.Population.Failures)
-        {
-            string subject = failure.Coordinate is { } coordinate
-                ? $"{coordinate.PackageId}@{coordinate.Version}"
-                : failure.PackageId ?? "Package population";
-            CommandError.WriteWarning(
-                $"{subject}: {failure.Failure.Authority} "
-                + $"({failure.Failure.Kind}): "
-                + failure.Failure.Message);
-        }
+        WriteLibraryLiteralPopulationDiagnostics(
+            document.Population,
+            document.CandidateCount);
 
         foreach (PackageAssemblySemanticQueryCandidateOutcome.Failure failure
             in document.CandidateOutcomes
@@ -510,16 +530,33 @@ internal static class PackageQueryCommand
                     break;
             }
         }
+    }
 
-        if (document.Population.Completion is not (
+    private static void WriteLibraryLiteralPopulationDiagnostics(
+        PackageAcquisitionPopulation population,
+        int evaluatedCandidateCount)
+    {
+        foreach (PackageAcquisitionPopulationFailure failure
+            in population.Failures)
+        {
+            string subject = failure.Coordinate is { } coordinate
+                ? $"{coordinate.PackageId}@{coordinate.Version}"
+                : failure.PackageId ?? "Package population";
+            CommandError.WriteWarning(
+                $"{subject}: {failure.Failure.Authority} "
+                + $"({failure.Failure.Kind}): "
+                + failure.Failure.Message);
+        }
+
+        if (population.Completion is not (
                 PackageAcquisitionPopulationCompletionKind.ExactPackageComplete
                 or PackageAcquisitionPopulationCompletionKind.PrefixExhausted))
         {
             CommandError.WriteWarning(
                 $"Package Query population completion: "
-                + $"{document.Population.Completion}; evaluated "
-                + $"{document.CandidateCount}/"
-                + $"{document.Population.RequestedCandidates} candidates. "
+                + $"{population.Completion}; evaluated "
+                + $"{evaluatedCandidateCount}/"
+                + $"{population.RequestedCandidates} candidates. "
                 + "These results do not exhaust the requested package-ID scope.");
         }
     }

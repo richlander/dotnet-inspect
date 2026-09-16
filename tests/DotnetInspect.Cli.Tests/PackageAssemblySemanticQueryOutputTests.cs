@@ -11,6 +11,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
+using InertText;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
@@ -156,6 +157,59 @@ public sealed class PackageAssemblySemanticQueryOutputTests
             "Contoso.Broken",
             qualifiedCount.Error,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task OperationTimeoutPopulationStopsBeforeSemanticEvaluation()
+    {
+        TimeSpan timeout = TimeSpan.FromMilliseconds(50);
+        var population = new PackageAcquisitionPopulation(
+            requestedCandidates: 2,
+            candidates: [],
+            failures:
+            [
+                PackageAcquisitionPopulationFailure.ForSource(
+                    new PackageAuthorityFailure(
+                        InertString.Empty,
+                        PackageAuthorityFailureKind.Timeout,
+                        "Package selection exhausted its operation deadline.")
+                    {
+                        Timeout = new(
+                            PackageSourceTimeoutKind.Operation,
+                            timeout),
+                    }),
+            ],
+            PackageAcquisitionPopulationCompletionKind.SourceFailed);
+
+        bool stopped = false;
+        var result = await ConsoleCapture.RunAsync(() =>
+        {
+            stopped =
+                PackageQueryCommand.TryCompleteLibraryLiteralPopulation(
+                    population,
+                    out int exitCode);
+            return Task.FromResult(exitCode);
+        });
+
+        Assert.True(stopped);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Package population",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "(Timeout): Package selection exhausted its operation deadline.",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "population completion: SourceFailed; evaluated 0/2 candidates",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(NuGetOperationTimeoutException),
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     private static PackageQueryOptions Options()
