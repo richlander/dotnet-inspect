@@ -1477,7 +1477,19 @@ public sealed partial class EhStructuringPass : IIrPass
             LoadArgument load => argumentAliases.Contains(load.Index),
             LoadStackSlot load => stackSlotAliases.Contains(load.Slot),
             LoadField load => fieldAliases.Any(alias =>
-                SameFieldAlias(alias, load.Field, load.Instance)),
+                SameFieldAlias(alias, load.Field, load.Instance))
+                || (load.Instance is { } carrier
+                    && load.ResultType is { } fieldType
+                    && CanCarryManagedReference(function, fieldType)
+                    && AliasesPlace(
+                        function,
+                        carrier,
+                        index,
+                        isArgument,
+                        localAliases,
+                        argumentAliases,
+                        stackSlotAliases,
+                        fieldAliases)),
             LoadFieldAddress address => fieldAliases.Any(alias =>
                 SameFieldAlias(alias, address.Field, address.Instance)),
             { ResultType: { } type } when CanCarryManagedReference(function, type)

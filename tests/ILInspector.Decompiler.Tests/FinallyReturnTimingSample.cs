@@ -323,6 +323,39 @@ public static class FinallyReturnTimingSample
         return result;
     }
 
+    public static int RunFieldExtractionAlias(
+        bool loop,
+        bool setValue,
+        bool exit)
+    {
+        int result = 0;
+        scoped RefHolder holder = new(ref result);
+        ref int alias = ref holder.Value;
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            alias += 100;
+        }
+
+    Done:
+        return result;
+    }
+
     public static int RunHelperAlias(
         bool loop,
         bool setValue,

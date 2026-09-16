@@ -220,6 +220,45 @@ public class FinallyReturnTimingTests
     }
 
     [Fact]
+    public void FieldExtractionAliasReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunFieldExtractionAlias(
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunFieldExtractionAlias(
+            loop: true,
+            setValue: false,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunFieldExtractionAlias(
+            loop: false,
+            setValue: true,
+            exit: true));
+
+        using var source = MetadataSource.Open(SampleType.Assembly.Location);
+        IrFunction function = Assert.IsType<IrFunction>(IrImporter.Import(
+            source,
+            SampleType.FullName!,
+            nameof(FinallyReturnTimingSample.RunFieldExtractionAlias)));
+        StoreLocal extraction = Assert.Single(
+            function.Descendants.OfType<StoreLocal>(),
+            store => store.Value is LoadField);
+        IrExpression receiver = Assert.IsAssignableFrom<IrExpression>(
+            Assert.IsType<LoadField>(extraction.Value).Instance);
+        Assert.True(receiver is LoadLocal or LoadLocalAddress);
+
+        var result = CSharpPrinter.PrintRaised(
+            function,
+            method => IrImporter.Import(source, method),
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+        string output = Assert.IsType<string>(result.Output)
+            .ReplaceLineEndings("\n");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
     public void HelperAliasReturnStaysAfterFinally()
     {
         Assert.Equal(110, FinallyReturnTimingSample.RunHelperAlias(
@@ -457,13 +496,14 @@ public class FinallyReturnTimingTests
                 or nameof(FinallyReturnTimingSample.RunCallAlias)
                 or nameof(FinallyReturnTimingSample.RunArgumentAlias)
                 or nameof(FinallyReturnTimingSample.RunConstructorAlias)
+                or nameof(FinallyReturnTimingSample.RunFieldExtractionAlias)
                 or nameof(FinallyReturnTimingSample.RunHelperAlias)
                 or nameof(FinallyReturnTimingSample.RunCopiedFieldAlias)
                 or nameof(FinallyReturnTimingSample.RunIndirectCarrierAlias)
                 or nameof(FinallyReturnTimingSample.RunConditionalIndirectCarrierAlias)
                 or nameof(FinallyReturnTimingSample.RunRefLocalIndirectCarrierAlias));
 
-        Assert.Equal(14, results.Count);
+        Assert.Equal(15, results.Count);
         Assert.All(results, result =>
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
     }
