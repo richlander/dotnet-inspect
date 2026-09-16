@@ -664,6 +664,13 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
       display: identifier,
     },
   });
+  const share = {
+    kind: "nonProjectable",
+    path: "comparison/endpoints",
+    reason: "Ordered endpoints are not shareable.",
+    fullUrl: null,
+    packet: null,
+  };
   const result: BrowserLibraryApiDiffResult = {
     schemaVersion: 1,
     request: {
@@ -697,6 +704,11 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     error: null,
     diagnostic: null,
     reason: null,
+    inspection: {
+      content: { outcome: "available", document: {} },
+      share,
+      diagnostics: [],
+    },
   };
   const state: LibraryApiDiffState = {
     status: "ready",

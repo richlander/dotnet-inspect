@@ -6,6 +6,7 @@ using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using InertText;
 using Inspector.Findings;
 using ILInspector.Metadata;
@@ -182,7 +183,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffResult result =
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
-                unavailable,
+                Inspection(unavailable),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
 
@@ -249,10 +250,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffResult result =
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
-                new LibraryApiDiffOutcome.Unavailable(
+                Inspection(new LibraryApiDiffOutcome.Unavailable(
                     LibraryApiDiffUnavailableKind.BeforeIncomplete,
                     target,
-                    current),
+                    current)),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
 
@@ -295,16 +296,17 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Null(result.Value);
         Assert.Contains("exact compile asset", result.Error);
         Assert.Contains("target package endpoint", result.Error);
+        Assert.Null(result.Inspection);
     }
 
     [Fact]
-    public void ChangedTypeTransportBoundaryIsAtomic()
+    public void CompleteBaselineCanExceedTransportWhenTheViewFits()
     {
         BrowserLibraryApiDiffRequest request = Request("Transport.Package");
         BrowserLibraryApiDiffResult admitted =
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
-                Available(BrowserLibraryApiDiffWireProjection.MaxChangedTypes),
+                Available(500),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
 
@@ -312,14 +314,15 @@ public sealed class BrowserLibraryApiDiffOperationTests
             BrowserLibraryApiDiffResultKind.Succeeded,
             admitted.Kind);
         Assert.Equal(
-            BrowserLibraryApiDiffWireProjection.MaxChangedTypes,
+            500,
             admitted.Value!.Types.Length);
+        Assert.NotNull(admitted.Inspection);
 
         BrowserLibraryApiDiffResult rejected =
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
                 Available(
-                    BrowserLibraryApiDiffWireProjection.MaxChangedTypes + 1),
+                    BrowserLibraryApiDiffWireProjection.MaxChangedTypes),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
 
@@ -333,18 +336,17 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 rejected.Rejected);
         Assert.Equal(
             BrowserLibraryApiDiffRejectionKind
-                .ChangedTypeCountLimitExceeded,
+                .SerializedResultLimitExceeded,
             evidence.Kind);
         Assert.Equal(
-            BrowserLibraryApiDiffWireProjection.MaxChangedTypes,
+            BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerJsonCharacters,
             evidence.Bound);
-        Assert.Equal(
-            BrowserLibraryApiDiffWireProjection.MaxChangedTypes + 1,
-            evidence.Observed);
+        Assert.True(evidence.Observed > evidence.Bound);
+        Assert.Null(rejected.Inspection);
     }
 
     [Fact]
-    public void TypeTextTransportLimitRejectsTheWholeInventory()
+    public void OversizedContentTextRejectsTheWholeBaselineAndInventory()
     {
         BrowserLibraryApiDiffRequest request = Request("Transport.Package");
         BrowserLibraryApiDiffResult result =
@@ -361,14 +363,15 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffRejected evidence =
             Assert.IsType<BrowserLibraryApiDiffRejected>(result.Rejected);
         Assert.Equal(
-            BrowserLibraryApiDiffRejectionKind.TypeTextLimitExceeded,
+            BrowserLibraryApiDiffRejectionKind.SerializedResultLimitExceeded,
             evidence.Kind);
         Assert.Equal(
-            BrowserLibraryApiDiffWireProjection.MaxTypeTextCharacters,
+            BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerJsonCharacters,
             evidence.Bound);
         Assert.True(
             evidence.Observed
-                > BrowserLibraryApiDiffWireProjection.MaxTypeTextCharacters);
+                > BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerJsonCharacters);
+        Assert.Null(result.Inspection);
     }
 
     [Fact]
@@ -379,7 +382,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
                 Available(
-                    BrowserLibraryApiDiffWireProjection.MaxChangedTypes,
+                    5_000,
                     segmentCount: 2),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
@@ -472,20 +475,21 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffResult result =
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
-                new LibraryApiDiffOutcome.Unavailable(
+                Inspection(new LibraryApiDiffOutcome.Unavailable(
                     LibraryApiDiffUnavailableKind.BeforeIncomplete,
                     target,
-                    current),
+                    current)),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
 
         BrowserLibraryApiDiffRejected evidence =
             Assert.IsType<BrowserLibraryApiDiffRejected>(result.Rejected);
         Assert.Equal(
-            BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
+            BrowserLibraryApiDiffRejectionKind.SerializedResultLimitExceeded,
             evidence.Kind);
         Assert.Null(evidence.Target);
         Assert.Null(evidence.Current);
+        Assert.Null(result.Inspection);
         string json = JsonSerializer.Serialize(
             result,
             BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
@@ -495,6 +499,129 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     .OrdinaryWorkerResultTupleOverhead
                 <= BrowserLibraryApiDiffWireProjection
                     .MaxOrdinaryWorkerJsonCharacters);
+    }
+
+    [Theory]
+    [InlineData("available")]
+    [InlineData("unavailable")]
+    [InlineData("rejected")]
+    public void TransportPreservesCanonicalContentShareAndOrderedDiagnostics(
+        string outcome)
+    {
+        var available = Assert.IsType<LibraryApiDiffOutcome.Available>(
+            Available(1).Content);
+        LibraryApiDiffOutcome content = outcome switch
+        {
+            "available" => available,
+            "unavailable" => new LibraryApiDiffOutcome.Unavailable(
+                LibraryApiDiffUnavailableKind.BeforeIncomplete,
+                new LibraryApiDiffEndpointSummary(
+                    available.Document.Before.Identity,
+                    ApiSurfaceScope.Public,
+                    IsComplete: false,
+                    [new LibraryApiDiffEndpointIssue.Failed(
+                        new InertString(TextPolicy.Field, "Endpoint failed."))]),
+                available.Document.After),
+            _ => new LibraryApiDiffOutcome.Rejected(
+                LibraryApiDiffRejectionKind.LogicalLibraryMismatch,
+                available.Document.Before,
+                available.Document.After),
+        };
+        var share = new InspectionShare.NonProjectable(
+            "comparison/endpoints", "The ordered endpoints cannot be shared.");
+        InspectionDiagnostic[] diagnostics =
+        [
+            new("first", InspectionDiagnosticSeverity.Warning, "<warning>", "T:Widget"),
+            new("second", InspectionDiagnosticSeverity.Information, "detail"),
+        ];
+        var inspection = new InspectionEnvelope<LibraryApiDiffOutcome>(
+            content, share, diagnostics);
+        BrowserLibraryApiDiffResult result = BrowserLibraryApiDiffWireProjection.Project(
+            Request("Envelope.Package"), inspection,
+            EndpointContext(TargetVersion), EndpointContext(CurrentVersion));
+        Assert.NotNull(result.Inspection);
+        Assert.Same(share, result.Inspection.Share);
+        Assert.Equal(diagnostics, result.Inspection.Diagnostics);
+
+        string json = JsonSerializer.Serialize(
+            result, BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
+        BrowserLibraryApiDiffResult roundTrip = JsonSerializer.Deserialize(
+            json, BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult)!;
+        Assert.NotNull(roundTrip.Inspection);
+        JsonElement expectedContent = JsonSerializer.SerializeToElement(
+            content, LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome);
+        Assert.True(JsonElement.DeepEquals(expectedContent, roundTrip.Inspection.Content));
+        var roundTripShare = Assert.IsType<InspectionShare.NonProjectable>(
+            roundTrip.Inspection.Share);
+        Assert.Equal(share.Path, roundTripShare.Path);
+        Assert.Equal(share.Reason.ToString(), roundTripShare.Reason.ToString());
+        Assert.Equal(
+            diagnostics.Select(item => (item.Code, item.Severity,
+                item.Summary.ToString(), item.Correspondence?.ToString())),
+            roundTrip.Inspection.Diagnostics.Select(item => (item.Code, item.Severity,
+                item.Summary.ToString(), item.Correspondence?.ToString())));
+    }
+
+    [Fact]
+    public void ViewOnlyRejectionRetainsTheCompleteAvailableBaseline()
+    {
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Envelope.Package"),
+                Available(1, new string('x', 2_000_000)),
+                EndpointContext(TargetVersion), EndpointContext(CurrentVersion));
+
+        Assert.Equal(BrowserLibraryApiDiffResultKind.Rejected, result.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffRejectionKind.TypeTextLimitExceeded,
+            result.Rejected!.Kind);
+        Assert.Null(result.Value);
+        Assert.NotNull(result.Inspection);
+        Assert.Equal(
+            "available",
+            result.Inspection.Content.GetProperty("outcome").GetString());
+    }
+
+    [Fact]
+    public void DiagnosticEntriesParticipateInTheExactWorkerBoundary()
+    {
+        InspectionEnvelope<LibraryApiDiffOutcome> baseline = Available(0);
+        var diagnostic = new InspectionDiagnostic(
+            "code", InspectionDiagnosticSeverity.Warning, "summary");
+        BrowserLibraryApiDiffResult Project(int count) =>
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Envelope.Package"),
+                new InspectionEnvelope<LibraryApiDiffOutcome>(
+                    baseline.Content, baseline.Share,
+                    Enumerable.Repeat(diagnostic, count)),
+                EndpointContext(TargetVersion), EndpointContext(CurrentVersion));
+
+        const int entriesPerDiagnostic = 6;
+        int probeCount =
+            BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerCollectionEntries
+                / entriesPerDiagnostic + 1;
+        BrowserLibraryApiDiffResult probe = Project(probeCount);
+        Assert.Equal(
+            BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
+            probe.Rejected!.Kind);
+        long fixedEntries = probe.Rejected.Observed!.Value
+            - (long)probeCount * entriesPerDiagnostic;
+        int admittedCount = (int)(
+            (BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerCollectionEntries
+                - fixedEntries) / entriesPerDiagnostic);
+        BrowserLibraryApiDiffResult admitted = Project(admittedCount);
+        Assert.Equal(BrowserLibraryApiDiffResultKind.Succeeded, admitted.Kind);
+        Assert.Equal(admittedCount, admitted.Inspection!.Diagnostics.Length);
+        BrowserLibraryApiDiffResult rejected = Project(admittedCount + 1);
+        Assert.Equal(
+            BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
+            rejected.Rejected!.Kind);
+        Assert.InRange(
+            rejected.Rejected.Observed!.Value,
+            BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerCollectionEntries + 1,
+            BrowserLibraryApiDiffWireProjection.MaxOrdinaryWorkerCollectionEntries
+                + entriesPerDiagnostic);
+        Assert.Null(rejected.Inspection);
     }
 
     [Fact]
@@ -536,6 +663,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             canceled.Kind);
         Assert.Equal("superseded", canceled.Reason);
         Assert.Null(canceled.Value);
+        Assert.Null(canceled.Inspection);
 
         var secondStarted =
             new TaskCompletionSource(
@@ -600,6 +728,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(
             BrowserLibraryApiDiffResultKind.Succeeded,
             result.Kind);
+        Assert.NotNull(result.Inspection);
+        Assert.IsType<LibraryApiDiffOutcome.Available>(
+            result.Inspection.Content.Deserialize(
+                LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome));
 
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
@@ -644,7 +776,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             EndpointContext(request.TargetVersion),
             EndpointContext(request.CurrentVersion));
 
-    static LibraryApiDiffOutcome.Available Available(
+    static InspectionEnvelope<LibraryApiDiffOutcome> Available(
         int typeCount,
         string? display = null,
         int segmentCount = 1)
@@ -689,7 +821,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 LibraryApiTypeDiff>.NotApplicable(),
             subjects,
             []);
-        return new LibraryApiDiffOutcome.Available(
+        return Inspection(new LibraryApiDiffOutcome.Available(
             new LibraryApiDiffDocument(
                 endpoint,
                 endpoint,
@@ -701,8 +833,16 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     BreakingCount: 0,
                     AdditiveCount: 0,
                     PotentiallyBreakingCount: 0),
-                document));
+                document)));
     }
+
+    static InspectionEnvelope<LibraryApiDiffOutcome> Inspection(
+        LibraryApiDiffOutcome content) =>
+        new(
+            content,
+            new InspectionShare.NonProjectable(
+                "comparison/endpoints",
+                "The comparison endpoints cannot be shared."));
 
     static MetadataTypeDefinitionName TypeName(
         string segment,

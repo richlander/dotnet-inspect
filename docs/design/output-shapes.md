@@ -99,8 +99,9 @@ Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
 
 Asset-mode `depends`, other commands, Discover, Count,
 `--evidence-envelope`, optional evidence capture from
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117), and complete
-Browser baseline transport remain unadopted.
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117) remain
+unadopted. Library API Diff's complete Browser baseline transport is governed
+by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
 [#7126](https://github.com/richlander/dotnet-inspect/issues/7126) separately
 owns command cutover. These two concrete Content registrations complete the
 baseline transport rollout in #6719, not those separate adoption efforts.
