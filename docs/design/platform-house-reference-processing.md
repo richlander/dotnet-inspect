@@ -145,13 +145,30 @@ retired because successful package Platform realizations already own detached
 immutable bytes. No source client, Package Source lease, package payload, or
 store lifetime enters the Artifact, Library, or House result.
 
+Installed reference-only complete-population materialization is implemented in
+`DotnetInspector.PlatformHouse.Execution.Installed` under #7322. It consumes one
+authoritative adapter-issued installed reference population, preserves source
+order, publishes every distinct managed assembly into one finite Artifact
+generation, obtains Metadata's exact projection for each Artifact, and
+constructs one ordinary `LibraryContentOwner` per reference-only Library.
+
+The population operation accepts all content authorities atomically.
+Completion transfers the ordered owners beside resource-free Library references
+and returns the Artifact session separately. Every terminal, cancellation, or
+partial-construction path retires accepted owners and releases unaccepted
+content children before Artifact retirement. One population-wide source
+contribution appears once in the House settlement rather than once per Library.
+Implementation-only, paired-view, and package-backed population materialization
+remain later focused step-6 slices.
+
 The `Failed` House terminal arm and resource-free typed failure-stage evidence
 are implemented, including installed and package-backed Artifact publication
 and retirement stages. Internal Library operation leases, cleanup-failure
-production by non-owning operations, whole-population realization, and product
-adoption remain unverified. Further PlatformHouse adoption continues under
-issues #7177 and #6621 slice 5; the source materialization slices are tracked
-by #7269 and #7304.
+production by non-owning operations, implementation and paired population
+realization, package-backed population realization, and product adoption remain
+unverified. Further PlatformHouse adoption continues under #7177 and #6621
+slice 5; the source materialization slices are tracked by issues #7269, #7304,
+and #7322.
 
 This is one owner claim. The design specifies the House request, settlement,
 result, evidence-retention, and encapsulation contracts. It consumes the
@@ -1440,7 +1457,12 @@ implemented under #7304, materializes equivalent package-backed values while
 retaining package authority, producer, content-generation, origin, coordinate,
 and digest evidence as resource-free provenance. Both source-specific projects
 invoke one shared Artifact publication, Metadata projection, and cleanup
-kernel. Complete-population realization remains a later step-6 slice.
+kernel. Step 6c adopts complete-population realization one view and source at a
+time. Step 6c.1, implemented under #7322, materializes one authoritative
+installed reference population into an ordered all-or-nothing set of
+reference-only Library owners plus one separately returned Artifact session.
+Implementation and paired views, package-backed population materialization, and
+internal Metadata operations remain later step-6 slices.
 
 The step-6 ownership correction was designed under
 [#6984](https://github.com/richlander/dotnet-inspect/issues/6984). It adopts
@@ -1638,6 +1660,7 @@ The implementation and adoption slices own these Release gates:
 | Package Artifact materialization | Successful package-backed reference-pack and runtime-pack `System.Text.Json` snapshots publish into one bounded Artifact generation without package rediscovery or reacquisition; candidate, authority, producer, content generation, payload origin, member coordinate, digest, exact House contributions, Metadata projections, and Library roles remain correspondent. |
 | Owning realization handoff | Every completed one-Library and population realization transfers each `LibraryContentOwner` exactly once beside its matching resource-free reference; the House value, receipt, contribution, request, and cache retain no owner or Library lease. |
 | Separate installed authorities | Installed one-Library completion returns the Library owner and adjacent Artifact session separately; Artifact retirement waits while the Library retains content and completes after Library retirement. Terminal execution and cancellation return neither authority. |
+| Installed reference population ownership | One authoritative installed reference population produces one source-ordered Library owner per distinct managed identity and one population-wide selected source settlement. Completion transfers every owner beside one Artifact session; terminal, cancellation, duplicate identity, incomplete work, and partial construction transfer none and release every accepted or unaccepted content authority. |
 | Separate package authorities | Package-backed one-Library completion returns the Library owner and adjacent Artifact session separately after Package Source operations settle; Artifact retirement waits while the Library retains content and completes after Library retirement. Terminal execution and cancellation return neither authority. |
 | Resource-free House boundary | Focused contract tests over contributions, completed House values, receipts, requests, and cache entries prove that they retain no live source handle or content obligation, Artifact owner or lease, Library owner or lease, callback, opener, stream, or disposal delegate. |
 | Internal Library access | PlatformHouse Metadata work reads exact content only through a fresh internal `LibraryOperationLease`; every borrow ends before `await`, and the lease settles before completion. |
@@ -1715,6 +1738,30 @@ Artifact authority retirement:
 - `PackageArtifactProvenance_IsResourceFree` and
   `SuccessfulSourcePairing_IsAdapterIssued` cover the resource-free boundary
   and adapter-issued live-value/contribution association.
+
+The implemented step-6c.1 gates add installed reference-only complete
+population ownership:
+
+- `InstalledReferencePopulation_TransfersOrderedLibraryAuthorities` covers the
+  real installed .NET 11 `System.Runtime` and `System.Text.Json` reference
+  images, source order, exact source-to-Artifact-to-Metadata correspondence, one
+  selected population contribution, borrowing, all-owner transfer, and Artifact
+  retirement after the last Library retires;
+- `ReferencePopulationRealizer_TransfersOrderedOwnersAtomically` covers the
+  source-neutral two-Library handoff and exact owner/value/receipt index
+  correspondence;
+- `ReferencePopulationRealizer_RejectsDuplicateIdentityAndCleansLeases` and
+  `ReferencePopulationRealizer_IncompleteWorkCleansTransferredLease` cover
+  distinct population membership and finite-work terminal cleanup;
+- `PopulationArtifactMaterializer_RejectsDuplicateIdentityBeforePublication`
+  proves invalid duplicate membership cannot open or publish population
+  content;
+- `ReferencePopulationRealizer_RetiresPartialOwnerOnInvalidAuthority` covers
+  the partial-construction boundary where an earlier accepted owner must retire
+  before the Artifact generation can retire; and
+- `ReferencePopulationRealizer_CancellationCleansTransferredLease` covers
+  cancellation only after the population operation releases transferred
+  content authority.
 
 Each later implementation slice adds the smallest gate covering its adopted
 property.
