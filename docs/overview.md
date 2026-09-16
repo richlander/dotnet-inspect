@@ -390,8 +390,9 @@ substrates, and inspection producers that will extend that space.
   Ecosystem loader binding. It preserves exact Workspace, registration,
   capability, source-result, and admission correspondence while keeping loader
   execution out of catalog discovery, registration, construction, and
-  restoration. The `.NET` Ecosystem is the first consumer and composes
-  PlatformHouse without exposing a user-facing Platform component.
+  restoration. The `.NET` and `ASP.NET Core` Ecosystems are the first
+  consumers; each composes its exact PlatformHouse family without exposing a
+  user-facing Platform component or merging focus and binding-support roles.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
