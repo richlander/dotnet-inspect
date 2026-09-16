@@ -346,6 +346,59 @@ public sealed class CompleteRestorationPreparationTests
                 new TestIntentAuthority()));
     }
 
+    [Theory]
+    [InlineData(
+        InspectionDefinitionSchema.Version1,
+        "net8.0-windows10.0.19041.0",
+        "net8.0-windows10.0.19041")]
+    [InlineData(
+        InspectionDefinitionSchema.Version1,
+        "net8.0-windows10.0.19041",
+        "net8.0-windows10.0.19041.0")]
+    [InlineData(
+        InspectionDefinitionSchema.Version2,
+        "net8.0-windows10.0.19041.0",
+        "net8.0-windows10.0.19041")]
+    [InlineData(
+        InspectionDefinitionSchema.Version2,
+        "net8.0-windows10.0.19041",
+        "net8.0-windows10.0.19041.0")]
+    public void EquivalentPlatformTargetSpellings_PrepareAndRetainWorkspaceTarget(
+        int schemaVersion,
+        string workspaceFramework,
+        string navigationFramework)
+    {
+        InspectionDefinitionRegistry registry =
+            RegistryWithFrameworkSpellings(
+                schemaVersion,
+                workspaceFramework,
+                navigationFramework);
+
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        var package = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
+            Assert.Single(
+                Assert.Single(ready.Plan.WorkspacePlan.Contexts).Members));
+        Assert.Equal(workspaceFramework, package.Framework);
+    }
+
+    [Fact]
+    public void PacketV1_EquivalentPlatformTargetSpellingsRemainDistinct()
+    {
+        InspectionDefinitionRegistry registry =
+            RegistryWithFrameworkSpellings(
+                InspectionDefinitionSchema.Version1,
+                "net8.0-windows10.0.19041.0",
+                "net8.0-windows10.0.19041");
+
+        Assert.Throws<InspectionDefinitionException>(
+            () => registry.PreparePacketScenario("scenario"));
+    }
+
     [Fact]
     public void DormantVersion2NavigationOutsideWorkspace_FailsComposition()
     {
@@ -424,6 +477,75 @@ public sealed class CompleteRestorationPreparationTests
 
         Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(
             failed.Failure);
+    }
+
+    private static InspectionDefinitionRegistry RegistryWithFrameworkSpellings(
+        int schemaVersion,
+        string workspaceFramework,
+        string navigationFramework)
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            schemaVersion,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "System.Text.Json",
+                            "9.0.4",
+                            workspaceFramework),
+                    ]),
+            ]));
+        NavigationTabDefinition[] tabs =
+        [
+            new NavigationTabDefinition(
+                "package",
+                coordinate:
+                    new DefinitionMemberCoordinate.PackageCoordinate(
+                        "System.Text.Json",
+                        "9.0.4",
+                        navigationFramework)),
+        ];
+        registry.Add(schemaVersion == InspectionDefinitionSchema.Version1
+            ? new NavigationDefinition(
+                schemaVersion,
+                "navigation",
+                tabs,
+                "package")
+            : new CommittedNavigationDefinition(
+                schemaVersion,
+                "navigation",
+                tabs,
+                "package"));
+        registry.Add(schemaVersion == InspectionDefinitionSchema.Version1
+            ? new ViewDefinition(
+                schemaVersion,
+                "view",
+                lens: "overview")
+            : new CommittedViewDefinition(
+                schemaVersion,
+                "view",
+                [
+                    new CommittedViewStateDefinition(
+                        null,
+                        new PortableSubjectRequest.Workspace()),
+                    new CommittedViewStateDefinition(
+                        "package",
+                        new PortableSubjectRequest.Package(),
+                        new PortableRetainedSubjectContext.Package(),
+                        facet: "package.overview"),
+                ]));
+        registry.Add(new ScenarioDefinition(
+            schemaVersion,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            view: "view",
+            navigation: "navigation"));
+        return registry;
     }
 
     [Fact]

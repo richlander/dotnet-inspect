@@ -433,7 +433,12 @@ public sealed class InspectionDefinitionRegistry
         NavigationSourceCandidate[] workspaceSources =
         [
             .. workspace.Contexts
-                .SelectMany(ContextSources)
+                .SelectMany((context, index) =>
+                    ContextSources(
+                        context,
+                        index,
+                        targetMatchMode
+                            is NavigationTargetMatchMode.InheritOmitted))
                 .GroupBy(static source => source.Identity)
                 .Select(static group => group.First()),
         ];
@@ -444,7 +449,10 @@ public sealed class InspectionDefinitionRegistry
         var matchedSources = new HashSet<NavigationSourceIdentity>();
         foreach (NavigationTabDefinition tab in tabs)
         {
-            NavigationSourceSelector selector = NavigationSelector(tab);
+            NavigationSourceSelector selector = NavigationSelector(
+                tab,
+                targetMatchMode
+                    is NavigationTargetMatchMode.InheritOmitted);
             NavigationSourceCandidate[] matches =
             [
                 .. workspaceSources.Where(source =>
@@ -488,9 +496,14 @@ public sealed class InspectionDefinitionRegistry
 
     private static IEnumerable<NavigationSourceCandidate> ContextSources(
         WorkspaceContextDefinition context,
-        int contextIndex)
+        int contextIndex,
+        bool normalizeEquivalentFrameworks)
     {
-        NavigationTarget target = EffectiveContextTarget(context);
+        NavigationTarget target = EffectiveContextTarget(
+            context,
+            normalizeEquivalentFrameworks);
+        NavigationTarget effectiveTarget =
+            EffectiveContextCoordinateTarget(context);
         if (context.Subscribe is not null)
         {
             yield return new NavigationSourceCandidate(
@@ -517,17 +530,20 @@ public sealed class InspectionDefinitionRegistry
                 new NavigationSourceIdentity(
                     SourceCore(member),
                     target),
-                ApplyEffectiveTarget(member, target),
+                ApplyEffectiveTarget(member, effectiveTarget),
                 contextIndex,
                 memberIndex);
         }
     }
 
     private static NavigationSourceSelector NavigationSelector(
-        NavigationTabDefinition tab)
+        NavigationTabDefinition tab,
+        bool normalizeEquivalentFrameworks)
     {
         NavigationTarget tabTarget = new(
-            NormalizeFramework(tab.Framework),
+            NormalizeFramework(
+                tab.Framework,
+                normalizeEquivalentFrameworks),
             NormalizeRuntimeIdentifier(tab.RuntimeIdentifier));
         if (tab.Subscribe is not null)
         {
@@ -545,7 +561,9 @@ public sealed class InspectionDefinitionRegistry
             tab.Coordinate
             ?? throw new InspectionDefinitionException(
                 $"Navigation tab '{tab.Id}' has no source.");
-        NavigationTarget coordinateTarget = CoordinateTarget(coordinate);
+        NavigationTarget coordinateTarget = CoordinateTarget(
+            coordinate,
+            normalizeEquivalentFrameworks);
         return new NavigationSourceSelector(
             SourceCore(coordinate),
             MergeTargets(
@@ -555,43 +573,82 @@ public sealed class InspectionDefinitionRegistry
     }
 
     private static NavigationTarget EffectiveContextTarget(
-        WorkspaceContextDefinition context)
+        WorkspaceContextDefinition context,
+        bool normalizeEquivalentFrameworks)
     {
         var target = new NavigationTarget(
-            NormalizeFramework(context.Framework),
+            NormalizeFramework(
+                context.Framework,
+                normalizeEquivalentFrameworks),
             NormalizeRuntimeIdentifier(context.RuntimeIdentifier));
         foreach (DefinitionMemberCoordinate member in context.Members)
         {
             target = MergeTargets(
                 target,
-                CoordinateTarget(member),
+                CoordinateTarget(
+                    member,
+                    normalizeEquivalentFrameworks),
                 $"Workspace context '{context.Name}'");
         }
 
         return target;
     }
 
+    private static NavigationTarget EffectiveContextCoordinateTarget(
+        WorkspaceContextDefinition context)
+    {
+        string? framework =
+            NormalizeFrameworkSpelling(context.Framework);
+        string? runtimeIdentifier =
+            NormalizeRuntimeIdentifier(context.RuntimeIdentifier);
+        foreach (DefinitionMemberCoordinate member in context.Members)
+        {
+            framework ??=
+                NormalizeFrameworkSpelling(CoordinateFramework(member));
+            runtimeIdentifier ??=
+                NormalizeRuntimeIdentifier(
+                    CoordinateRuntimeIdentifier(member));
+        }
+
+        return new(framework, runtimeIdentifier);
+    }
+
     private static NavigationTarget CoordinateTarget(
+        DefinitionMemberCoordinate coordinate,
+        bool normalizeEquivalentFrameworks) =>
+        new(
+            NormalizeFramework(
+                CoordinateFramework(coordinate),
+                normalizeEquivalentFrameworks),
+            NormalizeRuntimeIdentifier(
+                CoordinateRuntimeIdentifier(coordinate)));
+
+    private static string? CoordinateFramework(
         DefinitionMemberCoordinate coordinate) =>
         coordinate switch
         {
             DefinitionMemberCoordinate.PackageCoordinate package =>
-                new(
-                    NormalizeFramework(package.Framework),
-                    NormalizeRuntimeIdentifier(package.RuntimeIdentifier)),
+                package.Framework,
             DefinitionMemberCoordinate.PlatformCoordinate platform =>
-                new(
-                    NormalizeFramework(platform.Framework),
-                    null),
+                platform.Framework,
             DefinitionMemberCoordinate.ProjectCoordinate project =>
-                new(
-                    NormalizeFramework(project.Framework),
-                    NormalizeRuntimeIdentifier(project.RuntimeIdentifier)),
+                project.Framework,
             DefinitionMemberCoordinate.DirectoryCoordinate directory =>
-                new(
-                    NormalizeFramework(directory.Framework),
-                    NormalizeRuntimeIdentifier(directory.RuntimeIdentifier)),
-            _ => default,
+                directory.Framework,
+            _ => null,
+        };
+
+    private static string? CoordinateRuntimeIdentifier(
+        DefinitionMemberCoordinate coordinate) =>
+        coordinate switch
+        {
+            DefinitionMemberCoordinate.PackageCoordinate package =>
+                package.RuntimeIdentifier,
+            DefinitionMemberCoordinate.ProjectCoordinate project =>
+                project.RuntimeIdentifier,
+            DefinitionMemberCoordinate.DirectoryCoordinate directory =>
+                directory.RuntimeIdentifier,
+            _ => null,
         };
 
     private static NavigationSourceCore SourceCore(
@@ -740,7 +797,18 @@ public sealed class InspectionDefinitionRegistry
         return version.ToNormalizedString().ToLowerInvariant();
     }
 
-    private static string? NormalizeFramework(string? value)
+    private static string? NormalizeFramework(
+        string? value,
+        bool normalizeEquivalentFrameworks)
+    {
+        string? spelling = NormalizeFrameworkSpelling(value);
+        if (spelling is null || !normalizeEquivalentFrameworks)
+            return spelling;
+
+        return PackageArtifactRootRequest.NormalizeFramework(spelling);
+    }
+
+    private static string? NormalizeFrameworkSpelling(string? value)
     {
         if (value is null)
             return null;

@@ -417,6 +417,57 @@ public sealed class CommittedScenarioSelectorResolverTests
             CommittedSelectorResolutionFailureKind.WorkspaceMismatch);
     }
 
+    [Fact]
+    public async Task
+        Resolve_EquivalentPlatformTargetSpellingMatchesRealizedPackage()
+    {
+        const string realizedFramework =
+            "net8.0-windows10.0.19041.0";
+        const string requestedFramework =
+            "net8.0-windows10.0.19041";
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding binding =
+            NavigationSnapshotTestData.Binding(
+                "Package.A",
+                framework: realizedFramework);
+        WorkspaceScopeSnapshot scope =
+            await NavigationSnapshotTestData.ReplaceAsync(
+                workspace,
+                binding);
+        NavigationPackageEvaluation package = Evaluation(
+            scope,
+            binding,
+            NavigationSnapshotTestData.Surface("Navigation.Library"));
+        CommittedScenarioDefinitionSet definitions = Definitions(
+            focus: "package",
+            tabs:
+            [
+                new NavigationTabDefinition(
+                    "package",
+                    new DefinitionMemberCoordinate.PackageCoordinate(
+                        "Package.A",
+                        "1.0.0",
+                        requestedFramework)),
+            ],
+            states:
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition(
+                    "package",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package()),
+            ]);
+
+        Assert.IsType<CommittedScenarioSelectorResolutionResult.Resolved>(
+            CommittedScenarioSelectorResolver.Resolve(
+                definitions,
+                workspace.Identity,
+                scope,
+                [new("package", package)]));
+    }
+
     [Theory]
     [InlineData("missing-library", CommittedSelectorResolutionFailureKind.LibraryMissing)]
     [InlineData("ambiguous-library", CommittedSelectorResolutionFailureKind.LibraryAmbiguous)]

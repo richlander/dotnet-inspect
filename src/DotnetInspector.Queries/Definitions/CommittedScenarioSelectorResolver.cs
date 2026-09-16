@@ -741,13 +741,22 @@ public static class CommittedScenarioSelectorResolver
         {
             return false;
         }
-        return MatchesOptional(
+        return MatchesOptionalFramework(
                 requested.Framework,
                 realized.Framework)
             && MatchesOptional(
                 requested.RuntimeIdentifier,
                 realized.RuntimeIdentifier);
     }
+
+    private static bool MatchesOptionalFramework(
+        string? requested,
+        string? actual) =>
+        requested is null
+        || string.Equals(
+            PackageArtifactRootRequest.NormalizeFramework(requested),
+            PackageArtifactRootRequest.NormalizeFramework(actual),
+            StringComparison.Ordinal);
 
     private static bool MatchesOptional(
         string? requested,
