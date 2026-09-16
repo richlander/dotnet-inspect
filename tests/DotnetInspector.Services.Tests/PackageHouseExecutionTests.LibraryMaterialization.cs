@@ -3,7 +3,6 @@ using System.IO.Compression;
 using System.Reflection;
 using DotnetInspector.Libraries;
 using DotnetInspector.Packages;
-using DotnetInspector.Packages.Execution;
 using DotnetInspector.SourceSelection;
 using Inspector.Resources;
 using NuGetFetch;

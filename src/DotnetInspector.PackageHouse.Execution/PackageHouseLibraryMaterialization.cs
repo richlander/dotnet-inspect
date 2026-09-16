@@ -4,7 +4,7 @@ using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
 using Inspector.Resources;
 
-namespace DotnetInspector.Packages.Execution;
+namespace DotnetInspector.Packages;
 
 public sealed record PackageHouseLibraryMaterializationLimits
 {

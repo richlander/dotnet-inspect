@@ -5,7 +5,7 @@ using ILInspector.Metadata;
 using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
 
-namespace DotnetInspector.Packages.Execution;
+namespace DotnetInspector.Packages;
 
 public static class PackageHouseLibraryMaterializer
 {
