@@ -247,10 +247,14 @@ public abstract class ResourceEffectInterfaceApplication
         internal Applied(
             DirectCallDefinitionResolution.Resolved? interfaceCall,
             DirectCallDefinitionResolution.Resolved implementationCall,
+            DirectCallDefinitionResolution.Resolved occurrenceBindingCall,
             ResourceEffectInterfaceApplicationEvidence evidence)
             : base(interfaceCall, implementationCall) =>
-            Evidence = evidence;
+            (OccurrenceBindingCall, Evidence) =
+                (occurrenceBindingCall, evidence);
 
+        internal DirectCallDefinitionResolution.Resolved
+            OccurrenceBindingCall { get; }
         public ResourceEffectInterfaceApplicationEvidence Evidence { get; }
     }
 
@@ -852,6 +856,11 @@ internal sealed partial class ResourceEffectInterfaceApplicationPlan
         new ResourceEffectInterfaceApplication.Applied(
             interfaceCall,
             implementationCall,
+            CreateOccurrenceBindingCall(
+                context,
+                interfaceCall,
+                implementationCall,
+                concreteType),
             new ResourceEffectInterfaceApplicationEvidence(
                 interfaceCall.Definition,
                 implementationCall.Definition,
@@ -867,6 +876,61 @@ internal sealed partial class ResourceEffectInterfaceApplicationPlan
                 method,
                 new ResourceEffectClosedInterfaceSlot(
                     context.Catalog, context.Generation, closedSlot, slot)));
+
+    static DirectCallDefinitionResolution.Resolved
+        CreateOccurrenceBindingCall(
+            TypeResolutionContext context,
+            DirectCallDefinitionResolution.Resolved interfaceCall,
+            DirectCallDefinitionResolution.Resolved implementationCall,
+            PendingConcreteType concreteType)
+    {
+        MemberRef open = implementationCall.Definition.Member;
+        MemberRef original = implementationCall.Call.Callee;
+        ImmutableArray<TypeRef> typeArguments =
+            original.DeclaringType.Kind == TypeRefKind.GenericInstance
+                ? original.DeclaringType.TypeArguments
+                : [];
+        ImmutableArray<TypeRef> methodArguments =
+            original.TypeArguments;
+        MemberRef normalized = original with
+        {
+            ParameterTypes =
+            [
+                .. open.OpenSignatureParameters.Select(parameter =>
+                    parameter.Instantiate(
+                        typeArguments,
+                        methodArguments)),
+            ],
+            ReturnType = open.OpenSignatureReturn.Instantiate(
+                typeArguments,
+                methodArguments),
+        };
+        var origins = new Dictionary<TypeRef, ResolvedAssemblyReference>(
+            concreteType.Origins,
+            ReferenceEqualityComparer.Instance);
+        foreach (TypeRef argument in methodArguments)
+        {
+            AddOrigins(
+                argument,
+                implementationCall.Participant.Assembly,
+                origins);
+        }
+        DirectCallTypeResolutionSnapshot resolutions =
+            DirectCallDefinitionResolver.CreateTypeResolutionSnapshot(
+                context,
+                implementationCall.Definition.AssemblyReference,
+                normalized,
+                origins)
+            .With(interfaceCall.TypeResolutions);
+        return new DirectCallDefinitionResolution.Resolved(
+            implementationCall.Catalog,
+            implementationCall.Generation,
+            implementationCall.Participant,
+            implementationCall.Call with { Callee = normalized },
+            implementationCall.Definition,
+            implementationCall.GenericScopes,
+            resolutions);
+    }
 
     static ResourceEffectInterfaceApplication Failure(
         DirectCallDefinitionResolution.Resolved? interfaceCall,

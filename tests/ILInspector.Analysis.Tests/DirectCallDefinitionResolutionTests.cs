@@ -2310,7 +2310,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
         bool addSwappedGenericDecoy = false,
         bool malformedInterfaceImpl = false,
         bool malformedMethodImpl = false,
-        bool invalidOnlyInterfaceImpl = false)
+        bool invalidOnlyInterfaceImpl = false,
+        bool wrappedTypeParameter = false)
     {
         const string AssemblyName = "InterfaceDirectCalls";
         addPublicDecoy |= addSwappedGenericDecoy;
@@ -2353,6 +2354,18 @@ public sealed partial class DirectCallDefinitionResolutionTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle wrapper = default;
+        if (wrappedTypeParameter)
+        {
+            wrapper = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Box`1"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            genericParameters.Add((wrapper, "T"));
+        }
         TypeDefinitionHandle contract =
             metadata.AddTypeDefinition(
                 TypeAttributes.Public
@@ -2497,21 +2510,24 @@ public sealed partial class DirectCallDefinitionResolutionTests
         implementationIl.WriteByte((byte)ILOpCode.Ret);
         int implementationBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(implementationIl));
+        byte[] interfaceTypeParameter = wrappedTypeParameter
+            ? GenericInstanceSignature(wrapper, [0x13, 0x00])
+            : [0x13, 0x00];
         byte[] interfaceMethodSignature = methodGeneric
             ? genericInterface
-                ? [0x30, 0x01, 0x02, 0x01, 0x13, 0x00, 0x1E, 0x00]
+                ? [0x30, 0x01, 0x02, 0x01, .. interfaceTypeParameter, 0x1E, 0x00]
                 : [0x30, 0x01, 0x01, 0x01, 0x1E, 0x00]
             : genericInterface
-                ? [0x20, 0x01, 0x01, 0x13, 0x00]
+                ? [0x20, 0x01, 0x01, .. interfaceTypeParameter]
                 : [0x20, 0x00, 0x01];
         byte[] implementationMethodSignature = methodGeneric
             ? genericImplementation
-                ? [0x30, 0x01, 0x02, 0x01, 0x13, 0x00, 0x1E, 0x00]
+                ? [0x30, 0x01, 0x02, 0x01, .. interfaceTypeParameter, 0x1E, 0x00]
                 : fixedGenericInterface
                     ? [0x30, 0x01, 0x02, 0x01, 0x08, 0x1E, 0x00]
                     : [0x30, 0x01, 0x01, 0x01, 0x1E, 0x00]
             : genericImplementation
-                ? [0x20, 0x01, 0x01, 0x13, 0x00]
+                ? [0x20, 0x01, 0x01, .. interfaceTypeParameter]
                 : fixedGenericInterface
                     ? [0x20, 0x01, 0x01, 0x08]
                     : [0x20, 0x00, 0x01];

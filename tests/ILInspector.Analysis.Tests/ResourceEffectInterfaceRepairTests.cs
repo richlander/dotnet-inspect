@@ -87,6 +87,61 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void NestedCallerGenericLocationRetainsDefinitionProjection()
+    {
+        SyntheticParticipant participant = CreateInterfaceParticipant(
+            generic: true,
+            includeInterfaceCall: false,
+            methodGeneric: true,
+            callerGenericTypeArgument: true,
+            wrappedTypeParameter: true);
+        ResourceEffectAdmission admission = InterfaceIndependentAdmission(
+            participant,
+            "example.nested-caller-generic-location",
+            wrapTypeParameter: true);
+
+        var complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    participant.Policy,
+                    admission,
+                    [participant.Participant],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        ResolvedResourceEffect effect =
+            Assert.Single(complete.Snapshot.Effects);
+        ResolvedResourceEffectGenericBinding typeBinding =
+            Assert.Single(
+                effect.GenericBindings,
+                binding =>
+                    binding.Variable.Kind
+                        == ResourceEffectGenericVariableKind.Type);
+        Assert.Collection(
+            effect.Binding.Locations,
+            location =>
+            {
+                Assert.Equal(
+                    TypeRefKind.GenericInstance,
+                    location.Type.Type.Kind);
+                Assert.Equal("Box`1", location.Type.Element!.Type.Name);
+                Assert.NotNull(location.Type.Element.Definition);
+                Assert.Equal(
+                    participant.Participant.Assembly.Identity,
+                    location.Type.Element.DefiningAssembly);
+                ResolvedResourceEffectType argument =
+                    Assert.Single(location.Type.Arguments);
+                Assert.Equal(
+                    TypeRefKind.MethodGenericParameter,
+                    argument.Type.Kind);
+                Assert.Equal(
+                    typeBinding.Value.GenericScope,
+                    argument.GenericScope);
+            },
+            location => Assert.Equal("String", location.Type.Type.Name));
+    }
+
+    [Fact]
     public void OneImplementationRetainsBothClosedInterfaceSlotProofs()
     {
         SyntheticParticipant participant =
@@ -183,6 +238,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                                     .ClosedInterfaceType
                                     .TypeArguments).Name)
                         .DirectCall,
+                    implementation.DirectCall,
                     implementation.DirectCall,
                     evidence)),
         ];
@@ -417,7 +473,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
     static ResourceEffectAdmission InterfaceIndependentAdmission(
         SyntheticParticipant participant,
         string modelId,
-        string interfaceName = "IContract")
+        string interfaceName = "IContract",
+        bool wrapTypeParameter = false)
     {
         AssemblyReferenceIdentity assembly =
             participant.Participant.Assembly.Identity;
@@ -425,6 +482,18 @@ public sealed partial class DirectCallDefinitionResolutionTests
             new(ResourceEffectGenericVariableKind.Type, 0));
         var methodVariable = new ResourceTypeExpression.Variable(
             new(ResourceEffectGenericVariableKind.Method, 0));
+        ResourceTypeExpression firstParameter =
+            wrapTypeParameter
+                ? new ResourceTypeExpression.Named(
+                    new ResourceAssemblySelector(
+                        assembly.Name,
+                        assembly.PublicKeyToken,
+                        ResourceAssemblyVersionPolicy.Exact(
+                            assembly.Version!)),
+                    "N",
+                    [new ResourceTypeNameSegment("Box", 1)],
+                    [typeVariable])
+                : typeVariable;
         var target = new ResourceEffectTargetSelector.Member(
             new ResourceEffectMemberSelector(
                 new ResourceTypeExpression.Named(
@@ -444,7 +513,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 hasThis: true,
                 explicitThis: false,
                 [
-                    new(typeVariable, ResourceEffectRefKind.Value),
+                    new(firstParameter, ResourceEffectRefKind.Value),
                     new(methodVariable, ResourceEffectRefKind.Value),
                 ],
                 CoreType("Void")));
