@@ -220,7 +220,6 @@ The available `WorkspaceTopLevelInventoryDocument` contains:
 Every entry carries:
 
 - a `WorkspaceTopLevelInventoryEntryKey`;
-- its one-based document order in the complete unfiltered inventory; and
 - its one-based source order in Package Scope or the registration revision.
 
 `WorkspaceTopLevelInventoryEntry` is a closed typed family:
@@ -250,19 +249,16 @@ Each registration arm is a closed serialization-ready projection:
 ```text
 WorkspaceTopLevelExactLibraryEntry
   Key
-  DocumentOrder
   SourceOrder
   Coordinate
 
 WorkspaceTopLevelPackagePrefixEntry
   Key
-  DocumentOrder
   SourceOrder
   Prefix
 
 WorkspaceTopLevelEcosystemEntry
   Key
-  DocumentOrder
   SourceOrder
   Id
   NamespaceRoots
@@ -285,7 +281,6 @@ that contribution; the inventory never retains, serializes, or invokes
 ```text
 WorkspaceTopLevelPackageEntry
   Key
-  DocumentOrder
   SourceOrder
   PackageId
   PackageVersion
@@ -368,8 +363,9 @@ without claiming such authorship:
 1. Package entries in `WorkspaceScopeRevision` occurrence order.
 2. Registration entries in `WorkspaceRegistrationRevision` order.
 
-Filtering preserves entry keys, document order, and source order; it does not
-renumber entries into a new semantic identity.
+Filtering preserves entry keys, source order, and the selected entries'
+relative canonical vector order; it does not renumber entries into a new
+semantic identity.
 
 Existing duplicate rules remain authoritative:
 
@@ -448,8 +444,15 @@ CLI and Inspect Web consume the same
 registration collections separately to reconstruct the inventory.
 
 The CLI lowers the typed document through Markout. Its default inventory table
-uses a compact common row shape such as `Order`, `Kind`, `Location`, and
-`State`; kind-specific detail remains available at higher verbosity. The exact
+uses a compact common row shape such as `Kind`, `Location`, and `State`;
+kind-specific detail remains available at higher verbosity. Vector position
+already communicates presentation order, so the default table does not spend a
+column on a universal index.
+
+The existing one-based `--active-package` selector resolves Package source
+order through the receipt. A selection-oriented CLI view may expose that
+Package ordinal compactly when needed, but registrations do not acquire a
+shared numeric selector and Inspect Web does not show an index column. The exact
 command-line spelling for registration inputs and kind filtering remains owned
 by the CLI adoption.
 
@@ -480,12 +483,12 @@ spelling belongs to the CLI adoption:
 ```text
 Workspace
 
-Order  Kind            Location                                      State
-1      Package         System.Text.Json@10.0.0                       Ready
-2      Package         Markout@0.35.2                                Ready
-3      Exact Library   System.Text.Json@10.0.0/System.Text.Json.dll  Registered
-4      Package Prefix  Microsoft.Extensions.                         Registered
-5      Ecosystem       dotnet                                        Registered
+Kind            Location                                      State
+Package         System.Text.Json@10.0.0                       Ready
+Package         Markout@0.35.2                                Ready
+Exact Library   System.Text.Json@10.0.0/System.Text.Json.dll  Registered
+Package Prefix  Microsoft.Extensions.                         Registered
+Ecosystem       dotnet                                        Registered
 ```
 
 A kind-filtered view retains entry keys and order while explaining the
@@ -496,9 +499,9 @@ Workspace
 Filter: Exact Library, Package Prefix
 Selected: 2 of 5
 
-Order  Kind            Location
-3      Exact Library   System.Text.Json@10.0.0/System.Text.Json.dll
-4      Package Prefix  Microsoft.Extensions.
+Kind            Location
+Exact Library   System.Text.Json@10.0.0/System.Text.Json.dll
+Package Prefix  Microsoft.Extensions.
 ```
 
 The Exact Library entry remains present even though its Package is also
