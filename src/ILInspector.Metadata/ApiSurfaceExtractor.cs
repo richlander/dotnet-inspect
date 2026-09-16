@@ -160,6 +160,12 @@ public static class ApiSurfaceExtractor
     private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
     private const byte ReservedSignatureFlag = 0x80;
+    private const MethodAttributes PropertyAccessorDeclarationModifierMask =
+        MethodAttributes.Static
+        | MethodAttributes.Virtual
+        | MethodAttributes.Abstract
+        | MethodAttributes.NewSlot
+        | MethodAttributes.Final;
     private static readonly ConditionalWeakTable<
         MetadataReader,
         PrimitiveDefinitionClassification>
@@ -5286,6 +5292,11 @@ public static class ApiSurfaceExtractor
         Action<int>? beforeDecodeWork,
         MethodSignature<TypeNode>? propertySignature = null)
     {
+        bool declarationModifiersMatch =
+            AccessorDeclarationModifiersMatchProperty(
+                accessors,
+                reader,
+                handleForKind);
         foreach (ApiAccessor accessor in accessors)
         {
             MethodDefinitionHandle handle = handleForKind(accessor.Kind);
@@ -5298,6 +5309,8 @@ public static class ApiSurfaceExtractor
                 accessor.AccessibilityIsRepresentable =
                     IsRepresentableMethodAccessibility(
                         method.Attributes & MethodAttributes.MemberAccessMask);
+                accessor.DeclarationModifiersMatchProperty =
+                    declarationModifiersMatch;
                 MethodSignature<TypeNode> signature = GuardedProviderDecode.Method(
                     reader,
                     method,
@@ -5327,6 +5340,28 @@ public static class ApiSurfaceExtractor
                     beforeDecodeWork);
             }
         }
+    }
+
+    static bool AccessorDeclarationModifiersMatchProperty(
+        IReadOnlyList<ApiAccessor> accessors,
+        MetadataReader reader,
+        Func<string, MethodDefinitionHandle> handleForKind)
+    {
+        MethodAttributes? common = null;
+        foreach (ApiAccessor accessor in accessors)
+        {
+            MethodDefinitionHandle handle = handleForKind(accessor.Kind);
+            if (handle.IsNil)
+                return false;
+            MethodAttributes modifiers =
+                reader.GetMethodDefinition(handle).Attributes
+                & PropertyAccessorDeclarationModifierMask;
+            if (common is not null && common != modifiers)
+                return false;
+            common = modifiers;
+        }
+
+        return common is not null;
     }
 
     static string? MethodDefinitionName(

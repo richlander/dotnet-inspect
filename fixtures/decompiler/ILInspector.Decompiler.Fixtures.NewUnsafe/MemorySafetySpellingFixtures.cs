@@ -29,6 +29,8 @@ public sealed class MemorySafetySpellingFixture
 
     public string Type { get; set; } = "";
 
+    public required string RequiredValue { get; set; }
+
     public nint NativeInt { get; set; }
 
     public int InternalSet { get; internal set; }

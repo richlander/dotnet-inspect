@@ -699,6 +699,14 @@ public class ApiAccessor
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? AccessibilityIsRepresentable { get; set; }
 
+    /// <summary>
+    /// Whether every represented accessor has the same property-level
+    /// declaration modifiers as this accessor. Null on older serialized
+    /// surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? DeclarationModifiersMatchProperty { get; set; }
+
     public List<string> ReturnAttributes { get; set; } = [];
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsReadOnly { get; set; }

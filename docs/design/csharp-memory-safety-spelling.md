@@ -213,17 +213,22 @@ narrower:
   Property and accessor signatures must use ordinary non-generic headers.
   Native signed and unsigned integer primitive codes are retained as `nint`
   and `nuint`. Metadata retains correspondence as an explicit accessor fact;
-  absent or negative evidence is not renderable. The structured accessor list preserves each accessor's exact
-  relative accessibility and whether its MethodDef access mask has an exact C#
-  representation. The C# boundary requires affirmative representability,
-  accepts only a property/accessor accessibility combination supported by the
-  C# accessibility lattice, and requires every represented accessor to be
-  affirmatively non-explicit. Reserved signature-header flags, explicit- and
-  extended-layout owners, body-owned unsafe contexts, readonly accessors,
-  init-only or otherwise structurally modified accessor returns, unsupported
-  or ambiguous accessor shapes, accessor contracts, and unavailable evidence
-  remain unavailable. This selected declaration does not enable direct
-  accessor or whole-type property spelling.
+  absent or negative evidence is not renderable. The structured accessor list
+  preserves each accessor's exact relative accessibility, whether its MethodDef
+  access mask has an exact C# representation, and whether all represented
+  accessors share one property-level static, virtual, abstract, override, and
+  sealed modifier shape. The C# boundary requires affirmative
+  representability, accepts only property/accessor accessibility and declaration
+  modifier combinations supported by C#, and requires every represented
+  accessor to be affirmatively non-explicit. A `required` property must be an
+  instance member of a class or struct, must have a setter, and both the
+  property and setter must be at least as accessible as the containing type.
+  Reserved signature-header flags, explicit- and extended-layout owners,
+  body-owned unsafe contexts, readonly accessors, init-only or otherwise
+  structurally modified accessor returns, unsupported or ambiguous accessor
+  shapes, accessor contracts, and unavailable evidence remain unavailable.
+  This selected declaration does not enable direct accessor or whole-type
+  property spelling.
 
 A caller can select the supported members or supply the product-selected
 explicit-field and ordinary-constructor shape. The printer does not silently

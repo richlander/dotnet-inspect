@@ -52,6 +52,7 @@ public sealed class BrowserMemberDeclarationTests
                 new[]
                 {
                     "Type",
+                    "RequiredValue",
                     "NativeInt",
                     "InternalSet",
                     "PrivateGet",
@@ -66,6 +67,8 @@ public sealed class BrowserMemberDeclarationTests
                     accessor =>
                     {
                         Assert.True(accessor.AccessibilityIsRepresentable);
+                        Assert.True(
+                            accessor.DeclarationModifiersMatchProperty);
                         Assert.False(
                             accessor.IsExplicitInterfaceImplementation);
                         Assert.True(accessor.SignatureMatchesProperty);
@@ -153,6 +156,18 @@ public sealed class BrowserMemberDeclarationTests
             Assert.IsType<string>(propertyDeclaration.Text));
         Assert.Null(propertyDeclaration.Unavailable);
         Assert.False(propertyDeclaration.Compatibility);
+
+        BrowserMemberDeclaration requiredDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "RequiredValue"));
+        Assert.True(
+            requiredDeclaration.Text is not null,
+            requiredDeclaration.Unavailable);
+        Assert.Equal(
+            "public required string RequiredValue { get; set; }",
+            Assert.IsType<string>(requiredDeclaration.Text));
+        Assert.Null(requiredDeclaration.Unavailable);
+        Assert.False(requiredDeclaration.Compatibility);
 
         BrowserMemberDeclaration nativeIntDeclaration = await Declaration(
             spellingType,

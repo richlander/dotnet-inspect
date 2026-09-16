@@ -253,6 +253,283 @@ public sealed class CSharpMemorySafetySpellingTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public void SingleDeclarationOutcomeRejectsUnprovenAccessorModifiers(
+        bool? declarationModifiersMatchProperty)
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.SignatureModel!.Accessors[0]
+            .DeclarationModifiersMatchProperty =
+                declarationModifiersMatchProperty;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "declaration modifier shape",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsIllegalPropertyModifiers()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [("get", ContractKind.None, MemorySafetyPointerEvidence.Absent)]);
+        property.IsStatic = true;
+        property.IsVirtual = true;
+        property.IsAbstract = true;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "declaration modifiers",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("class", false, true, false, false, false)]
+    [InlineData("class", false, true, true, false, false)]
+    [InlineData("class", false, true, false, true, false)]
+    [InlineData("class", false, true, false, true, true)]
+    [InlineData("class", false, true, true, true, false)]
+    [InlineData("interface", false, true, true, false, false)]
+    [InlineData("interface", true, true, true, false, false)]
+    public void SingleDeclarationOutcomeAcceptsRepresentablePropertyModifiers(
+        string typeKind,
+        bool isStatic,
+        bool isVirtual,
+        bool isAbstract,
+        bool isOverride,
+        bool isSealed)
+    {
+        ApiType type = Type(
+            MemorySafetyRulesState.Updated,
+            kind: typeKind);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [("get", ContractKind.None, MemorySafetyPointerEvidence.Absent)]);
+        property.IsStatic = isStatic;
+        property.IsVirtual = isVirtual;
+        property.IsAbstract = isAbstract;
+        property.IsOverride = isOverride;
+        property.IsSealed = isSealed;
+
+        Assert.IsType<CSharpMemberDeclarationOutcome.Rendered>(
+            Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                .FormatMemberOutcome(type, property));
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRendersValidRequiredProperty()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.SignatureModel!.IsRequired = true;
+
+        CSharpMemberDeclarationOutcome.Rendered rendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.Rendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Equal(
+            "public required int Value { get; set; }",
+            rendered.Declaration.Text);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsStaticRequiredProperty()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.IsStatic = true;
+        property.SignatureModel!.IsRequired = true;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "required property shape",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsGetOnlyRequiredProperty()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [("get", ContractKind.None, MemorySafetyPointerEvidence.Absent)]);
+        property.SignatureModel!.IsRequired = true;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "required property shape",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsInaccessibleRequiredProperty()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.Accessibility = "internal";
+        property.SignatureModel!.IsRequired = true;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "required property shape",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsInaccessibleRequiredSetter()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.SignatureModel!.IsRequired = true;
+        property.SignatureModel.Accessors
+            .Single(static accessor => accessor.Kind == "set")
+            .Accessibility = "private";
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "required property shape",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeAcceptsRequiredSetterVisibleToContainingType()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        type.Accessibility = "internal";
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.SignatureModel!.IsRequired = true;
+        property.SignatureModel.Accessors
+            .Single(static accessor => accessor.Kind == "set")
+            .Accessibility = "internal";
+
+        Assert.IsType<CSharpMemberDeclarationOutcome.Rendered>(
+            Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                .FormatMemberOutcome(type, property));
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsRequiredInterfaceProperty()
+    {
+        ApiType type = Type(
+            MemorySafetyRulesState.Updated,
+            kind: "interface");
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.IsVirtual = true;
+        property.IsAbstract = true;
+        property.SignatureModel!.IsRequired = true;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "required property shape",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void SingleDeclarationOutcomeRejectsVoidPropertyType()
     {
@@ -2405,6 +2682,7 @@ public sealed class CSharpMemorySafetySpellingTests
             {
                 Kind = kind,
                 AccessibilityIsRepresentable = true,
+                DeclarationModifiersMatchProperty = true,
                 IsExplicitInterfaceImplementation = false,
                 SignatureMatchesProperty = true,
             });

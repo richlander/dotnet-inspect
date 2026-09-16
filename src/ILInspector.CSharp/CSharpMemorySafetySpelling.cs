@@ -240,6 +240,13 @@ internal static class CSharpMemorySafetySpelling
             }
             if (accessors.Any(
                     static accessor =>
+                        accessor.DeclarationModifiersMatchProperty is not true))
+            {
+                return Refuse(
+                    "the property accessors do not share one declaration modifier shape.");
+            }
+            if (accessors.Any(
+                    static accessor =>
                         accessor.IsExplicitInterfaceImplementation is not false))
             {
                 return Refuse(
@@ -268,6 +275,17 @@ internal static class CSharpMemorySafetySpelling
             {
                 return Refuse(
                     "the property accessor accessibility combination is not representable in C#.");
+            }
+            if (!PropertyDeclarationModifiersAreRepresentable(type, member))
+            {
+                return Refuse(
+                    "the property declaration modifiers are not representable in C#.");
+            }
+            if (propertyModel.IsRequired
+                && !RequiredPropertyIsRepresentable(type, member, accessors))
+            {
+                return Refuse(
+                    "the required property shape is not representable in C#.");
             }
 
             int[] accessorTokens = accessors.Select(accessor => accessor.Kind switch
@@ -418,6 +436,81 @@ internal static class CSharpMemorySafetySpelling
             modified[0].Accessibility!,
             property);
     }
+
+    static bool PropertyDeclarationModifiersAreRepresentable(
+        ApiType type,
+        ApiMember member)
+    {
+        if (type.Kind is not ("class" or "struct" or "interface"))
+            return false;
+
+        if (member.IsStatic)
+        {
+            if (member.IsOverride || member.IsSealed)
+                return false;
+            if (type.Kind == "interface")
+                return member.IsVirtual && member.IsAbstract;
+            return !member.IsVirtual && !member.IsAbstract;
+        }
+
+        if (member.IsAbstract && !member.IsVirtual
+            || member.IsOverride && !member.IsVirtual
+            || member.IsSealed && (!member.IsOverride || member.IsAbstract))
+        {
+            return false;
+        }
+
+        return type.Kind switch
+        {
+            "struct" =>
+                !member.IsVirtual
+                && !member.IsAbstract
+                && !member.IsOverride
+                && !member.IsSealed,
+            "interface" =>
+                member.IsVirtual
+                && member.IsAbstract
+                && !member.IsOverride
+                && !member.IsSealed,
+            _ => true,
+        };
+    }
+
+    static bool RequiredPropertyIsRepresentable(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<ApiAccessor> accessors)
+    {
+        if (member.IsStatic
+            || type.Kind is not ("class" or "struct"))
+        {
+            return false;
+        }
+
+        string typeAccessibility = type.Accessibility ?? "public";
+        string propertyAccessibility = member.Accessibility ?? "public";
+        if (!IsAtLeastAsAccessibleAs(
+                propertyAccessibility,
+                typeAccessibility))
+        {
+            return false;
+        }
+
+        ApiAccessor? setter =
+            accessors.SingleOrDefault(static accessor => accessor.Kind == "set");
+        return setter is not null
+            && IsAtLeastAsAccessibleAs(
+                setter.Accessibility ?? propertyAccessibility,
+                typeAccessibility);
+    }
+
+    static bool IsAtLeastAsAccessibleAs(
+        string candidate,
+        string required) =>
+        IsCSharpAccessibility(candidate)
+        && IsCSharpAccessibility(required)
+        && (candidate == required
+            || IsStrictlyMoreRestrictive(required, candidate));
 
     static bool IsCSharpAccessibility(string accessibility) =>
         accessibility is

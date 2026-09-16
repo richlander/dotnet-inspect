@@ -15,6 +15,7 @@ public class PropertyAccessorSignatureConsistencyTests
     [InlineData(AccessorMismatch.SetterValue, true)]
     [InlineData(AccessorMismatch.SetterIndexParameter, true)]
     [InlineData(AccessorMismatch.GetterStaticness, true)]
+    [InlineData(AccessorMismatch.DivergentDeclarationModifiers, false)]
     [InlineData(AccessorMismatch.GetterGenericHeader, true)]
     [InlineData(AccessorMismatch.PropertyGenericHeader, true)]
     [InlineData(AccessorMismatch.GetterReservedHeader, true)]
@@ -59,6 +60,13 @@ public class PropertyAccessorSignatureConsistencyTests
                 mismatch != AccessorMismatch.PrivateScopeAccessibility
                     || accessor.Kind != "get",
                 accessor.AccessibilityIsRepresentable));
+        Assert.All(
+            property.SignatureModel.Accessors,
+            accessor => Assert.Equal(
+                mismatch is not (
+                    AccessorMismatch.GetterStaticness
+                    or AccessorMismatch.DivergentDeclarationModifiers),
+                accessor.DeclarationModifiersMatchProperty));
         Assert.All(
             property.SignatureModel.Accessors,
             accessor => Assert.Equal(
@@ -287,11 +295,15 @@ public class PropertyAccessorSignatureConsistencyTests
             bodyOffset: -1,
             MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle setter = metadata.AddMethodDefinition(
-            AccessorAttributes(
-                isStatic: false,
-                mismatch == AccessorMismatch.IncomparableAccessibility
-                    ? MethodAttributes.Family
-                    : MethodAttributes.Public),
+            mismatch == AccessorMismatch.DivergentDeclarationModifiers
+                ? MethodAttributes.Public
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.SpecialName
+                : AccessorAttributes(
+                    isStatic: false,
+                    mismatch == AccessorMismatch.IncomparableAccessibility
+                        ? MethodAttributes.Family
+                        : MethodAttributes.Public),
             MethodImplAttributes.IL,
             metadata.GetOrAddString("set_Value"),
             metadata.GetOrAddBlob(
@@ -461,6 +473,7 @@ public class PropertyAccessorSignatureConsistencyTests
         SetterValue,
         SetterIndexParameter,
         GetterStaticness,
+        DivergentDeclarationModifiers,
         GetterGenericHeader,
         PropertyGenericHeader,
         GetterReservedHeader,
