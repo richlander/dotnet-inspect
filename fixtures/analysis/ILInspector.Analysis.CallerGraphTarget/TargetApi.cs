@@ -60,7 +60,7 @@ namespace Target
     // the instantiation, which must match the open Echo<T>(T) target.
     public static class GenericApi
     {
-        public static T Echo<T>(T value) => value;
+        public static T Echo<T>(this T value) => value;
     }
 
     // #3340: method overloads that differ only by generic arity.
