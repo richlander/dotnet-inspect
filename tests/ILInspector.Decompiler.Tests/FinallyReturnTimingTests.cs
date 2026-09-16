@@ -312,6 +312,67 @@ public class FinallyReturnTimingTests
     }
 
     [Fact]
+    public void RefLocalIndirectCarrierAliasReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunRefLocalIndirectCarrierAlias(
+            useCopy: true,
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunRefLocalIndirectCarrierAlias(
+            useCopy: true,
+            loop: true,
+            setValue: false,
+            exit: true));
+        Assert.Equal(10, FinallyReturnTimingSample.RunRefLocalIndirectCarrierAlias(
+            useCopy: false,
+            loop: true,
+            setValue: true,
+            exit: true));
+
+        using var source = MetadataSource.Open(SampleType.Assembly.Location);
+        IrFunction function = Assert.IsType<IrFunction>(IrImporter.Import(
+            source,
+            SampleType.FullName!,
+            nameof(FinallyReturnTimingSample.RunRefLocalIndirectCarrierAlias)));
+        StoreIndirect[] indirectStores =
+        [
+            .. function.Descendants.OfType<StoreIndirect>()
+                .Where(store => store.Type?.Name.EndsWith(
+                    "RefHolder",
+                    StringComparison.Ordinal) == true
+                    && store.Address is LoadLocal),
+        ];
+        Assert.Equal(2, indirectStores.Length);
+        int destinationLocal = Assert.IsType<LoadLocal>(
+            indirectStores[0].Address).Index;
+        Assert.All(
+            indirectStores,
+            store => Assert.Equal(
+                destinationLocal,
+                Assert.IsType<LoadLocal>(store.Address).Index));
+        StoreLocal definition = Assert.Single(
+            function.Descendants.OfType<StoreLocal>(),
+            store => store.Index == destinationLocal);
+        int destinationSlot = Assert.IsType<LoadStackSlot>(
+            definition.Value).Slot;
+        Assert.Equal(
+            2,
+            function.Descendants.OfType<StoreStackSlot>()
+                .Count(store => store.Slot == destinationSlot));
+
+        var result = CSharpPrinter.PrintRaised(
+            function,
+            method => IrImporter.Import(source, method),
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+        string output = Assert.IsType<string>(result.Output)
+            .ReplaceLineEndings("\n");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
     public void NestedReturnUsesOrderedSharedCleanupFacts()
     {
         using var source = MetadataSource.Open(SampleType.Assembly.Location);
@@ -366,9 +427,10 @@ public class FinallyReturnTimingTests
                 or nameof(FinallyReturnTimingSample.RunHelperAlias)
                 or nameof(FinallyReturnTimingSample.RunCopiedFieldAlias)
                 or nameof(FinallyReturnTimingSample.RunIndirectCarrierAlias)
-                or nameof(FinallyReturnTimingSample.RunConditionalIndirectCarrierAlias));
+                or nameof(FinallyReturnTimingSample.RunConditionalIndirectCarrierAlias)
+                or nameof(FinallyReturnTimingSample.RunRefLocalIndirectCarrierAlias));
 
-        Assert.Equal(12, results.Count);
+        Assert.Equal(13, results.Count);
         Assert.All(results, result =>
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
     }

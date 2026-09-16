@@ -1259,6 +1259,17 @@ public sealed partial class EhStructuringPass : IIrPass
                 if (ReferenceOwnership.IsInsideNestedFunctionBody(store))
                     continue;
 
+                if (localAliases.Contains(store.Index))
+                {
+                    changed |= AddWritableCarrierAlias(
+                        function,
+                        store.Value,
+                        localAliases,
+                        argumentAliases,
+                        stackSlotAliases,
+                        fieldAliases);
+                }
+
                 if (AliasesPlace(
                     function,
                     store.Value,
@@ -1436,6 +1447,7 @@ public sealed partial class EhStructuringPass : IIrPass
                     function,
                     root,
                     store.Address,
+                    [],
                     []));
 
         return (
@@ -1530,13 +1542,45 @@ public sealed partial class EhStructuringPass : IIrPass
         IrFunction function,
         BlockContainer root,
         IrExpression value,
+        HashSet<int> resolvingLocals,
         HashSet<int> resolvingSlots)
     {
         if (!IsWritableCarrierReference(function, value.ResultType))
             return false;
 
-        if (value is LoadLocal
-            or LoadLocalAddress
+        if (value is LoadLocal local)
+        {
+            if (!resolvingLocals.Add(local.Index))
+                return false;
+
+            bool found = false;
+            foreach (StoreLocal store in root.Descendants
+                .OfType<StoreLocal>())
+            {
+                if (store.Index != local.Index
+                    || ReferenceOwnership.IsInsideNestedFunctionBody(store))
+                {
+                    continue;
+                }
+
+                found = true;
+                if (!WritableCarrierDestinationIsResolved(
+                        function,
+                        root,
+                        store.Value,
+                        resolvingLocals,
+                        resolvingSlots))
+                {
+                    resolvingLocals.Remove(local.Index);
+                    return false;
+                }
+            }
+
+            resolvingLocals.Remove(local.Index);
+            return found;
+        }
+
+        if (value is LoadLocalAddress
             or LoadArgument
             or LoadArgumentAddress
             or LoadField
@@ -1565,6 +1609,7 @@ public sealed partial class EhStructuringPass : IIrPass
                         function,
                         root,
                         store.Value,
+                        resolvingLocals,
                         resolvingSlots))
                 {
                     resolvingSlots.Remove(slot.Slot);
@@ -1587,6 +1632,7 @@ public sealed partial class EhStructuringPass : IIrPass
                     function,
                     root,
                     child,
+                    resolvingLocals,
                     resolvingSlots))
             {
                 return false;
