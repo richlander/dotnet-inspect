@@ -347,7 +347,7 @@ function ownData(
 function consumeItem(budget: PayloadBudget, path: string): void {
   if (--budget.remainingItems < 0) {
     throw new PackageChangesPayloadError(
-      `${path} exceeds the Package Changes item budget.`,
+      `${path} exceeds the Package Activity item budget.`,
       "oversized",
     );
   }
@@ -376,7 +376,7 @@ function decodeSchema(
     budget.remainingCharacters -= value.length;
     if (budget.remainingCharacters < 0) {
       throw new PackageChangesPayloadError(
-        `${path} exceeds the Package Changes text budget.`,
+        `${path} exceeds the Package Activity text budget.`,
         "oversized",
       );
     }
@@ -462,7 +462,7 @@ function rejected(
     reason: "invalid",
     message: error instanceof Error
       ? error.message
-      : "Package Changes payload validation failed.",
+      : "Package Activity payload validation failed.",
     cause: error,
   };
 }
@@ -491,7 +491,7 @@ function assertRequest(
     requestSchema,
     value,
     maximumRequestCharacters,
-    "Package Changes request",
+    "Package Activity request",
   );
 }
 
@@ -505,16 +505,16 @@ BoundedPayloadDecoder<BrowserPackageChangesRequest> = {
         request.packageSetId,
       )) {
         throw new PackageChangesPayloadError(
-          "Package Changes requires a canonical package-set identity.");
+          "Package Activity requires a canonical package-set identity.");
       }
       if ((request.fromExclusive === null)
         !== (request.throughInclusive === null)) {
         throw new PackageChangesPayloadError(
-          "Package Changes interval endpoints must be supplied together.");
+          "Package Activity interval endpoints must be supplied together.");
       }
       if (request.maximumRows < 1) {
         throw new PackageChangesPayloadError(
-          "Package Changes maximumRows must be positive.");
+          "Package Activity maximumRows must be positive.");
       }
       return { kind: "decoded", value: request };
     } catch (error: unknown) {
@@ -537,7 +537,7 @@ function assertEvent(
     eventSchema,
     value,
     maximumCallbackCharacters,
-    "Package Changes event",
+    "Package Activity event",
   );
 }
 
@@ -548,7 +548,7 @@ function assertProgress(
     progressSchema,
     value,
     maximumCallbackCharacters,
-    "Package Changes progress",
+    "Package Activity progress",
   );
 }
 
@@ -559,7 +559,7 @@ function assertInspection(
     inspectionSchema,
     value,
     maximumTerminalCharacters,
-    "Package Changes inspection",
+    "Package Activity inspection",
   );
 }
 
@@ -570,7 +570,7 @@ function assertDiagnosticText(
     text(maximumDiagnosticCharacters),
     value,
     maximumDiagnosticCharacters,
-    "Package Changes diagnostic",
+    "Package Activity diagnostic",
   );
 }
 
@@ -585,7 +585,7 @@ function assertTerminalFailure(
     }),
     value,
     maximumDiagnosticCharacters * 2,
-    "Package Changes failure",
+    "Package Activity failure",
   );
 }
 
@@ -604,7 +604,7 @@ function assertResult(
     }),
     value,
     maximumTerminalCharacters,
-    "Package Changes result",
+    "Package Activity result",
   );
 }
 
@@ -618,7 +618,7 @@ function assertCancellation(
     }),
     value,
     256,
-    "Package Changes cancellation",
+    "Package Activity cancellation",
   );
 }
 
@@ -681,7 +681,7 @@ export function decodeEngineWorkerPackageChangesEvent(
     };
   }
   throw new PackageChangesPayloadError(
-    "Package Changes event payload does not match its kind.");
+    "Package Activity event payload does not match its kind.");
 }
 
 const engineWorkerPackageChangesProgress:
@@ -706,7 +706,7 @@ BoundedPayloadDecoder<EngineWorkerPackageChangesDurableEvent> = {
       const event = decodeEngineWorkerPackageChangesEvent(value);
       if (event.kind === "Progress") {
         throw new PackageChangesPayloadError(
-          "Package Changes progress is not a durable event.");
+          "Package Activity progress is not a durable event.");
       }
       return {
         kind: "decoded",
@@ -726,7 +726,7 @@ BoundedPayloadDecoder<BrowserPackageChangesInspection> = {
       const inspection = value;
       if (inspection.content.schemaVersion !== 1) {
         throw new PackageChangesPayloadError(
-          "Package Changes Document schema version is unsupported.");
+          "Package Activity Document schema version is unsupported.");
       }
       if (inspection.share.kind === "Available") {
         if (inspection.share.fullUrl === null
@@ -734,14 +734,14 @@ BoundedPayloadDecoder<BrowserPackageChangesInspection> = {
           || inspection.share.path !== null
           || inspection.share.reason !== null) {
           throw new PackageChangesPayloadError(
-            "Available Package Changes Share has invalid fields.");
+            "Available Package Activity Share has invalid fields.");
         }
       } else if (inspection.share.fullUrl !== null
         || inspection.share.packet !== null
         || inspection.share.path === null
         || inspection.share.reason === null) {
         throw new PackageChangesPayloadError(
-          "Non-projectable Package Changes Share has invalid fields.");
+          "Non-projectable Package Activity Share has invalid fields.");
       }
       return { kind: "decoded", value: inspection };
     } catch (error: unknown) {
@@ -794,13 +794,13 @@ type PackageChangesSettlement = ManagedOperationSettlement<
 function invalidResult(error: unknown): PackageChangesSettlement {
   const diagnostic = error instanceof Error
     ? error.message.slice(0, maximumDiagnosticCharacters)
-    : "Package Changes result validation failed.";
+    : "Package Activity result validation failed.";
   return {
     kind: "failed",
     failureKind: "unexpected",
     error: {
       failureKind: "Unexpected",
-      error: "Package Changes returned invalid Worker boundary data.",
+      error: "Package Activity returned invalid Worker boundary data.",
       diagnostic,
     },
     diagnostic,
@@ -815,7 +815,7 @@ export function mapEngineWorkerPackageChangesResult(
     const result = value;
     if (result.version !== 1) {
       throw new PackageChangesPayloadError(
-        "Expected a version 1 Package Changes result.");
+        "Expected a version 1 Package Activity result.");
     }
     if (result.kind === "Succeeded") {
       if (result.inspection === null
@@ -824,7 +824,7 @@ export function mapEngineWorkerPackageChangesResult(
         || result.diagnostic !== null
         || result.reason !== null) {
         throw new PackageChangesPayloadError(
-          "Package Changes success has invalid terminal fields.");
+          "Package Activity success has invalid terminal fields.");
       }
       const inspection =
         engineWorkerPackageChangesInspection.decode(result.inspection);
@@ -842,7 +842,7 @@ export function mapEngineWorkerPackageChangesResult(
         || result.diagnostic === null
         || result.reason !== null) {
         throw new PackageChangesPayloadError(
-          "Package Changes failure has invalid terminal fields.");
+          "Package Activity failure has invalid terminal fields.");
       }
       return {
         kind: "failed",
@@ -864,7 +864,7 @@ export function mapEngineWorkerPackageChangesResult(
       || result.reason === null
       || !isWorkerOperationCancelReason(result.reason)) {
       throw new PackageChangesPayloadError(
-        "Package Changes cancellation has invalid terminal fields.");
+        "Package Activity cancellation has invalid terminal fields.");
     }
     return { kind: "canceled", reason: result.reason };
   } catch (error: unknown) {
@@ -881,19 +881,19 @@ export function engineWorkerPackageChangesCancellationIsRunning(
   if (cancellation.kind === "NotActive") {
     if (cancellation.reason !== null) {
       throw new PackageChangesPayloadError(
-        "Inactive Package Changes cancellation has a reason.");
+        "Inactive Package Activity cancellation has a reason.");
     }
     return false;
   }
   if (cancellation.reason === null
     || !isWorkerOperationCancelReason(cancellation.reason)) {
     throw new PackageChangesPayloadError(
-      "Package Changes cancellation reason is invalid.");
+      "Package Activity cancellation reason is invalid.");
   }
   if (cancellation.kind === "Requested"
     && cancellation.reason !== requestedReason) {
     throw new PackageChangesPayloadError(
-      "Package Changes cancellation changed the requested reason.");
+      "Package Activity cancellation changed the requested reason.");
   }
   return true;
 }
@@ -933,7 +933,7 @@ WorkerRuntimeOperationRegistration<
 
 export type EngineWorkerPackageChangesFacade = Pick<
   typeof import("./facades/inspect-web-package.d.ts"),
-  "cancelPackageChanges" | "runPackageChanges"
+  "cancelPackageActivity" | "runPackageActivity"
 >;
 
 function createManagedEventSink(
@@ -944,11 +944,11 @@ function createManagedEventSink(
     set(value: unknown) {
       if (typeof value !== "string") {
         throw new PackageChangesPayloadError(
-          "Package Changes callback payload was not JSON text.");
+          "Package Activity callback payload was not JSON text.");
       }
       if (value.length > maximumCallbackCharacters) {
         throw new PackageChangesPayloadError(
-          "Package Changes callback exceeds its wire budget.",
+          "Package Activity callback exceeds its wire budget.",
           "oversized",
         );
       }
@@ -958,8 +958,8 @@ function createManagedEventSink(
       } catch (error: unknown) {
         throw new PackageChangesPayloadError(
           error instanceof Error
-            ? `Package Changes callback JSON was invalid: ${error.message}`
-            : "Package Changes callback JSON was invalid.");
+            ? `Package Activity callback JSON was invalid: ${error.message}`
+            : "Package Activity callback JSON was invalid.");
       }
       const event = decodeEngineWorkerPackageChangesEvent(parsed);
       const published = event.kind === "Progress"
@@ -973,7 +973,7 @@ function createManagedEventSink(
           }]);
       if (!published) {
         throw new Error(
-          "Package Changes Worker event publication is closed.");
+          "Package Activity Worker event publication is closed.");
       }
     },
   });
@@ -997,7 +997,7 @@ export function registerEngineWorkerPackageChangesOperation(
       diagnostic: failure.message,
     }),
     invoke: async (input, context) => {
-      const result = await facade().runPackageChanges(
+      const result = await facade().runPackageActivity(
         context.operation.operationId,
         JSON.stringify(input),
         createManagedEventSink(context),
@@ -1006,7 +1006,7 @@ export function registerEngineWorkerPackageChangesOperation(
     },
     cancel: (operation, reason) =>
       engineWorkerPackageChangesCancellationIsRunning(
-        facade().cancelPackageChanges(operation.operationId, reason),
+        facade().cancelPackageActivity(operation.operationId, reason),
         reason,
       ),
   });

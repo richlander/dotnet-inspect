@@ -218,7 +218,7 @@ navigation, state, and transport mechanics remain with their focused owners.
 CLI envelope framing and output-option interaction remain with #6719 and
 [output shapes](output-shapes.md).
 
-`package query` and `package changes` are existing subject-owned operation
+`package query` and `package activity` are existing subject-owned operation
 precedents. The Browser's
 [Compare experience](inspect-web-compare-experience.md) already scopes Diff
 to Library, Type, and Member. These are evidence for consistent placement, not
@@ -360,7 +360,7 @@ decision.
 
 Update help, discovery, completion, replay/probe generation, README, shipped
 skills, and active examples with the executable cutover. Do not change current
-product guidance in this specification PR. `package query`, `package changes`,
+product guidance in this specification PR. `package query`, `package activity`,
 and other non-Diff operations retain their behavior.
 
 1. Lock this placement and envelope-adoption specification.
