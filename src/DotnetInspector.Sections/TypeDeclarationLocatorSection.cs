@@ -875,9 +875,21 @@ public static class TypeDeclarationLocatorSection
             WorkspaceDeclarationOrigin.ContextLoad { Realized: RealizedMemberCoordinate.Embedded embedded } =>
                 new TypeDeclarationLocatorRealization.EmbeddedRealization(
                     embedded.ContentRef, embedded.Digest, embedded.DeclaredName),
+            WorkspaceDeclarationOrigin.PackageScope packageScope =>
+                PackageRealization(
+                    packageScope.Occurrence.Occurrence.Package.Coordinate),
             WorkspaceDeclarationOrigin.PlatformReference reference =>
                 new TypeDeclarationLocatorRealization.PlatformReferenceRealization(
                     references.Evidence(reference.Source), reference.Path),
             _ => throw new InvalidOperationException("Unknown declaration origin."),
         };
+
+    private static TypeDeclarationLocatorRealization.PackageRealization
+        PackageRealization(RealizedMemberCoordinate.Package package) =>
+        new(
+            package.PackageId,
+            package.Version,
+            package.Producer,
+            package.Framework,
+            package.RuntimeIdentifier);
 }
