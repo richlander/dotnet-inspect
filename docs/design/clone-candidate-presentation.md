@@ -4,7 +4,7 @@
 
 This design defines stage 3 of the Structural Clone Search production-adoption
 path tracked by
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 Implementation is tracked by
 [#6306](https://github.com/richlander/dotnet-inspect/issues/6306).
 

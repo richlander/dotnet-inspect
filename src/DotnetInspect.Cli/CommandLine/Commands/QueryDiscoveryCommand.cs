@@ -20,6 +20,15 @@ internal static class QueryDiscoveryCommand
             command.Options.Add(options.QueryHelp);
             WrapAction(command, options);
         }
+        Command? graphLibraries = root.Subcommands
+            .SingleOrDefault(command => command.Name == "graph")
+            ?.Subcommands
+            .SingleOrDefault(command => command.Name == "libraries");
+        if (graphLibraries is not null)
+        {
+            graphLibraries.Options.Add(options.QueryHelp);
+            WrapAction(graphLibraries, options);
+        }
     }
 
     private static void WrapAction(Command command, SharedOptions options)
@@ -58,7 +67,14 @@ internal static class QueryDiscoveryCommand
         }
 
         string command = CommandIdentity(result);
-        if (command is not ("library" or "type" or "member" or "package" or "package query" or "find"))
+        if (command is not (
+                "library"
+                or "type"
+                or "member"
+                or "package"
+                or "package query"
+                or "find"
+                or "graph libraries"))
         {
             CommandError.Write($"Query discovery is not supported by the '{result.CommandResult.Command.Name}' subcommand.");
             exitCode = 1;
@@ -167,10 +183,21 @@ internal static class QueryDiscoveryCommand
     private static bool IsCompanionName(string name)
         => name.StartsWith("Query:", StringComparison.OrdinalIgnoreCase);
 
-    private static string CommandIdentity(ParseResult result) =>
-        result.CommandResult.Command.Name == "query"
-        && result.CommandResult.Parent is CommandResult parent
-        && parent.Command.Name == "package"
-            ? "package query"
-            : result.CommandResult.Command.Name;
+    private static string CommandIdentity(ParseResult result)
+    {
+        string name = result.CommandResult.Command.Name;
+        if (name == "query"
+            && result.CommandResult.Parent is CommandResult package
+            && package.Command.Name == "package")
+        {
+            return "package query";
+        }
+        if (name == "libraries"
+            && result.CommandResult.Parent is CommandResult graph
+            && graph.Command.Name == "graph")
+        {
+            return "graph libraries";
+        }
+        return name;
+    }
 }
