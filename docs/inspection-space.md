@@ -1411,7 +1411,7 @@ A valid empty public surface is complete evidence and may be compared. An
 unavailable or incomplete surface is not an empty surface and must not produce
 apparent additions, removals, equality, or a negative compatibility conclusion.
 This stricter admission is deliberate: the Library Diff consumer in
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083) needs an
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213) needs an
 exhaustive result within its advertised API scope, not a comparison of two
 potentially different healthy subsets.
 
