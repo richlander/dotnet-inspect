@@ -154,12 +154,12 @@ completion, not another acquisition that can fail indefinitely. Runtime close
 may still interrupt it and produces `Unavailable`. Optional caller
 cancellation/failure applies to user mutations, not that required refresh.
 
-`Liveness.cfg` and the seventeen `Liveness<Profile>.cfg` configurations assume
+`Liveness.cfg` and the twenty `Liveness<Profile>.cfg` configurations assume
 weakly fair adjacent completion and cleanup. They partition the original
 eight-scenario matrix by its immutable initial scenario, retaining all eight
 perturbation profiles and the same specification, invariants, and temporal
 properties in every partition. Refresh further separates each of its eight
-perturbation profiles, and its Progress profile separates the four initial
+perturbation profiles, and its Progress and Validation profiles separate the four initial
 `secondKind` values through `Spec` conjoined with each initial value. Their
 union is exactly the original `Spec`; none changes `Init`, `Next`, or fairness.
 Neither `scenario`, `perturbation`, nor `secondKind` changes in `Next`, so
@@ -203,7 +203,7 @@ All configurations are registered with their exact semantic verdict in
 | Foreign Workspace/receipt completion cannot publish | `ReachabilityForeignWorkspace`, `ReachabilityForeignReceipt` | inherited commit association invariants |
 | Previously issued candidate identities cannot be reused | `ReachabilityScopeCandidate`, `ReachabilityPhysicalCandidate` | inherited freshness invariants |
 | No new operation after runtime close | `CompositionSafety`, `ReachabilityClosed`, `NoAdmissionAfterClose` | inherited runtime commit invariant |
-| Every admitted operation settles | `Liveness`, seventeen `Liveness<Profile>` partitions, `DeadlineLiveness` | cleanup/final-commit safety mutations |
+| Every admitted operation settles | `Liveness`, twenty `Liveness<Profile>` partitions, `DeadlineLiveness` | cleanup/final-commit safety mutations |
 | Shared-gate composition refines Artifact behavior | every positive configuration | `BrokenGate` |
 | Issuance/abandonment is inert and the request remains frozen | `OperationHandoffSafety`, `ReachabilityIssuedAbandoned` | temporal action checks in every handoff witness |
 | Submission rechecks current revision, Scope-base guard, deadline, and activation validity before Busy/supersession | `ReachabilityIssuedRevisionRejected`, `ReachabilityIssuedBaseGuardRejected`, `ReachabilityIssuedDeadlineRejected`, `ReachabilityInvalidTargetRejected` | `BrokenHandoffValidation` |
@@ -212,7 +212,7 @@ All configurations are registered with their exact semantic verdict in
 | Duplicate-only Add performs no physical work and does not repair Pending | `ReachabilityRequestedDuplicate`, `ReachabilityDuplicateNoIntent` | exact NoEffect temporal/state properties |
 | Cancellation control cannot manufacture mutation settlement and may return only the original association | `ReachabilityCancellationNoEffect`, `ReachabilityCancellationSettlement` | `BrokenCancellationControl` |
 
-`Safety`, `CompositionSafety`, the eighteen liveness partitions, and
+`Safety`, `CompositionSafety`, the twenty-one liveness partitions, and
 `DeadlineLiveness` expect exit 0. `OperationHandoffSafety` also expects exit 0.
 Reachability configurations expect exit 12 at `NoWitness`, with safety checks
 still enabled. All mutations expect exit 12 at their named invariant except
@@ -353,7 +353,8 @@ The extension was checked on Linux with `/usr/bin/java` OpenJDK `21.0.12` and
 immutable TLA+ mirror build `2026.08.11.125311`, revision `0894c34`, SHA-256
 `ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f`.
 The directory runner used its automatic worker selection and a 120-second
-per-configuration bound:
+per-configuration bound. These initial results predate the CI model-cost
+correction below:
 
 ```bash
 export TMPDIR="$PWD/artifacts/tla-scratch"
@@ -392,6 +393,8 @@ composition-refinement property under the new state and actions.
 Witness and mutation runs stop at their intended violation, so their queues
 need not be exhausted. `OperationHandoffSafety` exhausts its bounded graph.
 
+### Historical liveness partitioning
+
 The initial, unpartitioned configuration set completed locally through the
 existing runner: all 33 Scope exact outcomes and all 28 unchanged Artifact
 exact outcomes matched under its default 600-second budget. The runner used
@@ -419,6 +422,59 @@ run; this is not a guarantee of hosted-runner timing. The final Refresh
 partitions used direct TLC invocations after the directory runner identified
 the remaining oversized profile. The unchanged configurations completed in
 that directory pass.
+
+### CI model-cost correction
+
+The operation-handoff extension's initial local pass did not establish hosted
+timing. In [run 35121402048](https://github.com/richlander/dotnet-inspect/actions/runs/35121402048),
+`LivenessRefreshValidation` exceeded the exact-outcome gate's 120-second
+budget; `CompositionSafety` completed in approximately 119 seconds.
+
+`RequestFor` now records `baseGuard = 0` when `hasBaseGuard = FALSE`, instead
+of retaining the otherwise unused publication base at issuance. Both consumers
+of that field test `hasBaseGuard`; guarded requests still freeze the exact
+owner-issued base. This removes distinctions between absent guards, not
+request-issuance interleavings, revision evidence, scenarios, perturbations,
+fairness, or checked properties.
+
+Before/after probes used the same pinned jar and OpenJDK `21.0.12`, two CPUs
+(`taskset -c 0,1`), `-XX:ActiveProcessorCount=2`, `-XX:+UseParallelGC`, two TLC
+workers, and the unchanged 120-second limit:
+
+| Configuration | Before | After | After generated / distinct |
+| --- | --- | --- | --- |
+| `LivenessRefreshValidation` | Timeout, exit 124 | 77.50s, exit 0 | 353,560 / 81,704 |
+| `CompositionSafety` | 73.38s, exit 0 | 45.15s, exit 0 | 384,148 / 107,470 |
+
+The complete directory runner then matched all 68 exact semantic verdicts,
+with zero timeouts, under the same CPU constraint and per-configuration limit.
+However, `LivenessRefreshValidation` took 109 seconds in that pass. To provide
+more headroom than the single-profile timing suggests, Validation now uses
+the same four-way immutable `secondKind` partition as Progress. All four
+initial values retain the same `Spec`, invariants, temporal properties, and
+fairness; their disjoint union covers the unpartitioned Validation profile.
+The shared specification aliases no longer include `Progress` in their names.
+The three additional configurations bring the current total to 71.
+
+The final directory pass matched all 71 exact verdicts with zero timeouts.
+Validation's Add/Clear/Remove/Replace partitions finished in 18/21/20/21
+seconds, respectively. Each explored 88,390 generated and 20,426 distinct
+states; their totals exactly match the unpartitioned corrected profile's
+353,560 generated and 81,704 distinct states. `CompositionSafety` finished
+in 43 seconds with the same corrected state counts.
+
+Run the complete partitioned set with:
+
+```bash
+TLA_CHECK_TIMEOUT_SECONDS=120 \
+JAVA_TOOL_OPTIONS=-XX:ActiveProcessorCount=2 \
+taskset -c 0,1 ./eng/run-tla-checks.sh \
+  docs/design/models/workspace-scope-revisions
+```
+
+Set `TLA_TOOLS_JAR` to the pinned jar as above. CPU IDs must be available on
+the machine running the probe. These local measurements provide comparative
+cost evidence, not a guarantee of hosted-runner timing; CI remains required.
 
 ### Abstraction limits
 

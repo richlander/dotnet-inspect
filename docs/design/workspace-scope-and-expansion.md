@@ -1420,8 +1420,9 @@ each measured below one second in the recorded local Release run.
 
 The [Scope revision/publication model](models/workspace-scope-revisions/README.md#operation-handoff-extension)
 now includes issued requests, all terminal associations, requested-occurrence
-projection, and typed cancellation observations. All 68 configurations reached
-their registered exact verdicts, including all 50 earlier profiles. Its named
+projection, and typed cancellation observations. All 71 configurations reached
+their registered exact verdicts after the documented CI cost correction;
+coverage of all 50 earlier profiles is retained through disjoint partitions. Its named
 Artifact instances recheck imported publication behavior under the extended
 composition. These bounded results do not prove implementation conformance or
 Navigation's future external-effect composition.

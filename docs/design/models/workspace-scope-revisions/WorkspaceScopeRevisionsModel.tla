@@ -254,10 +254,11 @@ EmptyCancellationResponse ==
     [kind |-> "None", operation |-> 0, observedOutcome |-> "None",
      observedSettlements |-> 0]
 RequestFor(i, target) ==
+    LET guarded == scenario = "HandoffBaseGuard" /\ i = 2 IN
     [operation |-> i, workspace |-> "workspace",
      revision |-> snapshot.revision,
-     hasBaseGuard |-> (scenario = "HandoffBaseGuard" /\ i = 2),
-     baseGuard |-> base,
+     hasBaseGuard |-> guarded,
+     baseGuard |-> IF guarded THEN base ELSE 0,
      deadline |-> i, kind |-> Kind(i), input |-> InputBatch(i),
      target |-> target, evidence |-> TRUE]
 RequestedResult(i, resultSnapshot, outcome) ==
@@ -1136,10 +1137,10 @@ Fairness ==
 Spec == SafetySpec /\ Fairness
 HandoffSpec == SafetySpec /\ secondKind = "Add"
 HandoffSupersedeSpec == SafetySpec /\ secondKind = "Replace"
-RefreshProgressAddSpec == Spec /\ secondKind = "Add"
-RefreshProgressReplaceSpec == Spec /\ secondKind = "Replace"
-RefreshProgressRemoveSpec == Spec /\ secondKind = "Remove"
-RefreshProgressClearSpec == Spec /\ secondKind = "Clear"
+RefreshAddSpec == Spec /\ secondKind = "Add"
+RefreshReplaceSpec == Spec /\ secondKind = "Replace"
+RefreshRemoveSpec == Spec /\ secondKind = "Remove"
+RefreshClearSpec == Spec /\ secondKind = "Clear"
 EveryAdmittedOperationSettles ==
     \A i \in Ops : i \in admitted ~> outcomes[i] \in Terminal
 DeadlineSpec ==
