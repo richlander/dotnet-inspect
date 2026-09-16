@@ -11849,12 +11849,14 @@ function restorePackageActivityReturnFocus() {
   if (!state.packageActivityReturnFocusPending) return;
   if (state.packageActivityReturnFocus === "application-activity") {
     afterCurrentNavigationFrame(() => {
-      const activityScope = document.querySelector<HTMLElement>(
-        '[data-application-scope="activity"]');
-      if (focusRenderedElement(activityScope) || focusLevelOneHeading()) {
-        state.packageActivityReturnFocus = null;
-        state.packageActivityReturnFocusPending = false;
-      }
+      afterCurrentNavigationFrame(() => {
+        const activityScope = document.querySelector<HTMLElement>(
+          '[data-application-scope="activity"]');
+        if (focusRenderedElement(activityScope) || focusLevelOneHeading()) {
+          state.packageActivityReturnFocus = null;
+          state.packageActivityReturnFocusPending = false;
+        }
+      });
     });
     return;
   }
