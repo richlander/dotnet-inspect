@@ -27,6 +27,9 @@ Workspace scenario: every member of the shipped
 `package-set.microsoft-extensions` set. The file pins the exact stable
 major-10 versions selected by the census and records package archive bytes plus
 the shared package selector's surface and implementation role demands.
+The check also validates the 256-entry Browser envelope derived from 64 logical
+Packages across four charged realizations, and reports atomic-replacement and
+four-charge demand using the immutable measurements.
 Regenerate intentionally with:
 
 ```bash

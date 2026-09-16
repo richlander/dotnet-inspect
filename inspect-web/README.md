@@ -376,22 +376,24 @@ assemblies that receive a .NET platform lookup on click.
 
 Inspected assemblies are read with System.Reflection.Metadata only, are never
 written to a file, and are never loaded into the runtime. Browser/Wasm is
-single-threaded, and both caches are written for that host: at most 12 packages
-or 128 MB of package content in aggregate, including nupkg arrays retained by
-open scopes, and at most four open workspaces. Evicting a package first retires
-every idle scope that retains it, awaiting each retirement, so cache eviction
-actually releases the archive bytes instead of removing only the cache's
-reference; a workspace with a protected use keeps its archive, and the
+single-threaded, and both caches are written for that host. The managed cache
+retains at most 256 package entries or 128 MB of package content in aggregate,
+including nupkg arrays retained by open scopes, and at most four open
+workspaces. The entry ceiling is the exact envelope for four charged
+realizations at the logical limit of 64 packages each. Evicting a package first
+retires every idle scope that retains it, awaiting each retirement, so cache
+eviction actually releases the archive bytes instead of removing only the
+cache's reference; a workspace with a protected use keeps its archive, and the
 reservation that cannot be satisfied without it visibly rejects. The client
-retains at
-most 12 package models as well, and rejects a shared workspace with more than
-12 tuples or 65,536 encoded characters before it starts package acquisition.
+retains at most 12 package models, and rejects a shared workspace with more
+than 12 tuples or 65,536 encoded characters before it starts package
+acquisition.
 The JavaScript `shared workspaces are bounded before package loading` and
 `workspace package models retain the active and newest coordinates within the
 limit` cases gate those client boundaries. A nupkg response must
 declare its content length. The cache reserves that length and evicts enough
 unleased content before allocating the response array; reservations participate
-in the same 12-package/128 MB aggregate while the download is in flight.
+in the same 256-entry/128 MB aggregate while the download is in flight.
 
 A coordinate is validated before it can key the cache or reach the network.
 `PackageCoordinateResolver` owns the same bounded ASCII package-id grammar and
@@ -520,7 +522,7 @@ archive, but does not require two simultaneous probe allowances or another
 download.
 
 Archive bytes and download reservations separately keep the existing
-12-package/128 MiB aggregate. Packages referenced by pending construction,
+256-entry/128 MiB aggregate. Packages referenced by pending construction,
 protected queries, or unfinished retirement remain charged there. Neither a
 scope eviction nor a package-cache removal returns capacity while its owned
 resources are still settling. Ready entries without protected callers are
@@ -1363,7 +1365,7 @@ meaning from formatted text. Mode changes, route exit, replacement, and
 explicit cancellation stop active work; explicit cancellation retains already
 admitted rows. Saved reports and notifications are not part of this surface.
 The focused contract is
-[The Package Changes experience](../docs/design/package-changes-experience.md).
+[The Package Activity experience](../docs/design/package-activity-experience.md).
 
 The Package Query scenarios in `browser/package-adoption.spec.ts` drive the published
 production page through the existing real-Wasm package-adoption harness.
