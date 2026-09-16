@@ -73,15 +73,19 @@ public sealed class PackageAssemblySemanticFindQueryTests
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
         Assert.Equal(5, document.CandidateCount);
+        Assert.Equal(5, document.EvaluatedCandidateCount);
+        Assert.Equal(0, document.NotEvaluatedCount);
         Assert.Equal(1, document.MatchedPackageCount);
         Assert.Equal(2, document.OccurrenceCount);
         Assert.Equal(4, document.SemanticMissCount);
         Assert.Equal(0, document.NotApplicableCount);
         Assert.Equal(0, document.FailureCount);
         Assert.True(document.Completion.IsRequestedPopulationComplete);
-        Assert.True(document.Completion.AllCandidatesCompleted);
+        Assert.True(
+            document.Completion.AllCandidatesHaveTerminalOutcomes);
         Assert.False(document.Completion.HasFailures);
         Assert.True(document.Completion.IsSemanticEvaluationComplete);
+        Assert.False(document.Completion.IsOperationDeadlineExpired);
         Assert.Equal(
             PackageAcquisitionPopulationCompletionKind.ExactCoordinates,
             document.Completion.Population);
@@ -436,6 +440,125 @@ public sealed class PackageAssemblySemanticFindQueryTests
         Assert.Equal(
             PackageAcquisitionPopulationCompletionKind.SourceFailed,
             document.Completion.Population);
+    }
+
+    [Fact]
+    public async Task OperationDeadlineProducesTerminalDocumentWithoutEvaluation()
+    {
+        await using var fixture = new SemanticFindSourceFixture();
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation admitted =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                ["Contoso.Admitted"]);
+        TimeSpan timeout =
+            PackageAssemblySemanticFindBudget.Default.MaximumDuration;
+        var population = new PackageAcquisitionPopulation(
+            requestedCandidates: 2,
+            admitted.Candidates,
+            [
+                PackageAcquisitionPopulationFailure.ForSource(
+                    new PackageAuthorityFailure(
+                        InertString.Empty,
+                        PackageAuthorityFailureKind.Timeout,
+                        "Package selection exhausted its operation deadline.")
+                    {
+                        Timeout = new(
+                            PackageSourceTimeoutKind.Operation,
+                            timeout),
+                    }),
+            ],
+            PackageAcquisitionPopulationCompletionKind.SourceFailed);
+        var sink = new RecordingQuerySink();
+
+        InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope =
+            await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                Request(population),
+                operation,
+                fixture.PayloadAcquisition,
+                sink,
+                TestContext.Current.CancellationToken);
+        PackageAssemblySemanticQueryDocument document = envelope.Content;
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Empty(envelope.Diagnostics);
+        Assert.Same(population, document.Population);
+        Assert.Equal(1, document.CandidateCount);
+        Assert.Equal(0, document.EvaluatedCandidateCount);
+        Assert.Equal(1, document.NotEvaluatedCount);
+        Assert.Empty(document.Results);
+        Assert.Equal(0, document.FailureCount);
+        Assert.False(document.Completion.IsRequestedPopulationComplete);
+        Assert.True(
+            document.Completion.AllCandidatesHaveTerminalOutcomes);
+        Assert.True(document.Completion.HasFailures);
+        Assert.False(document.Completion.IsSemanticEvaluationComplete);
+        Assert.True(document.Completion.IsOperationDeadlineExpired);
+        Assert.Empty(sink.Outcomes);
+        var outcome = Assert.IsType<
+            PackageAssemblySemanticQueryCandidateOutcome.NotEvaluated>(
+                Assert.Single(document.CandidateOutcomes));
+        Assert.Equal(admitted.Candidates[0].Coordinate, outcome.Coordinate);
+        var reason = Assert.IsType<
+            PackageAssemblySemanticQueryNonEvaluationReason.OperationDeadline>(
+                outcome.Reason);
+        Assert.Equal(timeout, reason.Timeout.Duration);
+        string json = JsonSerializer.Serialize(envelope);
+        using JsonDocument serialized = JsonDocument.Parse(json);
+        JsonElement serializedOutcome = serialized.RootElement
+            .GetProperty("Content")
+            .GetProperty("CandidateOutcomes")[0];
+        Assert.Equal(
+            "notEvaluated",
+            serializedOutcome.GetProperty("kind").GetString());
+        Assert.Equal(
+            "operationDeadline",
+            serializedOutcome
+                .GetProperty("Reason")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Throws<ObjectDisposedException>(operation.ThrowIfExpired);
+    }
+
+    [Fact]
+    public async Task RequestTimeoutStillEntersSemanticEvaluation()
+    {
+        await using var fixture = new SemanticFindSourceFixture();
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        var population = new PackageAcquisitionPopulation(
+            requestedCandidates: 1,
+            candidates: [],
+            failures:
+            [
+                PackageAcquisitionPopulationFailure.ForSource(
+                    new PackageAuthorityFailure(
+                        InertString.Empty,
+                        PackageAuthorityFailureKind.Timeout,
+                        "One source request timed out.")
+                    {
+                        Timeout = new(
+                            PackageSourceTimeoutKind.Request,
+                            TimeSpan.FromSeconds(1)),
+                    }),
+            ],
+            PackageAcquisitionPopulationCompletionKind.SourceFailed);
+
+        PackageAssemblySemanticQueryDocument document =
+            (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                Request(population),
+                operation,
+                fixture.PayloadAcquisition,
+                TestContext.Current.CancellationToken)).Content;
+
+        Assert.False(document.Completion.IsOperationDeadlineExpired);
+        Assert.True(
+            document.Completion.AllCandidatesHaveTerminalOutcomes);
+        Assert.True(document.Completion.IsSemanticEvaluationComplete);
+        Assert.True(document.Completion.HasFailures);
+        Assert.Same(population, document.Population);
     }
 
     [Fact]

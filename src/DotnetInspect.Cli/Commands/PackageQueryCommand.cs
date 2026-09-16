@@ -140,13 +140,6 @@ internal static class PackageQueryCommand
                     _ => throw new InvalidOperationException(
                         "Unknown library-literal Package Query population plan."),
                 };
-            if (TryCompleteLibraryLiteralPopulation(
-                    population,
-                    out int populationExitCode))
-            {
-                return populationExitCode;
-            }
-
             var request = new PackageAssemblySemanticFindRequest(
                 population,
                 plan.Target,
@@ -179,32 +172,17 @@ internal static class PackageQueryCommand
             document);
     }
 
-    internal static bool TryCompleteLibraryLiteralPopulation(
-        PackageAcquisitionPopulation population,
-        out int exitCode)
-    {
-        ArgumentNullException.ThrowIfNull(population);
-        if (!population.Failures.Any(failure =>
-                failure.Failure.Kind == PackageAuthorityFailureKind.Timeout
-                && failure.Failure.Timeout?.Kind
-                    == PackageSourceTimeoutKind.Operation))
-        {
-            exitCode = default;
-            return false;
-        }
-
-        WriteLibraryLiteralPopulationDiagnostics(
-            population,
-            evaluatedCandidateCount: 0);
-        exitCode = 1;
-        return true;
-    }
-
     internal static int CompleteLibraryLiteralExecution(
         PackageQueryOptions options,
         PackageAssemblySemanticQueryCliPlan plan,
         PackageAssemblySemanticQueryDocument document)
     {
+        if (document.Completion.IsOperationDeadlineExpired)
+        {
+            WriteLibraryLiteralDiagnostics(document);
+            return 1;
+        }
+
         if (!CliSemanticRowSelection.TrySelect(
                 options.RowSelection,
                 document.Results,
@@ -493,7 +471,7 @@ internal static class PackageQueryCommand
     {
         WriteLibraryLiteralPopulationDiagnostics(
             document.Population,
-            document.CandidateCount);
+            document.EvaluatedCandidateCount);
 
         foreach (PackageAssemblySemanticQueryCandidateOutcome.Failure failure
             in document.CandidateOutcomes

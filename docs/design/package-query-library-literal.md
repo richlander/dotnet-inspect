@@ -23,7 +23,8 @@ failures remain typed context inside the Document.
 These host-neutral values are serialization contracts. CLR collection choices
 such as `ImmutableArray<T>` may enforce construction discipline internally,
 but they do not add an `Immutable` concept to the cross-host schema. A
-serialized Document may use ordinary JSON arrays.
+serialized Document may use ordinary JSON arrays. Candidate outcomes and their
+reason unions carry explicit `kind` discriminators.
 
 ## Composition
 
@@ -31,20 +32,29 @@ The operation uses the existing owners in this order:
 
 1. Package source selection resolves an exact ID to its latest eligible listed
    version, or resolves at most the admitted prefix candidate bound.
-2. The authority-bearing population and its live
-   `PackageSourceOperationLease` enter the existing serial assembly-semantic
-   evaluator.
-3. Each matched candidate becomes one
+2. When the shared operation deadline remains available, the
+   authority-bearing population and its live `PackageSourceOperationLease`
+   enter the existing serial assembly-semantic evaluator.
+3. When population resolution exhausts that deadline, every admitted candidate
+   instead receives a typed `NotEvaluated` outcome and the inspection adapter
+   constructs the terminal Document without transferring the expired lease to
+   the semantic evaluator.
+4. Each matched candidate becomes one
    `PackageAssemblySemanticQueryResult` containing the exact package
    coordinate, selected library, Root reopening request, and complete typed
    occurrence evidence.
-4. The public inspection adapter returns one
+5. The public inspection adapter returns one
    `InspectionEnvelope<PackageAssemblySemanticQueryDocument>`.
 
 There is one semantic evaluator and one authoritative terminal Document. An
 optional `IPackageAssemblySemanticQueryNonterminalSink` may observe candidate
 outcomes while work is active. Sink observations are progress only; completion
 exists only in the returned Document.
+
+An exhausted operation deadline does not require a top-level Outcome. The
+Document remains valid because it retains the frozen population, typed source
+failure, incomplete completion, and one `NotEvaluated` outcome for every
+admitted candidate.
 
 The package-oriented Document does not expose the occurrence-oriented
 `PackageAssemblySemanticFindDocument` as its host contract. That earlier
@@ -107,6 +117,7 @@ The Document preserves:
 
 - source-population failures;
 - one typed outcome for every admitted candidate;
+- evaluated and not-evaluated candidate counts;
 - semantic miss and not-applicable outcomes separately;
 - acquisition, evaluation, work-limit, and cleanup failures;
 - matched-package count and complete occurrence count; and
@@ -125,6 +136,7 @@ Focused Release gates cover:
 - prefix bounds, ordering, and source completion;
 - operation-timeout population failure disclosure before semantic evaluator
   handoff;
+- serialized `notEvaluated` and `operationDeadline` discriminators;
 - one package Result for a candidate with multiple occurrences;
 - semantic miss, not applicable, acquisition failure, and a later match in one
   five-candidate population;

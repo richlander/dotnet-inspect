@@ -32,23 +32,47 @@ public static class PackageAssemblySemanticQueryInspection
             IPackageAssemblySemanticQueryNonterminalSink? nonterminalSink,
             CancellationToken cancellationToken = default)
     {
-        var bridge = nonterminalSink is null
-            ? null
-            : new SinkBridge(nonterminalSink);
-        PackageAssemblySemanticFindDocument evidence =
-            await PackageAssemblySemanticFindQuery.ExecuteToDocumentAsync(
+        using (sourceOperation)
+        {
+            PackageAssemblySemanticFindQuery.ValidateExecution(
                 request,
                 sourceOperation,
                 payloadAcquisition,
-                bridge,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken);
+            NuGetFetch.PackageSourceTimeout? deadline =
+                PackageAssemblySemanticQueryCompletion.OperationDeadline(
+                    request.Population);
+            if (deadline is not null)
+            {
+                return CreateEnvelope(
+                    new PackageAssemblySemanticQueryDocument(
+                        request.Population,
+                        deadline));
+            }
 
-        return new(
-            new PackageAssemblySemanticQueryDocument(evidence),
+            var bridge = nonterminalSink is null
+                ? null
+                : new SinkBridge(nonterminalSink);
+            PackageAssemblySemanticFindDocument evidence =
+                await PackageAssemblySemanticFindQuery.ExecuteToDocumentAsync(
+                    request,
+                    sourceOperation,
+                    payloadAcquisition,
+                    bridge,
+                    cancellationToken).ConfigureAwait(false);
+
+            return CreateEnvelope(
+                new PackageAssemblySemanticQueryDocument(evidence));
+        }
+    }
+
+    private static InspectionEnvelope<PackageAssemblySemanticQueryDocument>
+        CreateEnvelope(PackageAssemblySemanticQueryDocument document) =>
+        new(
+            document,
             new InspectionShare.NonProjectable(
                 "package-assembly-semantic-query/share",
                 "Package assembly-semantic Query requests do not yet have a canonical Workspace Share projection."));
-    }
 
     private sealed class SinkBridge(
         IPackageAssemblySemanticQueryNonterminalSink sink)

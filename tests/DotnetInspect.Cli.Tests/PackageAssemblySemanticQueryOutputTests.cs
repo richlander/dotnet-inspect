@@ -160,12 +160,22 @@ public sealed class PackageAssemblySemanticQueryOutputTests
     }
 
     [Fact]
-    public async Task OperationTimeoutPopulationStopsBeforeSemanticEvaluation()
+    public async Task OperationTimeoutDocumentStopsBeforeSuccessOutput()
     {
         TimeSpan timeout = TimeSpan.FromMilliseconds(50);
+        await using var fixture = new SemanticQueryFixture();
+        PackageSourceOperationLease operation = fixture.IssueOperation();
+        PackageAcquisitionPopulation admitted =
+            await operation.ResolvePinnedPopulationAsync(
+                new FixedAuthorization(fixture.Authorization),
+                [
+                    PackageSourceCoordinate.Create(
+                        "Contoso.Admitted",
+                        Version),
+                ]);
         var population = new PackageAcquisitionPopulation(
             requestedCandidates: 2,
-            candidates: [],
+            admitted.Candidates,
             failures:
             [
                 PackageAcquisitionPopulationFailure.ForSource(
@@ -181,17 +191,25 @@ public sealed class PackageAssemblySemanticQueryOutputTests
             ],
             PackageAcquisitionPopulationCompletionKind.SourceFailed);
 
-        bool stopped = false;
+        InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope =
+            await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                Request(population),
+                operation,
+                fixture.PayloadAcquisition,
+                TestContext.Current.CancellationToken);
+        PackageAssemblySemanticQueryDocument document = envelope.Content;
+        Assert.Equal(1, document.NotEvaluatedCount);
+        Assert.IsType<
+            PackageAssemblySemanticQueryCandidateOutcome.NotEvaluated>(
+                Assert.Single(document.CandidateOutcomes));
+        PackageQueryOptions options = Options();
         var result = await ConsoleCapture.RunAsync(() =>
-        {
-            stopped =
-                PackageQueryCommand.TryCompleteLibraryLiteralPopulation(
-                    population,
-                    out int exitCode);
-            return Task.FromResult(exitCode);
-        });
+            Task.FromResult(
+                PackageQueryCommand.CompleteLibraryLiteralExecution(
+                    options,
+                    options.LibraryLiteralPlan!,
+                    document)));
 
-        Assert.True(stopped);
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
