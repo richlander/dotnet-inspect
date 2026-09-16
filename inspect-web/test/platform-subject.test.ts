@@ -61,9 +61,9 @@ test("roles distinguish facade, implementation, private implementation and unsup
 test("exact source and version are identity, not the displayed name", () => {
   assert.notEqual(platformLibraryKey(row), platformLibraryKey({ ...row, pack: "aspnetcore.app" }));
   assert.notEqual(platformTargetKey(target), platformTargetKey({ ...target, version: "11.0.0" }));
-  assert.notEqual(spotlightResultIdentity({ kind: "platform-lib", assembly: row.assembly, pack: row.pack,
+  assert.notEqual(spotlightResultIdentity({ kind: "framework-lib", assembly: row.assembly, pack: row.pack,
     publicTypes: 100, tfm: target.tfm, version, ranges: [] }),
-  spotlightResultIdentity({ kind: "platform-lib", assembly: row.assembly, pack: row.pack,
+  spotlightResultIdentity({ kind: "framework-lib", assembly: row.assembly, pack: row.pack,
     publicTypes: 100, tfm: target.tfm, version: "11.0.0", ranges: [] }));
   const renamed = { ...row, file: "PhysicalPayload.dll" };
   assert.equal(platformAssemblyRequest(renamed), "System.Text.Json.dll");

@@ -35,6 +35,22 @@ settled Spotlight result. It consumes owner-issued Scope, Navigation,
 Platform, Workspace Definitions, host-publication, and source outcomes without
 redefining their operations or lifecycles.
 
+## Spotlight presentation boundary
+
+Spotlight does not offer Platform as a scope, component, or root destination.
+Installed framework assemblies may be presented as ordinary Library results,
+with `.NET` or `ASP.NET Core` source disclosure, and the Browser may use
+Platform-owned realization internally when such a Library is selected.
+Platform provenance does not create a Platform result.
+
+The Platform-specific projection and execution types described below were
+implemented as a staged managed capability before this product decision. They
+remain outside production Browser adoption and must not be connected by
+[#6686](https://github.com/richlander/dotnet-inspect/issues/6686) or
+[#7029](https://github.com/richlander/dotnet-inspect/issues/7029). The
+presentation boundary above is authoritative for user-visible Spotlight
+behavior.
+
 ## Demo
 
 Assume the active Workspace contains the curated Platform, ASP.NET Core, and

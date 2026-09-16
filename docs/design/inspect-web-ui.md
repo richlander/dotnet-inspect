@@ -95,7 +95,7 @@ independent cosmetic changes.
 | Subject navigation | Establish Package, Type, and Member now; add Library when product descriptors are ready |
 | Subject zone | Render complete full-label subject and inspector tablists when they fit; otherwise adapt either group to its current-label Chooser |
 | Workspace selection | Keep ordinary single-workspace use free of coordinate tabs; manage retained coordinates inside the Workspace application scope |
-| Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
+| Package coordinate | Render version and TFM selectors in Package content; framework libraries are Workspace content, not a Platform component |
 | Library inspection | Select all libraries or one library within Library |
 | Type headings | Use a compact exact-target heading in API, no duplicate local heading in full-area Source, and detailed context in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
@@ -125,6 +125,10 @@ semantics, and subject-driven inspector replacement. The previous reusable
 windowing control was retired by
 [#6277](https://github.com/richlander/dotnet-inspect/issues/6277) after the
 production adoption left it without a justified consumer.
+
+Spotlight exposes no Platform scope or root destination. Installed framework
+assemblies participate as ordinary Library results with source disclosure,
+preserving useful discovery without introducing a separate Platform component.
 
 The page-level action line keeps working-surface actions distinct from the
 Application menu: Source, Annotated Source, and Member Diff supply contextual

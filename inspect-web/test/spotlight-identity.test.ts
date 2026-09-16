@@ -2321,9 +2321,7 @@ test("Spotlight async work is receipt-gated and refreshes either mounted surface
   assert.match(
     appSource,
     /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen\) spotlight\.refresh\(\)/);
-  assert.match(
-    appSource,
-    /case "rtpack-suggest":\s*observeAsync\(openPlatformSubject\(\), "Opening Platform"\)/);
+  assert.doesNotMatch(appSource, /rtpack-suggest|data-sl-load-runtime/);
   assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
 });
 
@@ -3379,23 +3377,19 @@ test("package Metadata retries remain explicit rather than render-driven", () =>
   assert.doesNotMatch(autoLoad, /packageMetadataError/);
 });
 
-test("Platform Spotlight distinguishes resident content from core readiness", () => {
-  // The runtime scope moved out of `spotlightResults` into its own renderer when the
-  // scope dispatch became exhaustive, so this scans the function that now owns the two
-  // predicates rather than the one that used to.
+test("Spotlight searches framework Libraries without offering a Platform root", () => {
   const results =
-    appSource.match(/function runtimeSpotlightResults\(query: string\): SpotlightResult\[\] \{[\s\S]*?\n}\n/)?.[0]
+    appSource.match(/function frameworkLibrarySpotlightResults\(query: string\): SpotlightResult\[\] \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
-  assert.ok(results, "runtimeSpotlightResults was not found");
+  assert.ok(results, "frameworkLibrarySpotlightResults was not found");
   assert.match(
     results,
     /if \(platformSurfaceLoaded\(\)\) \{[\s\S]*spotlightTypeMatches\(query\)/);
-  assert.match(
-    results,
-    /const target = selectedPlatformTarget\(\);[\s\S]*kind: "platform", tfm: target\.tfm, version: target\.version/);
+  assert.match(results, /kind: "framework-lib"/);
+  assert.doesNotMatch(results, /kind: "platform"|rtpack-suggest/);
 });
 
-test("Platform Spotlight keeps loaded navigation in place and opens the catalog-first root", () => {
+test("Spotlight keeps loaded framework Library navigation in place", () => {
   const roster =
     appSource.match(/function platformLibraryRoster\(query: string\) \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
@@ -3418,9 +3412,8 @@ test("Platform Spotlight keeps loaded navigation in place and opens the catalog-
   assert.match(
     picker,
     /openPlatformLibrary\(\s*result\.assembly,\s*result\.pack,\s*\{ inPlace: result\.loaded === true, tfm: result\.tfm, version: result\.version \}\)/);
-  assert.match(
-    picker,
-    /case "rtpack-suggest":\s*observeAsync\(openPlatformSubject\(\), "Opening Platform"\)/);
+  assert.match(picker, /case "framework-lib":/);
+  assert.doesNotMatch(picker, /case "platform":|case "rtpack-suggest":/);
   assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
   assert.match(
     openLibrary,

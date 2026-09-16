@@ -2879,7 +2879,6 @@ const spotlight = createSpotlight({
   packageSearchError: () =>
     spotlightPackageSearchError(state.spotlightPackageSearch),
   packageCount: () => state.packages.length,
-  activeFramework: () => state.package?.activeFramework || "",
   render,
   focusAfterDismiss: () =>
     restoreContentFrameFocusAfterDismiss(
@@ -8840,25 +8839,12 @@ function persistRecentPackages() {
   }
 }
 
-// Blends the four targets into one ordered result list, honouring the active scope chip.
-// In "all" each group is capped so every target stays visible; a focused scope shows a
-// deeper single-target list. Loaded packages rank ahead of NuGet discovery hits, which
-// exclude anything already open.
-function runtimeSpotlightResults(query: string): SpotlightResult[] {
+function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
   const results: SpotlightResult[] = [];
-  const target = selectedPlatformTarget();
-  results.push(target
-    ? { kind: "platform", tfm: target.tfm, version: target.version }
-    : { kind: "rtpack-suggest" });
-  // Index-first: the platform library roster needs no pack download. Selecting
-  // "Platform" instantly lists the CoreCLR + ASP.NET Core libraries the static
-  // index knows for the active framework, filterable by name.
   const roster = platformLibraryRoster(query);
   for (const lib of roster.filter(row => row.hasImplementation).slice(0, 200)) {
-    results.push({ ...lib, kind: "platform-lib" });
+    results.push({ ...lib, kind: "framework-lib" });
   }
-  // Once a pack is resident, blend its type/member matches so drilled-in
-  // platform content stays searchable alongside the library roster.
   if (platformSurfaceLoaded()) {
     const typeSource = query ? spotlightTypeMatches(query) : [];
     for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
@@ -8870,21 +8856,17 @@ function runtimeSpotlightResults(query: string): SpotlightResult[] {
       }
     }
   }
-  // Only when the static index is unavailable do we fall back to the old
-  // download-first prompt, so the scope is never empty and inert.
   return results;
 }
 
 function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
   const spotlightScope = state.spotlightScope;
-  // Exhaustive scope dispatch. "all" blends the package, type and member scopes, so those four
+  // Exhaustive scope dispatch. "all" blends the package, type and member scopes, so those
   // arms share the composed body below instead of each owning a renderer. Adding an entry to the
   // spotlight scope catalog offers it to users immediately, so it must fail compilation here
   // until it declares which of these shapes it is.
   switch (spotlightScope) {
-    case "runtime":
-      return runtimeSpotlightResults(query);
     case "commands":
       // `spotlight.ts` answers the command scope from the command palette and never delegates
       // here. Reaching this arm means that interception was removed, which is a wiring failure
@@ -8942,9 +8924,9 @@ function spotlightResults(): SpotlightResult[] {
   if ((all || spotlightScope === "members") && query) {
     for (const match of spotlightMemberMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "member" });
   }
-  // Offer the runtime pack when the user is clearly hunting a platform type but it isn't
-  // loaded yet — one gesture makes BCL types (TextWriter, String…) searchable session-wide.
-  if (all) results.push(...runtimeSpotlightResults(query).slice(0, 5));
+  if (all) {
+    results.push(...frameworkLibrarySpotlightResults(query).slice(0, 5));
+  }
   return results;
 }
 
@@ -9238,13 +9220,7 @@ function pickSpotlightResult(result: SpotlightResult) {
     case "member":
       observeAsync(pickSpotlightMember(result), "Opening a Spotlight member");
       break;
-    case "platform":
-      observeAsync(openPlatformSubject(result.tfm, result.version), "Opening Platform");
-      break;
-    case "rtpack-suggest":
-      observeAsync(openPlatformSubject(), "Opening Platform");
-      break;
-    case "platform-lib":
+    case "framework-lib":
       observeAsync(
         openPlatformLibrary(
           result.assembly,
@@ -9252,7 +9228,6 @@ function pickSpotlightResult(result: SpotlightResult) {
           { inPlace: result.loaded === true, tfm: result.tfm, version: result.version }),
         "Opening a platform library");
       break;
-    case "rtpack-status": break;
     case "type":
       observeAsync(pickSpotlight(result.pkg, result.type.id), "Opening a Spotlight type");
       break;

@@ -45,7 +45,6 @@ async function renderSpotlightFooter(
       resetPackageSearch: () => {},
       packageSearchLoading: () => false,
       packageCount: () => 1,
-      activeFramework: () => "net10.0",
       render: () => {},
     });
     const app = document.querySelector<HTMLElement>("#app");

@@ -323,6 +323,13 @@ typing, paste, drag and drop of text, autofill where applicable, and input
 method composition. Pasting a package coordinate updates results immediately;
 it is not dependent on keyboard events that paste does not emit.
 
+Spotlight does not expose Platform as a scope, component, or root destination.
+Installed framework assemblies may appear as ordinary Library results under
+the `Libraries` group, with `.NET` or `ASP.NET Core` source disclosure. Their
+selection may use Platform-owned realization internally, but neither that
+provenance nor the existence of a resident runtime pack creates a user-facing
+Platform result.
+
 Spotlight's
 [destination-activation
 owner](inspect-web-spotlight-destination-activation.md) supplies each exact
@@ -535,6 +542,8 @@ outcomes.
 11. Open general and command-scoped Spotlight at the narrow supported width and
     confirm that every footer-guidance item, including `Ctrl P search`, remains
     visible within the modal.
+12. Confirm that Spotlight exposes no Platform scope or root result and that a
+    matching installed framework assembly appears only as a Library result.
 
 ### Local Open
 
