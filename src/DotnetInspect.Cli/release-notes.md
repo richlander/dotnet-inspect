@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Adds canonical query-free Workspace share packet format 2 with nullable
+  Workspace/Package focus, complete direct-Package committed view state,
+  dormant non-Package rows, schema-version-2 transposition, and unchanged
+  format-1 byte behavior. Query-bearing format-2 state remains visibly
+  unsupported until its vocabulary-binding owner lands (#7087).
 - **Breaking:** Corrects Type `find` match vocabulary so direct non-glob
   discoveries emit `Direct` in typed JSON and `direct` in rendered output
   instead of the misleading `Exact`. Matching remains lenient and one-to-many;
