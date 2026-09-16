@@ -354,6 +354,12 @@ outcome-level host gate without changing the harness-owned ReturnToSender
 compilation-closure evidence or the decompiler suite's separate gate presets
 and completeness receipts.
 
+`Inspector.Resources.Tests` is the thirty-first migrated adopter. Its required
+resource-contract CI command remains unfiltered. This path reuses the pinned
+outcome-level host gate without changing the suite's ownership-role attribute,
+stack-only snapshot view, borrow lifetime, callback, failure-propagation, or
+owner-release evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
