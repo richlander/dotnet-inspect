@@ -653,7 +653,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Theory]
     [InlineData(
         "DotnetInspect.Cli.Tests.NullablePatternTarget<string?>",
-        "Exact")]
+        "Direct")]
     [InlineData(
         "DotnetInspect.Cli.Tests.NullablePatternTargat<string?>",
         null)]

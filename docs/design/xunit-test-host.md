@@ -340,6 +340,13 @@ package and platform queries, source and implementation comparisons, managed
 operation bridge, home demos, static-site publication, or structured wire
 evidence.
 
+`MsdlProxy.Tests` is the twenty-ninth migrated adopter. Its required managed-API
+CI and developer commands remain unfiltered, while focused development uses MTP
+class and method filters. These paths reuse the pinned outcome-level host gate
+without changing the suite's MSDL symbol request validation, fixed upstream
+authority, response bounds, failure mapping, package-change evidence routing,
+or Function response-security evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
