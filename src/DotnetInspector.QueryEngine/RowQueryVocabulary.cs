@@ -76,7 +76,7 @@ public static class RowQueryValueOrder
     }
 }
 
-public sealed class RowQueryField<TRow>
+public sealed class RowQueryKey<TRow>
 {
     private readonly Func<
         RowQueryOperator,
@@ -86,8 +86,8 @@ public sealed class RowQueryField<TRow>
         RowQueryOrderDirection,
         IComparer<TRow>>? _orderComparerFactory;
 
-    private RowQueryField(
-        RowQueryFieldIdentity identity,
+    private RowQueryKey(
+        RowQueryKeyIdentity identity,
         string key,
         IReadOnlyList<RowQueryOperator> operators,
         Func<
@@ -105,7 +105,7 @@ public sealed class RowQueryField<TRow>
         _orderComparerFactory = orderComparerFactory;
     }
 
-    public RowQueryFieldIdentity Identity { get; }
+    public RowQueryKeyIdentity Identity { get; }
 
     public string Key { get; }
 
@@ -113,8 +113,8 @@ public sealed class RowQueryField<TRow>
 
     public bool SupportsOrdering => _orderComparerFactory is not null;
 
-    public static RowQueryField<TRow> Create<TValue>(
-        RowQueryFieldIdentity identity,
+    public static RowQueryKey<TRow> Create<TValue>(
+        RowQueryKeyIdentity identity,
         string key,
         IReadOnlyList<RowQueryOperator> operators,
         Func<TRow, RowQueryValue<TValue>> accessor,
@@ -143,7 +143,7 @@ public sealed class RowQueryField<TRow>
                 throw new ArgumentOutOfRangeException(
                     nameof(operators),
                     @operator,
-                    "A field declares an unsupported predicate operator.");
+                    "A key declares an unsupported predicate operator.");
             }
 
             if (!operatorSet.Add(@operator))
@@ -179,7 +179,7 @@ public sealed class RowQueryField<TRow>
             IComparer<RowQueryValue<TValue>> comparer =
                 orderComparerFactory!(direction)
                 ?? throw new InvalidOperationException(
-                    "A row-query field order factory returned no comparer.");
+                    "A row-query key order factory returned no comparer.");
             return Comparer<TRow>.Create(
                 (left, right) =>
                     comparer.Compare(
@@ -190,7 +190,7 @@ public sealed class RowQueryField<TRow>
         return new(
             identity,
             key,
-            SectionContractSnapshot.Own(operatorCopy),
+            QueryEngineSnapshot.Own(operatorCopy),
             Bind,
             orderComparerFactory is null
                 ? null
@@ -277,40 +277,40 @@ public sealed class RowQueryNamedOrderDefault<TRow>
     public RowQueryOrderDirection Direction { get; }
 }
 
-public sealed class RowQuerySchema<TRow>
+public sealed class RowQueryVocabulary<TRow>
 {
     private readonly IReadOnlyDictionary<
         string,
-        RowQueryField<TRow>> _fieldsByKey;
+        RowQueryKey<TRow>> _keysByKey;
     private readonly IReadOnlyDictionary<
         string,
         RowQueryNamedOrder<TRow>> _ordersByKey;
 
-    private RowQuerySchema(
-        RowQuerySchemaIdentity identity,
-        IReadOnlyList<RowQueryField<TRow>> fields,
+    private RowQueryVocabulary(
+        RowQueryVocabularyIdentity identity,
+        IReadOnlyList<RowQueryKey<TRow>> keys,
         IReadOnlyList<RowQueryNamedOrder<TRow>> namedOrders,
         RowQueryNamedOrderDefault<TRow>? defaultBaselineOrder,
         RowQueryNamedOrderDefault<TRow>? defaultTopRanking,
         IReadOnlyDictionary<
             string,
-            RowQueryField<TRow>> fieldsByKey,
+            RowQueryKey<TRow>> keysByKey,
         IReadOnlyDictionary<
             string,
             RowQueryNamedOrder<TRow>> ordersByKey)
     {
         Identity = identity;
-        Fields = fields;
+        Keys = keys;
         NamedOrders = namedOrders;
         DefaultBaselineOrder = defaultBaselineOrder;
         DefaultTopRanking = defaultTopRanking;
-        _fieldsByKey = fieldsByKey;
+        _keysByKey = keysByKey;
         _ordersByKey = ordersByKey;
     }
 
-    public RowQuerySchemaIdentity Identity { get; }
+    public RowQueryVocabularyIdentity Identity { get; }
 
-    public IReadOnlyList<RowQueryField<TRow>> Fields { get; }
+    public IReadOnlyList<RowQueryKey<TRow>> Keys { get; }
 
     public IReadOnlyList<RowQueryNamedOrder<TRow>> NamedOrders { get; }
 
@@ -318,45 +318,45 @@ public sealed class RowQuerySchema<TRow>
 
     public RowQueryNamedOrderDefault<TRow>? DefaultTopRanking { get; }
 
-    public static RowQuerySchema<TRow> Create(
-        RowQuerySchemaIdentity identity,
-        IReadOnlyList<RowQueryField<TRow>> fields,
+    public static RowQueryVocabulary<TRow> Create(
+        RowQueryVocabularyIdentity identity,
+        IReadOnlyList<RowQueryKey<TRow>> keys,
         IReadOnlyList<RowQueryNamedOrder<TRow>> namedOrders,
         RowQueryNamedOrderDefault<TRow>? defaultBaselineOrder = null,
         RowQueryNamedOrderDefault<TRow>? defaultTopRanking = null)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        ArgumentNullException.ThrowIfNull(fields);
+        ArgumentNullException.ThrowIfNull(keys);
         ArgumentNullException.ThrowIfNull(namedOrders);
 
-        var fieldCopy = new RowQueryField<TRow>[fields.Count];
-        var fieldsByKey =
-            new Dictionary<string, RowQueryField<TRow>>(
+        var keyCopy = new RowQueryKey<TRow>[keys.Count];
+        var keysByKey =
+            new Dictionary<string, RowQueryKey<TRow>>(
                 StringComparer.Ordinal);
-        var fieldIdentities =
-            new HashSet<RowQueryFieldIdentity>();
-        for (int index = 0; index < fields.Count; index++)
+        var keyIdentities =
+            new HashSet<RowQueryKeyIdentity>();
+        for (int index = 0; index < keys.Count; index++)
         {
-            RowQueryField<TRow> field =
-                fields[index]
+            RowQueryKey<TRow> key =
+                keys[index]
                 ?? throw new ArgumentNullException(
-                    nameof(fields),
-                    $"Field {index + 1} is null.");
-            if (!fieldsByKey.TryAdd(field.Key, field))
+                    nameof(keys),
+                    $"Key {index + 1} is null.");
+            if (!keysByKey.TryAdd(key.Key, key))
             {
                 throw new ArgumentException(
-                    $"Field key {field.Key} is duplicated.",
-                    nameof(fields));
+                    $"Query key {key.Key} is duplicated.",
+                    nameof(keys));
             }
 
-            if (!fieldIdentities.Add(field.Identity))
+            if (!keyIdentities.Add(key.Identity))
             {
                 throw new ArgumentException(
-                    "A field identity is duplicated.",
-                    nameof(fields));
+                    "A key identity is duplicated.",
+                    nameof(keys));
             }
 
-            fieldCopy[index] = field;
+            keyCopy[index] = key;
         }
 
         var orderCopy =
@@ -403,19 +403,19 @@ public sealed class RowQuerySchema<TRow>
 
         return new(
             identity,
-            SectionContractSnapshot.Own(fieldCopy),
-            SectionContractSnapshot.Own(orderCopy),
+            QueryEngineSnapshot.Own(keyCopy),
+            QueryEngineSnapshot.Own(orderCopy),
             defaultBaselineOrder,
             defaultTopRanking,
-            fieldsByKey,
+            keysByKey,
             ordersByKey);
     }
 
-    internal bool TryGetField(
+    internal bool TryGetKey(
         string key,
         [NotNullWhen(true)]
-        out RowQueryField<TRow>? field) =>
-        _fieldsByKey.TryGetValue(key, out field);
+        out RowQueryKey<TRow>? queryKey) =>
+        _keysByKey.TryGetValue(key, out queryKey);
 
     internal bool TryGetNamedOrder(
         string key,
@@ -440,7 +440,7 @@ public sealed class RowQuerySchema<TRow>
             || !ReferenceEquals(declared, defaultOrder.Order))
         {
             throw new ArgumentException(
-                "A default order must be declared by the schema.",
+                "A default order must be declared by the vocabulary.",
                 parameterName);
         }
 

@@ -2,7 +2,8 @@
 
 ## Status
 
-**Implemented.** `DotnetInspector.PortableQueries` carries the codec, and
+**Implemented.** `DotnetInspector.QueryEngine` carries the codec under the
+existing `DotnetInspector.PortableQueries` namespace, and
 `DotnetInspector.PortableQueries.Tests` runs every vector in
 [`models/portable-query-payload/`](models/portable-query-payload/vectors.json)
 against it in CI. The vectors come in four kinds — an intent and the bytes it
