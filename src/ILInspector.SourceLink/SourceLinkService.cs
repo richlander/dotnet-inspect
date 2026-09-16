@@ -51,7 +51,7 @@ public sealed class SourceLinkReadLimits
 /// <summary>
 /// High-level SourceLink service over Metadata's PE/PDB extraction APIs.
 /// </summary>
-public sealed class SourceLinkService : IDisposable
+public sealed partial class SourceLinkService : IDisposable
 {
     static readonly UTF8Encoding StrictUtf8 =
         new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
@@ -313,11 +313,13 @@ public sealed class SourceLinkService : IDisposable
     public static SourceLinkService OpenMetadataOnly(
         ResolvedAssemblyReference assembly,
         Action<string>? log,
-        ISourceLinkIndexCache? cache)
+        ISourceLinkIndexCache? cache,
+        SourceLinkReadLimits? readLimits = null)
         => new(
             PdbContext.OpenMetadataOnly(assembly, log),
             cache,
-            log);
+            log,
+            readLimits);
 
     public static SourceLinkService Open(
         ResolvedAssemblyReference assembly,
@@ -417,6 +419,22 @@ public sealed class SourceLinkService : IDisposable
         string? symbolServer = null)
     {
         _context.LoadPdbFromFile(pdbPath, location, symbolServer);
+        RefreshPdbState();
+    }
+
+    /// <summary>
+    /// Consumes supplied PDB content through Metadata's identity-checked loader.
+    /// Source mappings use the resulting PDB state and this service's read limits.
+    /// </summary>
+    public void LoadPdbFromStream(
+        Stream pdbStream,
+        string? pdbLocation = null,
+        string? symbolServer = null,
+        string? portablePdbPath = null,
+        bool throwOnReadFailure = false)
+    {
+        _context.LoadPdbFromStream(
+            pdbStream, pdbLocation, symbolServer, portablePdbPath, throwOnReadFailure);
         RefreshPdbState();
     }
 

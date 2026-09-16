@@ -5959,6 +5959,13 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderLibraryOverview,
     /renderOverviewSurface\(\{[\s\S]*subject: "library",[\s\S]*displayName: library\.name,[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*details: \[library\.asset \|\| "Managed library", libraryIdentity\(library\)\]/);
   assert.doesNotMatch(renderLibraryOverview, /coordinateFieldsHtml:/);
+  assert.match(renderLibraryOverview, /currentLibraryApiInspection\(\)/);
+  assert.match(renderLibraryOverview,
+    /totalTypes: inventory\.publicTypeCount,[\s\S]*totalMembers: inventory\.publicMemberCount/);
+  assert.match(renderLibraryOverview,
+    /\[\.\.\.inventory\.typeKinds\][\s\S]*\[\.\.\.inventory\.namespaces\]/);
+  assert.doesNotMatch(renderLibraryOverview,
+    /currentPackage\(\)\.types|library\.types|library\.members|typeKind\(/);
   assert.match(stylesSource,
     /\.detail-scroll\.overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
 });

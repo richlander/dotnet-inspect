@@ -2203,37 +2203,6 @@ public class PackageCommand
         return false;
     }
 
-    private static readonly string[] PackageInfoFieldNames =
-    [
-        "Authors",
-        "Built",
-        "Content",
-        "Deprecated Note",
-        "Framework Dependent",
-        "Highest TFM",
-        "Libraries",
-        "License",
-        "License URL",
-        "Owners",
-        "Published",
-        "Readme",
-        "Repository",
-        "Repository Commit",
-        "Repository Type",
-        "RID-Specific Pointer",
-        "Runtime Identifiers",
-        "Runtime Target RID",
-        "Signed",
-        "Size",
-        "Source",
-        "TFM Count",
-        "Tool Commands",
-        "Type",
-        "Verified",
-        "Version",
-        "Vulnerabilities"
-    ];
-
     private static readonly string[] MultiPackageInfoColumnNames =
     [
         "Package",
@@ -2552,7 +2521,9 @@ public class PackageCommand
         string[]? patterns)
         => patterns is not { Length: > 0 }
             ? null
-            : ResolveProjectionNames(PackageInfoFieldNames, patterns);
+            : ResolveProjectionNames(
+                InspectionResultView.PackageInfoFieldNames,
+                patterns);
 
     private static string[]? ResolvePackageFieldSectionFields(
         string section,
@@ -2580,7 +2551,7 @@ public class PackageCommand
         => section.Equals(
             PackageSections.PackageInfo,
             StringComparison.OrdinalIgnoreCase)
-            ? PackageInfoFieldNames
+            ? InspectionResultView.PackageInfoFieldNames
             : SigningSection.FieldNames;
 
     private static string[] ResolveProjectionNames(
@@ -2623,7 +2594,10 @@ public class PackageCommand
             var section = schema.GetSection(name);
             if (string.Equals(name, PackageSections.PackageInfo, StringComparison.OrdinalIgnoreCase))
             {
-                result.Add(name, "field", PackageInfoFieldNames);
+                result.Add(
+                    name,
+                    "field",
+                    [.. InspectionResultView.PackageInfoFieldNames]);
             }
             else if (string.Equals(name, PackageSections.Signals, StringComparison.OrdinalIgnoreCase))
             {
@@ -3173,56 +3147,22 @@ public class PackageCommand
         if (kind != ShapeProjectionKind.Value)
             return [];
 
-        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
-        if (string.IsNullOrWhiteSpace(field))
+        var selector = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(selector))
         {
             CommandError.Write("--value for Package Info requires --fields <name>.");
             return [];
         }
 
-        var text = new PackageInspectionText(result);
-        string? signed = GetPackageSignedValue(result);
+        if (ResolvePackageInfoFields([selector]) is not [var field])
+            return [];
 
-        (string? Raw, string? Contained) value = field.ToLowerInvariant() switch
-        {
-            "version" => (result.Version, text.Version.ToString()),
-            "readme" => (result.PackageReadmeFile, text.PackageReadmeFile?.ToString()),
-            "repository" => (result.Repository, text.Repository?.ToString()),
-            "repository commit" or "repository_commit" => (
-                result.RepositoryCommit,
-                text.RepositoryCommit?.ToString()),
-            "repository type" or "repository_type" => (
-                result.RepositoryType,
-                text.RepositoryType?.ToString()),
-            "license" => (result.License, text.License?.ToString()),
-            "license url" or "license_url" => (result.LicenseUrl, text.LicenseUrl?.ToString()),
-            "source" => (result.Source, text.Source?.ToString()),
-            "type" => (
-                result.PackageTypes is { Count: > 0 } rawTypes
-                    ? string.Join(", ", rawTypes)
-                    : null,
-                text.PackageTypes is { Count: > 0 } containedTypes
-                    ? InertString.Join(", ", TextPolicy.Field, containedTypes).ToString()
-                    : null),
-            "signed" => (signed, signed),
-            "size" => (
-                result.PackageSize?.ToString(CultureInfo.InvariantCulture),
-                result.PackageSize?.ToString(CultureInfo.InvariantCulture)),
-            _ => (null, null)
-        };
-
-        return string.IsNullOrWhiteSpace(value.Raw)
+        string? value =
+            new InspectionResultView(result).ResolvePackageInfoField(field);
+        return string.IsNullOrWhiteSpace(value)
             ? []
-            : [new ShapeProjectionRow(1, section, value.Contained!, Label: field)];
+            : [new ShapeProjectionRow(1, section, value, Label: field)];
     }
-
-    internal static string? GetPackageSignedValue(InspectionResult result)
-        => result.Signed switch
-        {
-            true => "Verified",
-            false => "Unsigned",
-            null => null,
-        };
 
     private static bool ValidatePathMatchMode(InspectionOptions options)
     {
