@@ -210,6 +210,10 @@ narrower:
   definition shape, and in-range declaring-type generic parameters. An
   out-of-range declaring-type generic parameter and every method generic
   parameter are unavailable because no property declaration can bind them.
+  Array shapes are recursively admitted only when C# type syntax preserves
+  their complete identity: vectors remain supported, multidimensional arrays
+  require rank two or greater, and retained sizes or lower bounds are
+  unavailable because a C# property type cannot spell them.
   Property and accessor signatures must use ordinary non-generic headers.
   Native signed and unsigned integer primitive codes are retained as `nint`
   and `nuint`. Metadata retains correspondence as an explicit accessor fact;
@@ -221,6 +225,9 @@ narrower:
   of each accessor's declaration flags, accepts only property/accessor
   accessibility and declaration modifier combinations supported by C#, and
   requires every represented accessor to be affirmatively non-explicit.
+  Property modifier admission also preserves the declaring type's
+  abstract/sealed/static constraints and rejects private virtual, abstract, or
+  override declarations.
   MethodDef `Static` must agree with the accessor signature's instance bit,
   which must in turn agree with the PropertyDef signature. A `required`
   property must be an instance member of a class or struct, must have a setter,

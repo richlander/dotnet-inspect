@@ -1753,9 +1753,12 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
     public static ApiTypeShape PrimitiveType(ApiPrimitiveType primitive) =>
         new(ApiTypeShapeKind.Primitive, primitive: primitive);
 
+    public static ApiTypeShape Named(ApiTypeReferenceIdentity definition) =>
+        Named(definition, isValueType: null);
+
     public static ApiTypeShape Named(
         ApiTypeReferenceIdentity definition,
-        bool? isValueType = null) =>
+        bool? isValueType) =>
         new(
             ApiTypeShapeKind.Named,
             definition: definition,
@@ -1763,8 +1766,16 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
 
     public static ApiTypeShape GenericInstance(
         ApiTypeReferenceIdentity definition,
+        ImmutableArray<ApiTypeShape> typeArguments) =>
+        GenericInstance(
+            definition,
+            typeArguments,
+            isValueType: null);
+
+    public static ApiTypeShape GenericInstance(
+        ApiTypeReferenceIdentity definition,
         ImmutableArray<ApiTypeShape> typeArguments,
-        bool? isValueType = null) =>
+        bool? isValueType) =>
         new(
             ApiTypeShapeKind.GenericInstance,
             definition: definition,

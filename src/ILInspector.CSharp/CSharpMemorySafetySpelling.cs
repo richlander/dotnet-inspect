@@ -216,6 +216,12 @@ internal static class CSharpMemorySafetySpelling
             {
                 return Refuse("a property cannot have a void return type.");
             }
+            if (!PropertyTypeShapeIsRepresentable(
+                    propertyModel.ReturnTypeShape))
+            {
+                return Refuse(
+                    "the property type shape is not representable in C#.");
+            }
             if (propertyModel.Accessors is not { Count: > 0 } accessors)
                 return Refuse("a complete structured property accessor shape is unavailable.");
             if (accessors.Any(
@@ -450,6 +456,13 @@ internal static class CSharpMemorySafetySpelling
     {
         if (type.Kind is not ("class" or "struct" or "interface"))
             return false;
+        if (member.Accessibility == "private"
+            && (member.IsVirtual
+                || member.IsAbstract
+                || member.IsOverride))
+        {
+            return false;
+        }
 
         if (member.IsStatic)
         {
@@ -479,8 +492,30 @@ internal static class CSharpMemorySafetySpelling
                 && member.IsAbstract
                 && !member.IsOverride
                 && !member.IsSealed,
-            _ => true,
+            _ =>
+                !(type.IsStatic || type.IsAbstract && type.IsSealed)
+                && (!member.IsAbstract || type.IsAbstract)
+                && (!type.IsSealed
+                    || !member.IsVirtual
+                    || member.IsOverride),
         };
+    }
+
+    static bool PropertyTypeShapeIsRepresentable(ApiTypeShape shape)
+    {
+        if (shape.Kind == ApiTypeShapeKind.Array
+            && (shape.ArrayRank < 2
+                || !shape.ArraySizes.IsEmpty
+                || !shape.ArrayLowerBounds.IsEmpty))
+        {
+            return false;
+        }
+        if (shape.ElementType is { } element
+            && !PropertyTypeShapeIsRepresentable(element))
+        {
+            return false;
+        }
+        return shape.TypeArguments.All(PropertyTypeShapeIsRepresentable);
     }
 
     static bool RequiredPropertyIsRepresentable(

@@ -359,6 +359,7 @@ public sealed class CSharpMemorySafetySpellingTests
         ApiType type = Type(
             MemorySafetyRulesState.Updated,
             kind: typeKind);
+        type.IsAbstract = typeKind == "interface" || isAbstract;
         ApiMember property = Property(
             "Value",
             MemorySafetyRulesState.Updated,
@@ -580,6 +581,90 @@ public sealed class CSharpMemorySafetySpellingTests
 
         Assert.Contains(
             "void return type",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsRankOneArrayPropertyType()
+    {
+        ApiTypeShape shape = ApiTypeShape.Array(
+            ApiTypeShape.PrimitiveType(ApiPrimitiveType.Int32),
+            rank: 1);
+
+        AssertUnrepresentablePropertyTypeShape("int[*]", shape);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsBoundedArrayPropertyType()
+    {
+        ApiTypeShape shape = ApiTypeShape.Array(
+            ApiTypeShape.PrimitiveType(ApiPrimitiveType.Int32),
+            rank: 2,
+            arraySizes: [3, 4],
+            arrayLowerBounds: [1, 2]);
+
+        AssertUnrepresentablePropertyTypeShape("int[,]", shape);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsNestedBoundedArrayPropertyType()
+    {
+        ApiTypeShape shape = ApiTypeShape.SzArray(
+            ApiTypeShape.Array(
+                ApiTypeShape.PrimitiveType(ApiPrimitiveType.Int32),
+                rank: 2,
+                arraySizes: [3, 4],
+                arrayLowerBounds: [1, 2]));
+
+        AssertUnrepresentablePropertyTypeShape("int[,][]", shape);
+    }
+
+    [Theory]
+    [InlineData("sealed-virtual")]
+    [InlineData("concrete-abstract")]
+    [InlineData("static-class-instance")]
+    [InlineData("private-virtual")]
+    public void SingleDeclarationOutcomeRejectsDeclaringTypeModifierConflicts(
+        string scenario)
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [("get", ContractKind.None, MemorySafetyPointerEvidence.Absent)]);
+
+        switch (scenario)
+        {
+            case "sealed-virtual":
+                type.IsSealed = true;
+                property.IsVirtual = true;
+                break;
+            case "concrete-abstract":
+                property.IsVirtual = true;
+                property.IsAbstract = true;
+                break;
+            case "static-class-instance":
+                type.IsAbstract = true;
+                type.IsSealed = true;
+                break;
+            case "private-virtual":
+                property.Accessibility = "private";
+                property.IsVirtual = true;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(scenario));
+        }
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "declaration modifiers",
             notRendered.Diagnostic.Message,
             StringComparison.OrdinalIgnoreCase);
     }
@@ -2794,6 +2879,31 @@ public sealed class CSharpMemorySafetySpellingTests
             _ => throw new ArgumentOutOfRangeException(nameof(contract)),
         };
         return new ApiMemberMemorySafetyFacts(moduleId, callerContract, pointer);
+    }
+
+    static void AssertUnrepresentablePropertyTypeShape(
+        string returnType,
+        ApiTypeShape shape)
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [("get", ContractKind.None, MemorySafetyPointerEvidence.Absent)]);
+        property.SignatureModel!.ReturnType = returnType;
+        property.SignatureModel.ReturnTypeShape = shape;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "property type shape",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     static bool HasWord(string text, string word)
