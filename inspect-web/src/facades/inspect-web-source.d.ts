@@ -1,5 +1,6 @@
+declare const inertStringBrand: unique symbol;
 export type InertString = string & {
-    readonly __inertStringBrand: unique symbol;
+    readonly [inertStringBrand]: "InertString";
 };
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
@@ -288,3 +289,4 @@ export declare function queryMethodBodyComparison(operationId: string, requestJs
 export declare function queryMethodBodyComparisonTargets(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserMethodBodyTargetsResult>;
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryTypeSource(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserTypeSourceResult>;
+export {};
