@@ -7,6 +7,11 @@
   same report as **Package Activity** while retaining the existing
   `package-changes` Worker operation, bridge route, wire contracts, and report
   semantics (#7175).
+- **Breaking:** Corrects Type `find` match vocabulary so direct non-glob
+  discoveries emit `Direct` in typed JSON and `direct` in rendered output
+  instead of the misleading `Exact`. Matching remains lenient and one-to-many;
+  member discovery retains its separately owned `Exact`/`Glob` vocabulary
+  (#7173).
 - Records Package Source-issued portable producer tokens in fresh package Root
   coordinates, enabling configured HTTP and local Roots to round-trip through
   current destination authorization while preserving existing content and
