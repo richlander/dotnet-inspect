@@ -181,9 +181,16 @@ another.
 
 `DecompilerExceptionFactAdoptionTests` is the Release gate for exact body and
 clause association, Metadata catch order, runtime cleanup identity, closed
-failure handling, visible refusal, and raw compatibility. It does not verify
-the later protected-region, classic-async correspondence, or return-timing
-consumer migrations.
+failure handling, visible refusal, and raw compatibility.
+`ProtectedRegionControlFlowTests` gates the next consumer: production
+try/catch `Leave` transfers use regions actually left by `NormalTransferAt`;
+the current projection requires exact structured associations, with the
+bounded predicate limited to associations below the candidate boundary.
+Missing correlation and same-range foreign-body identity decline visibly. Its
+synthetic cases preserve the explicit Layer 0 compatibility path.
+`ProtectedContinueRecoveryTests` gates the production `ForLoopPass` adoption
+outcome. These gates do not verify the later classic-async correspondence or
+return-timing consumer migrations.
 
 ### EH normal-continuation return timing
 
