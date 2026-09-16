@@ -115,6 +115,25 @@ public static class PortableQueryModel
         return bounds.OrderBy(bound => bound.Dimension, ScalarOrder);
     }
 
+    /// <summary>
+    /// Puts order operations in the model's semantic order: the baseline first,
+    /// then ranking operations by ascending stage index.
+    /// </summary>
+    /// <remarks>
+    /// The set has no meaningful outer sequence, because every operation carries
+    /// its own role. A caller's sequence is therefore not a position anyone else
+    /// can reproduce, so a failure located by it would move when the same intent
+    /// arrived through a codec — which is why both the codec and the resolver
+    /// read this order rather than the sequence they were handed.
+    /// </remarks>
+    public static IEnumerable<PortableQueryOrderOperation> InSemanticOrder(
+        IEnumerable<PortableQueryOrderOperation> order)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+        return order.OrderBy(operation =>
+            operation.Role.IsBaseline ? -1 : operation.Role.StageIndex);
+    }
+
     /// <summary>Spells one operator identity.</summary>
     public static string TextOf(PortableQueryOperator value) => value switch
     {

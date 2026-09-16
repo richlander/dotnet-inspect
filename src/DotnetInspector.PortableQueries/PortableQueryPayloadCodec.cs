@@ -300,10 +300,7 @@ public static class PortableQueryPayloadCodec
             Property(OrderProperty);
             WriteArray(
                 builder,
-                intent.Order.OrderBy(
-                    operation => operation.Role.IsBaseline
-                        ? -1
-                        : operation.Role.StageIndex),
+                PortableQueryModel.InSemanticOrder(intent.Order),
                 static (target, operation) =>
                 {
                     target.Append('[');

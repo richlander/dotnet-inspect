@@ -106,6 +106,12 @@ public static class PortableQueryResolver
     {
         private readonly List<PortableQueryResolvedTerm<TPredicate>> _terms = [];
 
+        // The order part has no caller-meaningful sequence, so a location in it
+        // is a position in the model's semantic order. Reported any other way, a
+        // failure would move when the same intent arrived through a codec.
+        private readonly IReadOnlyList<PortableQueryOrderOperation> _order =
+            [.. PortableQueryModel.InSemanticOrder(intent.Order)];
+
         public PortableQueryResolution<TPlan> Run(CancellationToken cancellationToken)
         {
             PortableQueryFailure? failure =
@@ -171,6 +177,13 @@ public static class PortableQueryResolver
                     return Failure(PortableQueryFailureReason.TermsIncompatible, at, term.Key);
                 }
 
+                // The term bound, so its family membership stands whatever
+                // happens to its predicate next. Recording it after the
+                // duplicate check would lose it exactly when a collapse hides
+                // one member of an exclusive family behind an alias, and the
+                // contradiction that member contradicts would then resolve.
+                if (key.Family is { } declared) families[declared] = key.FamilyKind;
+
                 if (!predicates.Add(binding.PredicateIdentity))
                 {
                     if (!vocabulary.CollapsesDuplicateBindings)
@@ -178,7 +191,6 @@ public static class PortableQueryResolver
                     continue;
                 }
 
-                if (key.Family is { } declared) families[declared] = key.FamilyKind;
                 _terms.Add(new PortableQueryResolvedTerm<TPredicate>(
                     term,
                     binding.PredicateIdentity,
@@ -309,14 +321,14 @@ public static class PortableQueryResolver
 
         private PortableQueryOrderOperation? Baseline()
         {
-            foreach (PortableQueryOrderOperation operation in intent.Order)
+            foreach (PortableQueryOrderOperation operation in _order)
                 if (operation.Role.IsBaseline) return operation;
             return null;
         }
 
         private PortableQueryOrderOperation? RankingFor(int stageIndex)
         {
-            foreach (PortableQueryOrderOperation operation in intent.Order)
+            foreach (PortableQueryOrderOperation operation in _order)
             {
                 if (!operation.Role.IsBaseline && operation.Role.StageIndex == stageIndex)
                     return operation;
@@ -327,8 +339,8 @@ public static class PortableQueryResolver
 
         private int OperationIndex(PortableQueryOrderOperation operation)
         {
-            for (int index = 0; index < intent.Order.Count; index++)
-                if (ReferenceEquals(intent.Order[index], operation)) return index;
+            for (int index = 0; index < _order.Count; index++)
+                if (ReferenceEquals(_order[index], operation)) return index;
             return 0;
         }
 

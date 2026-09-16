@@ -56,6 +56,18 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
     /// <summary>A key in an exclusive family.</summary>
     public const string DependenciesKey = "dependencies";
 
+    /// <summary>
+    /// A key outside the exclusive family whose binder lands on the same
+    /// predicate one of that family's terms does. Two distinct terms, one
+    /// predicate, and only one of them carrying the family.
+    /// </summary>
+    /// <remarks>
+    /// It sorts <em>before</em> <see cref="DependenciesKey"/>, which is the
+    /// whole point: terms resolve in semantic order, so the alias binds first
+    /// and the family member is the one whose predicate collapses.
+    /// </remarks>
+    public const string DependenciesAliasKey = "alias-dependencies";
+
     /// <summary>A key whose presence narrows the candidate dimension's range.</summary>
     public const string ContentKey = "content";
 
@@ -119,6 +131,14 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
             {
                 DeclaredFamily = "dependency",
                 DeclaredFamilyKind = PortableQueryFamilyKind.Exclusive,
+            },
+            DependenciesAliasKey => new TestKey(
+                DependenciesAliasKey,
+                [PortableQueryOperator.Equal],
+                value => value is "none" or "any" ? value : null)
+            {
+                // Its own key, and no family — but the same predicate.
+                PredicateKey = DependenciesKey,
             },
             ContentKey => new TestKey(
                 ContentKey,
@@ -186,6 +206,9 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
 
         public PortableQueryFamilyKind DeclaredFamilyKind { get; init; }
 
+        /// <summary>The key this one's predicates are named for, if not itself.</summary>
+        public string? PredicateKey { get; init; }
+
         public override string Key => key;
 
         public override string? Family => DeclaredFamily;
@@ -203,8 +226,8 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
             return bound is null
                 ? PortableQueryBinding<TestPredicate>.Rejected
                 : PortableQueryBinding<TestPredicate>.Bound(
-                    $"{key}:{bound}",
-                    new TestPredicate(key, bound));
+                    $"{PredicateKey ?? key}:{bound}",
+                    new TestPredicate(PredicateKey ?? key, bound));
         }
     }
 

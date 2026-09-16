@@ -449,6 +449,65 @@ public sealed class PortableQueryResolutionGateTests
                 Term(TestVocabulary.DependenciesKey, "any"),
             ])).Failure;
         Assert.Equal(PortableQueryFailureReason.TermsIncompatible, both.Reason);
+
+        // A collapsed duplicate still bound, so its family membership stands.
+        // The alias sorts before the family key, so it binds first and the
+        // family member is the term whose predicate collapses. The
+        // contradiction that member contradicts must still be refused, rather
+        // than resolving because the collapse hid the membership.
+        PortableQueryFailure behindAlias = Resolve(
+            collapsing,
+            Intent(terms:
+            [
+                Term(TestVocabulary.DependenciesAliasKey, "any"),
+                Term(TestVocabulary.DependenciesKey, "any"),
+                Term(TestVocabulary.DependenciesKey, "none"),
+            ])).Failure;
+        Assert.Equal(PortableQueryFailureReason.TermsIncompatible, behindAlias.Reason);
+        Assert.Equal(TestVocabulary.DependenciesKey, behindAlias.Offender);
+    }
+
+    /// <summary>
+    /// A failure is the same failure whichever way the intent reached the
+    /// resolver: built directly, or encoded and decoded first.
+    /// </summary>
+    /// <remarks>
+    /// The order part has no caller-meaningful sequence — every operation names
+    /// its own role — so a location in it must be a position in the model's
+    /// semantic order. Reported as a caller position it would move across a
+    /// round trip, and two hosts holding one query would disagree about where
+    /// it failed while agreeing on why.
+    /// </remarks>
+    [Fact]
+    public void FailuresSurviveCanonicalReplay()
+    {
+        var vocabulary = new TestVocabulary { AdmitsRankingStages = true };
+
+        // Built with the ranking first, which canonical form puts second.
+        PortableQueryIntent built = Intent(
+            stages: [PortableQueryStage.Top(5)],
+            order:
+            [
+                Named(PortableQueryOrderRole.ForStage(0), TestVocabulary.RankingOrder),
+                Named(PortableQueryOrderRole.Baseline, "gone"),
+            ]);
+
+        string payload = PortableQueryPayloadCodec.Encode(
+            built,
+            TestContext.Current.CancellationToken);
+        PortableQueryIntent replayed = PortableQueryPayloadCodec.Decode(
+            payload,
+            TestContext.Current.CancellationToken);
+
+        // Same query by the identity rule, so the same failure in every part.
+        Assert.Equal(
+            payload,
+            PortableQueryPayloadCodec.Encode(replayed, TestContext.Current.CancellationToken));
+        Assert.Equal(Resolve(vocabulary, built).Failure, Resolve(vocabulary, replayed).Failure);
+
+        // And the location is the semantic position: the baseline is first
+        // however it was built.
+        Assert.Equal(0, Resolve(vocabulary, built).Failure.Location.Index);
     }
 
     /// <summary>
