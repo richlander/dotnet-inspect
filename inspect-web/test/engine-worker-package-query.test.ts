@@ -39,7 +39,6 @@ import {
   type OperationSession,
 } from "../src/operation-authority.ts";
 import {
-  createAssemblyQueryRequest,
   createQueryRequest,
   type QueryRequest,
 } from "../src/package-query.ts";
@@ -542,7 +541,6 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
         additionalMatchCredit: args[1],
       };
     },
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery: (...args) => {
       runs.push(args);
       emit(args[7], progressEvent);
@@ -677,7 +675,6 @@ test("Package Query Worker accepts escaped owner-valid manifest callbacks", asyn
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery(...args) {
       emitSerialized(args[7], serialized);
       return Promise.resolve(inspected([
@@ -718,7 +715,6 @@ test("Package Query Worker rejects callbacks above the encoded wire bound", asyn
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery(...args) {
       emitSerialized(args[7], " ".repeat(8 * 1_024 * 1_024));
       return Promise.resolve(succeeded());
@@ -751,7 +747,6 @@ test("Package Query binding preserves caller identity and expected diagnostics",
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery: (...args) => {
       runs.push(args);
       return Promise.resolve(failed(
@@ -797,7 +792,6 @@ test("Package Query binding preserves the inspection envelope", async () => {
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery: () => Promise.resolve(expected),
   };
   const harness = createHarness(facade);
@@ -823,61 +817,6 @@ test("Package Query binding preserves the inspection envelope", async () => {
   harness.host.dispose();
 });
 
-test("Package Query Worker adapter projects assembly requests and keyed cancellation", async () => {
-  const terminal = deferred<BrowserPackageQueryResult>();
-  const runs: unknown[][] = [];
-  const cancellations: unknown[][] = [];
-  const facade: EngineWorkerPackageQueryFacade = {
-    cancelPackageQuery: (...args) => {
-      cancellations.push(args);
-      terminal.resolve(canceled(args[1]));
-      return { kind: "Requested", reason: args[1] };
-    },
-    requestPackageQueryMatches: () => ({
-      kind: "NotActive",
-      additionalMatchCredit: null,
-    }),
-    runPackageAssemblyQuery: (...args) => {
-      runs.push(args);
-      return terminal.promise;
-    },
-    runPackageQuery: () => Promise.resolve(succeeded()),
-  };
-  const harness = createHarness(facade);
-  await startReady(harness);
-
-  const { handle } = startQuery(
-    harness.adapter,
-    createAssemblyQueryRequest(
-      "package.query.assembly.ldstr-contains",
-      "literal",
-      ["Contoso.Library@1.2.3"],
-      "net10.0"),
-    "assembly-operation",
-  );
-  await harness.environment.flushAsync();
-  assert.equal(handle.cancel("superseded").kind, "applied");
-  await harness.environment.flushAsync();
-
-  assert.deepEqual(cancellations, [
-    ["assembly-operation", "superseded"],
-  ]);
-  assert.deepEqual(runs[0]?.slice(0, 6), [
-    "assembly-operation",
-    "package.query.assembly.ldstr-contains",
-    "literal",
-    '["Contoso.Library@1.2.3"]',
-    "net10.0",
-    20,
-  ]);
-  assert.deepEqual(await handle.outcome, {
-    kind: "canceled",
-    reason: "superseded",
-  });
-  await handle.quiesced;
-  harness.host.dispose();
-});
-
 test("Package Query credit reports not-active and closes after settlement", async () => {
   const terminal = deferred<BrowserPackageQueryResult>();
   const facade: EngineWorkerPackageQueryFacade = {
@@ -886,7 +825,6 @@ test("Package Query credit reports not-active and closes after settlement", asyn
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => terminal.promise,
     runPackageQuery: () => terminal.promise,
   };
   const harness = createHarness(facade);
@@ -917,7 +855,6 @@ test("Package Query retains an already-posted credit response across settlement"
       kind: "Granted",
       additionalMatchCredit: amount,
     }),
-    runPackageAssemblyQuery: () => terminal.promise,
     runPackageQuery: () => terminal.promise,
   };
   const harness = createHarness(facade, {
@@ -952,72 +889,6 @@ test("Package Query retains an already-posted credit response across settlement"
   harness.host.dispose();
 });
 
-test("Package Query generated terminal validation contains malformed results to one operation", async () => {
-  const facade: EngineWorkerPackageQueryFacade = {
-    cancelPackageQuery: () => ({ kind: "NotActive", reason: null }),
-    requestPackageQueryMatches: () => ({
-      kind: "NotActive",
-      additionalMatchCredit: null,
-    }),
-    runPackageAssemblyQuery: () => Promise.resolve({
-      ...succeeded(),
-      version: 2,
-    }),
-    runPackageQuery: () => Promise.resolve({
-      ...succeeded(),
-      value: matchEvent,
-    }),
-  };
-  const harness = createHarness(facade);
-  await startReady(harness);
-  const sessionState = createQuerySession([
-    "invalid-result",
-    "assembly-invalid-result",
-  ]);
-  const { handle } = startQuery(
-    harness.adapter,
-    createQueryRequest("Contoso."),
-    "invalid-result",
-    sessionState,
-  );
-  await harness.environment.flushAsync();
-
-  assert.deepEqual(await handle.outcome, {
-    kind: "failed",
-    error: {
-      failureKind: "Unexpected",
-      error: "Package Query returned invalid Worker boundary data.",
-      diagnostic: "Package Query settlement did not contain completion.",
-    },
-  });
-  await handle.quiesced;
-  await harness.environment.flushAsync();
-  assert.equal(harness.host.snapshot().phase, "ready");
-
-  const assembly = startQuery(
-    harness.adapter,
-    createAssemblyQueryRequest(
-      "package.query.assembly.ldstr-contains",
-      "literal",
-      ["Contoso.Library@1.2.3"],
-      "net10.0"),
-    "assembly-invalid-result",
-    sessionState,
-  );
-  await harness.environment.flushAsync();
-  assert.deepEqual(await assembly.handle.outcome, {
-    kind: "failed",
-    error: {
-      failureKind: "Unexpected",
-      error: "Package Query returned invalid Worker boundary data.",
-      diagnostic: "Expected a version 3 Package Query result.",
-    },
-  });
-  await assembly.handle.quiesced;
-  assert.equal(harness.host.snapshot().phase, "ready");
-  harness.host.dispose();
-});
-
 test("Package Query terminal callback rejection fails the Worker epoch", async () => {
   const facade: EngineWorkerPackageQueryFacade = {
     cancelPackageQuery: () => ({ kind: "NotActive", reason: null }),
@@ -1025,7 +896,6 @@ test("Package Query terminal callback rejection fails the Worker epoch", async (
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     async runPackageQuery(...args) {
       emit(args[7], completionEvent);
       return succeeded();
