@@ -299,8 +299,8 @@ compatibility verdicts to correlation states.
 The final host-neutral terminal returns
 `InspectionEnvelope<DiffHistoryOutcome>`. `DiffHistoryOutcome` is an
 owner-specific Outcome, not a universal Diff base class. Its available case
-carries one settled, resource-free `DiffHistoryDocument`. The Document
-preserves:
+carries one settled, resource-free `DiffHistoryDocument` and the optional
+requested Count result defined below. The Document preserves:
 
 - the resolved version population and requested evaluation selection;
 - each completed evaluation's version address, provenance, resolved subject,
@@ -328,6 +328,35 @@ the shared semantic model.
 The Document's ordered populations serialize as arrays. Its contract does not
 require `ImmutableArray<T>` or another CLR collection implementation; the
 producer publishes a settled snapshot and does not mutate it afterward.
+
+### Requested Count in shared Content
+
+The shared terminal binds an admitted Count request, including its semantic
+row selection, into the operation plan and reduces the declared Changed
+Versions cohort through L2 before returning the envelope. Its available Content
+carries the Document and an optional already-bound Count component:
+
+| Count request state | Count component |
+| --- | --- |
+| Not requested | Absent; not a successful zero or a failed Count. |
+| Requested and established | Existing typed L2 Count result, with the Changed Versions row-set identity and exact cardinality. |
+| Requested but not established | Existing typed L2 failure, with its scope, reason, and completion evidence; no Count payload. |
+
+The component consumes
+[L2's result algebra](section-row-shaping.md#result-binding-and-failure),
+not a new reduction or failure vocabulary. The retained Document is a sibling
+of that result, not row data inserted into an L2 Count failure.
+An available History Document does not imply successful Count: the CLI returns
+nonzero for the failed Count even when serializing the available envelope, and
+both hosts retain its typed failure beside the usable transitions and coverage.
+Other requested-evaluation failures retain their existing failure behavior.
+Invalid requests or unavailable populations still use History's non-success
+outcome when no Document can be constructed.
+
+This composition is part of shared Content, not host enrichment. Neither host
+derives the result after the envelope boundary, and serialization does not
+perform another inspection or reduction. Within available Content, absence of
+the Count component means only that Count was not requested.
 
 ### What transitions establish
 
@@ -392,10 +421,11 @@ Exactness remains relative to that logical request under the existing Count
 contract: a proven semantic prefix may suffice without complete later evidence,
 but a work limit is not a prefix selection. Unknown earlier membership cannot
 be skipped to fill a requested prefix or strict window with later known changes.
-If the requested count is not established, return typed non-success with the
-completion evidence, not a scalar or count table. Preserve independently
-available History transitions and coverage in the shared baseline; requested
-evaluation failures retain their existing nonzero behavior.
+If the requested count is not established, retain typed non-success with the
+completion evidence in the shared Count component, not a scalar or count table.
+Preserve independently available History transitions and coverage in the
+sibling Document; requested evaluation failures retain their existing nonzero
+behavior.
 
 `--history --count` uses History's default full evaluation unless `--at`
 restricts it. Count never broadens an explicit checkpoint selection; an
@@ -476,6 +506,15 @@ History cohort when change evidence is insufficient. On endpoint Diff, Count
 still reduces the declared comparison rows. Row, field, and column selection
 preserve their existing host contracts. Host JSON is a typed content projection,
 not an envelope transport.
+
+Ordinary `--count` output projects the already-bound Count component, including
+the scalar JSON produced by `--count --json`; that is an explicit Count
+projection, not unprojected `DiffHistoryOutcome` JSON. `--count --envelope`
+instead delivers the complete constructed Content with both Document and Count
+component. Count remains an executed semantic request in that envelope, not
+post-service shaping of its members. Unprojected Content delivery preserves the
+same two components under the shared serializer. Count failure remains typed
+and nonzero in either delivery mode; it never becomes a numeric JSON fallback.
 
 The public envelope mode tracked by #6719 remains a separately owned
 transport, but is now required by the subject-owned CLI adoption. It serializes
@@ -610,6 +649,11 @@ The implementation slices must supply Release gates for:
   or silently skipping unknown earlier membership;
 - exact semantic-prefix Count evidence versus work-bound truncation, preserving
   the existing Count-sufficiency distinction;
+- shared Content distinguishing no requested Count, successful zero/nonzero
+  Count, and typed Count failure beside the retained History Document;
+- complete Count-request Content/envelope serialization and both-host delivery,
+  contrasted with ordinary scalar Count JSON projection, without a second
+  reduction; Count failure remains nonzero on CLI envelope delivery;
 - metadata-only counts without package payload acquisition or a Type focus;
 - unchanged endpoint content under plain subject Diff, equivalent
   non-range local pair content, Type/Member History, and rejected retired
