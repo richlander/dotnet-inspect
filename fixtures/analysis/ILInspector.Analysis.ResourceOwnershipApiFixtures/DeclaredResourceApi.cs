@@ -40,10 +40,14 @@ public sealed class DeclaredToken
     public void Close()
     {
     }
+
+    public void CloseThis() => Close();
 }
 
 public static class TokenResourceApi
 {
     public static void Release(object value) =>
         GC.KeepAlive(value);
+
+    public static DeclaredToken Move(DeclaredToken value) => value;
 }

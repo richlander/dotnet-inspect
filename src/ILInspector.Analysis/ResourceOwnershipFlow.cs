@@ -151,6 +151,8 @@ internal static class ResourceOwnershipFlow
         IReadOnlySet<int> incompleteCallOffsets =
             resolution.IncompleteCallOffsetsFor(
                 method.MetadataToken);
+        var handledEffects = new HashSet<ResolvedResourceEffect>(
+            ReferenceEqualityComparer.Instance);
 
         var acquisitions =
             ImmutableArray.CreateBuilder<ResourceAcquisitionOwnership>();
@@ -164,6 +166,7 @@ internal static class ResourceOwnershipFlow
             {
                 if (effect.Effect is not ResourceEffect.Acquire acquire)
                     continue;
+                handledEffects.Add(effect);
 
                 if (acquire.Target is not ResourceEffectLocation.Return
                     || acquire.When
@@ -236,6 +239,7 @@ internal static class ResourceOwnershipFlow
                     members,
                     effects,
                     incompleteCallOffsets,
+                    handledEffects,
                     limits);
                 acquisitions.Add(
                     new(
@@ -298,6 +302,7 @@ internal static class ResourceOwnershipFlow
                 members,
                 effects,
                 incompleteCallOffsets,
+                handledEffects,
                 parameterLimits);
             if (!isResourceValueType
                 && !isArrayCompatibilityType
@@ -318,6 +323,25 @@ internal static class ResourceOwnershipFlow
                     parameterType,
                     flow.Uses,
                     flow.IsComplete));
+        }
+
+        foreach ((int offset, ImmutableArray<ResolvedResourceEffect> atCall)
+            in effects)
+        {
+            foreach (ResolvedResourceEffect effect in atCall)
+            {
+                if (handledEffects.Contains(effect)
+                    || effect.Effect is ResourceEffect.Resource
+                        or ResourceEffect.Authority)
+                {
+                    continue;
+                }
+
+                limits.Add(
+                    new(
+                        ResourceOwnershipFlowLimitKind.UnsupportedEffect,
+                        offset));
+            }
         }
 
         ImmutableArray<ResourceOwnershipFlowLimit> retainedLimits =
@@ -352,6 +376,7 @@ internal static class ResourceOwnershipFlow
         IReadOnlyDictionary<int, ImmutableArray<ResolvedResourceEffect>>
             effects,
         IReadOnlySet<int> incompleteCallOffsets,
+        HashSet<ResolvedResourceEffect> handledEffects,
         ImmutableArray<ResourceOwnershipFlowLimit>.Builder limits)
     {
         var uses = ImmutableArray.CreateBuilder<ResourceOwnershipUse>();
@@ -389,8 +414,10 @@ internal static class ResourceOwnershipFlow
                     parameterIndex,
                     resourceKind,
                     acquisitionAuthority,
+                    isArgument,
                     atCall,
                     effects,
+                    handledEffects,
                     context);
                 releases = match.Matches;
                 releaseIncomplete = match.IsIncomplete;
@@ -497,9 +524,11 @@ internal static class ResourceOwnershipFlow
         int parameterIndex,
         ResolvedResourceKindReference? resourceKind,
         ResolvedResourceEffect? acquisitionAuthority,
+        bool isArgument,
         ImmutableArray<ResolvedResourceEffect> atCall,
         IReadOnlyDictionary<int, ImmutableArray<ResolvedResourceEffect>>
             effects,
+        HashSet<ResolvedResourceEffect> handledEffects,
         MethodBodyAnalysisContext context)
     {
         var matches = ImmutableArray.CreateBuilder<ReleaseMatch>();
@@ -520,6 +549,7 @@ internal static class ResourceOwnershipFlow
                 && parameterIndex == -1;
             if (!supportedSource && !receiverSource)
                 continue;
+            handledEffects.Add(effect);
 
             ResolvedResourceKindReference? releaseKind =
                 effect.ResourceKinds is [var exactKind]
@@ -558,8 +588,10 @@ internal static class ResourceOwnershipFlow
                 incomplete = true;
                 continue;
             }
-            if (acquisitionAuthority is not null
-                && (authority is null
+            if (release.Correspondence is not null
+                && !isArgument
+                && (acquisitionAuthority is null
+                    || authority is null
                     || !SameAuthority(
                         acquisitionAuthority,
                         authority)))

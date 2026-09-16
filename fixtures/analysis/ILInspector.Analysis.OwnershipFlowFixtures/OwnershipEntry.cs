@@ -257,6 +257,9 @@ public static class Entry
     public static void ReleaseReceiverParameter(DeclaredToken token) =>
         token.Close();
 
+    public static DeclaredToken ForwardMovedToken(DeclaredToken token) =>
+        TokenResourceApi.Move(token);
+
     public static BindingOutcome BindOccurrenceReferences()
     {
         var owner = new BindingOwner<byte>();
