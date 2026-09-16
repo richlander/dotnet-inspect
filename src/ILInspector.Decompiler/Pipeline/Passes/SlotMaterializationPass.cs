@@ -194,7 +194,8 @@ public sealed class SlotMaterializationPass : IIrPass
                 && (slotType.Kind == TypeRefKind.Definition
                     && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
                         || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
-                    || CSharpSpellability.CanSpellSzArrayStorageType(slotType, function));
+                    || CSharpSpellability.CanSpellSzArrayStorageType(slotType, function)
+                    || CSharpSpellability.CanSpellNamedReferenceStorageType(slotType, function));
             if (exactReference && candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
                 candidate.Vetoes |= SlotMaterializationVeto.PendingReferenceSwap;
             if (!exactReference && !CoercionDomain.InDomain(slotType, function.TypeShapes))

@@ -304,7 +304,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "assembly-type-list",
                 "schema-static/effective-deferred",
-                "ApiType[schema:16:35B2A603B562]",
+                "ApiType[schema:17:B4121DCB098A]",
                 "focus=none;discovery=none",
                 "focus:none"),
             new(
@@ -334,7 +334,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:177:A9CB22122D7E]",
+                "ApiType[schema:178:DF909EA11155]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];

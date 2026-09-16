@@ -12,17 +12,21 @@ import {
   initialQueryState,
   shouldExecuteQuery,
   toggleFacet,
+  replaceTerm,
   withCompletion,
   withEditorDraft,
   withFacet,
+  withTerm,
   withSourceSelection,
   withScopeQuery,
   withoutFacet,
+  withoutTerm,
   type PackageQueryDataSource,
   type QueryAssemblyAssessment,
   type QueryCompletion,
   type QueryFacetTerm,
   type QueryResultRow,
+  type QueryTermDescriptor,
   type TerminalQueryCompletion,
 } from "../src/package-query.ts";
 
@@ -75,6 +79,24 @@ const TOOL_V2_FACET: QueryFacetTerm = {
   combinesWithinSelectionGroup: true,
 };
 
+const DEPENDS_TERM: QueryTermDescriptor = {
+  key: "depends",
+  label: "Direct dependency",
+  summary: "Matches a direct dependency in any group.",
+  weight: 10,
+  tier: "nuspec",
+  operators: ["eq"],
+  valueKind: "package-id",
+  example: "Microsoft.Extensions.Hosting",
+};
+
+const CONTENT_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "contains-file",
+  label: "Contains file",
+  tier: "package-content",
+};
+
 function row(packageId: string): QueryResultRow {
   return {
     packageId,
@@ -116,6 +138,52 @@ test("createQueryRequest gives candidate and match limits independent defaults",
   assert.equal(defaults.requestedMatchLimit, 100);
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
   assert.equal(defaults.includePrerelease, false);
+  assert.deepEqual(defaults.terms, []);
+});
+
+test("operand-bearing terms retain exact repeated triples and edit by position", () => {
+  const base = createQueryRequest("Microsoft.");
+  const first = withTerm(base, DEPENDS_TERM, "eq", "Microsoft.Extensions.Hosting");
+  const repeated = withTerm(
+    first,
+    DEPENDS_TERM,
+    "eq",
+    "Microsoft.Extensions.DependencyInjection");
+  const edited = replaceTerm(
+    repeated,
+    0,
+    "eq",
+    "  Microsoft.Extensions.Hosting  ");
+
+  assert.deepEqual(edited.terms.map(term => ({
+    key: term.descriptor.key,
+    operator: term.operator,
+    value: term.value,
+  })), [
+    {
+      key: "depends",
+      operator: "eq",
+      value: "  Microsoft.Extensions.Hosting  ",
+    },
+    {
+      key: "depends",
+      operator: "eq",
+      value: "Microsoft.Extensions.DependencyInjection",
+    },
+  ]);
+  assert.deepEqual(withoutTerm(edited, 0).terms.map(term => term.value), [
+    "Microsoft.Extensions.DependencyInjection",
+  ]);
+});
+
+test("operand-bearing terms participate in candidate bounds", () => {
+  const content = withTerm(
+    createQueryRequest("Contoso."),
+    CONTENT_TERM,
+    "eq",
+    "tools/");
+  assert.equal(content.requestedLimit, 20);
+  assert.equal(withoutTerm(content, 0).requestedLimit, 200);
 });
 
 test("package requests preserve editor spelling without resolving source defaults", () => {

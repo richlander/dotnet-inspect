@@ -59,7 +59,7 @@ envelope output. Explicitly projected Diff JSON retains its presentation
 schema. Load `skill compatibility` for outcome and scope details.
 Asset-mode `depends`, other commands, and `--evidence-envelope` remain unadopted.
 
-On `find`, plain `--json` retains the typed result shape. Adding
+On `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a
 JSON document containing the same selected rows and snake_case fields as the
 `--tsv` and `--jsonl` formats.
@@ -114,13 +114,16 @@ evidence unless a category is named.
 | ------- | --------------- | ----------------- |
 | `package` | `@Package`, `@Files` | `@Dependencies`, `@Audit`, `@SourceLink` |
 | `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
+| `type` listing | `@Surface` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
 Dependencies`, and the unbounded `Package files` listing. `@Files` groups the
-curated nuspec, README, and skill-file sections. Other commands expose
-categories such as member `@Source`; `Switches` is a section. There are no
-user-facing `@All`, `@Default`, or `@Hidden` categories.
+curated nuspec, README, and skill-file sections. The `type` listing's
+`@Surface` category groups `API Info`, public type-kind and type-forwarder
+inventories, and `Inspection Failures`. Other commands expose categories such
+as member `@Source`; `Switches` is a section. There are no user-facing
+`@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
 owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`

@@ -748,7 +748,7 @@ public class CliApiSurface
     [JsonIgnore]
     public ApiInfoSection? ApiInfo { get; set; }
 
-    // Type forwarders (edge case: types == 0 with forwarders)
+    // Type forwarder inventory grouped by target assembly.
     [MarkoutSection(Name = "Type Forwarders")]
     public List<ForwarderSummaryRow>? TypeForwarders { get; set; }
 

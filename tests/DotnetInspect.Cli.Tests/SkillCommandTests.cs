@@ -163,6 +163,16 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task ExecuteSkill_QueryDocumentsFindResultArray()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("query")));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("plain `--json` retains the typed root result array", output);
+    }
+
+    [Fact]
     public async Task EveryRegisteredSkillResourceResolves()
     {
         foreach (var skill in SkillCommand.Skills)

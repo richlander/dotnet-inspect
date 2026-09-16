@@ -786,6 +786,10 @@ public sealed class PackageRootRealization
                 packageId,
                 targetFramework,
                 runtimeIdentifier));
+        HasUnselectedTargetFrameworkAssemblyCandidates =
+            HasUnselectedTargetFrameworkAssemblyCandidatesCore(
+                content,
+                AssetSelection);
     }
 
     public string PackageId { get; }
@@ -803,6 +807,12 @@ public sealed class PackageRootRealization
     public bool FromCache => _content.FromCache;
 
     public PackageCompileAssetSelection AssetSelection { get; }
+
+    /// <summary>
+    /// Whether the package contains a DLL candidate for the selected target
+    /// framework outside the implementation universe.
+    /// </summary>
+    public bool HasUnselectedTargetFrameworkAssemblyCandidates { get; }
 
     internal IPackageContent Content => _content;
 
@@ -826,6 +836,28 @@ public sealed class PackageRootRealization
 
     static IReadOnlyList<T> Freeze<T>(IReadOnlyList<T> values) =>
         Array.AsReadOnly([.. values]);
+
+    static bool HasUnselectedTargetFrameworkAssemblyCandidatesCore(
+        IPackageContent content,
+        PackageCompileAssetSelection selection)
+    {
+        if (selection.TargetFramework is not { } targetFramework)
+            return false;
+
+        HashSet<string> selectedPaths =
+            selection.ImplementationAssets
+                .Select(static asset => asset.Path)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return content.EnumerateEntries().Any(
+            entry =>
+                entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                && TfmResolver.ExtractTfmFromPath(entry)
+                    ?.Equals(
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase)
+                    is true
+                && !selectedPaths.Contains(entry));
+    }
 }
 
 /// <summary>Resource admission policy for acquired-package role realization.</summary>
