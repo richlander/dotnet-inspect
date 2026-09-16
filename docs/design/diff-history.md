@@ -43,10 +43,12 @@ future Package History version-row counts remain distinct.
 
 The subsequent decision in
 [#7315](https://github.com/richlander/dotnet-inspect/issues/7315) locks the
-exact-Member Analysis source currency consumed by bounded cell-pair execution.
-The first population Version in caller-directed order is the mandatory source,
-and every checkpoint is corresponded directly from that one source Member.
-History never scans later Versions for a replacement seed or chains declaration
+exact-Member Analysis source receipt consumed by bounded cell-pair execution.
+The first population Version in caller-directed order is the mandatory source.
+One selector resolution captures its exact declaration coordinate and kind;
+every checkpoint then binds that same detached receipt in its own bounded pair
+and corresponds directly from the resulting pair-local source Member. History
+never scans later Versions for a replacement seed or chains declaration
 identity through an intervening checkpoint.
 
 The subsequent user-approved revision makes `--at` target selection, not an
@@ -317,9 +319,23 @@ Source authorization, `--tfm`, `--preview`, and `--all` retain their meanings.
 The `analysis.allocation`, `analysis.call-site`, and `analysis.unsafety`
 producers require one exact Member. For those producers, the first population
 Version in caller-directed order is the designated source. Resolve the Member
-selector exactly once in that selected source cell and issue one typed source
-Member currency containing its Version and owner-issued structural declaration
-identity.
+selector exactly once in that selected source cell and issue one typed,
+resource-free source receipt. The receipt atomically binds:
+
+- the exact population Version and prepared PackageHouse cell address;
+- the source observation's exact `PackageCompileAsset` and
+  `AssemblyReferenceIdentity`;
+- the exact `MetadataTypeDefinitionName` and `MemberAnchor` selected in that
+  Library; and
+- the correspondence-ready `ApiDeclarationKind`, formed once from the
+  source-selection `MemberTargetKind` under the existing Queries mapping.
+
+These fields come from one source selection and cannot be independently
+substituted. The receipt is detached structural binding evidence, not package
+opening authority. In particular,
+`StructuralSubjectIdentity.MemberSubject` is not the portable seed: it remains
+associated with its issuing live Workspace and is never supplied to a
+different Workspace.
 
 If source selection is absent, ambiguous, refused, or failed, History has no
 Analysis seed. Preserve that native source-selection non-success and do not
@@ -334,9 +350,23 @@ timeout, acquisition failure, or other operational non-success retains that
 owner's native outcome and is not relabeled as caller cancellation.
 
 The source observation uses that resolved Member directly; it does not invent
-a same-Version correspondence edge. For every other selected checkpoint,
-invoke strict API coordinate correspondence directly from the same source
-Member. Each exact, absent, ambiguous, refused, or failed result is one
+a same-Version correspondence edge. For every other selected checkpoint, #7248
+executes the exact prepared source and destination cells in one fresh bounded
+Workspace. It exact-binds the same detached source receipt against that source
+cell, producing a new Workspace-local `MemberSubject` associated with the
+pair's source observation, and invokes strict API coordinate correspondence
+with the receipt's stored `ApiDeclarationKind`.
+
+Exact binding is not another selector resolution. It does not parse display
+text, replay an ordinal or digest, infer declaration kind from `MemberAnchor`,
+or accept a different source cell, Library asset or assembly, Type, or Member.
+A mismatch returns typed source-binding non-success and destination Analysis
+does not run. Each pair closes before its detached result is published; History
+retains no source Workspace or Workspace-local `MemberSubject` between
+checkpoints. Peak live endpoints therefore remain one source/destination pair,
+independent of population length.
+
+Each exact, absent, ambiguous, refused, or failed result is one
 source-to-checkpoint declaration edge. A non-exact edge does not stop later
 independent checkpoints, and a later direct exact edge may establish that the
 seeded declaration is present again. It does not bridge through or derive
@@ -346,8 +376,9 @@ Checkpoint-to-checkpoint declaration chaining is not admitted. In particular,
 History does not make a later destination the source for the next edge, replay
 the source display ordinal in each Version, infer identity from adjacent array
 positions, or infer continuity from Finding keys. The bounded cell-pair
-consumer in #7248 receives this owner-issued source currency and returns native
-edge evidence; it does not choose or reinterpret the seed.
+consumer in #7248 receives this owner-issued source receipt, binds it only to
+the exact prepared source cell, and returns native edge evidence. It does not
+choose or reinterpret the seed.
 
 History-only inputs require `--history`; in particular, `--at` must not
 silently change endpoint Diff or Count into correlation. History rejects
@@ -364,8 +395,8 @@ carries one settled, resource-free `DiffHistoryDocument` and the optional
 requested Count result defined below. The Document preserves:
 
 - the resolved version population and requested evaluation selection;
-- the optional exact-Member Analysis source currency and source-selection
-  outcome;
+- the optional exact-Member Analysis detached source receipt and
+  source-selection outcome, never a Workspace-local structural subject;
 - each completed evaluation's version address, provenance, resolved subject,
   producer, and native Finding inspection;
 - native source-to-checkpoint declaration correspondence edges for exact-Member
@@ -709,6 +740,13 @@ The implementation slices must supply Release gates for:
 - baseline Member selection exactly once, with absent, ambiguous, refused,
   and failed source outcomes preventing destination Analysis rather than
   selecting a later same-named or same-ordinal seed;
+- at least three checkpoints whose two non-source pairs re-execute the exact
+  source cell, exact-bind the same detached receipt into different pair-local
+  Workspaces, consume its stored declaration kind, and never replay the
+  selector, ordinal, or digest;
+- refusal before correspondence or destination Analysis when any source cell,
+  Library asset or assembly, Type, Member, or declaration-kind association does
+  not match the atomically issued receipt;
 - caller cancellation during source selection, checkpoint correspondence, or
   destination Analysis terminating History after required cleanup, propagating
   the caller token, and publishing no History outcome;
@@ -754,5 +792,6 @@ The implementation slices must supply Release gates for:
 
 These new gates are **unverified** in this design-only slice. Deterministic
 contract cases belong in PR-fast suites; real-package/exhaustive cases are
-classified under the test-cost policy. No new concurrent protocol is specified:
-the existing Workspace and Browser lifetime owners retain their models.
+classified under the test-cost policy. No new concurrent protocol or retained
+Workspace lifecycle is specified: each pair uses the existing ephemeral
+Workspace lifetime and the Browser owner retains its model.
