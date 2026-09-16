@@ -22,6 +22,9 @@ that issue. Analysis adopts the facts in step 4. Decompiler import and EH
 structuring adopt them in step 5, and protected-region control-flow policy
 adopts them in step 6. Classic async exception-context correspondence adopts
 them in step 7; return timing remains separately staged.
+[Issue #7235](https://github.com/richlander/dotnet-inspect/issues/7235)
+adds observation-scoped clause and region lookup before a separately staged
+Decompiler composition gate.
 
 Instructions is the right owner because these facts become true only after
 joining decoded opcodes and branch targets with the declared exception
@@ -79,6 +82,14 @@ The relation is:
 
 Offsets, kinds, catch names, and collection ordinals are evidence attached to
 the identities; none is a replacement identity.
+
+`GetClause` and `GetRegion` resolve an owner-issued identity to the canonical
+fact object from the receiving observation. Resolution is by the full value
+identity, not object reference, range, role, or ordinal alone. A second
+materialization from the same `MethodBodyData` therefore resolves, while an
+equal-shaped identity from another body observation returns typed
+`BodyIdentityMismatch`. The ordered `Clauses` and `Regions` collections remain
+the enumeration contract; lookup neither reorders nor filters them.
 
 ## Construction and topology
 
@@ -268,6 +279,8 @@ review and applicable notices.
 
 - exact Metadata body/clause currency preservation and explicit unavailability
   for raw-body decode;
+- canonical clause/region lookup across same-observation re-materialization and
+  typed rejection of equal-shaped foreign-observation identities;
 - shared protected extents, nesting, filters, catches, `finally`, and a real
   platform `fault`;
 - malformed IL, invalid and prefix-interior boundaries, crossing regions, and

@@ -302,6 +302,24 @@ test("Add package is a named package-only picker without commands or removal", (
   assert.doesNotMatch(html, /data-sl-scope|data-sl-remove|Shift\+Delete|Commands|Platform|Package query/);
 });
 
+test("exact package coordinates are presented as direct listed-or-unlisted opens", () => {
+  const hit: SpotlightPackageResult = {
+    kind: "pkg-nuget",
+    hit: { id: "WrongTurn", version: "0.1.14", exact: true },
+    ranges: [[0, 9]],
+  };
+  const { spotlight } = createHarness({
+    query: "WrongTurn@0.1.14",
+    searchResults: () => [hit],
+  });
+
+  const html = spotlight.inlineHtml(false);
+
+  assert.match(html, /data-sl-pkg-load="WrongTurn"/);
+  assert.match(html, /data-sl-pkg-version="0\.1\.14"/);
+  assert.match(html, /0\.1\.14 · exact coordinate · listed or unlisted/);
+});
+
 test("Add package dispatches rendered loaded, NuGet and recent rows only to Add", () => {
   let current = packageRows;
   const picked: SpotlightPackageResult[] = [];
@@ -561,6 +579,18 @@ test("Spotlight renders the package-query action with its seeded prefix identity
   assert.match(html, /Package query/);
   assert.match(html, /Microsoft\.Extensions\./);
   assert.match(html, /data-sl-package-query="1"/);
+});
+
+test("Spotlight renders Package Activity as a routed package action", () => {
+  const { spotlight } = createHarness({
+    searchResults: () => [{ kind: "package-activity" }],
+  });
+
+  const html = spotlight.modalHtml();
+
+  assert.match(html, /Package Activity/);
+  assert.match(html, /Review product package changes over time/);
+  assert.match(html, /data-sl-package-activity="1"/);
 });
 
 test("Spotlight keeps the selected result when async rows are inserted before it", () => {
@@ -842,7 +872,7 @@ test("home Spotlight keeps the shared typed UI without workspace commands", () =
   const pendingHtml = spotlight.inlineHtml(true);
   assert.match(pendingHtml, /class="home-search-content" inert/);
   assert.match(pendingHtml, /id="spotlight-input"/);
-  assert.match(pendingHtml, /package, type, or member…/);
+  assert.match(pendingHtml, /package, type, member, or PackageId@Version…/);
   assert.doesNotMatch(pendingHtml, /or command/);
   assert.match(pendingHtml, /data-sl-scope="runtime"[^>]*>Platform/);
   assert.doesNotMatch(pendingHtml, /data-sl-scope="commands"/);

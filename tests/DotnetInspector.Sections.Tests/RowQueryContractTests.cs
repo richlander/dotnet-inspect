@@ -6,21 +6,21 @@ namespace DotnetInspector.Sections.Tests;
 public sealed class RowQueryContractTests
 {
     [Fact]
-    public void RowQueryResolvesSchemaIdentitiesOnce()
+    public void RowQueryResolvesVocabularyIdentitiesOnce()
     {
         int binderCalls = 0;
         int scoreOrderCalls = 0;
         int nameOrderCalls = 0;
-        RowQuerySchemaIdentity schemaIdentity =
-            RowQuerySchemaIdentity.Create();
-        RowQueryFieldIdentity scoreIdentity =
-            RowQueryFieldIdentity.Create();
+        RowQueryVocabularyIdentity vocabularyIdentity =
+            RowQueryVocabularyIdentity.Create();
+        RowQueryKeyIdentity scoreIdentity =
+            RowQueryKeyIdentity.Create();
         RowQueryNamedOrderIdentity scoreOrderIdentity =
             RowQueryNamedOrderIdentity.Create();
         RowQueryNamedOrderIdentity nameOrderIdentity =
             RowQueryNamedOrderIdentity.Create();
-        RowQueryField<QueryRow> score =
-            IntField(
+        RowQueryKey<QueryRow> score =
+            IntKey(
                 scoreIdentity,
                 "score",
                 row => row.Score,
@@ -53,14 +53,14 @@ public sealed class RowQueryContractTests
                                 right.Name),
                         direction);
                 });
-        RowQuerySchema<QueryRow> schema =
-            RowQuerySchema<QueryRow>.Create(
-                schemaIdentity,
+        RowQueryVocabulary<QueryRow> vocabulary =
+            RowQueryVocabulary<QueryRow>.Create(
+                vocabularyIdentity,
                 [score],
                 [scoreOrder, nameOrder]);
         RowQueryResolutionResult<QueryRow> resolution =
             RowQueryResolver.Resolve(
-                schema,
+                vocabulary,
                 Intent(
                     predicates:
                     [
@@ -85,8 +85,8 @@ public sealed class RowQueryContractTests
 
         ResolvedRowQueryPlan<QueryRow> plan =
             AssertSuccess(resolution);
-        Assert.Same(schemaIdentity, plan.SchemaIdentity);
-        Assert.Equal([scoreIdentity], plan.PredicateFieldIdentities);
+        Assert.Same(vocabularyIdentity, plan.VocabularyIdentity);
+        Assert.Equal([scoreIdentity], plan.PredicateKeyIdentities);
         ResolvedRowQueryOrderBinding baseline =
             Assert.IsType<ResolvedRowQueryOrderBinding>(
                 plan.BaselineOrder);
@@ -96,7 +96,7 @@ public sealed class RowQueryContractTests
         Assert.Equal(
             RowQueryOrderDirection.Descending,
             baseline.NamedOrderDirection);
-        Assert.Empty(baseline.FieldIdentities);
+        Assert.Empty(baseline.KeyIdentities);
         ResolvedRowQueryOrderBinding ranking =
             plan.ResolvedOrders[1];
         Assert.Same(nameOrderIdentity, ranking.NamedOrderIdentity);
@@ -129,10 +129,10 @@ public sealed class RowQueryContractTests
     [Fact]
     public void RowPredicatesUseTypedValues()
     {
-        SchemaFixture fixture = Schema();
+        VocabularyFixture fixture = Vocabulary();
         RowQueryResolutionResult<QueryRow> resolution =
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     predicates:
                     [
@@ -171,7 +171,7 @@ public sealed class RowQueryContractTests
     [Fact]
     public void RowPredicatesConjoinAndPreserveOrder()
     {
-        SchemaFixture fixture = Schema();
+        VocabularyFixture fixture = Vocabulary();
         QueryRow[] rows =
         [
             new("A", 3, 1, "keep"),
@@ -183,7 +183,7 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> plan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         predicates:
                         [
@@ -218,27 +218,27 @@ public sealed class RowQueryContractTests
             new("A", 1, 1, "x"),
             new("C", 2, 1, "x")
         ];
-        SchemaFixture withDefault =
-            Schema(defaultBaseline: "score-order");
+        VocabularyFixture withDefault =
+            Vocabulary(defaultBaseline: "score-order");
         ResolvedRowQueryPlan<QueryRow> defaultPlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    withDefault.Schema,
+                    withDefault.Vocabulary,
                     RowQueryIntent.Empty));
         ResolvedRowQueryPlan<QueryRow> explicitPlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    withDefault.Schema,
+                    withDefault.Vocabulary,
                     Intent(
                         baseline:
                             RowQueryOrderIntent.Named(
                                 "name-order",
                                 RowQueryOrderDirection.Descending))));
-        SchemaFixture withoutDefault = Schema();
+        VocabularyFixture withoutDefault = Vocabulary();
         ResolvedRowQueryPlan<QueryRow> incomingPlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    withoutDefault.Schema,
+                    withoutDefault.Vocabulary,
                     RowQueryIntent.Empty));
 
         Assert.Equal(
@@ -255,7 +255,7 @@ public sealed class RowQueryContractTests
     [Fact]
     public void TopRankingDoesNotBecomeBaselineOrder()
     {
-        SchemaFixture fixture = Schema();
+        VocabularyFixture fixture = Vocabulary();
         QueryRow[] rows =
         [
             new("A", 1, 1, "x"),
@@ -275,7 +275,7 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> nameBaseline =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         baseline:
                             RowQueryOrderIntent.Named(
@@ -285,7 +285,7 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> scoreBaseline =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         baseline:
                             RowQueryOrderIntent.Named(
@@ -304,11 +304,11 @@ public sealed class RowQueryContractTests
     [Fact]
     public void EachTopCarriesItsResolvedRankingIdentity()
     {
-        SchemaFixture fixture = Schema();
+        VocabularyFixture fixture = Vocabulary();
         ResolvedRowQueryPlan<QueryRow> plan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         selection:
                         [
@@ -321,7 +321,7 @@ public sealed class RowQueryContractTests
                             RowSelectionIntentOperation<
                                 RowQueryOrderIntent>.Top(
                                     1,
-                                    RowQueryOrderIntent.Fields(
+                                    RowQueryOrderIntent.Keys(
                                     [
                                         new(
                                             "name",
@@ -340,11 +340,11 @@ public sealed class RowQueryContractTests
             fixture.ScoreOrderIdentity,
             plan.ResolvedOrders[0].NamedOrderIdentity);
         Assert.Equal(
-            [fixture.NameFieldIdentity],
-            plan.ResolvedOrders[1].FieldIdentities);
+            [fixture.NameKeyIdentity],
+            plan.ResolvedOrders[1].KeyIdentities);
         Assert.Equal(
             [RowQueryOrderDirection.Descending],
-            plan.ResolvedOrders[1].FieldDirections);
+            plan.ResolvedOrders[1].KeyDirections);
         Assert.Equal(
             ["C"],
             Apply(
@@ -359,11 +359,11 @@ public sealed class RowQueryContractTests
     [Fact]
     public void BaselineAndTopDefaultsAreIndependent()
     {
-        SchemaFixture baselineOnly =
-            Schema(defaultBaseline: "name-order");
+        VocabularyFixture baselineOnly =
+            Vocabulary(defaultBaseline: "name-order");
         RowQueryResolutionResult<QueryRow> missingTop =
             RowQueryResolver.Resolve(
-                baselineOnly.Schema,
+                baselineOnly.Vocabulary,
                 Intent(
                     selection:
                     [
@@ -377,12 +377,12 @@ public sealed class RowQueryContractTests
             RowQueryFailureReason.MissingTopRanking,
             semanticStageNumber: 1);
 
-        SchemaFixture topOnly =
-            Schema(defaultTop: "score-order");
+        VocabularyFixture topOnly =
+            Vocabulary(defaultTop: "score-order");
         ResolvedRowQueryPlan<QueryRow> topOnlyPlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    topOnly.Schema,
+                    topOnly.Vocabulary,
                     Intent(
                         selection:
                         [
@@ -403,14 +403,14 @@ public sealed class RowQueryContractTests
                 ],
                 topOnlyPlan));
 
-        SchemaFixture both =
-            Schema(
+        VocabularyFixture both =
+            Vocabulary(
                 defaultBaseline: "score-order",
                 defaultTop: "score-order");
         ResolvedRowQueryPlan<QueryRow> bothPlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    both.Schema,
+                    both.Vocabulary,
                     Intent(
                         selection:
                         [
@@ -434,11 +434,11 @@ public sealed class RowQueryContractTests
     [Fact]
     public void RowQueryResolutionIsAtomic()
     {
-        SchemaFixture fixture = Schema();
+        VocabularyFixture fixture = Vocabulary();
 
         AssertFailure(
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     predicates:
                     [
@@ -449,10 +449,10 @@ public sealed class RowQueryContractTests
                     ])),
             RowQueryOperationKind.Predicate,
             1,
-            RowQueryFailureReason.UnknownField);
+            RowQueryFailureReason.UnknownKey);
         AssertFailure(
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     predicates:
                     [
@@ -466,7 +466,7 @@ public sealed class RowQueryContractTests
             RowQueryFailureReason.UnsupportedPredicateOperator);
         AssertFailure(
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     predicates:
                     [
@@ -480,10 +480,10 @@ public sealed class RowQueryContractTests
             RowQueryFailureReason.InvalidValue);
         AssertFailure(
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     baseline:
-                        RowQueryOrderIntent.Fields(
+                        RowQueryOrderIntent.Keys(
                         [
                             new(
                                 "predicate-only",
@@ -491,11 +491,11 @@ public sealed class RowQueryContractTests
                         ]))),
             RowQueryOperationKind.BaselineOrder,
             1,
-            RowQueryFailureReason.UnsupportedFieldOrder,
+            RowQueryFailureReason.UnsupportedKeyOrder,
             termPosition: 1);
         AssertFailure(
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     baseline:
                         RowQueryOrderIntent.Named(
@@ -506,7 +506,7 @@ public sealed class RowQueryContractTests
             RowQueryFailureReason.UnknownNamedOrder);
         AssertFailure(
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     selection:
                     [
@@ -523,7 +523,7 @@ public sealed class RowQueryContractTests
             semanticStageNumber: 1);
         AssertFailure(
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     baseline:
                         RowQueryOrderIntent.Named(
@@ -543,7 +543,7 @@ public sealed class RowQueryContractTests
             RowQueryFailureReason.UnknownNamedOrder);
         AssertFailure(
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     selection:
                     [
@@ -569,7 +569,7 @@ public sealed class RowQueryContractTests
 
         RowQueryResolutionResult<QueryRow> firstFailureWins =
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     predicates:
                     [
@@ -601,13 +601,13 @@ public sealed class RowQueryContractTests
     [Fact]
     public void RowQueryFailureShapeIsPresentationFree()
     {
-        SchemaFixture fixture = Schema();
+        VocabularyFixture fixture = Vocabulary();
         RowQueryResolutionResult<QueryRow> resolution =
             RowQueryResolver.Resolve(
-                fixture.Schema,
+                fixture.Vocabulary,
                 Intent(
                     baseline:
-                        RowQueryOrderIntent.Fields(
+                        RowQueryOrderIntent.Keys(
                         [
                             new(
                                 "score",
@@ -623,8 +623,8 @@ public sealed class RowQueryContractTests
         Assert.False(resolution.IsSuccess);
         Assert.Null(resolution.Plan);
         Assert.Same(
-            fixture.Schema.Identity,
-            failure.SchemaIdentity);
+            fixture.Vocabulary.Identity,
+            failure.VocabularyIdentity);
         Assert.Equal(
             RowQueryOperationKind.BaselineOrder,
             failure.OperationKind);
@@ -632,9 +632,9 @@ public sealed class RowQueryContractTests
         Assert.Equal(2, failure.TermPosition);
         Assert.Null(failure.SemanticStageNumber);
         Assert.Equal(
-            RowQueryFailureReason.UnknownField,
+            RowQueryFailureReason.UnknownKey,
             failure.Reason);
-        Assert.Null(failure.FieldIdentity);
+        Assert.Null(failure.KeyIdentity);
         Assert.Null(failure.NamedOrderIdentity);
 
         PropertyInfo[] properties =
@@ -644,14 +644,14 @@ public sealed class RowQueryContractTests
                 | BindingFlags.DeclaredOnly);
         Assert.Equal(
             [
-                nameof(RowQueryFailure.FieldIdentity),
+                nameof(RowQueryFailure.KeyIdentity),
                 nameof(RowQueryFailure.NamedOrderIdentity),
                 nameof(RowQueryFailure.OperationKind),
                 nameof(RowQueryFailure.OperationPosition),
                 nameof(RowQueryFailure.Reason),
-                nameof(RowQueryFailure.SchemaIdentity),
                 nameof(RowQueryFailure.SemanticStageNumber),
-                nameof(RowQueryFailure.TermPosition)
+                nameof(RowQueryFailure.TermPosition),
+                nameof(RowQueryFailure.VocabularyIdentity)
             ],
             properties
                 .Select(property => property.Name)
@@ -663,10 +663,10 @@ public sealed class RowQueryContractTests
                 || typeof(Exception).IsAssignableFrom(
                     property.PropertyType));
 
-        RowQueryFailure knownField =
+        RowQueryFailure knownKey =
             Assert.IsType<RowQueryFailure>(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         predicates:
                         [
@@ -677,14 +677,14 @@ public sealed class RowQueryContractTests
                         ]))
                     .Failure);
         Assert.Same(
-            fixture.ScoreFieldIdentity,
-            knownField.FieldIdentity);
-        Assert.Null(knownField.NamedOrderIdentity);
+            fixture.ScoreKeyIdentity,
+            knownKey.KeyIdentity);
+        Assert.Null(knownKey.NamedOrderIdentity);
 
         RowQueryFailure knownOrder =
             Assert.IsType<RowQueryFailure>(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         selection:
                         [
@@ -696,7 +696,7 @@ public sealed class RowQueryContractTests
                                         RowQueryOrderDirection.Ascending))
                         ]))
                     .Failure);
-        Assert.Null(knownOrder.FieldIdentity);
+        Assert.Null(knownOrder.KeyIdentity);
         Assert.Same(
             fixture.SequenceOrderIdentity,
             knownOrder.NamedOrderIdentity);
@@ -707,9 +707,9 @@ public sealed class RowQueryContractTests
     {
         var accessorException =
             new SentinelException("accessor");
-        RowQueryField<QueryRow> accessorField =
-            RowQueryField<QueryRow>.Create(
-                RowQueryFieldIdentity.Create(),
+        RowQueryKey<QueryRow> accessorKey =
+            RowQueryKey<QueryRow>.Create(
+                RowQueryKeyIdentity.Create(),
                 "value",
                 [RowQueryOperator.Equals],
                 _ => throw accessorException,
@@ -717,9 +717,9 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> accessorPlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    RowQuerySchema<QueryRow>.Create(
-                        RowQuerySchemaIdentity.Create(),
-                        [accessorField],
+                    RowQueryVocabulary<QueryRow>.Create(
+                        RowQueryVocabularyIdentity.Create(),
+                        [accessorKey],
                         []),
                     Intent(
                         predicates:
@@ -738,9 +738,9 @@ public sealed class RowQueryContractTests
 
         var predicateException =
             new SentinelException("predicate");
-        RowQueryField<QueryRow> predicateField =
-            RowQueryField<QueryRow>.Create(
-                RowQueryFieldIdentity.Create(),
+        RowQueryKey<QueryRow> predicateKey =
+            RowQueryKey<QueryRow>.Create(
+                RowQueryKeyIdentity.Create(),
                 "value",
                 [RowQueryOperator.Equals],
                 row => RowQueryValue<int>.Present(row.Score),
@@ -748,9 +748,9 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> predicatePlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    RowQuerySchema<QueryRow>.Create(
-                        RowQuerySchemaIdentity.Create(),
-                        [predicateField],
+                    RowQueryVocabulary<QueryRow>.Create(
+                        RowQueryVocabularyIdentity.Create(),
+                        [predicateKey],
                         []),
                     Intent(
                         predicates:
@@ -783,8 +783,8 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> baselineFactoryPlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    RowQuerySchema<QueryRow>.Create(
-                        RowQuerySchemaIdentity.Create(),
+                    RowQueryVocabulary<QueryRow>.Create(
+                        RowQueryVocabularyIdentity.Create(),
                         [],
                         [baselineFactoryOrder]),
                     Intent(
@@ -809,9 +809,9 @@ public sealed class RowQueryContractTests
 
         var comparerException =
             new SentinelException("comparer");
-        RowQueryField<QueryRow> comparerField =
-            RowQueryField<QueryRow>.Create(
-                RowQueryFieldIdentity.Create(),
+        RowQueryKey<QueryRow> comparerKey =
+            RowQueryKey<QueryRow>.Create(
+                RowQueryKeyIdentity.Create(),
                 "value",
                 [RowQueryOperator.Equals],
                 row => RowQueryValue<int>.Present(row.Score),
@@ -821,13 +821,13 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> comparerPlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    RowQuerySchema<QueryRow>.Create(
-                        RowQuerySchemaIdentity.Create(),
-                        [comparerField],
+                    RowQueryVocabulary<QueryRow>.Create(
+                        RowQueryVocabularyIdentity.Create(),
+                        [comparerKey],
                         []),
                     Intent(
                         baseline:
-                            RowQueryOrderIntent.Fields(
+                            RowQueryOrderIntent.Keys(
                             [
                                 new(
                                     "value",
@@ -856,15 +856,15 @@ public sealed class RowQueryContractTests
                     resolverCalls++;
                     throw resolverException;
                 });
-        RowQuerySchema<QueryRow> resolverSchema =
-            RowQuerySchema<QueryRow>.Create(
-                RowQuerySchemaIdentity.Create(),
+        RowQueryVocabulary<QueryRow> resolverVocabulary =
+            RowQueryVocabulary<QueryRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
                 [],
                 [throwingOrder]);
         ResolvedRowQueryPlan<QueryRow> deferredPlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    resolverSchema,
+                    resolverVocabulary,
                     Intent(
                         selection:
                         [
@@ -890,7 +890,7 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> reachedPlan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    resolverSchema,
+                    resolverVocabulary,
                     Intent(
                         selection:
                         [
@@ -915,7 +915,7 @@ public sealed class RowQueryContractTests
     [Fact]
     public void NamedOrderDirectionsPreserveStableTies()
     {
-        SchemaFixture fixture = Schema();
+        VocabularyFixture fixture = Vocabulary();
         QueryRow[] rows =
         [
             new("A", 2, 1, "x"),
@@ -926,7 +926,7 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> ascending =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         baseline:
                             RowQueryOrderIntent.Named(
@@ -935,7 +935,7 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> descending =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         baseline:
                             RowQueryOrderIntent.Named(
@@ -951,9 +951,9 @@ public sealed class RowQueryContractTests
     }
 
     [Fact]
-    public void FieldOrdersComposeLexicographicallyAndPreserveTies()
+    public void KeyOrdersComposeLexicographicallyAndPreserveTies()
     {
-        SchemaFixture fixture = Schema();
+        VocabularyFixture fixture = Vocabulary();
         QueryRow[] rows =
         [
             new("A", 2, 1, "x"),
@@ -965,10 +965,10 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> plan =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         baseline:
-                            RowQueryOrderIntent.Fields(
+                            RowQueryOrderIntent.Keys(
                             [
                                 new(
                                     "score",
@@ -988,23 +988,23 @@ public sealed class RowQueryContractTests
     {
         var binderException =
             new SentinelException("binder");
-        RowQueryField<QueryRow> field =
-            RowQueryField<QueryRow>.Create(
-                RowQueryFieldIdentity.Create(),
+        RowQueryKey<QueryRow> key =
+            RowQueryKey<QueryRow>.Create(
+                RowQueryKeyIdentity.Create(),
                 "value",
                 [RowQueryOperator.Equals],
                 row => RowQueryValue<int>.Present(row.Score),
                 (_, _) => throw binderException);
-        RowQuerySchema<QueryRow> schema =
-            RowQuerySchema<QueryRow>.Create(
-                RowQuerySchemaIdentity.Create(),
-                [field],
+        RowQueryVocabulary<QueryRow> vocabulary =
+            RowQueryVocabulary<QueryRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
+                [key],
                 []);
 
         SentinelException observed =
             Assert.Throws<SentinelException>(
                 () => RowQueryResolver.Resolve(
-                    schema,
+                    vocabulary,
                     Intent(
                         predicates:
                         [
@@ -1018,9 +1018,9 @@ public sealed class RowQueryContractTests
     }
 
     [Fact]
-    public void MissingValuePlacementIsSchemaDefinedAcrossDirections()
+    public void MissingValuePlacementIsVocabularyDefinedAcrossDirections()
     {
-        SchemaFixture fixture = Schema();
+        VocabularyFixture fixture = Vocabulary();
         QueryRow[] rows =
         [
             new("A", 1, 1, "x", 2),
@@ -1030,10 +1030,10 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> ascending =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         baseline:
-                            RowQueryOrderIntent.Fields(
+                            RowQueryOrderIntent.Keys(
                             [
                                 new(
                                     "optional",
@@ -1042,10 +1042,10 @@ public sealed class RowQueryContractTests
         ResolvedRowQueryPlan<QueryRow> descending =
             AssertSuccess(
                 RowQueryResolver.Resolve(
-                    fixture.Schema,
+                    fixture.Vocabulary,
                     Intent(
                         baseline:
-                            RowQueryOrderIntent.Fields(
+                            RowQueryOrderIntent.Keys(
                             [
                                 new(
                                     "optional",
@@ -1061,23 +1061,23 @@ public sealed class RowQueryContractTests
     }
 
     [Fact]
-    public void RowQuerySchemasRejectInvalidDeclarations()
+    public void RowQueryVocabularysRejectInvalidDeclarations()
     {
-        RowQueryFieldIdentity fieldIdentity =
-            RowQueryFieldIdentity.Create();
-        RowQueryField<QueryRow> field =
-            IntField(
-                fieldIdentity,
+        RowQueryKeyIdentity keyIdentity =
+            RowQueryKeyIdentity.Create();
+        RowQueryKey<QueryRow> key =
+            IntKey(
+                keyIdentity,
                 "score",
                 row => row.Score);
-        RowQueryField<QueryRow> duplicateKey =
-            IntField(
-                RowQueryFieldIdentity.Create(),
+        RowQueryKey<QueryRow> duplicateKey =
+            IntKey(
+                RowQueryKeyIdentity.Create(),
                 "score",
                 row => row.Score);
-        RowQueryField<QueryRow> duplicateIdentity =
-            IntField(
-                fieldIdentity,
+        RowQueryKey<QueryRow> duplicateIdentity =
+            IntKey(
+                keyIdentity,
                 "other",
                 row => row.Score);
         RowQueryNamedOrderIdentity orderIdentity =
@@ -1108,29 +1108,29 @@ public sealed class RowQueryContractTests
                 _ => Comparer<QueryRow>.Create((_, _) => 0));
 
         Assert.Throws<ArgumentException>(
-            () => RowQuerySchema<QueryRow>.Create(
-                RowQuerySchemaIdentity.Create(),
-                [field, duplicateKey],
+            () => RowQueryVocabulary<QueryRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
+                [key, duplicateKey],
                 [ranking]));
         Assert.Throws<ArgumentException>(
-            () => RowQuerySchema<QueryRow>.Create(
-                RowQuerySchemaIdentity.Create(),
-                [field, duplicateIdentity],
+            () => RowQueryVocabulary<QueryRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
+                [key, duplicateIdentity],
                 [ranking]));
         Assert.Throws<ArgumentException>(
-            () => RowQuerySchema<QueryRow>.Create(
-                RowQuerySchemaIdentity.Create(),
-                [field],
+            () => RowQueryVocabulary<QueryRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
+                [key],
                 [ranking, duplicateOrderKey]));
         Assert.Throws<ArgumentException>(
-            () => RowQuerySchema<QueryRow>.Create(
-                RowQuerySchemaIdentity.Create(),
-                [field],
+            () => RowQueryVocabulary<QueryRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
+                [key],
                 [ranking, duplicateOrderIdentity]));
         Assert.Throws<ArgumentException>(
-            () => RowQuerySchema<QueryRow>.Create(
-                RowQuerySchemaIdentity.Create(),
-                [field],
+            () => RowQueryVocabulary<QueryRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
+                [key],
                 [ranking],
                 defaultBaselineOrder:
                     new(
@@ -1143,9 +1143,9 @@ public sealed class RowQueryContractTests
                                     (_, _) => 0)),
                         RowQueryOrderDirection.Ascending)));
         Assert.Throws<ArgumentException>(
-            () => RowQuerySchema<QueryRow>.Create(
-                RowQuerySchemaIdentity.Create(),
-                [field],
+            () => RowQueryVocabulary<QueryRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
+                [key],
                 [sequence],
                 defaultTopRanking:
                     new(
@@ -1172,37 +1172,37 @@ public sealed class RowQueryContractTests
                 _ => Comparer<QueryRow>.Create((_, _) => 0)));
     }
 
-    private static SchemaFixture Schema(
+    private static VocabularyFixture Vocabulary(
         string? defaultBaseline = null,
         string? defaultTop = null)
     {
-        RowQueryFieldIdentity scoreIdentity =
-            RowQueryFieldIdentity.Create();
-        RowQueryFieldIdentity nameIdentity =
-            RowQueryFieldIdentity.Create();
-        RowQueryField<QueryRow> score =
-            IntField(
+        RowQueryKeyIdentity scoreIdentity =
+            RowQueryKeyIdentity.Create();
+        RowQueryKeyIdentity nameIdentity =
+            RowQueryKeyIdentity.Create();
+        RowQueryKey<QueryRow> score =
+            IntKey(
                 scoreIdentity,
                 "score",
                 row => row.Score);
-        RowQueryField<QueryRow> priority =
-            IntField(
-                RowQueryFieldIdentity.Create(),
+        RowQueryKey<QueryRow> priority =
+            IntKey(
+                RowQueryKeyIdentity.Create(),
                 "priority",
                 row => row.Priority);
-        RowQueryField<QueryRow> group =
-            TextField(
-                RowQueryFieldIdentity.Create(),
+        RowQueryKey<QueryRow> group =
+            TextKey(
+                RowQueryKeyIdentity.Create(),
                 "group",
                 row => row.Group);
-        RowQueryField<QueryRow> name =
-            TextField(
+        RowQueryKey<QueryRow> name =
+            TextKey(
                 nameIdentity,
                 "name",
                 row => row.Name);
-        RowQueryField<QueryRow> optional =
-            RowQueryField<QueryRow>.Create(
-                RowQueryFieldIdentity.Create(),
+        RowQueryKey<QueryRow> optional =
+            RowQueryKey<QueryRow>.Create(
+                RowQueryKeyIdentity.Create(),
                 "optional",
                 [
                     RowQueryOperator.Equals,
@@ -1220,9 +1220,9 @@ public sealed class RowQueryContractTests
                         Comparer<int>.Default,
                         direction,
                         missingLast: true));
-        RowQueryField<QueryRow> predicateOnly =
-            RowQueryField<QueryRow>.Create(
-                RowQueryFieldIdentity.Create(),
+        RowQueryKey<QueryRow> predicateOnly =
+            RowQueryKey<QueryRow>.Create(
+                RowQueryKeyIdentity.Create(),
                 "predicate-only",
                 [RowQueryOperator.Equals],
                 row =>
@@ -1285,8 +1285,8 @@ public sealed class RowQueryContractTests
                     RowQueryOrderDirection.Descending);
 
         return new(
-            RowQuerySchema<QueryRow>.Create(
-                RowQuerySchemaIdentity.Create(),
+            RowQueryVocabulary<QueryRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
                 [
                     score,
                     priority,
@@ -1304,12 +1304,12 @@ public sealed class RowQueryContractTests
             sequenceOrder.Identity);
     }
 
-    private static RowQueryField<QueryRow> IntField(
-        RowQueryFieldIdentity identity,
+    private static RowQueryKey<QueryRow> IntKey(
+        RowQueryKeyIdentity identity,
         string key,
         Func<QueryRow, int> accessor,
         Action? onBind = null) =>
-        RowQueryField<QueryRow>.Create(
+        RowQueryKey<QueryRow>.Create(
             identity,
             key,
             [
@@ -1332,11 +1332,11 @@ public sealed class RowQueryContractTests
                     direction,
                     missingLast: true));
 
-    private static RowQueryField<QueryRow> TextField(
-        RowQueryFieldIdentity identity,
+    private static RowQueryKey<QueryRow> TextKey(
+        RowQueryKeyIdentity identity,
         string key,
         Func<QueryRow, string> accessor) =>
-        RowQueryField<QueryRow>.Create(
+        RowQueryKey<QueryRow>.Create(
             identity,
             key,
             [
@@ -1481,10 +1481,10 @@ public sealed class RowQueryContractTests
         int? OptionalScore = null,
         string DisplayScore = "");
 
-    private sealed record SchemaFixture(
-        RowQuerySchema<QueryRow> Schema,
-        RowQueryFieldIdentity ScoreFieldIdentity,
-        RowQueryFieldIdentity NameFieldIdentity,
+    private sealed record VocabularyFixture(
+        RowQueryVocabulary<QueryRow> Vocabulary,
+        RowQueryKeyIdentity ScoreKeyIdentity,
+        RowQueryKeyIdentity NameKeyIdentity,
         RowQueryNamedOrderIdentity ScoreOrderIdentity,
         RowQueryNamedOrderIdentity SequenceOrderIdentity);
 

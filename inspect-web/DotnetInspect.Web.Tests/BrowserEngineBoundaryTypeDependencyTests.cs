@@ -338,7 +338,7 @@ public sealed partial class BrowserEngineBoundaryTests
                                     RowQueryOperator.Equals,
                                     new RowQueryValueToken("Interface")),
                             ],
-                            RowQueryOrderIntent.Fields(
+                            RowQueryOrderIntent.Keys(
                                 [
                                     new RowQueryOrderTermIntent(
                                         "Target",
@@ -806,7 +806,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Resolve(RowQueryIntent intent)
     {
         RowQueryResolutionResult<TypeDependencyRelationship> result =
-            TypeDependencyRowQuery.Resolve(intent);
+            TypeDependencyVocabulary.Resolve(intent);
         return result.Plan
             ?? throw new Xunit.Sdk.XunitException(
                 $"Expected Type Dependency query to resolve: "

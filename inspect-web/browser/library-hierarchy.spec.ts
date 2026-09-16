@@ -235,6 +235,7 @@ interface PackageLoadingFixture {
   failFrameworkOnce?: string;
   failVersionOnce?: string;
   versions?: readonly string[];
+  activityCatalogFailure?: boolean;
 }
 
 // Exercise the production composition root and bindings with deterministic facade
@@ -500,6 +501,9 @@ async function installFacades(
         };
       }
       export function listPackageActivityPackageSets() {
+        if (packageLoading.activityCatalogFailure) {
+          throw new Error("Package Activity catalog offline");
+        }
         return {
           version: 1,
           packageSets: [{
@@ -2327,6 +2331,50 @@ test("home demo history failure restores the catalog without publication", async
     .toHaveCount(retainedBefore);
 });
 
+test("Activity Back restores focus on the Demos route", async ({ page }) => {
+  await installHomeDemo(page, "Methods", "package");
+  await page.goto("/demos");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
+  await page.keyboard.press("Control+k");
+  await page.locator("#spotlight-input").fill("activity");
+  await page.locator('[data-sl-package-activity="1"]').click();
+  await expect(page).toHaveURL(/\/activity$/);
+
+  await page.goBack();
+
+  await expect(page).toHaveURL(/\/demos$/);
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeFocused();
+});
+
+test("Activity catalog failure focuses the visible route heading", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {},
+    { activityCatalogFailure: true },
+  );
+  await page.goto("/activity");
+
+  await expect(page.locator(".query-navigation-error"))
+    .toContainText("Package Activity catalog offline");
+  await expect(page.locator("#package-changes-package-set")).toBeDisabled();
+  await expect(page.getByRole("heading", {
+    name: "Package Activity",
+    exact: true,
+  })).toBeFocused();
+});
+
 async function openPlatform(page: Page, options: PlatformFixture = {}) {
   await installFacades(page, surface, [], "ready", "ready", options);
   await page.goto("/");
@@ -2334,6 +2382,19 @@ async function openPlatform(page: Page, options: PlatformFixture = {}) {
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await expect(page).toHaveURL(/\/\?package=&w=/);
 }
+
+test("Activity Back restores focus on the Platform route", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const platformLocation = page.url();
+  await page.locator("[data-application-scope='activity']").click();
+  await expect(page).toHaveURL(/\/activity$/);
+
+  await page.goBack();
+
+  await expect(page).toHaveURL(platformLocation);
+  await expect(page.locator("[data-application-scope='activity']")).toBeFocused();
+});
 
 test("Platform opens its catalog before warm-up, with reference membership and role labels", async ({ page }) => {
   await openPlatform(page, { warmup: "pending" });

@@ -35,7 +35,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
             or PackageQuery.ToolV2FacetId),
     ];
 
-    public static SectionQueryFacet QueryFacet { get; } = new(
+    public static SectionQueryKey QueryKey { get; } = new(
         "facet",
         ["--where"],
         ["="],
@@ -43,7 +43,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
         [.. CliFacets.Select(facet => facet.Id)],
         "--where \"facet=package.query.dotnet-tool\"");
 
-    public static SectionQueryFacet DependsTerm { get; } = new(
+    public static SectionQueryKey DependsTerm { get; } = new(
         PackageQuery.DependsTermKey,
         ["--where"],
         ["="],
@@ -51,8 +51,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
         [],
         "--where \"depends=Microsoft.Extensions.DependencyInjection\"");
 
-    public static ImmutableArray<SectionQueryFacet> QueryFacets { get; } =
-        [DependsTerm, QueryFacet];
+    public static ImmutableArray<SectionQueryKey> QueryKeys { get; } =
+        [DependsTerm, QueryKey];
 
     public static string DiscoverySummary =>
         "Use package query with repeated --where terms. "

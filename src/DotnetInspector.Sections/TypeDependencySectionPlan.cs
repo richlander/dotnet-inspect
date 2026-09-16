@@ -19,7 +19,7 @@ public sealed class TypeDependencySectionPlan
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetType);
         ArgumentNullException.ThrowIfNull(relationshipQuery);
-        if (!TypeDependencyRowQuery.Owns(relationshipQuery))
+        if (!TypeDependencyVocabulary.Owns(relationshipQuery))
         {
             throw new ArgumentException(
                 "The relationship row plan was not resolved from the "
@@ -60,7 +60,7 @@ public sealed class TypeDependencySectionPlan
         ResolveRequired(RowQueryIntent intent)
     {
         RowQueryResolutionResult<TypeDependencyRelationship> result =
-            TypeDependencyRowQuery.Resolve(intent);
+            TypeDependencyVocabulary.Resolve(intent);
         return result.Plan
             ?? throw new InvalidOperationException(
                 "The canonical Type Dependency row query did not resolve.");
