@@ -124,6 +124,21 @@ test("the dedicated Packages scope schedules NuGet discovery", () => {
   assert.equal(state.spotlightPackageSearch.status, "loading");
 });
 
+test("an exact package coordinate bypasses NuGet discovery", () => {
+  const state = searchState({
+    spotlightQuery: "WrongTurn@0.1.14",
+    spotlightPackageSearch:
+      ready("WrongTurn", [{ id: "WrongTurn", version: "0.1.13" }]),
+  });
+  const harness = searchDependencies(state);
+  const search = createSpotlightPackageSearch(harness.dependencies);
+
+  search.schedule();
+
+  assert.deepEqual(state.spotlightPackageSearch, { status: "idle" });
+  assert.equal(harness.scheduled.length, 0);
+});
+
 test("rescheduling cancels the prior debounce before replacing it", () => {
   const state = searchState({ spotlightQuery: "first" });
   const harness = searchDependencies(state);

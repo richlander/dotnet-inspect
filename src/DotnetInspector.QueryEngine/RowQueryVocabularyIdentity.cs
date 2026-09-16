@@ -1,21 +1,21 @@
 namespace DotnetInspector.Sections;
 
-public sealed class RowQuerySchemaIdentity
+public sealed class RowQueryVocabularyIdentity
 {
-    private RowQuerySchemaIdentity()
+    private RowQueryVocabularyIdentity()
     {
     }
 
-    public static RowQuerySchemaIdentity Create() => new();
+    public static RowQueryVocabularyIdentity Create() => new();
 }
 
-public sealed class RowQueryFieldIdentity
+public sealed class RowQueryKeyIdentity
 {
-    private RowQueryFieldIdentity()
+    private RowQueryKeyIdentity()
     {
     }
 
-    public static RowQueryFieldIdentity Create() => new();
+    public static RowQueryKeyIdentity Create() => new();
 }
 
 public sealed class RowQueryNamedOrderIdentity

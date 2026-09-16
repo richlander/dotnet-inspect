@@ -11,7 +11,7 @@ public sealed record CloneCandidateQueryOptions
 {
     public static CloneCandidateQueryOptions Default { get; } = new();
 
-    public static SectionQueryFacet BreadthFacet { get; } = new(
+    public static SectionQueryKey BreadthKey { get; } = new(
         "Breadth",
         ["--where"],
         ["="],
@@ -19,7 +19,7 @@ public sealed record CloneCandidateQueryOptions
         [.. Enum.GetNames<StructuralCloneCandidateBreadth>()],
         "--where \"Breadth=Everything\"");
 
-    public static SectionQueryFacet DiscoveryFacet { get; } = new(
+    public static SectionQueryKey DiscoveryKey { get; } = new(
         "Discovery",
         ["--where"],
         ["="],
@@ -27,8 +27,8 @@ public sealed record CloneCandidateQueryOptions
         [.. Enum.GetNames<StructuralCloneCandidateDiscovery>()],
         "--where \"Discovery=SimilarNames\"");
 
-    public static IReadOnlyList<SectionQueryFacet> QueryFacets { get; } =
-        [BreadthFacet, DiscoveryFacet];
+    public static IReadOnlyList<SectionQueryKey> QueryKeys { get; } =
+        [BreadthKey, DiscoveryKey];
 
     public StructuralCloneCandidateBreadth Breadth { get; init; } =
         StructuralCloneCandidateBreadth.Everything;
