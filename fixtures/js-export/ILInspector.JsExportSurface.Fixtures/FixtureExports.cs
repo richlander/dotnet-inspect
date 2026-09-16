@@ -545,6 +545,9 @@ public static partial class DirectionalFixtureExports
 /// <summary>Reached only through a <c>WhenReading</c>-ignored member.</summary>
 public sealed record DirectionalNote(string Text);
 
+/// <summary>Reached only through a conditionally written member.</summary>
+public sealed record DirectionalConditionalNote(string Text);
+
 public sealed record DirectionalOutputDto(string Name)
 {
     /// <summary>Written but never read: survives the serialize declaration.</summary>
@@ -569,6 +572,9 @@ public sealed record DirectionalOutputDto(string Name)
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NullHidden { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DirectionalConditionalNote? ConditionalNote { get; init; }
 
     [JsonIgnore]
     public string NeverOnWire { get; init; } = "";
