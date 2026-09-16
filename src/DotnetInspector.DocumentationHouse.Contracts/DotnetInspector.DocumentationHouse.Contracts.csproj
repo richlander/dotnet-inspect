@@ -18,6 +18,7 @@
     <InternalsVisibleTo Include="DotnetInspector.DocumentationHouse" />
     <ProjectReference Include="../CSharpText/CSharpText.csproj" />
     <ProjectReference Include="../DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
+    <ProjectReference Include="../DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
   </ItemGroup>

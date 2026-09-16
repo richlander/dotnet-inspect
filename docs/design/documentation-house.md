@@ -15,7 +15,9 @@ without acquiring packages, platforms, PDBs, or source bytes itself.
 The source-neutral request, contribution, attempt, outcome, and receipt floor
 and the compiled-XML operation are implemented in
 `DotnetInspector.DocumentationHouse.Contracts` and
-`DotnetInspector.DocumentationHouse`. The operation consumes one transferred
+`DotnetInspector.DocumentationHouse`. The subject consumes owner-issued
+Library-Metadata correspondence rather than pairing independently acquired
+Metadata with a Library by assembly identity. The operation consumes one transferred
 `LibraryOperationLease`, snapshots one exact associated XML content reference
 into bounded detached bytes, ends the borrow, invokes the bounded CSharpText
 reader, and settles the lease before publishing resource-free evidence.
@@ -64,6 +66,9 @@ The design depends on:
 - [Library ownership and borrowing](library-ownership-and-borrowing.md) for the
   exact realized Library reference, selected content references, transferred
   operation authority, synchronous snapshots, and resource-free evidence;
+- [Library-Metadata correspondence](library-metadata-correspondence.md) for
+  bounded owner-issued correspondence between one exact Metadata surface and
+  the realized Library API content that supplied it;
 - [PDB acquisition](../pdb-acquisition.md) for SourceLink interpretation,
   checksum semantics, and authored-source evidence; and
 - [Resource ownership and borrowing](resource-ownership-and-borrowing.md) for
@@ -225,7 +230,9 @@ consumer.
 Every request names one type or member in one exact library context. The
 subject retains:
 
-- the exact Metadata type or member target;
+- owner-issued correspondence between one exact Metadata surface and the
+  realized Library API content that supplied it;
+- the exact type or member selected from that correspondence's surface;
 - the exact compiler XML-documentation identity when compiled XML is
   requested;
 - the exact realized `LibraryReference`;
@@ -256,9 +263,10 @@ ordinals, and rendered signatures are not substitute identity.
 
 ## Library input and operation ownership
 
-The primary House inputs are one exact resource-free `LibraryReference`, one
-request-selected API-declaration `LibraryContentReference`, and ownership of one
-matching `LibraryOperationLease`.
+The primary House inputs are one owner-issued resource-free Library-Metadata
+correspondence, the exact `LibraryReference` and API-declaration
+`LibraryContentReference` it retains, and ownership of one matching
+`LibraryOperationLease`.
 
 The reference supplies:
 
@@ -269,13 +277,14 @@ The reference supplies:
 - Artifact registration, generation, and provenance evidence; and
 - the exact resource-free content identities that contributions may name.
 
-The request-selected API content must belong to the exact Library, carry the
-`ApiAssembly` role, and correspond to Metadata's declaration supplier for the
-documentation subject. An eligible compiled-XML content reference must belong
-to that Library, carry the `CompiledXmlDocumentation` role, and name that API
-content as its associated assembly. Authored demand additionally names the
-exact implementation content and target preserved by the applicable
-source-owner and Metadata correspondence.
+The subject selects its type or member only from the correspondence's exact
+`ApiSurface`; it does not accept an independently acquired surface or recreate
+association through equivalent assembly identity. An eligible compiled-XML
+content reference must belong to that Library, carry the
+`CompiledXmlDocumentation` role, and name the correspondence's API content as
+its associated assembly. Authored demand additionally names the exact
+implementation content and target preserved by the applicable source-owner
+and Metadata correspondence.
 
 The resource-free references carry no stream, callback, opener, or other live
 authority. The transferred lease authorizes synchronous snapshots of exact

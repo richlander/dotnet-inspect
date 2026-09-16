@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 
 using CSharpText;
 using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
@@ -15,21 +17,26 @@ public sealed class CompiledXmlDocumentationHouseTests
 {
     private const string DeserializeIdentity =
         "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)";
-    private static readonly Lazy<MetadataSubject> s_metadataSubject =
-        new(LoadMetadataSubject);
+    private static readonly ApiSurfaceExtractionBounds s_apiSurfaceBounds =
+        new(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 20_000_000);
+    private static readonly Lazy<byte[]> s_realAssembly =
+        new(() => File.ReadAllBytes(RealAsset("System.Text.Json.dll")));
 
     [Fact]
     public async Task
         RealSystemTextJsonMember_SettlesAvailableDetachedDocumentation()
     {
-        byte[] assembly = await File.ReadAllBytesAsync(
-            RealAsset("System.Text.Json.dll"),
-            TestContext.Current.CancellationToken);
         byte[] xml = await File.ReadAllBytesAsync(
             RealAsset("System.Text.Json.xml"),
             TestContext.Current.CancellationToken);
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync(assembly, xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject =
             Subject(library);
         CompiledXmlContribution contribution =
@@ -71,9 +78,9 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         byte[] xml = Xml(DeserializeIdentity, "selected");
         await using LibraryFixture selected =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         await using LibraryFixture foreign =
-            await LibraryFixture.CreateAsync([2], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject =
             Subject(selected);
         DocumentationSubjectReference foreignSubject =
@@ -104,9 +111,9 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         byte[] xml = Xml(DeserializeIdentity, "selected");
         await using LibraryFixture selected =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         await using LibraryFixture foreign =
-            await LibraryFixture.CreateAsync([2], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject =
             Subject(selected);
         DocumentationHouseRequest request = Request(
@@ -134,7 +141,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         byte[] xml = Xml("T:System.Text.Json.JsonSerializer", "type");
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject =
             Subject(library);
 
@@ -156,7 +163,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     public async Task CompleteAbsenceAndNoAuthorization_SettleDistinctAttempts()
     {
         await using LibraryFixture absentLibrary =
-            await LibraryFixture.CreateAsync([1]);
+            await LibraryFixture.CreateAsync();
         DocumentationSubjectReference absentSubject =
             Subject(absentLibrary);
         CompiledXmlContribution absence =
@@ -174,7 +181,7 @@ public sealed class CompiledXmlDocumentationHouseTests
             absent.CompiledXmlAttempt);
 
         await using LibraryFixture unavailableLibrary =
-            await LibraryFixture.CreateAsync([2]);
+            await LibraryFixture.CreateAsync();
         DocumentationSubjectReference unavailableSubject =
             Subject(unavailableLibrary);
         DocumentationHouseOutcome.Completed unavailable =
@@ -192,7 +199,7 @@ public sealed class CompiledXmlDocumentationHouseTests
         byte[] first = Xml(DeserializeIdentity, "first");
         byte[] second = Xml(DeserializeIdentity, "second");
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1], first, second);
+            await LibraryFixture.CreateAsync(first, second);
         DocumentationSubjectReference subject =
             Subject(library);
 
@@ -237,7 +244,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         byte[] xml = Xml(DeserializeIdentity, "selected");
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject = Subject(library);
         LibraryContentReference content =
             Assert.Single(library.XmlContents);
@@ -274,7 +281,7 @@ public sealed class CompiledXmlDocumentationHouseTests
         byte[] preferred = Xml(DeserializeIdentity, "preferred");
         byte[] other = Xml(DeserializeIdentity, "other");
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1], preferred, other);
+            await LibraryFixture.CreateAsync(preferred, other);
         DocumentationSubjectReference subject = Subject(library);
         LibraryContentReference preferredContent =
             library.XmlContents[0];
@@ -319,7 +326,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         byte[] xml = Xml(DeserializeIdentity, "selected");
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject =
             Subject(library);
 
@@ -352,7 +359,6 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         await using LibraryFixture library =
             await LibraryFixture.CreateAsync(
-                [1],
                 Encoding.UTF8.GetBytes("<doc><members>"));
         DocumentationSubjectReference subject =
             Subject(library);
@@ -386,7 +392,7 @@ public sealed class CompiledXmlDocumentationHouseTests
              </members></doc>
              """);
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject = Subject(library);
 
         DocumentationHouseOutcome.Completed completed =
@@ -414,7 +420,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         byte[] xml = Xml(DeserializeIdentity, "selected");
         await using LibraryFixture bytesLibrary =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference bytesSubject =
             Subject(bytesLibrary);
         DocumentationHouseOutcome.Completed bytes =
@@ -433,7 +439,7 @@ public sealed class CompiledXmlDocumentationHouseTests
         Assert.False(bytes.Work.ParsedCompiledXml);
 
         await using LibraryFixture countLibrary =
-            await LibraryFixture.CreateAsync([2]);
+            await LibraryFixture.CreateAsync();
         DocumentationSubjectReference countSubject =
             Subject(countLibrary);
         CompiledXmlContribution unavailable =
@@ -462,7 +468,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     public async Task ExpiredDeadline_IsTopLevelIncomplete()
     {
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1]);
+            await LibraryFixture.CreateAsync();
         DocumentationSubjectReference subject =
             Subject(library);
         DocumentationHouseRequest request = Request(
@@ -489,7 +495,7 @@ public sealed class CompiledXmlDocumentationHouseTests
         const int contributionCount = 4_000_000;
         byte[] xml = Xml(DeserializeIdentity, "selected");
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject = Subject(library);
         CompiledXmlContribution candidate =
             Candidate(library, subject, xmlIndex: 0, precedence: 0);
@@ -531,7 +537,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         const int contributionCount = 4_000_000;
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1]);
+            await LibraryFixture.CreateAsync();
         DocumentationSubjectReference subject = Subject(library);
         CompiledXmlContribution unavailable =
             CompiledXmlContribution.Unavailable(
@@ -620,7 +626,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         byte[] xml = Xml(DeserializeIdentity, "selected");
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject =
             Subject(library);
         DocumentationHouseRequest request = Request(
@@ -649,7 +655,7 @@ public sealed class CompiledXmlDocumentationHouseTests
         const int xmlSize = 48 * 1024 * 1024;
         byte[] xml = LargeXml(xmlSize);
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject = Subject(library);
         DocumentationHouseRequest request = Request(
             subject,
@@ -714,7 +720,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         byte[] xml = Xml(DeserializeIdentity, "selected");
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1], xml);
+            await LibraryFixture.CreateAsync(xml);
         DocumentationSubjectReference subject =
             Subject(library);
         LibraryOperationLease operation = library.IssueOperation();
@@ -742,16 +748,15 @@ public sealed class CompiledXmlDocumentationHouseTests
     public async Task SubjectFactorySnapshotsMetadataIssuedIdentity()
     {
         await using LibraryFixture library =
-            await LibraryFixture.CreateAsync([1]);
-        MetadataSubject metadata = LoadMetadataSubject();
+            await LibraryFixture.CreateAsync();
+        MetadataSubject metadata =
+            SelectMetadataSubject(library.ApiSurfaceCorrespondence);
 
         DocumentationSubjectReference subject =
             DocumentationSubjectReference.ForMember(
-                metadata.Surface,
+                metadata.Correspondence,
                 metadata.Type,
-                metadata.Member,
-                library.Reference,
-                library.Reference.ApiAssembly);
+                metadata.Member);
         MetadataTypeDefinitionName typeIdentity = subject.TypeIdentity;
         string selector = subject.MemberIdentity!.StableSelector;
         metadata.Type.Name = "Changed";
@@ -760,6 +765,53 @@ public sealed class CompiledXmlDocumentationHouseTests
         Assert.Equal(DeserializeIdentity, subject.CompiledXmlIdentity.Value);
         Assert.Same(typeIdentity, subject.TypeIdentity);
         Assert.Equal(selector, subject.MemberIdentity.StableSelector);
+    }
+
+    [Fact]
+    public async Task
+        EquivalentIdentityLibraries_CannotCrossPairMetadataAndLibrary()
+    {
+        await using LibraryFixture first =
+            await LibraryFixture.CreateAsync();
+        await using LibraryFixture second =
+            await LibraryFixture.CreateAsync();
+        LibraryApiSurfaceCorrespondence firstCorrespondence =
+            first.ApiSurfaceCorrespondence;
+        LibraryApiSurfaceCorrespondence secondCorrespondence =
+            second.ApiSurfaceCorrespondence;
+        MetadataSubject secondMetadata =
+            SelectMetadataSubject(secondCorrespondence);
+
+        Assert.True(
+            firstCorrespondence.ApiContent.AssemblyIdentity!.Identity
+                .IsEquivalentTo(
+                    secondCorrespondence.ApiContent.AssemblyIdentity!
+                        .Identity));
+        Assert.NotSame(first.Reference, second.Reference);
+        Assert.NotSame(
+            firstCorrespondence.ApiContent,
+            secondCorrespondence.ApiContent);
+        Assert.NotSame(
+            firstCorrespondence.ApiContent.Artifact,
+            secondCorrespondence.ApiContent.Artifact);
+        Assert.Throws<ArgumentException>(
+            () => DocumentationSubjectReference.ForMember(
+                firstCorrespondence,
+                secondMetadata.Type,
+                secondMetadata.Member));
+
+        DocumentationSubjectReference subject =
+            DocumentationSubjectReference.ForMember(
+                secondCorrespondence,
+                secondMetadata.Type,
+                secondMetadata.Member);
+        Assert.Same(
+            secondCorrespondence,
+            subject.ApiSurfaceCorrespondence);
+        Assert.Same(second.Reference, subject.Library);
+        Assert.Same(
+            second.Reference.ApiAssembly,
+            subject.ApiContent);
     }
 
     [Fact]
@@ -872,24 +924,19 @@ public sealed class CompiledXmlDocumentationHouseTests
     private static DocumentationSubjectReference Subject(
         LibraryFixture library)
     {
-        MetadataSubject metadata = s_metadataSubject.Value;
+        MetadataSubject metadata =
+            SelectMetadataSubject(library.ApiSurfaceCorrespondence);
         return DocumentationSubjectReference.ForMember(
-            metadata.Surface,
+            metadata.Correspondence,
             metadata.Type,
-            metadata.Member,
-            library.Reference,
-            library.Reference.ApiAssembly);
+            metadata.Member);
     }
 
-    private static MetadataSubject LoadMetadataSubject()
+    private static MetadataSubject SelectMetadataSubject(
+        LibraryApiSurfaceCorrespondence correspondence)
     {
-        using var stream = File.OpenRead(
-            RealAsset("System.Text.Json.dll"));
-        using var reader = new PEReader(stream);
-        ApiSurface surface =
-            ApiSurfaceExtractor.Extract(reader, includeAll: true);
         ApiType type = Assert.Single(
-            surface.Types,
+            correspondence.Surface.Types,
             candidate =>
                 candidate.FullName
                     == "System.Text.Json.JsonSerializer");
@@ -901,7 +948,7 @@ public sealed class CompiledXmlDocumentationHouseTests
                     candidate,
                     out XmlDocMemberIdentity identity)
                 && identity.Value == DeserializeIdentity);
-        return new MetadataSubject(surface, type, member);
+        return new MetadataSubject(correspondence, type, member);
     }
 
     private static CompiledXmlContribution Candidate(
@@ -961,6 +1008,17 @@ public sealed class CompiledXmlDocumentationHouseTests
             "DocumentationHouse",
             fileName);
 
+    private static ManagedMetadataIdentity.Assembly AssemblyIdentity(
+        byte[] content)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(content, writable: false));
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
+        return new ManagedMetadataIdentity.Assembly(
+            AssemblyReferenceIdentity.FromAssemblyDefinition(reader));
+    }
+
     private static void AssertOperationSettled(
         LibraryOperationLease operation,
         LibraryContentReference content) =>
@@ -973,6 +1031,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     {
         private readonly ArtifactFixture _artifacts;
         private readonly LibraryContentOwner _owner;
+        private LibraryApiSurfaceCorrespondence? _apiSurfaceCorrespondence;
 
         private LibraryFixture(
             ArtifactFixture artifacts,
@@ -995,6 +1054,8 @@ public sealed class CompiledXmlDocumentationHouseTests
         public LibraryReference Reference { get; }
         public IReadOnlyList<LibraryContentReference> XmlContents { get; }
         public LibraryContentOwnerState OwnerState => _owner.State;
+        public LibraryApiSurfaceCorrespondence ApiSurfaceCorrespondence =>
+            _apiSurfaceCorrespondence ??= InspectApiSurface();
 
         public LibraryOperationLease IssueOperation() =>
             Assert.IsType<
@@ -1006,22 +1067,16 @@ public sealed class CompiledXmlDocumentationHouseTests
             _owner.DisposeAsync().AsTask();
 
         public static async Task<LibraryFixture> CreateAsync(
-            byte[] assembly,
             params byte[][] compiledXml)
         {
+            byte[] assembly = s_realAssembly.Value;
             byte[][] contents = [assembly, .. compiledXml];
             ArtifactFixture artifacts =
                 await ArtifactFixture.CreateAsync(contents);
             try
             {
-                ApiAssemblyIdentity metadataAssembly =
-                    s_metadataSubject.Value.Surface.AssemblyIdentity!;
-                var identity = new ManagedMetadataIdentity.Assembly(
-                    new AssemblyReferenceIdentity(
-                        metadataAssembly.Name,
-                        metadataAssembly.Version,
-                        metadataAssembly.Culture,
-                        metadataAssembly.PublicKeyToken));
+                ManagedMetadataIdentity.Assembly identity =
+                    AssemblyIdentity(assembly);
                 LibraryReference reference =
                     LibraryReference.CreateDirect(
                         new LibraryAssemblyCorrespondence(
@@ -1050,6 +1105,22 @@ public sealed class CompiledXmlDocumentationHouseTests
                 await artifacts.DisposeAsync();
                 throw;
             }
+        }
+
+        private LibraryApiSurfaceCorrespondence InspectApiSurface()
+        {
+            using LibraryOperationLease operation = IssueOperation();
+            var request = new LibraryApiSurfaceInspectionRequest(
+                Reference,
+                ApiSurfaceExtractionScope.Public,
+                s_apiSurfaceBounds);
+            return Assert.IsType<
+                    LibraryApiSurfaceInspectionOutcome.Completed>(
+                    LibraryApiSurfaceInspection.Execute(
+                        request,
+                        operation,
+                        TestContext.Current.CancellationToken))
+                .Correspondence;
         }
 
         public async ValueTask DisposeAsync()
@@ -1160,7 +1231,7 @@ public sealed class CompiledXmlDocumentationHouseTests
     private sealed record Provenance(string Name) : IArtifactProvenance;
 
     private sealed record MetadataSubject(
-        ApiSurface Surface,
+        LibraryApiSurfaceCorrespondence Correspondence,
         ApiType Type,
         ApiMember Member);
 }

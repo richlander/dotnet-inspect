@@ -1,5 +1,6 @@
 using CSharpText;
 using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -85,15 +86,13 @@ public sealed class DocumentationSubjectReference
         MetadataTypeDefinitionName typeIdentity,
         MemberAnchor? memberIdentity,
         XmlDocMemberIdentity compiledXmlIdentity,
-        LibraryReference library,
-        LibraryContentReference apiContent)
+        LibraryApiSurfaceCorrespondence apiSurfaceCorrespondence)
     {
         MetadataAssembly = metadataAssembly;
         TypeIdentity = typeIdentity;
         MemberIdentity = memberIdentity;
         CompiledXmlIdentity = compiledXmlIdentity;
-        Library = library;
-        ApiContent = apiContent;
+        ApiSurfaceCorrespondence = apiSurfaceCorrespondence;
     }
 
     public ApiAssemblyIdentity MetadataAssembly { get; }
@@ -101,16 +100,18 @@ public sealed class DocumentationSubjectReference
     public MemberAnchor? MemberIdentity { get; }
     public bool IsMember => MemberIdentity is not null;
     public XmlDocMemberIdentity CompiledXmlIdentity { get; }
-    public LibraryReference Library { get; }
-    public LibraryContentReference ApiContent { get; }
+    public LibraryApiSurfaceCorrespondence ApiSurfaceCorrespondence { get; }
+    public LibraryReference Library => ApiSurfaceCorrespondence.Library;
+    public LibraryContentReference ApiContent =>
+        ApiSurfaceCorrespondence.ApiContent;
 
     public static DocumentationSubjectReference ForType(
-        ApiSurface surface,
-        ApiType type,
-        LibraryReference library,
-        LibraryContentReference apiContent)
+        LibraryApiSurfaceCorrespondence apiSurfaceCorrespondence,
+        ApiType type)
     {
-        ValidateContext(surface, type, library, apiContent);
+        ApiSurface surface = ValidateContext(
+            apiSurfaceCorrespondence,
+            type);
         if (!ApiMemberIdentity.TryGetXmlDocTypeIdentity(
                 type,
                 out XmlDocMemberIdentity compiledXmlIdentity))
@@ -125,23 +126,18 @@ public sealed class DocumentationSubjectReference
             type.DefinitionName!,
             memberIdentity: null,
             compiledXmlIdentity,
-            library,
-            apiContent);
+            apiSurfaceCorrespondence);
     }
 
     public static DocumentationSubjectReference ForMember(
-        ApiSurface surface,
+        LibraryApiSurfaceCorrespondence apiSurfaceCorrespondence,
         ApiType declaringType,
-        ApiMember member,
-        LibraryReference library,
-        LibraryContentReference apiContent)
+        ApiMember member)
     {
         ArgumentNullException.ThrowIfNull(member);
-        ValidateContext(
-            surface,
-            declaringType,
-            library,
-            apiContent);
+        ApiSurface surface = ValidateContext(
+            apiSurfaceCorrespondence,
+            declaringType);
         if (!declaringType.Members.Any(
                 candidate => ReferenceEquals(candidate, member)))
         {
@@ -167,20 +163,16 @@ public sealed class DocumentationSubjectReference
                 declaringType,
                 member),
             compiledXmlIdentity,
-            library,
-            apiContent);
+            apiSurfaceCorrespondence);
     }
 
-    private static void ValidateContext(
-        ApiSurface surface,
-        ApiType type,
-        LibraryReference library,
-        LibraryContentReference apiContent)
+    private static ApiSurface ValidateContext(
+        LibraryApiSurfaceCorrespondence apiSurfaceCorrespondence,
+        ApiType type)
     {
-        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(apiSurfaceCorrespondence);
         ArgumentNullException.ThrowIfNull(type);
-        ArgumentNullException.ThrowIfNull(library);
-        ArgumentNullException.ThrowIfNull(apiContent);
+        ApiSurface surface = apiSurfaceCorrespondence.Surface;
         if (surface.AssemblyIdentity is not { } metadataAssembly)
         {
             throw new ArgumentException(
@@ -200,21 +192,8 @@ public sealed class DocumentationSubjectReference
                 "The Metadata type requires an exact definition identity.",
                 nameof(type));
         }
-        if (!ReferenceEquals(apiContent.Library, library)
-            || !ReferenceEquals(apiContent, library.ApiAssembly)
-            || apiContent.AssemblyIdentity is not { } libraryAssembly
-            || !AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                libraryAssembly.Identity,
-                new AssemblyReferenceIdentity(
-                    metadataAssembly.Name,
-                    metadataAssembly.Version,
-                    metadataAssembly.Culture,
-                    metadataAssembly.PublicKeyToken)))
-        {
-            throw new ArgumentException(
-                "The Metadata surface and selected API content must identify the same exact assembly.",
-                nameof(apiContent));
-        }
+
+        return surface;
     }
 }
 
