@@ -18,6 +18,7 @@
     <ProjectReference Include="../DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
+    <ProjectReference Include="../Inspector.Resources/Inspector.Resources.csproj" />
   </ItemGroup>
 
 </Project>

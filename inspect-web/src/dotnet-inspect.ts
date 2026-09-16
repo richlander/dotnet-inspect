@@ -482,6 +482,9 @@ import {
   initialQueryState,
   shouldExecuteQuery,
   toggleFacet,
+  replaceTerm,
+  withTerm,
+  withoutTerm,
   withEditorDraft,
   withSourceSelection,
   withScopeQuery,
@@ -489,6 +492,7 @@ import {
   type QueryFacetTerm,
   type QueryRequest,
   type QuerySourceSelection,
+  type QueryTermDescriptor,
 } from "./package-query.ts";
 import {
   createPackageQueryLiveAnnouncer,
@@ -496,7 +500,7 @@ import {
 } from "./package-query-announcements.ts";
 import {
   createBrowserPackageQueryDataSource,
-  packageQueryFacets,
+  packageQueryCatalog,
   type BrowserPackageQueryInspection,
 } from "./package-query-source.ts";
 import {
@@ -948,6 +952,7 @@ const initialState = {
   packageQueryState: initialQueryState(),
   packageQueryInspection: null,
   packageQueryFacets: [],
+  packageQueryTerms: [],
   packageChangesPackageSets: [],
   packageChangesState: initialPackageChangesState(),
   platformIndex: null,
@@ -1169,6 +1174,7 @@ interface StateOverrides {
   packageChangesState: PackageChangesState;
   packageQueryInspection: BrowserPackageQueryInspection | null;
   packageQueryFacets: QueryFacetTerm[];
+  packageQueryTerms: QueryTermDescriptor[];
   packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
@@ -1498,6 +1504,7 @@ function captureRetainedHostState() {
     packageQueryState: state.packageQueryState,
     packageQueryInspection: state.packageQueryInspection,
     packageQueryFacets: state.packageQueryFacets,
+    packageQueryTerms: state.packageQueryTerms,
     packageChangesPackageSets: state.packageChangesPackageSets,
     packageChangesState: state.packageChangesState,
     platformIndex: state.platformIndex,
@@ -1928,6 +1935,7 @@ const packageQueryController = createPackageQueryController(
       operationId,
       prefix,
       facetIdsJson,
+      termsJson,
       maximumCandidates,
       maximumMatches,
       includePrerelease,
@@ -1937,6 +1945,7 @@ const packageQueryController = createPackageQueryController(
       operationId,
       prefix,
       facetIdsJson,
+      termsJson,
       maximumCandidates,
       maximumMatches,
       includePrerelease,
@@ -10827,6 +10836,7 @@ function openProductDemos(): void {
   }
   state.home = false;
   state.credits = false;
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -11282,6 +11292,7 @@ function goHome() {
     render();
     return;
   }
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -11299,6 +11310,7 @@ function openCredits() {
   }
   navigationSequence.begin();
   state.loading = false;
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -11431,6 +11443,7 @@ function openDiagnosticsRoute() {
   navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   state.credits = false;
   state.home = false;
@@ -11474,6 +11487,7 @@ function replaceDiagnosticsWithHome() {
     render();
     return;
   }
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -11591,11 +11605,18 @@ function resetPackageQueryState() {
   const fresh = initialQueryState();
   state.packageQueryState.request = fresh.request;
   state.packageQueryState.outcome = fresh.outcome;
+  state.packageQueryState.termDraft = fresh.termDraft ?? null;
+  state.packageQueryState.termEdits = fresh.termEdits ?? [];
   state.packageQueryInspection = null;
   state.packageQueryMode = "packages";
   packageChangesController.reset();
   packageQueryViewport = null;
   packageChangesViewport = null;
+}
+
+function discardPackageQueryTermEditors() {
+  state.packageQueryState.termDraft = null;
+  state.packageQueryState.termEdits = [];
 }
 
 function resetPackageQueryAnnouncements() {
@@ -11725,6 +11746,7 @@ async function selectWorkspaceApplicationScope() {
 
 function closePackageQueryRoute() {
   navigationSequence.begin();
+  discardPackageQueryTermEditors();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
   if (state.packageQueryOpenedFromApp) {
@@ -11839,6 +11861,96 @@ function togglePackageQueryFacet(facetKey: string, text: string) {
   submitPackageQueryRequest(toggleFacet(current, facet));
 }
 
+function addPackageQueryTerm(termKey: string) {
+  const descriptor = state.packageQueryTerms.find(
+    candidate => candidate.key === termKey);
+  if (!descriptor || descriptor.operators.length === 0) {
+    state.packageQueryNavigationError =
+      "The selected package-query term is unavailable.";
+    render();
+    return;
+  }
+
+  state.packageQueryState.termDraft = {
+    descriptor,
+    operator: descriptor.operators[0] ?? "",
+    value: "",
+  };
+  state.packageQueryNavigationError = "";
+  render();
+  afterCurrentNavigationFrame(() =>
+    document.querySelector<HTMLElement>("[data-query-term-draft-value]")
+      ?.focus());
+}
+
+function applyPackageQueryTerm(
+  index: number | null,
+  operator: string,
+  value: string,
+  text: string,
+) {
+  const descriptor = index === null
+    ? state.packageQueryState.termDraft?.descriptor
+    : state.packageQueryState.request?.terms[index]?.descriptor;
+  if (!descriptor) {
+    state.packageQueryNavigationError =
+      "The selected package-query term is unavailable.";
+    render();
+    return;
+  }
+
+  const current = preparePackageQueryControlRequest(text);
+  const request = index === null
+    ? withTerm(current, descriptor, operator, value)
+    : replaceTerm(current, index, operator, value);
+  if (index === null) {
+    state.packageQueryState.termDraft = null;
+  } else {
+    const edits = [...(state.packageQueryState.termEdits ?? [])];
+    edits[index] = null;
+    state.packageQueryState.termEdits = edits;
+  }
+  submitPackageQueryRequest(request);
+}
+
+function removePackageQueryTerm(index: number, text: string) {
+  const current = preparePackageQueryControlRequest(text);
+  state.packageQueryState.termEdits =
+    (state.packageQueryState.termEdits ?? []).filter(
+      (_edit, termIndex) => termIndex !== index);
+  submitPackageQueryRequest(withoutTerm(current, index));
+}
+
+function editPackageQueryTerm(
+  index: number | null,
+  operator: string,
+  value: string,
+) {
+  if (index === null) {
+    const draft = state.packageQueryState.termDraft;
+    if (draft) state.packageQueryState.termDraft = {
+      ...draft,
+      operator,
+      value,
+    };
+    return;
+  }
+  if (!state.packageQueryState.request?.terms[index]) return;
+  const edits = [...(state.packageQueryState.termEdits ?? [])];
+  edits[index] = { operator, value };
+  state.packageQueryState.termEdits = edits;
+}
+
+function cancelPackageQueryTermDraft() {
+  const descriptor = state.packageQueryState.termDraft?.descriptor;
+  state.packageQueryState.termDraft = null;
+  render();
+  if (!descriptor) return;
+  afterCurrentNavigationFrame(() =>
+    document.querySelector<HTMLElement>(
+      `[data-query-term-add="${cssEscape(descriptor.key)}"]`)?.focus());
+}
+
 async function openPackageQueryRow(
   packageId: string,
   version: string,
@@ -11853,6 +11965,7 @@ async function openPackageQueryRow(
   }
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
+  discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   const navigationSeq = navigationSequence.begin();
   const { rollbackSnapshot, retainedSnapshot } =
@@ -11944,6 +12057,11 @@ const packageQueryActions: PackageQueryBindingActions = {
   onCancel: () => packageQueryController.cancel(),
   onModeChange: switchPackageQueryMode,
   onFacetToggle: togglePackageQueryFacet,
+  onTermAdd: addPackageQueryTerm,
+  onTermApply: applyPackageQueryTerm,
+  onTermEdit: editPackageQueryTerm,
+  onTermDraftCancel: cancelPackageQueryTermDraft,
+  onTermRemove: removePackageQueryTerm,
   onSourceChange: changePackageQuerySource,
   onPrefixInput: prefix => {
     state.packageQueryPrefix = prefix;
@@ -12060,6 +12178,7 @@ function renderPackageQueryPage() {
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
+    availableTerms: state.packageQueryTerms,
     navigationError: [
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
@@ -15888,12 +16007,15 @@ async function bootstrap() {
         `Package Changes package sets are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
-      state.packageQueryFacets =
-        packageQueryFacets(await engineClient.package.listPackageQueryFacets());
+      const catalog =
+        packageQueryCatalog(await engineClient.package.listPackageQueryCatalog());
+      state.packageQueryFacets = catalog.facets;
+      state.packageQueryTerms = catalog.terms;
     } catch (error) {
       state.packageQueryFacets = [];
+      state.packageQueryTerms = [];
       state.packageQueryCatalogError =
-        `Package-query facets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package-query vocabulary is unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     state.engineReady = true;
     state.engineStatus = "";
@@ -16145,6 +16267,7 @@ async function navigateInAppUrl(url: URL) {
   }
   const focusWorkspaceAfterQuery = state.packageQueryOpen;
   if (focusWorkspaceAfterQuery) {
+    discardPackageQueryTermEditors();
     state.packageQueryOpen = false;
     packageQueryController.cancel();
     packageChangesController.cancel("disposed");
@@ -16714,6 +16837,7 @@ window.addEventListener("popstate", () => {
     diagnosticsDestinationFocusPending = false;
     diagnosticsDestinationFocusGeneration = null;
     clearNavigationError();
+    discardPackageQueryTermEditors();
     state.packageQueryOpen = false;
     packageQueryController.cancel();
     packageChangesController.cancel("disposed");
@@ -16744,6 +16868,7 @@ window.addEventListener("popstate", () => {
   }
   state.loading = false;
   if (state.packageQueryOpen || leftPackageQueryHandoff) {
+    discardPackageQueryTermEditors();
     state.packageQueryOpen = false;
     packageQueryHandoffNavigationSeq = null;
     packageQueryController.cancel();

@@ -64,9 +64,9 @@ The first parameterized term adoption under
 `depends=<package-id>` beside that existing facet surface. It is the first
 production consumer of the Package Query term descriptor and typed term plan;
 the existing parameterless facets remain active until their own term spellings
-and the Browser active-term editor land. This staged boundary does not define
-the portable intent codec or claim that the Browser already consumes
-parameterized terms.
+land. Inspect Web consumes the same descriptor and planner through its active
+term editor, without defining a second vocabulary. This staged boundary does
+not define the portable intent codec.
 
 Related docs:
 

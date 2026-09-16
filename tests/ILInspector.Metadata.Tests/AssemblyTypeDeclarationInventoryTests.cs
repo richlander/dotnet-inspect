@@ -56,6 +56,72 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
         Assert.Equal(
             AssemblyTypeDeclarationKind.Definition,
             Assert.Single(inventory.Declarations).Kind);
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.Class,
+            Assert.Single(inventory.Declarations).DefinitionKind);
+    }
+
+    [Fact]
+    public void Definitions_RetainHighLevelTypeKinds()
+    {
+        byte[] image = BuildImage(metadata =>
+        {
+            AssemblyReferenceHandle core =
+                AddReference(metadata, "System.Runtime");
+            TypeReferenceHandle Base(string name) =>
+                metadata.AddTypeReference(
+                    core,
+                    metadata.GetOrAddString("System"),
+                    metadata.GetOrAddString(name));
+
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Class",
+                Base("Object"));
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public | TypeAttributes.Interface,
+                "N",
+                "Interface");
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Struct",
+                Base("ValueType"));
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Enum",
+                Base("Enum"));
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Delegate",
+                Base("MulticastDelegate"));
+        });
+        using var session =
+            AssemblyInspectionSession.Open(Descriptor(image));
+        Dictionary<string, AssemblyTypeDefinitionKind?> kinds =
+            Read(session).Declarations.ToDictionary(
+                static declaration => declaration.Name.Segments[0],
+                static declaration => declaration.DefinitionKind);
+
+        Assert.Equal(AssemblyTypeDefinitionKind.Class, kinds["Class"]);
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.Interface,
+            kinds["Interface"]);
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.ValueType,
+            kinds["Struct"]);
+        Assert.Equal(AssemblyTypeDefinitionKind.Enum, kinds["Enum"]);
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.Delegate,
+            kinds["Delegate"]);
     }
 
     [Fact]
@@ -95,8 +161,19 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
         Assert.Equal(6, inventory.GetDeclarations(includeAll: true).Count());
         Assert.DoesNotContain(inventory.Declarations, declaration => declaration.Name == Name("", "<Module>"));
         Assert.Contains(Name("", "<Module>"), inventory.Definitions);
-        Assert.False(inventory.Declarations.Single(
-            declaration => declaration.Name == Name("N", "Hidden", "Child")).IsPublicSurface);
+        AssemblyTypeDeclaration hiddenChild =
+            inventory.Declarations.Single(
+                declaration =>
+                    declaration.Name
+                    == Name("N", "Hidden", "Child"));
+        Assert.True(hiddenChild.IsDefinitionPublic);
+        Assert.False(hiddenChild.IsPublicSurface);
+        Assert.False(
+            inventory.Declarations.Single(
+                declaration =>
+                    declaration.Name
+                    == Name("N", "Outer`1", "Private"))
+                .IsDefinitionPublic);
     }
 
     [Fact]
@@ -140,6 +217,7 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
         Assert.All(inventory.Declarations, declaration =>
         {
             Assert.Equal(AssemblyTypeDeclarationKind.Forwarder, declaration.Kind);
+            Assert.Null(declaration.DefinitionKind);
             Assert.True(declaration.IsPublicSurface);
             Assert.Null(declaration.DiscoveryAttributes);
         });
@@ -169,7 +247,10 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
         Assert.Equal(2, inventory.GetDeclarations().Count());
         Assert.All(inventory.Declarations, declaration =>
         {
-            Assert.Equal(AssemblyTypeDeclarationKind.ModuleExport, declaration.Kind);
+            Assert.Equal(
+                AssemblyTypeDeclarationKind.ModuleExport,
+                declaration.Kind);
+            Assert.Null(declaration.DefinitionKind);
             Assert.Null(declaration.DiscoveryAttributes);
         });
         Assert.Equal(Name("N", "Outer", "Inner"), inventory.Declarations[1].Name);
@@ -338,6 +419,7 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
     static IEnumerable<(
         MetadataTypeDefinitionName Name,
         AssemblyTypeDeclarationKind Kind,
+        AssemblyTypeDefinitionKind? DefinitionKind,
         bool Public,
         TypeDeclarationDiscoveryAttributes? DiscoveryAttributes)>
         Project(AssemblyTypeDeclarationInventory inventory) =>
@@ -345,6 +427,7 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
             (
                 declaration.Name,
                 declaration.Kind,
+                declaration.DefinitionKind,
                 declaration.IsPublicSurface,
                 declaration.DiscoveryAttributes));
 
@@ -371,10 +454,14 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
             default, default, 0, default);
 
     static TypeDefinitionHandle AddDefinition(
-        MetadataBuilder metadata, TypeAttributes attributes, string ns, string name) =>
+        MetadataBuilder metadata,
+        TypeAttributes attributes,
+        string ns,
+        string name,
+        EntityHandle baseType = default) =>
         metadata.AddTypeDefinition(
             attributes, metadata.GetOrAddString(ns), metadata.GetOrAddString(name),
-            default, MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+            baseType, MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
 
     static byte[] BuildImage(Action<MetadataBuilder> addRows)
     {

@@ -67,7 +67,7 @@ public sealed class ProductionFacadeContextTests
             "GetPlatformCatalog",
             "GetPlatformVersions",
             "ListPackageChangesPackageSets",
-            "ListPackageQueryFacets",
+            "ListPackageQueryCatalog",
             "LoadRuntimePack",
             "LoadRuntimePackAssembly",
             "MatchPackageDependencyCoordinate",

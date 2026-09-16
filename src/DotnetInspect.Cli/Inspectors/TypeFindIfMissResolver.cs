@@ -28,6 +28,9 @@ internal sealed record TypeFindIfMissResult(
     public TypeOptions ApplyTo(TypeOptions options)
     {
         var match = Match ?? throw new InvalidOperationException("Cannot apply a non-found type route.");
+        if (match.Location is { } location)
+            return TypeFindInspectionTarget.Create(location).ApplyTo(options);
+
         return options with
         {
             TypeName = match.FullName,
@@ -43,6 +46,9 @@ internal sealed record TypeFindIfMissResult(
     public MemberOptions ApplyTo(MemberOptions options)
     {
         var match = Match ?? throw new InvalidOperationException("Cannot apply a non-found type route.");
+        if (match.Location is { } location)
+            return TypeFindInspectionTarget.Create(location).ApplyTo(options);
+
         return options with
         {
             TypeName = match.FullName,
@@ -166,7 +172,7 @@ internal static class TypeFindIfMissResolver
                     Library = r.Assembly ?? "",
                     Source = r.Source ?? "",
                     SourceVersion = r.SourceVersion,
-                    Match = MatchKind.Exact
+                    Match = TypeFindMatchKind.Direct
                 })
                 .DistinctBy(r => r.FullName, StringComparer.OrdinalIgnoreCase)
                 .ToList();

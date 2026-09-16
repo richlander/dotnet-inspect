@@ -415,6 +415,55 @@ function validateSucceeded(value: unknown): void {
   }
 }
 
+function validateInspection(
+  value: unknown,
+  expectedOutcome: "available" | "unavailable" | "rejected",
+): void {
+  const inspection = requireRecord(value, "Library API Diff inspection");
+  const content = requireRecord(
+    inspection.content,
+    "Library API Diff inspection Content",
+  );
+  if (content.outcome !== expectedOutcome)
+    throw new Error("Library API Diff inspection contradicts its result.");
+  if (expectedOutcome === "available") {
+    requireRecord(content.document, "Library API Diff Content document");
+  } else {
+    requireInteger(content.kind, "Library API Diff Content kind");
+    requireRecord(content.before, "Library API Diff Content Before");
+    requireRecord(content.after, "Library API Diff Content After");
+  }
+  const share = requireRecord(inspection.share, "Library API Diff Share");
+  requireEnum(share.kind, "Library API Diff Share kind", [
+    "available",
+    "nonProjectable",
+  ]);
+  if (share.kind === "available") {
+    requireString(share.fullUrl, "Library API Diff Share URL");
+    requireString(share.packet, "Library API Diff Share packet");
+  } else {
+    requireNull(share, "fullUrl", "packet");
+    requireString(share.path, "Library API Diff Share path");
+    requireString(share.reason, "Library API Diff Share reason");
+  }
+  if (!Array.isArray(inspection.diagnostics))
+    throw new Error("Library API Diff inspection diagnostics must be an array.");
+  for (const item of inspection.diagnostics) {
+    const diagnostic = requireRecord(item, "Library API Diff diagnostic");
+    requireString(diagnostic.code, "Library API Diff diagnostic code");
+    requireString(diagnostic.summary, "Library API Diff diagnostic summary");
+    requireNullableString(
+      diagnostic.correspondence,
+      "Library API Diff diagnostic correspondence",
+    );
+    if (diagnostic.severity !== 0
+      && diagnostic.severity !== 1
+      && diagnostic.severity !== 2) {
+      throw new Error("Library API Diff diagnostic severity is unsupported.");
+    }
+  }
+}
+
 function validateResult(
   result: unknown,
   input: LibraryApiDiffOperationInput,
@@ -436,6 +485,7 @@ function validateResult(
   }
   switch (record.kind) {
     case "Succeeded":
+      validateInspection(record.inspection, "available");
       validateSucceeded(record.value);
       requireNull(
         record,
@@ -448,6 +498,7 @@ function validateResult(
       );
       return;
     case "Unavailable":
+      validateInspection(record.inspection, "unavailable");
       {
         const unavailable = requireRecord(
           record.unavailable,
@@ -497,6 +548,19 @@ function validateResult(
           "CollectionEntryLimitExceeded",
           "SerializedResultLimitExceeded",
         ]);
+        if (rejected.kind === "CollectionEntryLimitExceeded"
+          || rejected.kind === "SerializedResultLimitExceeded") {
+          requireNull(record, "inspection");
+          requireNull(rejected, "target", "current");
+        } else {
+          validateInspection(
+            record.inspection,
+            rejected.kind === "ChangedTypeCountLimitExceeded"
+              || rejected.kind === "TypeTextLimitExceeded"
+              ? "available"
+              : "rejected",
+          );
+        }
         if (rejected.target !== null)
           validateEndpoint(rejected.target, "Library API Diff rejected target");
         if (rejected.current !== null) {
@@ -531,7 +595,7 @@ function validateResult(
       ]);
       requireString(record.error, "Library API Diff failure error");
       requireString(record.diagnostic, "Library API Diff failure diagnostic");
-      requireNull(record, "value", "unavailable", "rejected", "reason");
+      requireNull(record, "value", "unavailable", "rejected", "reason", "inspection");
       return;
     case "Canceled":
       requireString(record.reason, "Library API Diff cancellation reason");
@@ -543,6 +607,7 @@ function validateResult(
         "failureKind",
         "error",
         "diagnostic",
+        "inspection",
       );
       return;
     default:
@@ -905,6 +970,19 @@ export function renderLibraryApiDiff(
   }
 
   const { input, result } = state;
+  const diagnostics = result.inspection?.diagnostics ?? [];
+  const diagnosticHtml = diagnostics.length === 0 ? "" :
+    `<details class="library-api-diff-evidence">
+      <summary>Inspection diagnostics (${diagnostics.length})</summary>
+      <ul>${diagnostics.map(diagnostic =>
+        `<li>${escapeHtml(
+          `${["Information", "Warning", "Error"][diagnostic.severity]} ${
+            diagnostic.code}: ${diagnostic.summary}${
+            diagnostic.correspondence === null
+              ? ""
+              : ` (${diagnostic.correspondence})`}`,
+        )}</li>`).join("")}</ul>
+    </details>`;
   switch (result.kind) {
     case "Succeeded": {
       const value = result.value;
@@ -937,7 +1015,7 @@ export function renderLibraryApiDiff(
         value.types.length === 0
           ? "Comparison complete. No changed Types."
           : `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
-        content,
+        content + diagnosticHtml,
         escapeHtml,
       );
     }
@@ -952,8 +1030,9 @@ export function renderLibraryApiDiff(
       return renderFrame(
         input,
         `Comparison unavailable: ${String(unavailable.kind)}.`,
-        evidence
-          || '<div class="library-api-diff-empty">One or both API surfaces are incomplete.</div>',
+        (evidence
+          || '<div class="library-api-diff-empty">One or both API surfaces are incomplete.</div>')
+          + diagnosticHtml,
         escapeHtml,
       );
     }
@@ -971,7 +1050,7 @@ export function renderLibraryApiDiff(
         `Comparison rejected: ${String(rejected.kind)}.`,
         `<div class="library-api-diff-empty">${escapeHtml(
           `The complete result could not be admitted.${bound}`,
-        )}</div>`,
+        )}</div>${diagnosticHtml}`,
         escapeHtml,
       );
     }
