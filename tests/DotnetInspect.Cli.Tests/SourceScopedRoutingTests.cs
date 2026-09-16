@@ -658,6 +658,108 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
+    public async Task LatestVersionSettlement_PreservesHouseReceiptAfterCompositionCloses()
+    {
+        const string PackageName = "System.Text.Json";
+        string local = Path.Combine(_testRoot, "latest-house");
+        WriteLocalPackage(local, PackageName, "8.0.5");
+        WriteLocalPackage(local, PackageName, "9.0.0-preview.7.24405.7");
+        PackageHouseResult result;
+        var selection = new PackageVersionSelectionRequest.AlwaysLatest(
+            PackageName, includePrerelease: false);
+        await using (var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5)))
+        {
+            result = await composition.SettleVersionAsync(
+                selection,
+                new NuGetSourceOptions { Sources = [local] },
+                cancellationToken: TestContext.Current.CancellationToken);
+        }
+
+        var settled = Assert.IsType<PackageHouseResult.Settled>(result);
+        var demand = Assert.IsType<PackageHouseDemand.Selecting>(settled.Request.Demand);
+        Assert.Same(selection, demand.Request);
+        Assert.Equal(PackageHouseOperationProfile.Settle, settled.Request.Operation.Profile);
+        var receipt = Assert.IsType<PackageVersionResolutionReceipt.Resolved>(
+            settled.Decision!.VersionResolution);
+        Assert.Equal("8.0.5", receipt.Coordinate.Version);
+        Assert.Equal(PackageVersionDiscoveryFreshness.RefreshedForRequest, receipt.Freshness);
+        Assert.Single(receipt.Candidate.Authorities);
+        Assert.Null(settled.Evidence.Acquisition);
+        Assert.Null(settled.Evidence.Realization);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task LatestVersionSettlement_PreservesRequestedProgress(
+        bool latestAlias, bool verbose)
+    {
+        const string PackageName = "System.Text.Json";
+        const string Version = "8.0.5";
+        var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
+            PackageName, Version,
+            ["package", latestAlias ? $"{PackageName}@latest" : PackageName,
+                latestAlias ? "--versions" : "--latest-version", "--source", SecondSource,
+                .. verbose ? new[] { "--verbose" } : []]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(Version, output.Trim());
+        if (verbose)
+        {
+            string progress = Assert.Single(
+                error.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+            Assert.StartsWith("Fetching versions from ", progress);
+            Assert.Contains(SecondSource, progress);
+        }
+        else
+        {
+            Assert.Empty(error);
+        }
+        Assert.Contains($"{SecondFlatContainer}{PackageName.ToLowerInvariant()}/index.json", requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LatestVersionSettlement_PreviewOnlyRequiresExplicitPreview(bool preview)
+    {
+        const string PackageName = "System.Text.Json";
+        const string Version = "9.0.0-preview.7.24405.7";
+        var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
+            PackageName, Version,
+            ["package", PackageName, "--latest-version", "--source", SecondSource,
+                .. preview ? new[] { "--preview" } : []]);
+
+        Assert.Equal(preview ? 0 : 1, exit);
+        Assert.Equal(preview ? Version : "", output.Trim());
+        if (preview)
+            Assert.Empty(error);
+        else
+            Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"{SecondFlatContainer}{PackageName.ToLowerInvariant()}/index.json", requests);
+        Assert.DoesNotContain(requests, url => url.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("bad/id")]
+    [InlineData("bad id")]
+    public async Task LatestVersionSettlement_InvalidInputIsReportedBeforeDiscovery(string packageName)
+    {
+        var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
+            packageName, "1.0.0",
+            ["package", packageName, "--latest-version", "--source", SecondSource]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Correct the package command input", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.Empty(requests);
+    }
+
+    [Fact]
     public async Task FeedLatest_RefreshFailureDoesNotFallBackToCachedRows()
     {
         string packageName = $"RefreshedRefusal{Guid.NewGuid():N}";
