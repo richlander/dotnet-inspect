@@ -161,7 +161,7 @@ public class StringSlotMaterializationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void StringMaterializationKeepsSingleLoadFoldsButAllowsCrossBlockMultiUse(bool crossBlock)
+    public void StringMaterializationAllowsSingleLoadAndCrossBlockMultiUse(bool crossBlock)
     {
         var first = new Block(0);
         first.Add(new StoreStackSlot(0, new Constant("first", StringType)));
@@ -183,16 +183,8 @@ public class StringSlotMaterializationTests
             new MethodSignature(StringType, [], HasThis: false, GenericParameterCount: 0),
             [], body);
 
-        Assert.Equal(crossBlock
-            ? SlotMaterializationVeto.None
-            : SlotMaterializationVeto.MultiStoreSingleLoadFold,
+        Assert.Equal(SlotMaterializationVeto.None,
             Assert.Single(SlotMaterializationPass.Analyze(function)).Vetoes);
-        if (!crossBlock)
-        {
-            AssertRetained(function);
-            return;
-        }
-
         var invariant = SlotMaterializationInvariant.Capture(function);
         new SlotMaterializationPass().Run(function, PassContext.None);
         invariant.Check();
