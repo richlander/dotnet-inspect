@@ -131,6 +131,26 @@ public sealed class PackageHouseVersionPopulationCell
 
     internal PackageAcquisitionCandidate Candidate { get; }
 
+    /// <summary>
+    /// Prepares one exact candidate-bound House execution for this cell.
+    /// </summary>
+    public PackageHouseVersionPopulationCellExecution PrepareExecution(
+        PackageHouseOperation operation,
+        PackageHouseTargetContext? targetContext = null,
+        PackageHouseAssetSelectionKind? assetSelection = null,
+        PackageHouseLibraryHandoffMode libraryHandoff =
+            PackageHouseLibraryHandoffMode.PackageOnly)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return new(
+            this,
+            CreateRequest(
+                operation,
+                targetContext,
+                assetSelection,
+                libraryHandoff));
+    }
+
     internal PackageHouseRequest CreateRequest(
         PackageHouseOperation operation,
         PackageHouseTargetContext? targetContext,
@@ -143,6 +163,35 @@ public sealed class PackageHouseVersionPopulationCell
             assetSelection,
             libraryHandoff,
             Association);
+}
+
+/// <summary>
+/// One PackageHouse-issued exact request for a version-population cell.
+/// </summary>
+public sealed class PackageHouseVersionPopulationCellExecution
+{
+    internal PackageHouseVersionPopulationCellExecution(
+        PackageHouseVersionPopulationCell cell,
+        PackageHouseRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(cell);
+        ArgumentNullException.ThrowIfNull(request);
+        Cell = cell;
+        Request = request;
+    }
+
+    public PackageHouseVersionPopulationCell Cell { get; }
+
+    public PackageHouseRequest Request { get; }
+
+    /// <summary>
+    /// Returns whether one settlement retains this exact prepared request.
+    /// </summary>
+    public bool Accepts(PackageHouseSettlement settlement)
+    {
+        ArgumentNullException.ThrowIfNull(settlement);
+        return ReferenceEquals(settlement.Result.Request, Request);
+    }
 }
 
 /// <summary>
