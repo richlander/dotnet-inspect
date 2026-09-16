@@ -821,6 +821,57 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task CallGraphSection_SuppressedGraphDoesNotSatisfyFieldProjection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
+            IncludeSections = [SectionNames.CallGraph, SectionNames.Calls],
+            Fields = ["Depth"],
+            Columns = ["Callee"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Note: 1 field has no data: Depth", result.Error);
+        Assert.Contains("## Calls", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
+        Assert.DoesNotContain("depth", result.Output);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [Trait("Speed", "Slow")]
+    public async Task CallGraphSection_GraphFormatsRetainFieldEvidence(
+        bool plainText,
+        bool embeddedMermaid)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
+            IncludeSections = [SectionNames.CallGraph, SectionNames.Calls],
+            Fields = ["Depth"],
+            Columns = ["Callee"],
+            PlainText = plainText,
+            EmbeddedMermaid = embeddedMermaid,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("depth 4", result.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.LoopHeavyCall), result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_ProjectsAllocationAndCopySignals()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

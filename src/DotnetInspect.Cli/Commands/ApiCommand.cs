@@ -3160,7 +3160,10 @@ public class ApiCommand
             }
 
             var projectionManifest = new RenderedSectionManifest();
-            MergeCallGraphRenderedFields(projectionManifest, view);
+            MergeCallGraphRenderedFields(
+                projectionManifest,
+                view,
+                callGraphRendered: true);
             if (!DiagnoseProjection(
                     projectionManifest,
                     options,
@@ -3208,10 +3211,13 @@ public class ApiCommand
         {
             var renderedWriter = new StringWriter { NewLine = "\n" };
             RenderedSectionManifest projectionManifest;
+            bool callGraphRendered = false;
             if (ApiOutputFormatter.ShouldRenderSectionedTabularView(type, options))
             {
                 var writerOpts = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
                 OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+                callGraphRendered =
+                    CallGraphEdgeTableSurvivesProjection(view, writerOpts);
                 OutputFormatter.WriteTable(renderedWriter, !options.NoHeader,
                     (writer, formatter) =>
                     {
@@ -3295,7 +3301,10 @@ public class ApiCommand
                     lockRootScope: true);
             }
 
-            MergeCallGraphRenderedFields(projectionManifest, view);
+            MergeCallGraphRenderedFields(
+                projectionManifest,
+                view,
+                callGraphRendered);
             if (!DiagnoseProjection(
                     projectionManifest,
                     options,
@@ -3339,7 +3348,12 @@ public class ApiCommand
             manifestWriter.Flush();
             RenderedSectionManifest projectionManifest =
                 manifestFormatter.Manifest;
-            MergeCallGraphRenderedFields(projectionManifest, view);
+            MergeCallGraphRenderedFields(
+                projectionManifest,
+                view,
+                options.PlainText
+                || options.EmbeddedMermaid
+                || CallGraphEdgeTableSurvivesProjection(view, writerOptions));
 
             if (options.Columns is { Length: > 0 }
                 && options.Fields is { Length: > 0 })
@@ -3362,7 +3376,6 @@ public class ApiCommand
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, fieldManifestWriter);
                 fieldManifestWriter.Flush();
                 projectionManifest.MergeFieldsFrom(fieldFormatter.Manifest);
-                MergeCallGraphRenderedFields(projectionManifest, view);
             }
 
             if (!DiagnoseProjection(
@@ -3396,10 +3409,29 @@ public class ApiCommand
 
     private static void MergeCallGraphRenderedFields(
         RenderedSectionManifest manifest,
-        TypeView view)
+        TypeView view,
+        bool callGraphRendered)
     {
-        if (view.MemberCode?.CallGraphRenderedFields is { Count: > 0 } fields)
+        if (callGraphRendered
+            && view.MemberCode?.CallGraphRenderedFields is { Count: > 0 } fields)
+        {
             manifest.RecordFields(SectionNames.CallGraph, fields);
+        }
+    }
+
+    private static bool CallGraphEdgeTableSurvivesProjection(
+        TypeView view,
+        MarkoutWriterOptions writerOptions)
+    {
+        if (view.MemberCode?.CallGraph is not { } graph)
+            return false;
+
+        MarkoutProjection? projection = writerOptions.Projection;
+        if (projection is null)
+            return true;
+
+        var table = GraphLowering.ToEdgeTable(graph);
+        return projection.TryResolveColumns(table.Headers.AsSpan(), out _);
     }
 
     private static async Task<int> PrintApiProjectionAsync(TypeView view, ApiOptions options)
