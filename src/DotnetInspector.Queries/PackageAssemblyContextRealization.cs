@@ -534,7 +534,10 @@ public sealed class PackageRootBinding
         [NotNullWhen(true)] out PackageCompileAssetSelection? selection)
     {
         PackageAssetSelection implementationSelection =
-            PackageAssetSelector.Select(content, requestedTargetFramework);
+            PackageAssetSelector.Select(
+                content,
+                requestedTargetFramework,
+                runtimeIdentifier);
         if (implementationSelection is PackageAssetSelection.NoMatch)
         {
             selection = null;

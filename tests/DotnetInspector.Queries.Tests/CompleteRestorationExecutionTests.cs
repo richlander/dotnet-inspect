@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.QueriesConsumer;
+using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
@@ -207,6 +208,54 @@ public sealed class CompleteRestorationExecutionTests
                 .Occurrence.Package;
         Assert.Equal("net10.0", restored.Coordinate.Framework);
         Assert.Equal("net9.0", restored.SelectedTargetFramework);
+        Assert.Equal(
+            StructuralSubjectKind.Package,
+            activated.Workspace.Snapshot.Navigation.State.Snapshot
+                .ActiveSubject.Kind);
+
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
+    public async Task CompatibleRidPackageTarget_RestoresSelectedImplementation()
+    {
+        PackageFixture package = await CompatibleRidPackageAsync();
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    Version2PackageRegistryForFramework(
+                        "net10.0",
+                        "linux-x64"),
+                    "scenario",
+                    authority));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, package.Store),
+                TestContext.Current.CancellationToken);
+
+        var activated = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
+        WorkspacePackageDescriptor restored =
+            Assert.Single(
+                activated.Workspace.Snapshot.Scope.Packages)
+                .Occurrence.Package;
+        Assert.Equal("net10.0", restored.Coordinate.Framework);
+        Assert.Equal("linux-x64", restored.Coordinate.RuntimeIdentifier);
+        Assert.Equal("net9.0", restored.SelectedTargetFramework);
+
+        WorkspaceDeclarationContextReceipt context =
+            Assert.Single(activated.Workspace.Snapshot.Contexts);
+        var provenance = Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+            Assert.Single(context.Members).Selection);
+        Assert.Equal("net9.0", provenance.Tfm);
+        Assert.Equal("linux-x64", provenance.Rid);
         Assert.Equal(
             StructuralSubjectKind.Package,
             activated.Workspace.Snapshot.Navigation.State.Snapshot
@@ -1366,12 +1415,15 @@ public sealed class CompleteRestorationExecutionTests
     }
 
     private static InspectionDefinitionRegistry
-        Version2PackageRegistryForFramework(string framework)
+        Version2PackageRegistryForFramework(
+            string framework,
+            string? runtimeIdentifier = null)
     {
         var package = new DefinitionMemberCoordinate.PackageCoordinate(
             "System.Text.Json",
             "9.0.4",
-            framework);
+            framework,
+            runtimeIdentifier);
         var registry = new InspectionDefinitionRegistry();
         registry.Add(new WorkspaceDefinition(
             InspectionDefinitionSchema.Version2,
@@ -1380,6 +1432,7 @@ public sealed class CompleteRestorationExecutionTests
                 new WorkspaceContextDefinition(
                     "context",
                     framework,
+                    runtimeIdentifier,
                     members: [package]),
             ]));
         registry.Add(new CommittedNavigationDefinition(
@@ -1389,7 +1442,8 @@ public sealed class CompleteRestorationExecutionTests
                 new NavigationTabDefinition(
                     "package",
                     coordinate: package,
-                    framework: framework),
+                    framework: framework,
+                    runtimeIdentifier: runtimeIdentifier),
             ],
             "package"));
         registry.Add(new CommittedViewDefinition(
@@ -1667,6 +1721,29 @@ public sealed class CompleteRestorationExecutionTests
         byte[] content = await File.ReadAllBytesAsync(
             path,
             TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            "System.Text.Json",
+            "9.0.4",
+            NuGetCache.GetSourceKey(url),
+            new MemoryStream(content, writable: false),
+            TestContext.Current.CancellationToken);
+        return new(store);
+    }
+
+    private static async Task<PackageFixture> CompatibleRidPackageAsync()
+    {
+        const string url = "https://api.nuget.org/v3/index.json";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(CompleteRestorationExecutionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        string assemblyName =
+            Path.GetFileName(
+                typeof(CompleteRestorationExecutionTests).Assembly.Location);
+        byte[] content = Archive(
+            ($"lib/net8.0/{assemblyName}", assembly),
+            ($"ref/net9.0/{assemblyName}", assembly),
+            ($"runtimes/linux-x64/lib/net9.0/{assemblyName}", assembly));
         var store = new InMemoryPackageStore();
         await store.CommitAsync(
             "System.Text.Json",

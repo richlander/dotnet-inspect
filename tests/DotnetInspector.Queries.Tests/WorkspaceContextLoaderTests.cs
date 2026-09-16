@@ -163,6 +163,53 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task PackageRootBinding_UsesRuntimeSpecificCompatibleImplementation()
+    {
+        await using var workspace = new InspectionWorkspace();
+        string assemblyName = Path.GetFileName(TargetPath);
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ($"lib/net8.0/{assemblyName}", File.ReadAllBytes(TargetPath)),
+                ($"ref/net9.0/{assemblyName}", File.ReadAllBytes(TargetPath)),
+                ($"runtimes/linux-x64/lib/net9.0/{assemblyName}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    RuntimeIdentifier = "linux-x64",
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store) with
+                {
+                    IncludePackageRootBindings = true,
+                },
+                TestContext.Current.CancellationToken));
+
+        var provenance = Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+            Assert.Single(loaded.Group.Participants).Assembly.Provenance);
+        Assert.Equal("net9.0", provenance.Tfm);
+        Assert.Equal("linux-x64", provenance.Rid);
+
+        PackageRootBinding root = Assert.Single(loaded.PackageRoots);
+        Assert.Equal("net9.0", root.Root.AssetSelection.TargetFramework);
+        Assert.Equal(
+            $"runtimes/linux-x64/lib/net9.0/{assemblyName}",
+            Assert.Single(root.Root.AssetSelection.ImplementationAssets).Path);
+        PackageRootReacquisitionRequest request =
+            root.CreateReacquisitionRequest();
+        Assert.Equal(Framework, request.CompileTargetFramework);
+        Assert.Equal("net9.0", request.SelectionTargetFramework);
+        Assert.Equal("linux-x64", request.SelectionRuntimeIdentifier);
+        Assert.True(request.UsesCompatibleImplementationSelection);
+    }
+
+    [Fact]
     public async Task PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants()
     {
         await using var workspace = new InspectionWorkspace();
