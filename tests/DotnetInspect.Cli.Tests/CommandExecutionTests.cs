@@ -10016,6 +10016,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_Listing_ProjectedForwardersApplyRowsWithinSelectedSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            SectionNames.TypeForwarders,
+            "--table",
+            "--columns",
+            "Target Library",
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Target Library", output, StringComparison.Ordinal);
+        Assert.Contains("System.Runtime", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Type_Listing_ComputedAllSelectorIsRejected()
     {
         var (exit, output, error) = await RunAppAsync(

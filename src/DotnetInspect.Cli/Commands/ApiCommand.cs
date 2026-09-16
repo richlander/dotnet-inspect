@@ -1773,7 +1773,8 @@ public class ApiCommand
                                 formatter,
                                 ApiViewContext.Default,
                                 writerOptions);
-                        });
+                        },
+                        options.Rows);
                 ProjectionDiagnostics.DiagnoseRendered(
                     options.Fields ?? options.Columns,
                     sectionRows);
@@ -1783,11 +1784,7 @@ public class ApiCommand
                 {
                     return 1;
                 }
-                Console.Out.Write(
-                    OutputFormatter.LimitRenderedTableRows(
-                        sectionRows,
-                        options.Rows,
-                        !options.NoHeader));
+                Console.Out.Write(sectionRows);
                 return successExitCode;
             }
 
