@@ -259,6 +259,9 @@ dotnet-inspect type graph <type> \
   [--library <library>]... \
   [--project <project>]... \
   [--platform [<framework>...]] \
+  [--platform-library <library>]... \
+  [--extensions] \
+  [--aspnetcore] \
   [--tfm <target-framework>] \
   [--depth <positive-integer>]
 
@@ -278,7 +281,8 @@ the existing base-type and interface topology, bounded search-scope meaning,
 traversal, evidence, failures, and output-format eligibility before the
 positional `depends` mode can retire. Its section names, discovery schema, row
 fields, JSON shape, and envelope content intentionally transition to the
-Inspection Graph contract. Package, library, project, platform, and target
+Inspection Graph contract. Package, library, project, platform,
+platform-library, Extensions-package, ASP.NET Core-package, and target
 framework gestures remain search scope there; they never become graph roots.
 
 ### Type relationship mode
@@ -289,13 +293,18 @@ dotnet-inspect depends <type> \
   [--library <library>]... \
   [--project <project>]... \
   [--platform [<framework>...]] \
+  [--platform-library <library>]... \
+  [--extensions] \
+  [--aspnetcore] \
   [--tfm <target-framework>] \
   [--depth <positive-integer>]
 ```
 
-The positional type is the focus. Package, library, project, and platform
-options identify the bounded search scope in which that type and its base-type
-or interface relationships are resolved. They are not graph roots.
+The positional type is the focus. Package, library, project, platform,
+platform-library, Extensions-package, ASP.NET Core-package, and
+target-framework options identify the bounded search scope in which that type
+and its base-type or interface relationships are resolved. They are not graph
+roots.
 
 This preserves the existing source-context distinction:
 
@@ -1225,9 +1234,10 @@ depends <asset roots and traversal>
 ```
 
 `type graph` adopts the complete selected-Type relationship mode. The Type is
-its already selected local subject, and the current package, library, project,
-platform, and target-framework options remain bounded search scope. Its focused
-Graph adoption composes owner-issued Dependency relationships into
+its already selected local subject, and every current package, library,
+project, platform, platform-library, Extensions-package, ASP.NET Core-package,
+and target-framework option remains bounded search scope. Its focused Graph
+adoption composes owner-issued Dependency relationships into
 `InspectionGraphDocument`; that adaptation does not transfer relationship,
 scope, evidence, or failure ownership from this document.
 
@@ -1235,20 +1245,23 @@ This selected-Type cutover intentionally changes the presentation and machine
 contract. Current `depends <type> --json` and `--envelope` expose the versioned
 `type-dependencies` result and `DependencyGraphDocument`. Target
 `type graph --json` and `--envelope` expose the Inspection Graph schema and an
-`InspectionEnvelope<InspectionGraphDocument>`. Structural and effective
-discovery likewise use the Graph section and field schemas rather than the
-Dependency section catalog. Obsolete selected-Type section or field names fail
-with `type graph` discovery guidance; they do not forward or silently select a
-similarly named Graph projection.
+`InspectionEnvelope<InspectionGraphDocument>`. Structural discovery uses the
+Graph section and field schemas rather than the Dependency section catalog.
+Effective discovery is a new target-only Type Graph capability because current
+selected-Type `depends` rejects `-D --effective`; it has no old-command schema
+baseline. Obsolete selected-Type section or field names fail with `type graph`
+discovery guidance; they do not forward or silently select a similarly named
+Graph projection.
 
 The migration gate compares the selected subject, base-type and interface
 relationships, search-scope behavior, traversal depth, evidence, typed
 failures, exit status, and supported output-format classes. Separate
 before/after machine-contract fixtures prove that the old `type-dependencies`
-schema remains stable until retirement and that the replacement emits the
-versioned Inspection Graph schema. Byte-for-byte rendering, old section names,
-old row fields, and the old JSON or envelope content type are intentionally not
-parity requirements.
+schema and structural discovery remain stable until retirement and that the
+replacement emits the versioned Inspection Graph schema. A separate target-only
+gate proves bounded effective discovery. Byte-for-byte rendering, old section
+names, old row fields, and the old JSON or envelope content type are
+intentionally not parity requirements.
 
 `graph dependencies` adopts the complete asset dependency mode. It does not
 construct a Workspace, consume a Workspace packet, or convert the Dependency
@@ -1361,10 +1374,11 @@ dotnet-inspect type graph System.Int128 --platform --tfm net10.0 \
   --depth 2 --table
 ```
 
-Package, library, project, and platform options remain search scope for this
-route. They do not become asset roots, and its base-type/interface relationships
-compose into the Inspection Graph document rather than the asset Dependency
-document above.
+Package, library, project, platform, platform-library, Extensions-package,
+ASP.NET Core-package, and target-framework options remain search scope for this
+route. They do not become asset roots, and its base-type/interface
+relationships compose into the Inspection Graph document rather than the asset
+Dependency document above.
 
 ## Evidence and gates
 
@@ -1374,8 +1388,9 @@ targeted Debug-build probe.
 
 | Claim | Gate |
 | --- | --- |
-| `type graph` source options remain search scopes; `--platform --tfm net10.0` selects Platform scope at that target framework; `graph dependencies` options become asset roots; route-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`, valued versus unvalued `--platform`, separate `--tfm`, and rejected cross-route gestures. |
-| Selected-Type migration preserves subject, relationship/evidence facts, scope, traversal, typed failures, exit status, and output-format classes while intentionally replacing the `type-dependencies` JSON/envelope and Dependency discovery schemas with Inspection Graph schemas. | Fixed-fixture before/after Release contracts for the old command and new child across text, Markdown, table, JSON, envelope, structural discovery, and effective discovery; obsolete selected-Type section and field names reject with discovery guidance. |
+| `type graph` source options remain search scopes; `--platform --tfm net10.0` selects Platform scope at that target framework; `graph dependencies` options become asset roots; route-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`; valued versus unvalued `--platform`; repeatable `--platform-library`; `--extensions`; `--aspnetcore`; separate `--tfm`; and rejected cross-route gestures. |
+| Selected-Type migration preserves subject, relationship/evidence facts, scope, traversal, typed failures, exit status, and output-format classes while intentionally replacing the `type-dependencies` JSON/envelope and Dependency structural-discovery schemas with Inspection Graph schemas. | Fixed-fixture before/after Release contracts for the old command and new child across text, Markdown, table, JSON, envelope, and structural discovery; obsolete selected-Type section and field names reject with discovery guidance. |
+| Type Graph effective discovery is a new bounded capability rather than a claimed old/new migration surface. | Target-only Release gate for effective Graph discovery plus a current-command guard proving selected-Type `depends -D --effective` remains rejected until retirement. |
 | One `type graph` subject resolves to one owner-issued seed or a typed ambiguity/failure. | Multi-source type fixture with equal display names and distinct typed identities. |
 | `.csproj` and direct assets with identical bytes produce equivalent graph and evidence identities except locator provenance. | CLI tests over the same checked-in restored assets fixture through both locators. |
 | Restored-project depth is measured from the explicit project through project-reference and package edges. | #5998 fixture containing `App -> ProjectB -> PackageC`, asserted at depths 1, 2, and unbounded without opening package manifests. |
