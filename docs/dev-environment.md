@@ -292,8 +292,9 @@ source eng/activate-iltools.sh --mdv
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 ```
 
-The custom xUnit executable retains its native selectors and `--gate` presets.
-Its compiler-produced specimens stay with the host under `tests/`; independent
+The custom xUnit executable expands its `--gate` presets to MTP filters. Use
+`--filter-class` and `--filter-method` for focused selections. Its
+compiler-produced specimens stay with the host under `tests/`; independent
 inputs remain under `fixtures/`, and linked harness sources remain owned by
 `tools/DecompilerHarness`. Run the separate `--gate corpus` lane only when the
 multi-hour corpus sweep is required. See

@@ -1457,9 +1457,9 @@ jobs:
   # import/render/recompile work. The skeleton itself is not narrowed; a
   # duplicate-unrelated-type mutation pins that contract.
   #
-  # Completeness is case-granular (#3837). Discovery uses pre-enumerated full
-  # JSON, and the run's JSON reporter carries the same stable TestCaseUniqueID.
-  # The checker requires every discovered ID to start exactly one test. That
+  # Completeness is case-granular (#3837). MTP JSON-RPC discovery and the
+  # execution receipt carry the same stable TestNodeUid. The checker requires
+  # every discovered ID to start exactly one test. That
   # last condition is what makes the design fail closed: non-serializable theory
   # data falls back to one delayed discovery case that starts several tests, so
   # a set-only case-ID comparison would still be incomplete.
@@ -1483,14 +1483,14 @@ jobs:
           dotnet-version: '11.0.100-rc.1.26425.128'
 
       # Caches packages only. Do not add build outputs (artifacts/, bin/, obj/)
-      # here. The completeness check compares a discovery listing against XML
-      # and JSON execution results, and both steps below run with --no-build
+      # here. The completeness check compares a discovery receipt against XML
+      # and the execution receipt, and both steps below run with --no-build
       # against whatever the Build step produced. That comparison is only
       # meaningful because all artifacts provably come from one build: the
       # checkout is fresh, nothing
       # restores binaries, and Build is fail-fast, so neither step can run
       # against a stale or partial binary. Caching build outputs would break
-      # that silently -- the gate would still pass, while comparing a listing
+      # that silently -- the gate would still pass, while comparing a receipt
       # and a report from different builds.
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -1536,8 +1536,8 @@ jobs:
       - name: Discover expected gate tests
         run: |
           dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-            --gate pre-merge -preEnumerateTheories -noColor -list full/json \
-            > "$RUNNER_TEMP/decompiler-gates-expected.json"
+            --gate-discovery-receipt "$RUNNER_TEMP/decompiler-gates-discovery.jsonl" \
+            --gate pre-merge --pre-enumerate-theories on --no-ansi
 
       # continue-on-error so the pinned known-red failures do not fail the job
       # here; eng/check-decompiler-gate.cs decides pass/fail from the report.
@@ -1555,28 +1555,30 @@ jobs:
       #
       # --no-build is required, not an optimization. Without it `dotnet run`
       # builds implicitly, which would (a) break the guarantee that this run and
-      # the discovery listing above describe the same binary, and (b) hide a
+      # the discovery receipt above describe the same binary, and (b) hide a
       # build failure inside a continue-on-error step, where it would surface
       # only as a missing report.
       - name: Run decompiler gates
         id: gates
         continue-on-error: true
         timeout-minutes: 5
+        env:
+          DOTNET_INSPECT_DECOMPILER_TEST_RECEIPT: ${{ runner.temp }}/decompiler-gates-execution.jsonl
         run: |
-          set -o pipefail
           dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-            --gate pre-merge -preEnumerateTheories -noColor -noAutoReporters \
-            -reporter json -xml "$RUNNER_TEMP/decompiler-gates.xml" \
-            | tee "$RUNNER_TEMP/decompiler-gates-events.jsonl"
+            --gate pre-merge --pre-enumerate-theories on --no-ansi \
+            --auto-reporters off --report-xunit \
+            --report-xunit-filename decompiler-gates.xml \
+            --results-directory "$RUNNER_TEMP"
 
       - name: Compare against pinned known-red
         run: |
           dotnet run eng/check-decompiler-gate.cs -- \
             "$RUNNER_TEMP/decompiler-gates.xml" \
-            "$RUNNER_TEMP/decompiler-gates-events.jsonl" \
+            "$RUNNER_TEMP/decompiler-gates-execution.jsonl" \
             eng/decompiler-gate-known-red.txt \
             eng/decompiler-gate-expected-classes.txt \
-            "$RUNNER_TEMP/decompiler-gates-expected.json"
+            "$RUNNER_TEMP/decompiler-gates-discovery.jsonl"
 
       - name: Check decompiler test ilasm/ildasm result
         if: always() && steps.iltools_decompiler.outcome == 'failure'
@@ -1592,8 +1594,8 @@ jobs:
           name: decompiler-gates-report
           path: |
             ${{ runner.temp }}/decompiler-gates.xml
-            ${{ runner.temp }}/decompiler-gates-events.jsonl
-            ${{ runner.temp }}/decompiler-gates-expected.json
+            ${{ runner.temp }}/decompiler-gates-execution.jsonl
+            ${{ runner.temp }}/decompiler-gates-discovery.jsonl
           if-no-files-found: warn
 
   # Cheap C# Diff harness coverage. Path-gated separately from the full test

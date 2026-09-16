@@ -91,14 +91,13 @@ public void SomeExpensiveTheory(string assemblyName)
   selection in PR CI and the optional Windows PR workflow. Deep Inspect runs
   its full suite, including the pinned custom-attribute package gate, and
   retains that gate's per-platform evidence report.
-- The decompiler suite uses the same trait, but its native xUnit console
-  runner takes a different flag spelling than the CLI suite's Microsoft
-  Testing Platform runner: `dotnet run --project
-  tests/ILInspector.Decompiler.Tests -c Release -- --gate fast`
-  (`-trait- "Speed=Slow"`) vs. `--gate slow` (`-trait "Speed=Slow"`). The
-  path-gated `decompiler-gates` PR job owns the fast subset and a bounded
-  compile-back receipt; daily Deep Inspect's `--gate no-corpus` run owns every
-  excluded non-corpus test, including broad whole-pipeline sweeps. See
+- The decompiler suite uses the same MTP trait options behind discoverable
+  presets: `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
+  -- --gate fast` expands to `--filter-not-trait "Speed=Slow"`, while `--gate
+  slow` expands to `--filter-trait "Speed=Slow"`. The path-gated
+  `decompiler-gates` PR job owns the fast subset and a bounded compile-back
+  receipt; daily Deep Inspect's `--gate no-corpus` run owns every excluded
+  non-corpus test, including broad whole-pipeline sweeps. See
   [`docs/decompiler-correctness-pipeline.md`](decompiler-correctness-pipeline.md)
   for that suite's full `Area`/`Speed` trait combination and its
   `--gate fast`/`--gate slow` equivalents.

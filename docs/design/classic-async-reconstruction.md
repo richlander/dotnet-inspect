@@ -272,7 +272,7 @@ Run the slow Release fixture gate to build and prove all artifacts:
 
 ```bash
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
-  -class '*ClassicAsyncArtifactMatrixTests*'
+  --filter-class '*ClassicAsyncArtifactMatrixTests*'
 ```
 
 The cross-platform publish recipe is owned by
