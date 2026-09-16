@@ -205,6 +205,13 @@ callsite, return address, unavailable source location, and valid heap address.
 The selected applicable sections, rows, typed failures, and exit status must
 match; command placement is the intended change, not default disclosure.
 
+An explicit-section parity gate uses an IL offset inside a valid method body
+that is not an instruction boundary. Bare inspection must retain its current
+instruction-boundary failure, while selecting only `Context: Member` must
+succeed and render the containing member. Coordinate admission therefore
+validates only what every selected observation requires; it does not impose the
+strictest peer section's validity rule on narrower requests.
+
 File-mode gates compare labels, coordinate interpretation, row fields, partial
 failures, projections, and exit status. Mixed valid/malformed row order and
 row-window results compare against the explicitly corrected target order rather
