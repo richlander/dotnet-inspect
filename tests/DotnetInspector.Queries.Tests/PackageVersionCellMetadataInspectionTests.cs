@@ -1,10 +1,12 @@
-using System.IO.Compression;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Compression;
 using System.Reflection;
+
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
-using Inspector.Artifacts;
-using Inspector.Artifacts.Workspaces;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using InertText;
 using NuGetFetch;
@@ -13,954 +15,724 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class PackageVersionCellMetadataInspectionTests
 {
-    private const string PackageId = "Markout";
-    private const string Version = "0.35.2";
-    private const string Framework = "net11.0";
+    const string PackageId = "Contoso.Metadata";
+    const string Version = "1.0.0";
+    const string Framework = "net11.0";
+    static byte[] Image =>
+        File.ReadAllBytes(
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath());
 
     [Fact]
-    public async Task SuccessfulCell_InspectsExactCompileRootAndClosesWorkspace()
+    public async Task InspectionExecutesOnePreparedCellAndReturnsDetachedMetadata()
     {
-        CellContext context = CreateCell();
-        var content = new TrackingPackageContent(
-            Archive(
-                (
-                    $"lib/{Framework}/{PackageId}.dll",
-                    File.ReadAllBytes(
-                        typeof(PackageVersionCellMetadataInspectionTests)
-                            .Assembly.Location))),
-            context.Source.Producer.Key);
+        CellFixture fixture = CellFixture.Create();
+        IPackageContent content = fixture.Content(
+            ($"lib/{Framework}/Contoso.Metadata.dll", Image));
         var executor = new SettlementExecutor(
-            context,
-            _ => content);
+            execution => fixture.Realize(execution, content));
 
-        PackageVersionCellMetadataInspectionOutcome outcome =
-            await PackageVersionCellMetadataInspection.ExecuteAsync(
-                Request(context.Cell),
-                executor,
-                TestContext.Current.CancellationToken);
+        var result = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.Available>(
+                await PackageVersionCellMetadataInspector.ExecuteAsync(
+                    fixture.Request(),
+                    executor,
+                    TestContext.Current.CancellationToken));
 
-        var completed = Assert.IsType<
-            PackageVersionCellMetadataInspectionOutcome.Completed>(
-                outcome);
-        var inspected = Assert.IsType<
-            PackageVersionCellMetadataInspectionResult.Inspected>(
-                completed.Result);
-        Assert.Same(context.Cell, inspected.Cell);
-        Assert.Same(executor.Settlement!.Result, inspected.HouseResult);
-        Assert.IsType<AssemblyContextEntry<MetadataImageOverview>.Available>(
-            Assert.Single(inspected.Metadata.Assemblies));
-        Assert.Equal(1, executor.ExecutionCount);
-        Assert.Equal(0, content.ActiveStreams);
-        Assert.True(content.OpenedStreams > 0);
+        Assert.Equal(1, executor.Calls);
+        Assert.Same(
+            executor.Execution!.Request,
+            result.Evidence.HouseResult.Request);
+        Assert.Same(
+            result.Evidence.HouseResult.Evidence.Realization,
+            result.Evidence.CompileRealization);
+        Assert.NotNull(result.Evidence.RootCoordinate);
+        Assert.Equal(PackageId, result.Evidence.PackageId);
+        var available = Assert.IsType<
+            AssemblyContextEntry<MetadataImageOverview>.Available>(
+                Assert.Single(result.Metadata.Assemblies));
+        Assert.StartsWith(
+            "v",
+            available.Value.MetadataVersion.ToString());
+        Assert.Null(result.Cleanup);
     }
 
     [Fact]
-    public async Task RootOnlyCell_ReturnsNoAssemblyContext()
+    public async Task InspectionRejectsSettlementForSubstitutedDemand()
     {
-        CellContext context = CreateCell();
+        CellFixture fixture = CellFixture.Create();
+        IPackageContent content = fixture.Content(
+            ($"lib/{Framework}/Contoso.Metadata.dll", Image));
+        PackageVersionCellMetadataInspectionRequest request =
+            fixture.Request();
         var executor = new SettlementExecutor(
-            context,
-            _ => new InMemoryPackageContent(
-                Archive(("tools/net11.0/any/markout.dll", [1])),
-                fromCache: false,
-                context.Source.Producer.Key));
-
-        PackageVersionCellMetadataInspectionOutcome outcome =
-            await PackageVersionCellMetadataInspection.ExecuteAsync(
-                Request(context.Cell),
-                executor,
-                TestContext.Current.CancellationToken);
-
-        var completed = Assert.IsType<
-            PackageVersionCellMetadataInspectionOutcome.Completed>(
-                outcome);
-        var unavailable = Assert.IsType<
-            PackageVersionCellMetadataInspectionResult.NoAssemblyContext>(
-                completed.Result);
-        Assert.Equal(
-            PackageCompileAssetSelectionStatus.NoCompileAssets,
-            unavailable.SelectionStatus);
-    }
-
-    [Fact]
-    public async Task OwnerDefaultRuntimeIdentifier_ReturnsNoContribution()
-    {
-        CellContext context = CreateCell();
-        var executor = SuccessfulExecutor(context);
-        var request = new PackageVersionCellMetadataInspectionRequest(
-            context.Cell,
-            PackageHouseOperation.Create(
-                PackageHouseOperationProfile.Realize),
-            PackageHouseTargetContext.OwnerDefault("linux-x64"),
-            DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30));
-
-        PackageVersionCellMetadataInspectionOutcome outcome =
-            await PackageVersionCellMetadataInspection.ExecuteAsync(
-                request,
-                executor,
-                TestContext.Current.CancellationToken);
-
-        var completed = Assert.IsType<
-            PackageVersionCellMetadataInspectionOutcome.Completed>(
-                outcome);
-        var noContribution = Assert.IsType<
-            PackageVersionCellMetadataInspectionResult.NoContribution>(
-                completed.Result);
-        Assert.Equal(
-            PackageHouseRootNoContributionReason.CoordinateNotRepresentable,
-            noContribution.Reason);
-        Assert.IsType<PackageHouseResult.Settled>(
-            noContribution.HouseResult);
-    }
-
-    [Fact]
-    public async Task HouseFailure_RemainsTypedWithoutWorkspaceAdmission()
-    {
-        CellContext context = CreateCell();
-        var executor = new SettlementExecutor(
-            context,
-            _ => throw new InvalidOperationException("Content is not expected."))
-        {
-            ReturnNoContribution = true,
-        };
-
-        PackageVersionCellMetadataInspectionOutcome outcome =
-            await PackageVersionCellMetadataInspection.ExecuteAsync(
-                Request(context.Cell),
-                executor,
-                TestContext.Current.CancellationToken);
-
-        var completed = Assert.IsType<
-            PackageVersionCellMetadataInspectionOutcome.Completed>(
-                outcome);
-        var unavailable = Assert.IsType<
-            PackageVersionCellMetadataInspectionResult.NoContribution>(
-                completed.Result);
-        Assert.Equal(
-            PackageHouseRootNoContributionReason.ResourceFreeSettlement,
-            unavailable.Reason);
-        Assert.IsType<PackageHouseResult.Rejected>(
-            unavailable.HouseResult);
-        Assert.Equal(1, executor.ExecutionCount);
-    }
-
-    [Fact]
-    public async Task SettlementForAnotherCellDemand_IsRejected()
-    {
-        CellContext context = CreateCell();
-        var executor = new SettlementExecutor(
-            context,
-            _ => throw new InvalidOperationException(
-                "Content is not expected."))
-        {
-            ReturnNoContribution = true,
-            CreateRequest = (cell, operation, targetContext) =>
-                new PackageHouseRequest(
-                    new PackageHouseDemand.Exact(
-                        cell.Candidate.Coordinate),
-                    operation,
-                    targetContext,
-                    PackageHouseAssetSelectionKind.Compile,
-                    PackageHouseLibraryHandoffMode.PackageOnly,
-                    cell.Association),
-        };
+            _ =>
+            {
+                PackageHouseRequest substituted =
+                    request.Cell.CreateRequest(
+                        request.HouseExecution.Request.Operation,
+                        request.HouseExecution.Request.TargetContext,
+                        request.HouseExecution.Request.AssetSelection,
+                        request.HouseExecution.Request.LibraryHandoff);
+                return fixture.Realize(substituted, content);
+            });
 
         InvalidOperationException failure =
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => PackageVersionCellMetadataInspection.ExecuteAsync(
-                    Request(context.Cell),
+                () => PackageVersionCellMetadataInspector.ExecuteAsync(
+                    request,
+                    executor,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "does not belong",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(1, executor.Calls);
+        Assert.Same(
+            request.HouseExecution.Request.Association,
+            executor.Settlement!.Result.Request.Association);
+    }
+
+    [Fact]
+    public async Task InspectionPreservesNoContributionWithoutCreatingARoot()
+    {
+        CellFixture fixture = CellFixture.Create();
+        PackageVersionCellMetadataInspectionRequest request =
+            fixture.Request();
+        var executor = new SettlementExecutor(
+            execution => new PackageHouseSettlement.ResourceFree(
+                new PackageHouseResult.Rejected(
+                    new PackageHouseEvidence(execution.Request),
+                    Reason("Fixture rejection."))));
+
+        var result = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.NoContribution>(
+                await PackageVersionCellMetadataInspector.ExecuteAsync(
+                    request,
                     executor,
                     TestContext.Current.CancellationToken));
 
         Assert.Equal(
-            "The version-cell executor returned a settlement for another request.",
-            failure.Message);
+            PackageHouseRootNoContributionReason.ResourceFreeSettlement,
+            result.Reason);
+        Assert.Same(
+            request.HouseExecution.Request,
+            result.Evidence.HouseResult.Request);
+        Assert.Null(result.Evidence.CompileRealization);
+        Assert.Null(result.Evidence.RootCoordinate);
+        Assert.Null(result.Cleanup);
     }
 
     [Fact]
-    public async Task ExpiredWorkspaceDeadline_RemainsTyped()
+    public async Task InspectionPreservesExplicitEmptyCompileSelection()
     {
-        CellContext context = CreateCell();
-        var executor = new SettlementExecutor(
-            context,
-            _ => new InMemoryPackageContent(
-                Archive(
-                    (
-                        $"lib/{Framework}/{PackageId}.dll",
-                        File.ReadAllBytes(
-                            typeof(PackageVersionCellMetadataInspectionTests)
-                                .Assembly.Location))),
-                fromCache: false,
-                context.Source.Producer.Key));
-        var request = new PackageVersionCellMetadataInspectionRequest(
-            context.Cell,
-            PackageHouseOperation.Create(
-                PackageHouseOperationProfile.Realize),
-            PackageHouseTargetContext.Exact(Framework),
-            DateTimeOffset.UtcNow - TimeSpan.FromSeconds(1));
+        CellFixture fixture = CellFixture.Create();
+        IPackageContent content = fixture.Content(
+            ($"ref/{Framework}/_._", []),
+            ($"lib/{Framework}/Contoso.Metadata.dll", Image));
 
-        PackageVersionCellMetadataInspectionOutcome outcome =
-            await PackageVersionCellMetadataInspection.ExecuteAsync(
-                request,
-                executor,
-                TestContext.Current.CancellationToken);
+        var result = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.Available>(
+                await PackageVersionCellMetadataInspector.ExecuteAsync(
+                    fixture.Request(),
+                    new SettlementExecutor(
+                        execution => fixture.Realize(
+                            execution,
+                            content)),
+                    TestContext.Current.CancellationToken));
 
-        var completed = Assert.IsType<
-            PackageVersionCellMetadataInspectionOutcome.Completed>(
-                outcome);
-        var notCommitted = Assert.IsType<
-            PackageVersionCellMetadataInspectionResult.WorkspaceNotCommitted>(
-                completed.Result);
-        var rejected = Assert.IsType<WorkspaceScopeOperationResult.Rejected>(
-            notCommitted.Result);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            result.Evidence.CompileRealization!.Selection.Status);
+        Assert.Empty(result.Metadata.Assemblies);
+    }
+
+    [Fact]
+    public async Task InspectionExecutesPinnedMarkoutPackage()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "VersionCell",
+            "Markout.dll");
+        byte[] image = File.ReadAllBytes(path);
+        CellFixture fixture = CellFixture.Create(
+            packageId: "Markout",
+            version: "0.35.2");
+        IPackageContent content = fixture.Content(
+            ("lib/net10.0/Markout.dll", image));
+
+        var result = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.Available>(
+                await PackageVersionCellMetadataInspector.ExecuteAsync(
+                    fixture.Request(framework: "net10.0"),
+                    new SettlementExecutor(
+                        execution => fixture.Realize(
+                            execution,
+                            content)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(233_472, image.Length);
+        Assert.Equal(
+            "lib/net10.0/Markout.dll",
+            Assert.Single(
+                result.Evidence.CompileRealization!
+                    .Selection.Assets).Path);
+        Assert.IsType<
+            AssemblyContextEntry<MetadataImageOverview>.Available>(
+                Assert.Single(result.Metadata.Assemblies));
+    }
+
+    [Fact]
+    public void EvidencePreservesCompileRealizationWithoutRootCoordinate()
+    {
+        CellFixture fixture = CellFixture.Create();
+        IPackageContent content = fixture.Content(
+            ($"lib/{Framework}/Contoso.Metadata.dll", Image));
+        PackageVersionCellMetadataInspectionRequest request =
+            fixture.Request();
+        PackageHouseSettlement settlement = fixture.Realize(
+            request.HouseExecution,
+            content);
+        var compile = Assert.IsType<
+            PackageHouseRealizationReceipt.Compile>(
+                settlement.Result.Evidence.Realization);
+
+        var evidence =
+            new PackageVersionCellMetadataInspectionEvidence(
+                request.HouseExecution,
+                settlement.Result,
+                compile,
+                rootCoordinate: null);
+
+        Assert.Same(compile, evidence.CompileRealization);
+        Assert.Null(evidence.RootCoordinate);
+    }
+
+    [Fact]
+    public async Task InspectionMalformedNeighborRejectsWholeRootWithoutMetadata()
+    {
+        CellFixture fixture = CellFixture.Create();
+        IPackageContent content = fixture.Content(
+            ($"lib/{Framework}/Contoso.Metadata.dll", Image),
+            ($"lib/{Framework}/Malformed.dll", [1, 2, 3]));
+
+        var result = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.WorkspaceFailure>(
+                await PackageVersionCellMetadataInspector.ExecuteAsync(
+                    fixture.Request(),
+                    new SettlementExecutor(
+                        execution => fixture.Realize(
+                            execution,
+                            content)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageVersionCellMetadataWorkspaceStage.ScopeAdmission,
+            result.Failure.Stage);
+        Assert.NotNull(result.Failure.ArtifactFailure);
+        Assert.Null(result.Cleanup);
+    }
+
+    [Theory]
+    [InlineData(RealizationLimit.Assemblies)]
+    [InlineData(RealizationLimit.EntryBytes)]
+    [InlineData(RealizationLimit.AggregateBytes)]
+    public async Task InspectionEnforcesAssemblyEntryAndAggregateBounds(
+        RealizationLimit limit)
+    {
+        CellFixture fixture = CellFixture.Create();
+        byte[] image = Image;
+        IPackageContent content = fixture.Content(
+            ($"lib/{Framework}/Contoso.Metadata.dll", image),
+            ($"lib/{Framework}/Neighbor.dll", image));
+        var limits = limit switch
+        {
+            RealizationLimit.Assemblies =>
+                new PackageVersionCellMetadataInspectionLimits(
+                    1,
+                    image.Length,
+                    image.Length * 2L),
+            RealizationLimit.EntryBytes =>
+                new PackageVersionCellMetadataInspectionLimits(
+                    2,
+                    image.Length - 1L,
+                    image.Length * 2L),
+            RealizationLimit.AggregateBytes =>
+                new PackageVersionCellMetadataInspectionLimits(
+                    2,
+                    image.Length,
+                    image.Length * 2L - 1L),
+            _ => throw new ArgumentOutOfRangeException(nameof(limit)),
+        };
+
+        var result = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.WorkspaceFailure>(
+                await PackageVersionCellMetadataInspector.ExecuteAsync(
+                    fixture.Request(limits),
+                    new SettlementExecutor(
+                        execution => fixture.Realize(
+                            execution,
+                            content)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageVersionCellMetadataWorkspaceStage.ScopeAdmission,
+            result.Failure.Stage);
+        Assert.NotNull(result.Failure.ArtifactFailure);
+        Assert.Null(result.Cleanup);
+    }
+
+    [Fact]
+    public async Task InspectionPreservesExpiredWorkspaceDeadline()
+    {
+        CellFixture fixture = CellFixture.Create();
+        IPackageContent content = fixture.Content(
+            ($"lib/{Framework}/Contoso.Metadata.dll", Image));
+
+        var result = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.WorkspaceFailure>(
+                await PackageVersionCellMetadataInspector.ExecuteAsync(
+                    fixture.Request(
+                        deadline:
+                            DateTimeOffset.UtcNow.AddSeconds(-1)),
+                    new SettlementExecutor(
+                        execution => fixture.Realize(
+                            execution,
+                            content)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageVersionCellMetadataWorkspaceStage.ScopeAdmission,
+            result.Failure.Stage);
         Assert.Equal(
             WorkspaceScopeRejection.DeadlineExpired,
-            rejected.Reason);
+            result.Failure.Rejection);
+        Assert.Null(result.Failure.ArtifactFailure);
     }
 
     [Fact]
-    public async Task MalformedCompileImage_RemainsWorkspaceFailure()
+    public void CleanupFailureSupersedesSuccessAndRemainsSecondaryToFailure()
     {
-        CellContext context = CreateCell();
-        var executor = new SettlementExecutor(
-            context,
-            _ => new InMemoryPackageContent(
-                Archive(
-                    ($"lib/{Framework}/Good.dll",
-                        File.ReadAllBytes(
-                            typeof(PackageVersionCellMetadataInspectionTests)
-                                .Assembly.Location)),
-                    ($"lib/{Framework}/Bad.dll", [1, 2, 3])),
-                fromCache: false,
-                context.Source.Producer.Key));
+        CellFixture fixture = CellFixture.Create();
+        PackageVersionCellMetadataInspectionEvidence evidence =
+            fixture.ResourceFreeEvidence();
+        var cleanup =
+            new PackageVersionCellMetadataCleanupEvidence(
+                [
+                    new(
+                        PackageVersionCellMetadataCleanupStage.GroupRelease,
+                        1),
+                ]);
+        var available =
+            new PackageVersionCellMetadataInspectionOutcome.Available(
+                evidence,
+                new([]));
+        var workspaceFailure =
+            new PackageVersionCellMetadataInspectionOutcome
+                .WorkspaceFailure(
+                    evidence,
+                    PackageVersionCellMetadataWorkspaceFailure.Failed(
+                        PackageVersionCellMetadataWorkspaceStage.RootQuery,
+                        ArtifactRootFailure.Absent));
 
-        PackageVersionCellMetadataInspectionOutcome outcome =
-            await PackageVersionCellMetadataInspection.ExecuteAsync(
-                Request(context.Cell),
-                executor,
-                TestContext.Current.CancellationToken);
+        var cleanupFailure = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.CleanupFailure>(
+                PackageVersionCellMetadataInspector.Complete(
+                    available,
+                    cleanup));
+        var retainedFailure = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.WorkspaceFailure>(
+                PackageVersionCellMetadataInspector.Complete(
+                    workspaceFailure,
+                    cleanup));
 
-        var completed = Assert.IsType<
-            PackageVersionCellMetadataInspectionOutcome.Completed>(
-                outcome);
-        var notCommitted = Assert.IsType<
-            PackageVersionCellMetadataInspectionResult.WorkspaceNotCommitted>(
-                completed.Result);
-        var failed = Assert.IsType<WorkspaceScopeOperationResult.Failed>(
-            notCommitted.Result);
+        Assert.Same(cleanup, cleanupFailure.Cleanup);
+        Assert.Same(workspaceFailure.Failure, retainedFailure.Failure);
+        Assert.Same(cleanup, retainedFailure.Cleanup);
+    }
+
+    [Fact]
+    public void CloseEvidencePreservesDistinctReleaseFailures()
+    {
+        var report = new InspectionWorkspaceCloseReport(
+            [
+                new InspectionWorkspaceDirectGroupCloseResult(
+                    0,
+                    new IOException("group fixture")),
+            ],
+            [new IOException("artifact fixture")]);
+
+        ImmutableArray<PackageVersionCellMetadataCleanupFailure> failures =
+            PackageVersionCellMetadataInspector.DescribeClose(
+                report,
+                scopeCommitted: true,
+                closeFaulted: true);
+
         Assert.Equal(
-            ArtifactRootFailure.PreparationFailed,
-            failed.Failure);
+            [
+                PackageVersionCellMetadataCleanupStage.GroupRelease,
+                PackageVersionCellMetadataCleanupStage.ArtifactRelease,
+                PackageVersionCellMetadataCleanupStage.CloseOrchestration,
+            ],
+            failures.Select(failure => failure.Stage));
+        Assert.All(failures, failure => Assert.Equal(1, failure.Count));
     }
 
     [Fact]
-    public async Task Cancellation_PropagatesAfterCleanup()
+    public async Task InspectionCancellationAfterQueryWaitsForCloseAndPublishesNoOutcome()
     {
-        CellContext context = CreateCell();
+        CellFixture fixture = CellFixture.Create();
+        IPackageContent content = fixture.Content(
+            ($"lib/{Framework}/Contoso.Metadata.dll", Image));
         using var cancellation = new CancellationTokenSource();
-        var content = new TrackingPackageContent(
-            Archive(
-                (
-                    $"lib/{Framework}/{PackageId}.dll",
-                    File.ReadAllBytes(
-                        typeof(PackageVersionCellMetadataInspectionTests)
-                            .Assembly.Location))),
-            context.Source.Producer.Key,
-            cancellation.Cancel);
-        var executor = new SettlementExecutor(context, _ => content);
+        PackageVersionCellMetadataInspectionOutcome? provisional = null;
 
         OperationCanceledException failure =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => PackageVersionCellMetadataInspection.ExecuteAsync(
-                    Request(context.Cell),
-                    executor,
-                    cancellation.Token));
+                () => PackageVersionCellMetadataInspector
+                    .ExecuteWithProvisionalOutcomeObserverAsync(
+                        fixture.Request(),
+                        new SettlementExecutor(
+                            execution => fixture.Realize(
+                                execution,
+                                content)),
+                        outcome =>
+                        {
+                            provisional = outcome;
+                            cancellation.Cancel();
+                        },
+                        cancellation.Token));
 
-        Assert.Equal(cancellation.Token, failure.CancellationToken);
-        Assert.Equal(0, content.ActiveStreams);
-    }
-
-    [Fact]
-    public async Task LinkedCancellation_IsNormalizedToCallerToken()
-    {
-        CellContext context = CreateCell();
-        using var cancellation = new CancellationTokenSource();
-        using var linked =
-            CancellationTokenSource.CreateLinkedTokenSource(
-                cancellation.Token);
-        var executor = new ThrowingExecutor(
-            () =>
-            {
-                cancellation.Cancel();
-                linked.Token.ThrowIfCancellationRequested();
-                throw new InvalidOperationException(
-                    "Linked cancellation was not observed.");
-            });
-
-        OperationCanceledException failure =
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => PackageVersionCellMetadataInspection.ExecuteAsync(
-                    Request(context.Cell),
-                    executor,
-                    cancellation.Token));
-
-        Assert.Equal(cancellation.Token, failure.CancellationToken);
-        Assert.Equal(
-            linked.Token,
-            Assert.IsType<OperationCanceledException>(
-                failure.InnerException).CancellationToken);
-    }
-
-    [Fact]
-    public async Task Outcome_WaitsForWorkspaceClose()
-    {
-        CellContext context = CreateCell();
-        using var closeEntered = new ManualResetEventSlim();
-        using var closeResume = new ManualResetEventSlim();
-        var executor = SuccessfulExecutor(context);
-        InspectionWorkspace workspace = CreateWorkspace(
-            new BlockingResource(
-                closeEntered,
-                closeResume,
-                TestContext.Current.CancellationToken));
-
-        Task<PackageVersionCellMetadataInspectionOutcome> operation =
-            Task.Factory.StartNew(
-                () => PackageVersionCellMetadataInspection.ExecuteAsync(
-                    Request(context.Cell),
-                    executor,
-                    () => workspace,
-                    TestContext.Current.CancellationToken),
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default).Unwrap();
-        await Task.Run(
-            () => closeEntered.Wait(
-                TestContext.Current.CancellationToken),
-            TestContext.Current.CancellationToken);
-
-        Assert.False(operation.IsCompleted);
-        closeResume.Set();
         Assert.IsType<
-            PackageVersionCellMetadataInspectionOutcome.Completed>(
-                await operation);
-    }
-
-    [Fact]
-    public async Task CleanupFailure_ReturnsTypedOutcome()
-    {
-        CellContext context = CreateCell();
-        var executor = SuccessfulExecutor(context);
-        InspectionWorkspace workspace =
-            CreateWorkspace(new ThrowingResource());
-
-        PackageVersionCellMetadataInspectionOutcome outcome =
-            await PackageVersionCellMetadataInspection.ExecuteAsync(
-                Request(context.Cell),
-                executor,
-                () => workspace,
-                TestContext.Current.CancellationToken);
-
-        var failed = Assert.IsType<
-            PackageVersionCellMetadataInspectionOutcome.CleanupFailed>(
-                outcome);
-        Assert.Equal(
-            new PackageVersionCellMetadataCleanupFailure(
-                PackageVersionCellMetadataCleanupStage.WorkspaceGroupRelease,
-                1),
-            Assert.Single(failed.Cleanup.Failures));
-    }
-
-    [Fact]
-    public async Task Cancellation_PreservesCleanupEvidence()
-    {
-        CellContext context = CreateCell();
-        using var cancellation = new CancellationTokenSource();
-        var executor = SuccessfulExecutor(context);
-        InspectionWorkspace workspace =
-            CreateWorkspace(
-                new CancelingThrowingResource(cancellation));
-
-        OperationCanceledException failure =
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => PackageVersionCellMetadataInspection.ExecuteAsync(
-                    Request(context.Cell),
-                    executor,
-                    () => workspace,
-                    cancellation.Token));
-
-        Assert.True(
+            PackageVersionCellMetadataInspectionOutcome.Available>(
+                provisional);
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.False(
             PackageVersionCellMetadataInspectionExceptionEvidence
-                .TryGetCleanup(failure, out var cleanup));
-        Assert.Equal(
-            PackageVersionCellMetadataCleanupStage.WorkspaceGroupRelease,
-            Assert.Single(cleanup.Failures).Stage);
+                .TryGetCleanup(failure, out _));
     }
 
     [Fact]
-    public void PublicResults_AreResourceFree()
+    public void OutcomeClosureIsResourceFree()
     {
-        Type[] prohibited =
-        [
-            typeof(IPackageContent),
-            typeof(AcquiredPackageSourcePayload),
-            typeof(PackageRootBinding),
-            typeof(InspectionWorkspace),
-            typeof(PackageAssemblyContextRealization),
-            typeof(AssemblyContextGroup),
-            typeof(AssemblyContextParticipant),
-            typeof(ArtifactSetSession),
-            typeof(ArtifactQueryLease),
-            typeof(DesktopPackageSourceComposition),
-            typeof(Stream),
-            typeof(Delegate),
-        ];
-        Type[] publicResults =
-        [
-            typeof(PackageVersionCellMetadataInspectionOutcome),
-            .. typeof(PackageVersionCellMetadataInspectionOutcome)
-                .GetNestedTypes(BindingFlags.Public),
-            typeof(PackageVersionCellMetadataInspectionResult),
-            .. typeof(PackageVersionCellMetadataInspectionResult)
-                .GetNestedTypes(BindingFlags.Public),
-            typeof(PackageVersionCellMetadataCleanupEvidence),
-            typeof(PackageVersionCellMetadataCleanupFailure),
-        ];
-
-        var visited = new HashSet<Type>();
-        foreach (Type result in publicResults)
-            AssertResourceFree(result);
-
-        void AssertResourceFree(Type type)
+        var seen = new HashSet<Type>();
+        foreach (Type root in new[]
         {
-            if (!visited.Add(type)
+            typeof(PackageVersionCellMetadataInspectionOutcome),
+            typeof(PackageVersionCellMetadataInspectionEvidence),
+            typeof(PackageVersionCellMetadataWorkspaceFailure),
+            typeof(PackageVersionCellMetadataCleanupEvidence),
+        })
+        {
+            Visit(root);
+        }
+        Assert.DoesNotContain(
+            typeof(PackageHouseVersionPopulationCell),
+            seen);
+        Assert.DoesNotContain(typeof(PackageRootBinding), seen);
+        Assert.DoesNotContain(typeof(InspectionWorkspace), seen);
+        Assert.DoesNotContain(typeof(IPackageContent), seen);
+        Assert.DoesNotContain(typeof(Stream), seen);
+
+        void Visit(Type type)
+        {
+            type = Nullable.GetUnderlyingType(type) ?? type;
+            if (!seen.Add(type)
                 || type.IsPrimitive
                 || type.IsEnum
                 || type == typeof(string)
-                || type == typeof(Exception))
+                || type == typeof(Guid)
+                || type == typeof(DateTimeOffset)
+                || type == typeof(TimeSpan)
+                || type == typeof(InertString))
+            {
+                return;
+            }
+            if (type.IsArray)
+            {
+                Visit(type.GetElementType()!);
+                return;
+            }
+            if (type.IsGenericType)
+            {
+                foreach (Type argument in type.GetGenericArguments())
+                    Visit(argument);
+                return;
+            }
+
+            Assert.False(type.IsByRefLike, type.FullName);
+            Assert.False(
+                typeof(IDisposable).IsAssignableFrom(type),
+                type.FullName);
+            Assert.False(
+                typeof(IAsyncDisposable).IsAssignableFrom(type),
+                type.FullName);
+            Assert.False(
+                typeof(Delegate).IsAssignableFrom(type),
+                type.FullName);
+            if (type.Assembly == typeof(object).Assembly
+                || type.Namespace?.StartsWith(
+                    "NuGet.",
+                    StringComparison.Ordinal) is true)
             {
                 return;
             }
 
-            Assert.DoesNotContain(
-                prohibited,
-                resource => resource.IsAssignableFrom(type));
-            if (type.IsArray)
-                AssertResourceFree(type.GetElementType()!);
-            foreach (Type argument in type.GetGenericArguments())
-                AssertResourceFree(argument);
-            if (type.Assembly
-                == typeof(PackageVersionCellMetadataInspectionOutcome)
-                    .Assembly)
+            foreach (Type nested in type.GetNestedTypes(
+                BindingFlags.Public))
             {
-                foreach (PropertyInfo property in type.GetProperties(
-                    BindingFlags.Instance
-                    | BindingFlags.Public
-                    | BindingFlags.NonPublic))
-                {
-                    AssertResourceFree(property.PropertyType);
-                }
-                foreach (FieldInfo field in type.GetFields(
-                    BindingFlags.Instance
-                    | BindingFlags.Public
-                    | BindingFlags.NonPublic))
-                {
-                    AssertResourceFree(field.FieldType);
-                }
+                Visit(nested);
+            }
+            foreach (PropertyInfo property in type.GetProperties(
+                BindingFlags.Public | BindingFlags.Instance))
+            {
+                Visit(property.PropertyType);
+            }
+            foreach (FieldInfo field in type.GetFields(
+                BindingFlags.Public | BindingFlags.Instance))
+            {
+                Visit(field.FieldType);
             }
         }
     }
 
-    private static PackageVersionCellMetadataInspectionRequest Request(
-        PackageHouseVersionPopulationCell cell) =>
-        new(
-            cell,
-            PackageHouseOperation.Create(
-                PackageHouseOperationProfile.Realize),
-            PackageHouseTargetContext.Exact(Framework),
-            DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30));
-
-    private static SettlementExecutor SuccessfulExecutor(
-        CellContext context) =>
-        new(
-            context,
-            _ => new InMemoryPackageContent(
-                Archive(
-                    (
-                        $"lib/{Framework}/{PackageId}.dll",
-                        File.ReadAllBytes(
-                            typeof(PackageVersionCellMetadataInspectionTests)
-                                .Assembly.Location))),
-                fromCache: false,
-                context.Source.Producer.Key));
-
-    private static InspectionWorkspace CreateWorkspace(
-        IDisposable ownedResource)
-    {
-        var workspace = new InspectionWorkspace();
-        ResolvedAssemblyReference assembly =
-            ResolvedAssemblyReference.CreateFromPath(
-                typeof(PackageVersionCellMetadataInspectionTests)
-                    .Assembly.Location,
-                AssemblyResolutionProvenance.Local(
-                    "version-cell cleanup test"));
-        AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroup(
-                [
-                    new AssemblyContextParticipant(
-                        assembly,
-                        MissingBindingPolicy.Instance),
-                ]);
-        group.RegisterOwnedResource(ownedResource);
-        return workspace;
-    }
-
-    private static CellContext CreateCell()
-    {
-        var authority = new ConfiguredPackageAuthority(
-            PackageSource.NuGetOrg);
-        PackageSourceResultFactory factory =
-            ResultFactory(authority.Association);
-        PackageSourceCoordinate coordinate =
-            PackageSourceCoordinate.Create(PackageId, Version);
-        var observation = new ConfiguredPackageCandidateObservation(
-            authority,
-            factory.Candidate(
-                coordinate,
-                PackageDiscoveryContract.CompleteVersionEnumeration,
-                PackageListingState.Listed));
-        var discovery = new PackageVersionDiscoveryResult(
-            PackageId,
-            PackageVersionDiscoveryState.Authoritative,
-            [
-                new("0.33.0", "nuget.org", Listed: true),
-                new("0.34.0", "nuget.org", Listed: true),
-                new(Version, "nuget.org", Listed: true),
-            ],
-            failures: [],
-            hasAnyCandidate: true,
-            candidates: [observation],
-            contract:
-                PackageVersionDiscoveryContract
-                    .CompleteVersionEnumeration,
-            candidateIssuer: new object());
-        Assert.True(
-            PackageVersionRange.TryParse(
-                $"{PackageId}@0.33.0..{Version}",
-                out PackageVersionRange? range,
-                out string? error),
-            error);
-        var populationRequest =
-            new PackageHouseVersionPopulationRequest(
-                range!,
-                PackageHouseOperation.Create(
-                    PackageHouseOperationProfile.Settle));
-        var population =
-            new PackageHouseVersionPopulationResult.Available(
-                new PackageHouseVersionPopulationEvidence(
-                    populationRequest,
-                    discovery));
-        PackageVersionAddress address = Assert.Single(
-            population.Vector.Addresses.Where(candidate =>
-                candidate.Version.ToNormalizedString() == Version));
-        return new(
-            population.SelectCell(address),
-            authority,
-            factory.Source);
-    }
-
-    private static PackageSourceResultFactory ResultFactory(
-        PackageSourceAssociation association)
-    {
-        IdentityPackageSourceClient? tracking = null;
-        using IPackageSourceClient client =
-            PackageSourceClientFactory.CreateCustom(
-                PackageSourceDescriptor.NuGetGallery,
-                association,
-                factory =>
-                {
-                    tracking = new(factory);
-                    return tracking;
-                });
-        return tracking!.Factory;
-    }
-
-    private static byte[] Archive(
-        params (string Path, byte[] Content)[] entries)
-    {
-        using var buffer = new MemoryStream();
-        using (var archive =
-            new ZipArchive(
-                buffer,
-                ZipArchiveMode.Create,
-                leaveOpen: true))
-        {
-            foreach ((string path, byte[] content) in entries)
-            {
-                using Stream destination =
-                    archive.CreateEntry(path).Open();
-                destination.Write(content);
-            }
-        }
-        return buffer.ToArray();
-    }
-
-    private static InertString Reason(string value) =>
+    static InertString Reason(string value) =>
         new(TextPolicy.Field, value);
 
-    private sealed record CellContext(
-        PackageHouseVersionPopulationCell Cell,
-        ConfiguredPackageAuthority Authority,
-        PackageSourceResultIdentity Source);
-
-    private sealed class SettlementExecutor(
-        CellContext context,
-        Func<PackageHouseRequest, IPackageContent> createContent)
-        : IPackageVersionCellCompileExecutor
+    public enum RealizationLimit
     {
-        public int ExecutionCount { get; private set; }
+        Assemblies,
+        EntryBytes,
+        AggregateBytes,
+    }
 
-        public bool ReturnNoContribution { get; init; }
+    sealed class SettlementExecutor(
+        Func<
+            PackageHouseVersionPopulationCellExecution,
+            PackageHouseSettlement> execute)
+        : IPackageHouseVersionPopulationCellExecutor
+    {
+        public int Calls { get; private set; }
 
-        public Func<
-            PackageHouseVersionPopulationCell,
-            PackageHouseOperation,
-            PackageHouseTargetContext?,
-            PackageHouseRequest>? CreateRequest { get; init; }
+        public PackageHouseVersionPopulationCellExecution? Execution
+        {
+            get;
+            private set;
+        }
 
         public PackageHouseSettlement? Settlement { get; private set; }
 
         public Task<PackageHouseSettlement> ExecuteAsync(
-            PackageHouseVersionPopulationCell cell,
-            PackageHouseOperation operation,
-            PackageHouseTargetContext? targetContext,
+            PackageHouseVersionPopulationCellExecution execution,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ExecutionCount++;
-            PackageHouseRequest request =
-                CreateRequest?.Invoke(cell, operation, targetContext)
-                ?? cell.CreateRequest(
-                    operation,
-                    targetContext,
-                    PackageHouseAssetSelectionKind.Compile,
-                    PackageHouseLibraryHandoffMode.PackageOnly);
-            Settlement = ReturnNoContribution
-                ? CreateNoContribution(request)
-                : CreateAcquired(request);
+            Calls++;
+            Execution = execution;
+            Settlement = execute(execution);
             return Task.FromResult(Settlement);
         }
+    }
 
-        private PackageHouseSettlement CreateNoContribution(
-            PackageHouseRequest request)
+    sealed class CellFixture(
+        PackageHouseVersionPopulationCell cell,
+        ConfiguredPackageAuthority authority,
+        PackageSourceResultIdentity source)
+    {
+        public static CellFixture Create(
+            string packageId = PackageId,
+            string version = Version)
         {
-            PackageHouseDecisionReceipt decision =
-                PackageHouseDecisionReceipt.Stop(
-                    request,
-                    context.Cell.Candidate.Coordinate);
-            var evidence = new PackageHouseEvidence(
-                request,
-                decision,
-                failures:
+            var authority = new ConfiguredPackageAuthority(
+                PackageSource.NuGetOrg);
+            PackageSourceResultFactory results =
+                CreateResultFactory(authority.Association);
+            PackageSourceCoordinate coordinate =
+                PackageSourceCoordinate.Create(packageId, version);
+            var discovery = new PackageVersionDiscoveryResult(
+                packageId,
+                PackageVersionDiscoveryState.Authoritative,
                 [
-                    new PackageHouseFailure.Stage(
-                        PackageHouseFailureStage.Acquisition,
-                        Reason("The current source policy rejected the cell.")),
-                ]);
-            return new PackageHouseSettlement.ResourceFree(
-                new PackageHouseResult.Rejected(
-                    evidence,
-                    Reason("The current source policy rejected the cell.")));
+                    new PackageVersionSourceInfo(
+                        version,
+                        "nuget.org",
+                        Listed: true),
+                ],
+                failures: [],
+                hasAnyCandidate: true,
+                candidates:
+                [
+                    new ConfiguredPackageCandidateObservation(
+                        authority,
+                        results.Candidate(
+                            coordinate,
+                            PackageDiscoveryContract
+                                .CompleteVersionEnumeration,
+                            PackageListingState.Listed)),
+                ],
+                PackageVersionDiscoveryContract
+                    .CompleteVersionEnumeration,
+                candidateIssuer: new object());
+            Assert.True(
+                PackageVersionRange.TryParse(
+                    $"{packageId}@{version}..{version}",
+                    out PackageVersionRange? range,
+                    out string? error),
+                error);
+            var populationRequest =
+                new PackageHouseVersionPopulationRequest(
+                    range!,
+                    PackageHouseOperation.Create(
+                        PackageHouseOperationProfile.Settle));
+            var population =
+                new PackageHouseVersionPopulationResult.Available(
+                    new PackageHouseVersionPopulationEvidence(
+                        populationRequest,
+                        discovery));
+            PackageHouseVersionPopulationCell cell =
+                population.SelectCell(
+                    Assert.Single(population.Vector.Addresses));
+            return new(cell, authority, results.Source);
         }
 
-        private PackageHouseSettlement CreateAcquired(
-            PackageHouseRequest request)
+        public PackageVersionCellMetadataInspectionRequest Request(
+            PackageVersionCellMetadataInspectionLimits? limits = null,
+            string framework = Framework,
+            DateTimeOffset? deadline = null) =>
+            new(
+                cell,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.Exact(framework),
+                limits
+                    ?? new PackageVersionCellMetadataInspectionLimits(
+                        16,
+                        16_000_000,
+                        32_000_000),
+                deadline ?? DateTimeOffset.UtcNow.AddMinutes(1));
+
+        public IPackageContent Content(
+            params (string Path, byte[] Bytes)[] entries)
         {
-            IPackageContent content = createContent(request);
-            PackageAcquisitionCandidate candidate =
-                context.Cell.Candidate;
+            using var buffer = new MemoryStream();
+            using (var archive = new ZipArchive(
+                buffer,
+                ZipArchiveMode.Create,
+                leaveOpen: true))
+            {
+                foreach ((string path, byte[] bytes) in entries)
+                {
+                    using Stream entry = archive.CreateEntry(path).Open();
+                    entry.Write(bytes);
+                }
+            }
+
+            return new InMemoryPackageContent(
+                buffer.ToArray(),
+                fromCache: true,
+                source.Producer.Key);
+        }
+
+        public PackageHouseSettlement Realize(
+            PackageHouseVersionPopulationCellExecution execution,
+            IPackageContent content) =>
+            Realize(execution.Request, content);
+
+        public PackageHouseSettlement Realize(
+            PackageHouseRequest request,
+            IPackageContent content)
+        {
+            var demand = Assert.IsType<PackageHouseDemand.Candidate>(
+                request.Demand);
+            PackageSourceCoordinate coordinate =
+                demand.Value.Coordinate;
             PackageHouseDecisionReceipt decision =
                 PackageHouseDecisionReceipt.RetainPackage(
                     request,
-                    candidate.Coordinate,
-                    candidate);
-            var payload = new AcquiredPackageSourcePayload(
-                candidate.Coordinate,
+                    coordinate,
+                    demand.Value);
+            var initialPayload = new AcquiredPackageSourcePayload(
+                coordinate,
                 content,
-                context.Source.Producer.Key,
-                context.Source.Producer,
-                PackagePayloadOrigin.Download);
-            var sourceResult = new ConfiguredPackagePayloadResult(
-                context.Authority,
-                context.Source,
-                payload,
+                source.Producer.Key,
+                source.Producer,
+                PackagePayloadOrigin.Cache);
+            var sourcePayload = new ConfiguredPackagePayloadResult(
+                authority,
+                source,
+                initialPayload,
                 failures: [],
-                reportingAuthorities:
-                [
-                    .. candidate.Authorities.Select(
-                        evidence => evidence.Authority),
-                ],
+                reportingAuthorities: [authority],
                 selectionUsesOriginalSources: true);
-            payload = sourceResult.Payload!;
+            AcquiredPackageSourcePayload payload =
+                Assert.IsType<AcquiredPackageSourcePayload>(
+                    sourcePayload.Payload);
             var acquisition = new PackageHouseAcquisitionReceipt(
                 decision,
-                context.Authority,
-                context.Source,
-                PackagePayloadOrigin.Download,
-                content.GenerationIdentity);
-            var realization = new PackageHouseRealizationReceipt.Compile(
-                acquisition,
+                authority,
+                source,
+                payload.Origin,
+                payload.Content.GenerationIdentity);
+            PackageCompileAssetSelectionReceipt selection =
                 PackageCompileAssetSelector.Evaluate(
-                    content,
-                    candidate.Coordinate.PackageId,
-                    request.TargetContext?.RequestedFramework,
-                    request.TargetContext?.RuntimeIdentifier));
-            var evidence = new PackageHouseEvidence(
-                request,
-                decision,
-                acquisition,
-                realization);
-            PackageHouseResult result = realization.Completion switch
-            {
-                PackageHouseRealizationCompletion.Settled =>
-                    new PackageHouseResult.Settled(evidence),
-                PackageHouseRealizationCompletion.NoMatch =>
-                    new PackageHouseResult.NoMatch(
-                        evidence,
-                        Reason("The package has no matching compile surface.")),
-                PackageHouseRealizationCompletion.Rejected =>
-                    new PackageHouseResult.Rejected(
-                        evidence,
-                        Reason("The package compile surface was rejected.")),
-                _ => throw new InvalidOperationException(
-                    "Unexpected compile realization outcome."),
-            };
+                    payload.Content,
+                    coordinate.PackageId,
+                    request.TargetContext!.RequestedFramework,
+                    request.TargetContext.RuntimeIdentifier);
+            var realization =
+                new PackageHouseRealizationReceipt.Compile(
+                    acquisition,
+                    selection);
+            var result = new PackageHouseResult.Settled(
+                new PackageHouseEvidence(
+                    request,
+                    decision,
+                    acquisition,
+                    realization));
             return new PackageHouseSettlement.Acquired(
                 result,
                 payload,
-                sourceResult,
+                sourcePayload,
                 selectionUsesOriginalSources: true);
         }
-    }
 
-    private sealed class ThrowingExecutor(Action throwFailure)
-        : IPackageVersionCellCompileExecutor
-    {
-        public Task<PackageHouseSettlement> ExecuteAsync(
-            PackageHouseVersionPopulationCell cell,
-            PackageHouseOperation operation,
-            PackageHouseTargetContext? targetContext,
-            CancellationToken cancellationToken = default)
+        public PackageVersionCellMetadataInspectionEvidence
+            ResourceFreeEvidence()
         {
-            throwFailure();
-            throw new InvalidOperationException(
-                "The synthetic executor did not throw.");
+            PackageVersionCellMetadataInspectionRequest request = Request();
+            var result = new PackageHouseResult.Rejected(
+                new PackageHouseEvidence(
+                    request.HouseExecution.Request),
+                Reason("Fixture rejection."));
+            return new(
+                request.HouseExecution,
+                result,
+                compileRealization: null,
+                rootCoordinate: null);
+        }
+
+        static PackageSourceResultFactory CreateResultFactory(
+            PackageSourceAssociation association)
+        {
+            PackageSourceResultFactory? captured = null;
+            using IPackageSourceClient client =
+                PackageSourceClientFactory.CreateCustom(
+                    PackageSourceDescriptor.NuGetGallery,
+                    association,
+                    factory =>
+                    {
+                        captured = factory;
+                        return new UnusedPackageSource(factory.Source);
+                    });
+            return Assert.IsType<PackageSourceResultFactory>(captured);
         }
     }
 
-    private sealed class MissingBindingPolicy : IAssemblyBindingPolicy
+    sealed class UnusedPackageSource(
+        PackageSourceResultIdentity source) : IPackageSourceClient
     {
-        internal static MissingBindingPolicy Instance { get; } = new();
-
-        public AssemblyBindingPolicyVersion Version { get; } = new();
-
-        public AssemblyBindingSelectionSnapshot Select(
-            AssemblyBindingRequest request) =>
-            new(
-                Version,
-                AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.CandidateUnavailable)));
-    }
-
-    private sealed class BlockingResource(
-        ManualResetEventSlim entered,
-        ManualResetEventSlim resume,
-        CancellationToken cancellationToken) : IDisposable
-    {
-        public void Dispose()
-        {
-            entered.Set();
-            resume.Wait(cancellationToken);
-        }
-    }
-
-    private sealed class ThrowingResource : IDisposable
-    {
-        public void Dispose() =>
-            throw new InvalidOperationException(
-                "Synthetic Workspace cleanup failure.");
-    }
-
-    private sealed class CancelingThrowingResource(
-        CancellationTokenSource cancellation) : IDisposable
-    {
-        public void Dispose()
-        {
-            cancellation.Cancel();
-            throw new InvalidOperationException(
-                "Synthetic Workspace cleanup failure.");
-        }
-    }
-
-    private sealed class TrackingPackageContent(
-        byte[] archive,
-        string producerKey,
-        Action? onOpen = null) : IPackageContent
-    {
-        private readonly InMemoryPackageContent _inner =
-            new(archive, fromCache: false, producerKey);
-        private Action? _onOpen = onOpen;
-        private int _activeStreams;
-        private int _openedStreams;
-
-        public int ActiveStreams => Volatile.Read(ref _activeStreams);
-
-        public int OpenedStreams => Volatile.Read(ref _openedStreams);
-
-        public string? RootPath => _inner.RootPath;
-
-        public string? NupkgPath => _inner.NupkgPath;
-
-        public bool FromCache => _inner.FromCache;
-
-        public string ProducerKey => _inner.ProducerKey;
-
-        public PackageContentGenerationIdentity GenerationIdentity =>
-            _inner.GenerationIdentity;
-
-        public bool RequiresArchiveTreeMatch =>
-            _inner.RequiresArchiveTreeMatch;
-
-        public bool TryOpenArchive(
-            [NotNullWhen(true)] out Stream? stream) =>
-            TryOpen(_inner.TryOpenArchive, out stream);
-
-        public bool TryOpenEntry(
-            string relativePath,
-            [NotNullWhen(true)] out Stream? stream)
-        {
-            if (!_inner.TryOpenEntry(relativePath, out Stream? inner))
-            {
-                stream = null;
-                return false;
-            }
-            stream = Track(inner);
-            return true;
-        }
-
-        public bool TryOpenEntry(
-            string relativePath,
-            long maxExpandedBytes,
-            [NotNullWhen(true)] out Stream? stream)
-        {
-            if (!_inner.TryOpenEntry(
-                    relativePath,
-                    maxExpandedBytes,
-                    out Stream? inner))
-            {
-                stream = null;
-                return false;
-            }
-            stream = Track(inner);
-            return true;
-        }
-
-        public IEnumerable<string> EnumerateEntries() =>
-            _inner.EnumerateEntries();
-
-        private bool TryOpen(
-            TryOpenStream open,
-            [NotNullWhen(true)] out Stream? stream)
-        {
-            if (!open(out Stream? inner))
-            {
-                stream = null;
-                return false;
-            }
-            stream = Track(inner);
-            return true;
-        }
-
-        private Stream Track(Stream inner)
-        {
-            Interlocked.Exchange(ref _onOpen, null)?.Invoke();
-            Interlocked.Increment(ref _openedStreams);
-            Interlocked.Increment(ref _activeStreams);
-            return new TrackingStream(
-                inner,
-                () => Interlocked.Decrement(ref _activeStreams));
-        }
-
-        private delegate bool TryOpenStream(
-            [NotNullWhen(true)] out Stream? stream);
-    }
-
-    private sealed class TrackingStream(
-        Stream inner,
-        Action onDispose) : Stream
-    {
-        private int _disposed;
-
-        public override bool CanRead => inner.CanRead;
-        public override bool CanSeek => inner.CanSeek;
-        public override bool CanWrite => inner.CanWrite;
-        public override long Length => inner.Length;
-        public override long Position
-        {
-            get => inner.Position;
-            set => inner.Position = value;
-        }
-
-        public override void Flush() => inner.Flush();
-
-        public override int Read(
-            byte[] buffer,
-            int offset,
-            int count) =>
-            inner.Read(buffer, offset, count);
-
-        public override long Seek(
-            long offset,
-            SeekOrigin origin) =>
-            inner.Seek(offset, origin);
-
-        public override void SetLength(long value) =>
-            inner.SetLength(value);
-
-        public override void Write(
-            byte[] buffer,
-            int offset,
-            int count) =>
-            inner.Write(buffer, offset, count);
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing && Interlocked.Exchange(ref _disposed, 1) == 0)
-            {
-                inner.Dispose();
-                onDispose();
-            }
-            base.Dispose(disposing);
-        }
-
-        public override async ValueTask DisposeAsync()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) == 0)
-            {
-                await inner.DisposeAsync();
-                onDispose();
-            }
-            GC.SuppressFinalize(this);
-        }
-    }
-
-    private sealed class IdentityPackageSourceClient(
-        PackageSourceResultFactory factory) : IPackageSourceClient
-    {
-        public PackageSourceResultFactory Factory { get; } = factory;
-
-        public PackageSourceResultIdentity Source => Factory.Source;
+        public PackageSourceResultIdentity Source { get; } = source;
 
         public PackageSourceCapabilities Capabilities =>
             PackageSourceCapabilities.None;

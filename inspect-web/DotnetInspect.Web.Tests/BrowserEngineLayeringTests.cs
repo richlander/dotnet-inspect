@@ -512,6 +512,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Services.PdbSourceHouse",
             "DotnetInspector.Services.ProjectAssetsParser",
             "DotnetInspector.Services.SignatureVerifier",
+            "ILInspector.Metadata.AssemblyResolutionProvenance",
             "ILInspector.Metadata.ApiSurface",
             "ILInspector.Metadata.ResolvedAssemblyReference",
             "ILInspector.SourceLink.SourceLinkResolver",

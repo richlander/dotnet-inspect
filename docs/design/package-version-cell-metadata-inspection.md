@@ -2,230 +2,240 @@
 
 ## Status, owner, and claim
 
-Status: **implemented**. This focused composition is tracked by
-[#7146](https://github.com/richlander/dotnet-inspect/issues/7146), under
-[Diff History #6940](https://github.com/richlander/dotnet-inspect/issues/6940),
-[PackageHouse #6426](https://github.com/richlander/dotnet-inspect/issues/6426),
-[command ownership #6638](https://github.com/richlander/dotnet-inspect/issues/6638),
-and [command inventory #6639](https://github.com/richlander/dotnet-inspect/issues/6639).
+Status: **implemented** by the initial slice tracked in
+[#7146](https://github.com/richlander/dotnet-inspect/issues/7146).
 
-**Package Version-Cell Metadata Inspection** in
-`DotnetInspector.PackageQueries` owns:
+The **Package version-cell Metadata inspection** owner defines one
+`DotnetInspector.PackageQueries` operation:
 
-> Given one PackageHouse-issued version-population cell, one Realize operation,
-> one package target context, one host-supplied compile-realization capability,
-> and one finite Workspace deadline, execute the cell once, preserve its exact
-> House realization through one package Root and one ephemeral Workspace, and
-> return the existing resource-free Metadata image result only after Workspace
-> cleanup settles.
+> Consume one PackageHouse-issued version-population cell through an exact
+> host-executed compile-realization request, admit its package Root to one
+> bounded ephemeral Workspace, execute the existing assembly-context Metadata
+> image query under Workspace-scoped borrowing, and return only detached
+> resource-free evidence after awaited Workspace close.
 
-This owner defines only the cross-owner composition and its terminal result.
-It does not redefine PackageHouse selection or realization, package Root
-construction, Workspace admission and borrowing, Metadata decoding, or host
-source configuration.
+This is a focused package-aware L1 composition owner. It does not redefine
+PackageHouse settlement, package Root construction, Workspace admission,
+Metadata facts, or host source authorization.
 
-The real motivating population is `Markout@0.33.0..0.35.2`. Diff History can
-select one address from that population and invoke this operation without
-rediscovering versions or introducing command-local package extraction.
+## Motivation and real asset
 
-## Normative basis
+Subject-owned Diff History needs to inspect selected cells from one already
+settled package-version population. Re-discovering a selected version,
+reconstructing its source authority, or extracting its package directly in a
+host would break the cell's reporter-bound correspondence and duplicate
+PackageHouse and Workspace policy.
 
-This design consumes these owner-issued contracts:
+The motivating population is `Markout@0.33.0..0.35.2`. Production
+`dotnet-inspect` observation of `Markout@0.35.2` records one `net10.0` package
+surface containing `lib/net10.0/Markout.dll` at 233,472 bytes. The package
+names repository commit
+`e2302d97c166aad0ef73a00d79bc50e8f228d379` and uses the MIT license. The
+initial Release evidence retains the real assembly through a pinned NuGet
+package restore while synthetic package content supplies otherwise unreachable
+failure and cleanup boundaries.
 
-- [PackageHouse](package-house.md#version-population-settlement) owns the
-  population cell, candidate, source reauthorization, payload acquisition,
-  compile selection, and House terminal evidence.
-- [Artifact acquisition and Workspaces](artifact-acquisition-and-workspaces.md)
-  owns `PackageRootBinding`, Root admission, retained resources, exact
-  generation borrowing, and cleanup.
-- [Inspection layers](inspection-layers.md) owns host-neutral L1 query
-  placement and resource-free query results.
-- Metadata and core Queries own `AssemblyContextMetadataImageQuery` and
-  `AssemblyContextResult<MetadataImageOverview>`.
-- [Diff History](diff-history.md) is a downstream consumer. It owns temporal
-  evaluation and correlation, not this lower composition.
+## Owner map
 
-No behavior or code is transferred from an external implementation.
-`PackageAssemblyEvaluator` is the in-repository lifecycle analogue: an
-ephemeral Workspace makes results provisional until close, and cleanup
-evidence remains visible. Its sparse one-assembly projection is not reused
-because this operation inspects the complete House-selected compile surface.
+| Concern | Owner | Consumed contract |
+| --- | --- | --- |
+| Population cell, reporter-bound candidate, exact House request, settlement, and compile receipt | [PackageHouse](package-house.md) | One prepared cell execution and its exact terminal settlement |
+| House-to-Root correspondence | [Package Root realization](artifact-acquisition-and-workspaces.md#package-root-realization) | `PackageHouseRootContributionAdapter` and its typed no-contribution outcome |
+| Root preparation, atomic Scope admission, scoped query borrowing, bounds, and release | [Workspace Scope and Expansion](workspace-scope-and-expansion.md) and [Artifact acquisition and Workspaces](artifact-acquisition-and-workspaces.md) | One fresh Workspace, one package Root, one scoped Root query, and awaited close |
+| Metadata facts and participant outcomes | [Assembly inspection query](assembly-inspection-query.md) | `AssemblyContextMetadataImageQuery` over the admitted surface group |
+| Temporal selection and correlation | [Diff History](diff-history.md) | Later production consumer; not owned here |
 
-## Public contract
+The operation owns only the sequencing, exact cross-owner correspondence, and
+detached terminal outcome.
 
-`PackageVersionCellMetadataInspectionRequest` carries:
+## Prepared cell execution
 
-- the exact `PackageHouseVersionPopulationCell`;
-- a `PackageHouseOperation` whose profile is `Realize`;
-- an optional PackageHouse target context; and
+PackageHouse issues one prepared execution from a
+`PackageHouseVersionPopulationCell`. The preparation fixes:
+
+- the exact reporter-bound candidate already retained by the cell;
+- one caller-supplied `Realize` operation;
+- the target context;
+- compile asset selection;
+- package-only handoff; and
+- the cell's request association.
+
+The prepared execution carries the exact `PackageHouseRequest` object that the
+host must execute. A host capability accepts that owner-issued value; it does
+not rebuild a demand from package ID, version, source display text, or request
+association.
+
+The returned settlement is accepted only when its House evidence retains that
+exact prepared request object. This is an ordinary construction invariant over
+a trusted host adapter, not a defense against a hostile in-process caller. It
+detects accidental execution of a neighboring demand, including one that
+reuses the cell's public association.
+
+Desktop composition adapts its existing configured-source execution to the
+prepared value. Browser/Wasm may supply another host adapter without changing
+the PackageQueries operation.
+
+## Request and bounds
+
+One inspection request carries:
+
+- the exact prepared cell execution;
+- the package target context;
+- a positive finite assembly-count limit;
+- a positive finite selected-entry byte limit;
+- a positive finite aggregate retained-image byte limit; and
 - a finite absolute Workspace deadline.
 
-Compile selection and package-only handoff are fixed by this operation. They
-are not caller-selectable dimensions.
+Caller cancellation is supplied to execution rather than retained in the
+request or result. PackageHouse's own request and operation timeouts remain
+owned by its `Realize` operation.
 
-`IPackageVersionCellCompileExecutor` is the host-neutral capability boundary.
-It accepts the cell, Realize operation, target context, and cancellation token.
-Its result must retain:
+The operation passes the three realization limits unchanged to the
+Workspace-owned package Root preparation path. The Workspace remains the
+enforcement owner. The PackageQueries operation does not infer a limit from a
+deadline or reinterpret a Workspace rejection.
 
-- the cell's exact `PackageHouseRequestAssociation`;
-- the cell's exact reporter-bound candidate demand;
-- the exact supplied operation and target context;
-- `PackageHouseAssetSelectionKind.Compile`; and
-- `PackageHouseLibraryHandoffMode.PackageOnly`.
+## Composition
 
-The PackageHouse-owned cell validates its association and candidate demand;
-the operation validates the remaining execution dimensions before adapting the
-settlement.
-`DesktopPackageVersionCellCompileExecutor` binds that capability to
-`DesktopPackageSourceComposition`. Browser/Wasm can implement the same
-capability without depending on the desktop composition.
+For one request, the operation:
 
-A House compile realization whose owner-default target retains a runtime
-identifier but no acquisition framework is valid House evidence but cannot
-form a package Root coordinate. The House-to-Root try-adapter returns
-`CoordinateNotRepresentable`; this operation preserves that typed
-`NoContribution` result.
-
-## Exact correspondence
-
-The composition preserves this join:
-
-```text
-population cell
-  -> cell request association
-  -> reporter-bound PackageHouse candidate
-  -> House acquisition generation
-  -> House compile-selection receipt
-  -> PackageRootBinding content and selection identities
-  -> Workspace package occurrence correspondence
-  -> ready Artifact Root generation
-  -> scoped package-Root query
-  -> materialized Metadata result
-```
-
-Reference identity is required where the issuing owner supplies opaque
-identity. Package identity, version, target, producer, or path display text is
-never used to recreate correspondence.
-
-`PackageHouseRootContributionAdapter` is the sole House-to-Root adapter. The
-inspection operation does not rerun acquisition or either package asset
-selector. `WorkspaceScopeSnapshot.FindPackageOccurrence` locates the exact
-committed occurrence from the contributed binding. The query borrows only the
-ready generation issued for that occurrence.
-
-## Operation
-
-One execution:
-
-1. validates the prepared request and observes caller cancellation;
-2. invokes the host-supplied compile executor exactly once;
-3. validates the returned House request correspondence;
-4. adapts the complete House settlement through
+1. invokes the host cell executor exactly once;
+2. rejects a settlement that does not retain the exact prepared House request;
+3. adapts the settlement through
    `PackageHouseRootContributionAdapter`;
-5. returns a typed no-contribution result when no package Root can be issued;
-6. creates one fresh `InspectionWorkspace`;
-7. reads its initial Scope revision;
-8. replaces Scope with exactly the contributed `PackageRootBinding` under the
-   request's finite deadline;
-9. locates the exact committed occurrence and requires its ready generation;
-10. executes `AssemblyContextMetadataImageQuery` under
-    `ExecutePackageRootQueryAsync`;
-11. materializes the complete Metadata result inside the callback; and
-12. awaits Workspace close before publishing the final outcome.
+4. returns typed no-contribution evidence without constructing a Workspace
+   when the adapter cannot issue a Root;
+5. creates one empty ephemeral Workspace;
+6. atomically replaces its empty Scope with the exact contributed
+   `PackageRootBinding` under the supplied realization limits and deadline;
+7. locates the single committed Root occurrence and enters one
+   Workspace-scoped Root query;
+8. executes `AssemblyContextMetadataImageQuery` over the surface group, or
+   returns its ordinary empty assembly-context result when the package Root has
+   no selected assembly contexts; and
+9. awaits Workspace close before publishing any result.
 
-The operation performs no version discovery. It does not retry another
-population cell, candidate, source, framework, or package Root.
+The operation never performs version discovery, package acquisition, compile
+selection, Metadata inspection, or cleanup through a second algorithm.
 
-## Results and failure
+## Detached evidence and outcomes
 
-The semantic result is one of:
+Every outcome carries detached evidence for:
 
-- `Inspected`, carrying the existing
-  `AssemblyContextResult<MetadataImageOverview>`;
-- `NoAssemblyContext`, carrying the package selector's exact non-selected
-  compile status;
-- `NoContribution`, carrying the original House result and adapter reason;
-- `WorkspaceNotCommitted`, carrying the exact Workspace Scope terminal result;
-  or
-- `RootQueryRejected`, carrying the Artifact Root admission failure.
+- canonical package ID and exact population address;
+- the complete resource-free `PackageHouseResult`;
+- the exact compile selection receipt when one exists; and
+- the realized package Root coordinate when a contribution exists.
 
-Every semantic result retains the exact cell and `PackageHouseResult`.
-It retains no payload, package Root binding, Workspace, group, participant,
-session, lease, callback, or source composition.
+The terminal family distinguishes:
 
-The final outcome is either `Completed` or `CleanupFailed`. `CleanupFailed`
-preserves the provisional semantic result and reports counts by Workspace
-group release, aggregate artifact-Root release, and close-orchestration stage.
-The aggregate artifact-Root stage covers the Workspace close report's Root
-group, lease, and session release failures. Cleanup cannot turn an inspected
-result into clean success.
+- **Available** — the existing ordered
+  `AssemblyContextResult<MetadataImageOverview>`, including participant-local
+  rejection or failure;
+- **No contribution** — the exact
+  `PackageHouseRootNoContributionReason`;
+- **Workspace failure** — the operation stage plus the owner-issued
+  `WorkspaceScopeRejection` or `ArtifactRootFailure`; and
+- **Cleanup failure** — bounded cleanup-stage counts after a provisional
+  success.
 
-Caller cancellation and unexpected executor, Workspace, or query exceptions
-remain exceptions. Once a Workspace exists, cleanup still runs. When cleanup
-also fails, resource-free cleanup evidence is attached to the primary
-exception. Caller cancellation is re-observed after cleanup with the original
-caller token, including when a lower layer throws with a linked token.
+The returned closure retains no cell, payload, package Root binding, package
+content, Workspace, group, session, lease, stream, callback, source
+composition, or close exception. House results and Metadata participant
+results remain the owner-issued resource-free evidence they already define.
 
-A root-only package or explicit empty compile group is not successful empty
-Metadata. The exact Root query returns `NoAssemblyContext`. Per-participant
-Metadata rejection remains inside the existing ordered Metadata result for
-Roots admitted by Workspace. The current Scope owner rejects a package Root
-whose selected assembly image fails admission; this operation preserves that
-`WorkspaceScopeOperationResult.Failed` boundary rather than weakening Root
-readiness.
+## Terminal precedence and cleanup
 
-## Lifetime
+House no-contribution completes before a Workspace exists. Every
+Workspace-bearing result remains provisional until close settles.
 
-The PackageHouse settlement is local to the operation. A contributed
-`PackageRootBinding` is a transient Workspace input. Once Scope commits, the
-Workspace owns the retained Root resources; its scoped query callback only
-borrows them.
+After Workspace creation:
 
-The Metadata result is fully materialized before the callback returns.
-Workspace close is unconditional after Workspace creation and has no
-cancellation token. The final outcome is not observable until close settles.
+1. an unexpected exception remains the exact primary exception;
+2. caller cancellation remains cancellation with the caller's token;
+3. a typed House, Workspace, or Metadata result remains primary;
+4. awaited Workspace close always runs;
+5. bounded cleanup evidence is attached to a propagated exception or
+   cancellation;
+6. cleanup failure replaces a provisional successful Metadata result; and
+7. cleanup evidence remains secondary beside a typed Workspace failure.
 
-## Non-goals
+The operation observes caller cancellation after cleanup and before publishing
+a completed result. A Workspace deadline rejected before admission remains the
+exact `WorkspaceScopeRejection.DeadlineExpired`. Deadline expiry during
+preparation is reported as `ArtifactRootFailure.DeadlineExpired` when caller
+cancellation did not win.
 
-This owner does not define:
+Cleanup evidence contains only stage and count:
 
-- Diff History population scheduling, sparse or dense selection, focus
-  reacquisition, Findings, transition correlation, or temporal documents;
-- package version Count;
-- CLI or Browser gestures, sections, rendering, or output formats;
-- package source registration, credentials, transport, cache, or offline
-  policy;
-- a generic asset-selection operation;
-- a second package Root adapter or Metadata algorithm; or
-- compatibility behavior for the legacy top-level `timeline` command.
+- direct group release;
+- artifact-session or Root release;
+- close-report contract; and
+- close orchestration.
+
+It carries no exception instance, message, path, stream, or resource handle.
 
 ## Pathological case
 
-One selected package has a compile surface containing both a valid managed
-assembly and a malformed image. Current Workspace Scope admission rejects the
-whole Root as `PreparationFailed`; the operation must preserve that typed
-failure, execute no Metadata callback or version rediscovery, and close every
-provisional Workspace resource before the caller receives the result. If a
-ready Root later contains a Metadata-level participant rejection, the operation
-preserves that rejection beside healthy entries in the existing ordered
-Metadata result.
+A selected cell realizes a package whose compile set contains one valid
+managed assembly and one invalid metadata image. Workspace preparation rejects
+the complete Root as `ArtifactRootFailure.PreparationFailed`. The operation
+returns no partial Metadata result, performs no second PackageHouse execution
+or version discovery, awaits release of provisional Workspace resources, and
+publishes any cleanup failure only as bounded secondary evidence.
 
-## Required Release gates
+Once a Root is successfully admitted, Metadata-level participant failures
+remain ordered beside healthy entries through the existing
+`AssemblyContextResult` contract.
 
-The focused suite is `DotnetInspector.Queries.Tests`.
+## Production path
 
-| Gate | Property |
+This operation is step 2 of the six-step temporal ownership path:
+
+1. PackageHouse version-population settlement — complete in #7133.
+2. Package version-cell Metadata inspection — this owner.
+3. Analysis Finding and focus-reacquisition inspection.
+4. Shared Diff History and metadata-only version-count terminals.
+5. Subject CLI cutover with top-level `timeline` removal.
+6. Browser Compare and version-count adoption.
+
+The later hosts supply their source authorization and cell executor while
+consuming the same request and outcome.
+
+## Evidence
+
+The Release gate is `PackageVersionCellMetadataInspectionTests`:
+
+| Claim | Release evidence |
 | --- | --- |
-| `SuccessfulCell_InspectsExactCompileRootAndClosesWorkspace` | One cell execution, exact House-to-Root-to-Workspace correspondence, materialized Metadata, and cleanup before observation. |
-| `SettlementForAnotherCellDemand_IsRejected` | Reusing the cell association cannot substitute another House demand for the cell's reporter-bound candidate. |
-| `MalformedCompileImage_RemainsWorkspaceFailure` | The current Workspace all-or-failure Root admission boundary remains visible and publishes no partial Metadata result. |
-| `RootOnlyCell_ReturnsNoAssemblyContext` | No compile assets do not become successful empty Metadata or an exception. |
-| `OwnerDefaultRuntimeIdentifier_ReturnsNoContribution` | A valid House realization whose RID lacks a representable acquisition framework remains typed `CoordinateNotRepresentable`. |
-| `HouseFailure_RemainsTypedWithoutWorkspaceAdmission` | Source reauthorization and other House no-contribution results remain visible without constructing a Workspace result. |
-| `ExpiredWorkspaceDeadline_RemainsTyped` | Scope deadline rejection retains the owner-issued Workspace terminal. |
-| `Cancellation_PropagatesAfterCleanup` | Caller cancellation remains cancellation with the caller token and no escaped live resources. |
-| `LinkedCancellation_IsNormalizedToCallerToken` | Linked-token cancellation is normalized to the original caller token. |
-| `Outcome_WaitsForWorkspaceClose` | No final outcome is observable while Workspace close remains blocked. |
-| `CleanupFailure_ReturnsTypedOutcome` | Workspace cleanup failure invalidates clean completion and returns typed stage evidence. |
-| `Cancellation_PreservesCleanupEvidence` | Cleanup failure evidence remains attached when caller cancellation propagates. |
-| `PublicResults_AreResourceFree` | Result closure rejects payload, stream, Root binding, Workspace, group, participant, session, lease, callback, and desktop source-composition fields. |
+| Exact cell execution | `PreparedExecutionRequiresExactHouseRequest` and `InspectionRejectsSettlementForSubstitutedDemand` |
+| One execution and no rediscovery | `InspectionExecutesOnePreparedCellAndReturnsDetachedMetadata` |
+| Real package motivation | `InspectionExecutesPinnedMarkoutPackage` |
+| Finite realization | `InspectionEnforcesAssemblyEntryAndAggregateBounds` |
+| Atomic malformed-image refusal | `InspectionMalformedNeighborRejectsWholeRootWithoutMetadata` |
+| Typed House, Workspace, and deadline failures | `InspectionPreservesNoContributionWithoutCreatingARoot`, `InspectionPreservesExpiredWorkspaceDeadline`, and the bounded-admission tests |
+| Scoped borrowing and empty package shape | `InspectionPreservesExplicitEmptyCompileSelection` |
+| Terminal cancellation | `InspectionCancellationAfterQueryWaitsForCloseAndPublishesNoOutcome` |
+| Cleanup precedence | `CleanupFailureSupersedesSuccessAndRemainsSecondaryToFailure` |
+| Resource-free closure | `OutcomeClosureIsResourceFree` |
+
+The first implementation reuses the repository's sequential
+`PackageAssemblyEvaluator` lifecycle convention: provisional result, cleanup
+in `finally`, typed bounded cleanup evidence, and terminal cancellation
+observation. It does not reuse that evaluator's sparse one-assembly selection
+or semantic producer.
+
+## Non-claims
+
+This owner does not:
+
+- choose Diff History evaluation cells or correlate versions;
+- produce Analysis Findings or reacquire Type or Member focus;
+- define package version Count;
+- bind CLI or Browser commands, rendering, sections, or transport;
+- authorize package sources or offline acquisition;
+- redefine PackageHouse, Workspace, or Metadata failure semantics;
+- dispose caller-owned payload or host/store-owned package content;
+- inspect implementation-role assemblies;
+- introduce concurrent cell evaluation; or
+- claim tuned throughput, allocation, or memory targets.

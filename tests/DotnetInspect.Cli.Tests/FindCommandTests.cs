@@ -1643,7 +1643,8 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(0, exit);
         using var document = System.Text.Json.JsonDocument.Parse(output);
-        var result = Assert.Single(document.RootElement.EnumerateArray());
+        var result = Assert.Single(
+            document.RootElement.EnumerateArray());
         Assert.Equal(
             "System.Text.Json.JsonDocument",
             result.GetProperty("full_name").GetString());

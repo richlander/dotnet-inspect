@@ -115,6 +115,9 @@ public sealed partial class WorkspaceContextLoaderTests
             Assert.Equal(Version, provenance.PackageVersion);
             Assert.Equal(Framework, provenance.Tfm);
             Assert.Null(provenance.Rid);
+            Assert.Equal(
+                $"lib/{Framework}/{participant.Assembly.Identity.Name}.dll",
+                provenance.AssetPath);
 
             AssemblyImageAccessResult<int> image =
                 loaded.Group.UseAssemblyImage(

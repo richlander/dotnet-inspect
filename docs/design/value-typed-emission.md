@@ -629,8 +629,15 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    does not make `string[]` and `object[]` the same storage type.
    A covariant consumer may receive an explicitly
    string-array-typed load without widening its storage identity.
-   Other non-exact producers and reference types remain
-   deferred. Every observer still supplies
+   Named reference storage also materializes when the imported type-shape map
+   confirms its named definition is a reference type and its complete type
+   passes that same explicit-type spelling gate. This includes classes,
+   interfaces, delegates, and their spellable constructed generic forms.
+   Unresolved definitions, bare generic parameters, non-exact producers, and
+   unspellable or out-of-scope constructions remain deferred. Admission
+   consumes existing metadata facts; it does not acquire dependencies or
+   infer assignability, boxing, covariance, or generic constraints.
+   Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy
    boundaries remain in force. No value or control-flow edge moves.
    A reference carrier already recognized by the later swap raiser stays on slots
@@ -721,6 +728,21 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    ([#7103](https://github.com/richlander/dotnet-inspect/issues/7103)).
    The neighboring scalar, generic, jagged, pointer, and function-pointer
    fixtures require exact compile-back.
+
+   Named-reference admission consumes
+   `CSharpSpellability.CanSpellNamedReferenceStorageType`, reusing the existing
+   named-definition projection and explicit-parameter spelling rules. A
+   motivating real witness is Microsoft.CodeAnalysis 5.0.0
+   `ChildSyntaxList.GetHashCode`, whose retained `SyntaxNode` reference already
+   has exact type testimony. `NamedReferenceSlotMaterializationTests` preserves
+   that witness through the repository compiler dependency and gates known
+   versus unresolved shapes, generic spelling, exact producers, atomic copies,
+   and pending swaps. Compiler-produced class, interface, delegate, generic,
+   allocation, and covariant-return fixtures require exact compile-back.
+   Missing dependency evidence deliberately keeps the same compiler-produced
+   reference on slots rather than guessing its shape. These ordinary gates
+   are PR-fast; the compile-back family is slow and owned by daily Deep Inspect
+   and the focused pre-merge gate.
 
    `MaterializesSingleStoreConditionalWithSingleRead` and
    `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate

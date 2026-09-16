@@ -1532,7 +1532,7 @@ public sealed class InspectionPlanningTests
             "--library",
             typeof(InspectionPlanningTests).Assembly.Location,
             "-S",
-            SelectResolver.AllSelector,
+            SectionCategoryNames.Surface,
             "-D",
             SectionNames.Classes,
             "--tips",

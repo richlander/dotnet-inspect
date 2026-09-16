@@ -73,7 +73,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             AssemblySetRequest request,
             string targetFramework,
             Action<string>? log,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            WorkspacePlan? workspacePlan = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(request);
@@ -85,7 +86,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 nameof(request));
         }
 
-        InspectionWorkspace workspace = new();
+        var workspace = new InspectionWorkspace(
+            workspacePlan ?? WorkspacePlan.Empty);
         try
         {
             if (!InspectionGraphCommand.TryCreateMembers(

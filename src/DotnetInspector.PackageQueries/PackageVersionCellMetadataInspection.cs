@@ -1,43 +1,62 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.ExceptionServices;
+
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.PackageQueries;
 
-/// <summary>
-/// Host-supplied execution of one PackageHouse version cell as a compile-only,
-/// package-shaped realization.
-/// </summary>
-public interface IPackageVersionCellCompileExecutor
+/// <summary>Finite Workspace realization limits for one package version cell.</summary>
+public sealed class PackageVersionCellMetadataInspectionLimits
 {
-    Task<PackageHouseSettlement> ExecuteAsync(
-        PackageHouseVersionPopulationCell cell,
-        PackageHouseOperation operation,
-        PackageHouseTargetContext? targetContext,
-        CancellationToken cancellationToken = default);
+    public PackageVersionCellMetadataInspectionLimits(
+        int maximumAssemblies,
+        long maximumEntryBytes,
+        long maximumRetainedImageBytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumAssemblies);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumEntryBytes);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            maximumEntryBytes,
+            Array.MaxLength);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumRetainedImageBytes);
+
+        MaximumAssemblies = maximumAssemblies;
+        MaximumEntryBytes = maximumEntryBytes;
+        MaximumRetainedImageBytes = maximumRetainedImageBytes;
+    }
+
+    public int MaximumAssemblies { get; }
+
+    public long MaximumEntryBytes { get; }
+
+    public long MaximumRetainedImageBytes { get; }
 }
 
 /// <summary>
-/// One prepared request to inspect the Metadata images selected for a
-/// PackageHouse version-population cell.
+/// One exact version-population cell prepared for bounded Metadata inspection.
 /// </summary>
 public sealed class PackageVersionCellMetadataInspectionRequest
 {
     public PackageVersionCellMetadataInspectionRequest(
         PackageHouseVersionPopulationCell cell,
         PackageHouseOperation operation,
-        PackageHouseTargetContext? targetContext,
+        PackageHouseTargetContext targetContext,
+        PackageVersionCellMetadataInspectionLimits limits,
         DateTimeOffset workspaceDeadline)
     {
         ArgumentNullException.ThrowIfNull(cell);
         ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(targetContext);
+        ArgumentNullException.ThrowIfNull(limits);
         if (operation.Profile != PackageHouseOperationProfile.Realize)
         {
             throw new ArgumentException(
-                "Version-cell Metadata inspection requires a Realize PackageHouse operation.",
+                "Version-cell Metadata inspection requires a Realize operation.",
                 nameof(operation));
         }
         if (workspaceDeadline == DateTimeOffset.MinValue
@@ -45,133 +64,152 @@ public sealed class PackageVersionCellMetadataInspectionRequest
         {
             throw new ArgumentOutOfRangeException(
                 nameof(workspaceDeadline),
-                workspaceDeadline,
                 "Version-cell Metadata inspection requires a finite Workspace deadline.");
         }
 
         Cell = cell;
-        Operation = operation;
-        TargetContext = targetContext;
+        Limits = limits;
         WorkspaceDeadline = workspaceDeadline;
+        HouseExecution = cell.PrepareExecution(
+            operation,
+            targetContext,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly);
     }
 
     public PackageHouseVersionPopulationCell Cell { get; }
 
-    public PackageHouseOperation Operation { get; }
-
-    public PackageHouseTargetContext? TargetContext { get; }
+    public PackageVersionCellMetadataInspectionLimits Limits { get; }
 
     public DateTimeOffset WorkspaceDeadline { get; }
+
+    public PackageHouseVersionPopulationCellExecution HouseExecution
+    {
+        get;
+    }
 }
 
-/// <summary>The resource-free semantic result before Workspace cleanup settles.</summary>
-public abstract record PackageVersionCellMetadataInspectionResult
+/// <summary>
+/// Host-supplied capability for executing one PackageHouse-issued cell request.
+/// </summary>
+public interface IPackageHouseVersionPopulationCellExecutor
 {
-    private protected PackageVersionCellMetadataInspectionResult(
-        PackageHouseVersionPopulationCell cell,
-        PackageHouseResult houseResult)
+    Task<PackageHouseSettlement> ExecuteAsync(
+        PackageHouseVersionPopulationCellExecution execution,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>Detached correspondence retained by every terminal outcome.</summary>
+public sealed class PackageVersionCellMetadataInspectionEvidence
+{
+    internal PackageVersionCellMetadataInspectionEvidence(
+        PackageHouseVersionPopulationCellExecution execution,
+        PackageHouseResult houseResult,
+        PackageHouseRealizationReceipt.Compile? compileRealization,
+        RealizedMemberCoordinate.Package? rootCoordinate)
     {
-        ArgumentNullException.ThrowIfNull(cell);
+        ArgumentNullException.ThrowIfNull(execution);
         ArgumentNullException.ThrowIfNull(houseResult);
-        Cell = cell;
+        if (!ReferenceEquals(houseResult.Request, execution.Request))
+        {
+            throw new ArgumentException(
+                "Inspection evidence requires the exact prepared House request.",
+                nameof(houseResult));
+        }
+        if (compileRealization is not null
+            && !ReferenceEquals(
+                houseResult.Evidence.Realization,
+                compileRealization))
+        {
+            throw new ArgumentException(
+                "Inspection evidence requires the House result's exact compile realization.",
+                nameof(compileRealization));
+        }
+        if (rootCoordinate is not null && compileRealization is null)
+        {
+            throw new ArgumentException(
+                "A realized Root coordinate requires exact compile realization evidence.",
+                nameof(rootCoordinate));
+        }
+
+        PackageId =
+            execution.Cell.Population.Request.Range.PackageId;
+        Address = execution.Cell.Address;
         HouseResult = houseResult;
+        CompileRealization = compileRealization;
+        RootCoordinate = rootCoordinate;
     }
 
-    public PackageHouseVersionPopulationCell Cell { get; }
+    public string PackageId { get; }
+
+    public PackageVersionAddress Address { get; }
 
     public PackageHouseResult HouseResult { get; }
 
-    public sealed record Inspected : PackageVersionCellMetadataInspectionResult
+    public PackageHouseRealizationReceipt.Compile? CompileRealization
     {
-        internal Inspected(
-            PackageHouseVersionPopulationCell cell,
-            PackageHouseResult houseResult,
-            AssemblyContextResult<MetadataImageOverview> metadata)
-            : base(cell, houseResult)
-        {
-            ArgumentNullException.ThrowIfNull(metadata);
-            Metadata = metadata;
-        }
-
-        public AssemblyContextResult<MetadataImageOverview> Metadata { get; }
+        get;
     }
 
-    public sealed record NoAssemblyContext
-        : PackageVersionCellMetadataInspectionResult
+    public RealizedMemberCoordinate.Package? RootCoordinate { get; }
+}
+
+public enum PackageVersionCellMetadataWorkspaceStage
+{
+    ScopeRead,
+    ScopeAdmission,
+    RootQuery,
+}
+
+/// <summary>One owner-issued Workspace failure at the operation boundary.</summary>
+public sealed class PackageVersionCellMetadataWorkspaceFailure
+{
+    private PackageVersionCellMetadataWorkspaceFailure(
+        PackageVersionCellMetadataWorkspaceStage stage,
+        WorkspaceScopeRejection? rejection,
+        ArtifactRootFailure? artifactFailure)
     {
-        internal NoAssemblyContext(
-            PackageHouseVersionPopulationCell cell,
-            PackageHouseResult houseResult,
-            PackageCompileAssetSelectionStatus selectionStatus)
-            : base(cell, houseResult)
+        if ((rejection is null) == (artifactFailure is null))
         {
-            if (!Enum.IsDefined(selectionStatus))
-                throw new ArgumentOutOfRangeException(nameof(selectionStatus));
-            SelectionStatus = selectionStatus;
+            throw new ArgumentException(
+                "A Workspace failure requires exactly one owner-issued reason.");
         }
 
-        public PackageCompileAssetSelectionStatus SelectionStatus { get; }
+        Stage = stage;
+        Rejection = rejection;
+        ArtifactFailure = artifactFailure;
     }
 
-    public sealed record NoContribution
-        : PackageVersionCellMetadataInspectionResult
-    {
-        internal NoContribution(
-            PackageHouseVersionPopulationCell cell,
-            PackageHouseResult houseResult,
-            PackageHouseRootNoContributionReason reason)
-            : base(cell, houseResult)
-        {
-            Reason = reason;
-        }
+    public PackageVersionCellMetadataWorkspaceStage Stage { get; }
 
-        public PackageHouseRootNoContributionReason Reason { get; }
-    }
+    public WorkspaceScopeRejection? Rejection { get; }
 
-    public sealed record WorkspaceNotCommitted
-        : PackageVersionCellMetadataInspectionResult
-    {
-        internal WorkspaceNotCommitted(
-            PackageHouseVersionPopulationCell cell,
-            PackageHouseResult houseResult,
-            WorkspaceScopeOperationResult result)
-            : base(cell, houseResult)
-        {
-            ArgumentNullException.ThrowIfNull(result);
-            Result = result;
-        }
+    public ArtifactRootFailure? ArtifactFailure { get; }
 
-        public WorkspaceScopeOperationResult Result { get; }
-    }
+    internal static PackageVersionCellMetadataWorkspaceFailure Rejected(
+        PackageVersionCellMetadataWorkspaceStage stage,
+        WorkspaceScopeRejection rejection) =>
+        new(stage, rejection, artifactFailure: null);
 
-    public sealed record RootQueryRejected
-        : PackageVersionCellMetadataInspectionResult
-    {
-        internal RootQueryRejected(
-            PackageHouseVersionPopulationCell cell,
-            PackageHouseResult houseResult,
-            ArtifactRootFailure failure)
-            : base(cell, houseResult)
-        {
-            Failure = failure;
-        }
-
-        public ArtifactRootFailure Failure { get; }
-    }
+    internal static PackageVersionCellMetadataWorkspaceFailure Failed(
+        PackageVersionCellMetadataWorkspaceStage stage,
+        ArtifactRootFailure failure) =>
+        new(stage, rejection: null, failure);
 }
 
 public enum PackageVersionCellMetadataCleanupStage
 {
-    WorkspaceGroupRelease,
-    WorkspaceArtifactRootRelease,
-    WorkspaceCloseOrchestration,
+    GroupRelease,
+    ArtifactRelease,
+    CloseReportContract,
+    CloseOrchestration,
 }
 
 public readonly record struct PackageVersionCellMetadataCleanupFailure(
     PackageVersionCellMetadataCleanupStage Stage,
     int Count);
 
-/// <summary>Resource-free cleanup evidence for one ephemeral Workspace.</summary>
+/// <summary>Bounded resource-free evidence from awaited Workspace close.</summary>
 public sealed record PackageVersionCellMetadataCleanupEvidence
 {
     internal PackageVersionCellMetadataCleanupEvidence(
@@ -188,56 +226,9 @@ public sealed record PackageVersionCellMetadataCleanupEvidence
     public bool IsEmpty => Failures.IsEmpty;
 }
 
-/// <summary>
-/// The final result published only after the ephemeral Workspace has closed.
-/// </summary>
-public abstract record PackageVersionCellMetadataInspectionOutcome
-{
-    private protected PackageVersionCellMetadataInspectionOutcome(
-        PackageVersionCellMetadataInspectionResult result)
-    {
-        ArgumentNullException.ThrowIfNull(result);
-        Result = result;
-    }
-
-    public PackageVersionCellMetadataInspectionResult Result { get; }
-
-    public sealed record Completed
-        : PackageVersionCellMetadataInspectionOutcome
-    {
-        internal Completed(
-            PackageVersionCellMetadataInspectionResult result)
-            : base(result)
-        {
-        }
-    }
-
-    public sealed record CleanupFailed
-        : PackageVersionCellMetadataInspectionOutcome
-    {
-        internal CleanupFailed(
-            PackageVersionCellMetadataInspectionResult result,
-            PackageVersionCellMetadataCleanupEvidence cleanup)
-            : base(result)
-        {
-            ArgumentNullException.ThrowIfNull(cleanup);
-            if (cleanup.IsEmpty)
-            {
-                throw new ArgumentException(
-                    "A cleanup-failed outcome requires at least one cleanup failure.",
-                    nameof(cleanup));
-            }
-            Cleanup = cleanup;
-        }
-
-        public PackageVersionCellMetadataCleanupEvidence Cleanup { get; }
-    }
-}
-
-/// <summary>Cleanup evidence attached when a primary exception still propagates.</summary>
 public static class PackageVersionCellMetadataInspectionExceptionEvidence
 {
-    private static readonly object CleanupKey = new();
+    static readonly object CleanupKey = new();
 
     public static bool TryGetCleanup(
         Exception primary,
@@ -245,8 +236,9 @@ public static class PackageVersionCellMetadataInspectionExceptionEvidence
         out PackageVersionCellMetadataCleanupEvidence? cleanup)
     {
         ArgumentNullException.ThrowIfNull(primary);
-        cleanup = primary.Data[CleanupKey]
-            as PackageVersionCellMetadataCleanupEvidence;
+        cleanup =
+            primary.Data[CleanupKey]
+                as PackageVersionCellMetadataCleanupEvidence;
         return cleanup is not null;
     }
 
@@ -260,373 +252,84 @@ public static class PackageVersionCellMetadataInspectionExceptionEvidence
 }
 
 /// <summary>
-/// Composes one PackageHouse version cell through an ephemeral Workspace and
-/// the existing assembly-context Metadata image query.
+/// Closed result of one PackageHouse cell realization and Metadata inspection.
 /// </summary>
-public static class PackageVersionCellMetadataInspection
+public abstract record PackageVersionCellMetadataInspectionOutcome
 {
-    public static async Task<PackageVersionCellMetadataInspectionOutcome>
-        ExecuteAsync(
-            PackageVersionCellMetadataInspectionRequest request,
-            IPackageVersionCellCompileExecutor executor,
-            CancellationToken cancellationToken = default)
-        => await ExecuteWithCancellationNormalizationAsync(
-            request,
-            executor,
-            static () => new InspectionWorkspace(),
-            cancellationToken).ConfigureAwait(false);
-
-    internal static Task<PackageVersionCellMetadataInspectionOutcome>
-        ExecuteAsync(
-            PackageVersionCellMetadataInspectionRequest request,
-            IPackageVersionCellCompileExecutor executor,
-            Func<InspectionWorkspace> workspaceFactory,
-            CancellationToken cancellationToken = default) =>
-        ExecuteWithCancellationNormalizationAsync(
-            request,
-            executor,
-            workspaceFactory,
-            cancellationToken);
-
-    private static async Task<
-        PackageVersionCellMetadataInspectionOutcome>
-        ExecuteWithCancellationNormalizationAsync(
-            PackageVersionCellMetadataInspectionRequest request,
-            IPackageVersionCellCompileExecutor executor,
-            Func<InspectionWorkspace> workspaceFactory,
-            CancellationToken cancellationToken)
+    private protected PackageVersionCellMetadataInspectionOutcome(
+        PackageVersionCellMetadataInspectionEvidence evidence,
+        PackageVersionCellMetadataCleanupEvidence? cleanup)
     {
-        try
-        {
-            return await ExecuteCoreAsync(
-                request,
-                executor,
-                workspaceFactory,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException canceled)
-            when (cancellationToken.IsCancellationRequested
-                && canceled.CancellationToken != cancellationToken)
-        {
-            var normalized = new OperationCanceledException(
-                canceled.Message,
-                canceled,
-                cancellationToken);
-            if (PackageVersionCellMetadataInspectionExceptionEvidence
-                .TryGetCleanup(canceled, out var cleanup))
-            {
-                PackageVersionCellMetadataInspectionExceptionEvidence.Attach(
-                    normalized,
-                    cleanup);
-            }
-            throw normalized;
-        }
+        ArgumentNullException.ThrowIfNull(evidence);
+        Evidence = evidence;
+        Cleanup = cleanup;
     }
 
-    private static async Task<
-        PackageVersionCellMetadataInspectionOutcome> ExecuteCoreAsync(
-            PackageVersionCellMetadataInspectionRequest request,
-            IPackageVersionCellCompileExecutor executor,
-            Func<InspectionWorkspace> workspaceFactory,
-            CancellationToken cancellationToken)
+    public PackageVersionCellMetadataInspectionEvidence Evidence { get; }
+
+    public PackageVersionCellMetadataCleanupEvidence? Cleanup { get; }
+
+    public sealed record Available :
+        PackageVersionCellMetadataInspectionOutcome
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(executor);
-        ArgumentNullException.ThrowIfNull(workspaceFactory);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        PackageHouseSettlement settlement =
-            await executor.ExecuteAsync(
-                request.Cell,
-                request.Operation,
-                request.TargetContext,
-                cancellationToken).ConfigureAwait(false);
-        ValidateSettlement(request, settlement);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        PackageHouseRootContributionOutcome adapted =
-            PackageHouseRootContributionAdapter.Create(settlement);
-        if (adapted
-            is PackageHouseRootContributionOutcome.NoContribution
-                noContribution)
+        internal Available(
+            PackageVersionCellMetadataInspectionEvidence evidence,
+            AssemblyContextResult<MetadataImageOverview> metadata)
+            : base(evidence, cleanup: null)
         {
-            return new PackageVersionCellMetadataInspectionOutcome.Completed(
-                new PackageVersionCellMetadataInspectionResult.NoContribution(
-                    request.Cell,
-                    noContribution.Result,
-                    noContribution.Reason));
+            ArgumentNullException.ThrowIfNull(metadata);
+            Metadata = metadata;
         }
 
-        PackageHouseRootContribution contribution =
-            ((PackageHouseRootContributionOutcome.Contributed)adapted)
-                .Contribution;
-        InspectionWorkspace workspace =
-            workspaceFactory()
-            ?? throw new InvalidOperationException(
-                "The Workspace factory returned null.");
-        PackageVersionCellMetadataInspectionResult? result = null;
-        ExceptionDispatchInfo? primary = null;
-        InspectionWorkspaceCloseReport? closeReport = null;
-        bool closeFaulted = false;
-        try
-        {
-            WorkspaceScopeReadResult initial =
-                await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
-            if (initial is WorkspaceScopeReadResult.Unavailable unavailable)
-            {
-                result = new PackageVersionCellMetadataInspectionResult
-                    .WorkspaceNotCommitted(
-                        request.Cell,
-                        contribution.Result,
-                        new WorkspaceScopeOperationResult.Unavailable(
-                            unavailable.LastSnapshot,
-                            unavailable.RuntimeFailure));
-            }
-            else
-            {
-                WorkspaceScopeSnapshot initialSnapshot =
-                    ((WorkspaceScopeReadResult.Available)initial).Snapshot;
-                WorkspaceScopeOperationResult admission =
-                    await workspace.ReplaceScopeAsync(
-                        initialSnapshot.Revision,
-                        [contribution.Binding],
-                        request.WorkspaceDeadline,
-                        cancellationToken).ConfigureAwait(false);
-                result = admission
-                    is WorkspaceScopeOperationResult.Committed committed
-                    ? await QueryCommittedRootAsync(
-                        request,
-                        contribution,
-                        workspace,
-                        committed.Snapshot,
-                        cancellationToken).ConfigureAwait(false)
-                    : new PackageVersionCellMetadataInspectionResult
-                        .WorkspaceNotCommitted(
-                            request.Cell,
-                            contribution.Result,
-                            admission);
-            }
-        }
-        catch (Exception failure)
-        {
-            primary = ExceptionDispatchInfo.Capture(failure);
-        }
-        finally
-        {
-            try
-            {
-                closeReport =
-                    await workspace.CloseAsync().ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-                closeFaulted = true;
-                closeReport = workspace.CloseReport;
-            }
-        }
-
-        PackageVersionCellMetadataCleanupEvidence cleanup =
-            DescribeCleanup(closeReport, closeFaulted);
-        if (primary is not null)
-        {
-            PackageVersionCellMetadataInspectionExceptionEvidence.Attach(
-                primary.SourceException,
-                cleanup);
-            primary.Throw();
-        }
-
-        try
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-        }
-        catch (OperationCanceledException canceled)
-        {
-            PackageVersionCellMetadataInspectionExceptionEvidence.Attach(
-                canceled,
-                cleanup);
-            throw;
-        }
-
-        if (result is null)
-        {
-            throw new InvalidOperationException(
-                "Version-cell Metadata inspection completed without a result.");
-        }
-
-        return cleanup.IsEmpty
-            ? new PackageVersionCellMetadataInspectionOutcome.Completed(result)
-            : new PackageVersionCellMetadataInspectionOutcome.CleanupFailed(
-                result,
-                cleanup);
+        public AssemblyContextResult<MetadataImageOverview> Metadata { get; }
     }
 
-    private static async Task<PackageVersionCellMetadataInspectionResult>
-        QueryCommittedRootAsync(
-            PackageVersionCellMetadataInspectionRequest request,
-            PackageHouseRootContribution contribution,
-            InspectionWorkspace workspace,
-            WorkspaceScopeSnapshot snapshot,
-            CancellationToken cancellationToken)
+    public sealed record NoContribution :
+        PackageVersionCellMetadataInspectionOutcome
     {
-        WorkspacePackageOccurrenceDescriptor? occurrence =
-            snapshot.FindPackageOccurrence(contribution.Binding);
-        if (occurrence is null)
+        internal NoContribution(
+            PackageVersionCellMetadataInspectionEvidence evidence,
+            PackageHouseRootNoContributionReason reason)
+            : base(evidence, cleanup: null)
         {
-            return Rejected(ArtifactRootFailure.CompositionMismatch);
+            if (!Enum.IsDefined(reason))
+                throw new ArgumentOutOfRangeException(nameof(reason));
+            Reason = reason;
         }
 
-        if (occurrence.Realization.Status
-            is ArtifactRootRealizationStatus.Failed failed)
-        {
-            return Rejected(failed.Failure);
-        }
-        if (occurrence.Realization.Status
-            is not ArtifactRootRealizationStatus.Ready ready)
-        {
-            return Rejected(ArtifactRootFailure.CompositionMismatch);
-        }
-
-        PackageArtifactRootCorrespondence correspondence =
-            occurrence.Occurrence.Correspondence
-                as PackageArtifactRootCorrespondence
-            ?? throw new InvalidOperationException(
-                "A package occurrence must retain package Root correspondence.");
-        ArtifactRootResult<RootMetadataResult> query =
-            await workspace.ExecutePackageRootQueryAsync(
-                correspondence,
-                ready.Generation,
-                (realization, _) => ValueTask.FromResult(
-                    InspectRoot(
-                        realization,
-                        contribution.SelectionReceipt.Selection.Status)),
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-        return query switch
-        {
-            ArtifactRootResult<RootMetadataResult>.Rejected rejected =>
-                Rejected(rejected.Failure),
-            ArtifactRootResult<RootMetadataResult>.Available available =>
-                available.Value switch
-                {
-                    RootMetadataResult.Inspected inspected =>
-                        new PackageVersionCellMetadataInspectionResult.Inspected(
-                            request.Cell,
-                            contribution.Result,
-                            inspected.Metadata),
-                    RootMetadataResult.NoAssemblyContext noContext =>
-                        new PackageVersionCellMetadataInspectionResult
-                            .NoAssemblyContext(
-                                request.Cell,
-                                contribution.Result,
-                                noContext.SelectionStatus),
-                    _ => throw new InvalidOperationException(
-                        "Unknown package Root Metadata result."),
-                },
-            _ => throw new InvalidOperationException(
-                "Unknown package Root query result."),
-        };
-
-        PackageVersionCellMetadataInspectionResult Rejected(
-            ArtifactRootFailure failure) =>
-            new PackageVersionCellMetadataInspectionResult.RootQueryRejected(
-                request.Cell,
-                contribution.Result,
-                failure);
+        public PackageHouseRootNoContributionReason Reason { get; }
     }
 
-    private static RootMetadataResult InspectRoot(
-        PackageAssemblyContextRealization realization,
-        PackageCompileAssetSelectionStatus selectionStatus)
+    public sealed record WorkspaceFailure :
+        PackageVersionCellMetadataInspectionOutcome
     {
-        if (!realization.HasAssemblyContexts)
+        internal WorkspaceFailure(
+            PackageVersionCellMetadataInspectionEvidence evidence,
+            PackageVersionCellMetadataWorkspaceFailure failure,
+            PackageVersionCellMetadataCleanupEvidence? cleanup = null)
+            : base(evidence, cleanup)
         {
-            if (selectionStatus == PackageCompileAssetSelectionStatus.Selected)
+            ArgumentNullException.ThrowIfNull(failure);
+            Failure = failure;
+        }
+
+        public PackageVersionCellMetadataWorkspaceFailure Failure { get; }
+    }
+
+    public sealed record CleanupFailure :
+        PackageVersionCellMetadataInspectionOutcome
+    {
+        internal CleanupFailure(
+            PackageVersionCellMetadataInspectionEvidence evidence,
+            PackageVersionCellMetadataCleanupEvidence cleanup)
+            : base(evidence, cleanup)
+        {
+            if (cleanup.IsEmpty)
             {
-                throw new InvalidOperationException(
-                    "A selected compile surface produced no assembly context.");
-            }
-            return new RootMetadataResult.NoAssemblyContext(selectionStatus);
-        }
-
-        return new RootMetadataResult.Inspected(
-            AssemblyContextMetadataImageQuery.Execute(
-                realization.SurfaceGroup));
-    }
-
-    private static void ValidateSettlement(
-        PackageVersionCellMetadataInspectionRequest request,
-        PackageHouseSettlement settlement)
-    {
-        ArgumentNullException.ThrowIfNull(settlement);
-        PackageHouseRequest houseRequest = settlement.Result.Evidence.Request;
-        if (!request.Cell.OwnsRequest(houseRequest)
-            || !ReferenceEquals(
-                houseRequest.Operation,
-                request.Operation)
-            || !ReferenceEquals(
-                houseRequest.TargetContext,
-                request.TargetContext)
-            || houseRequest.AssetSelection
-                != PackageHouseAssetSelectionKind.Compile
-            || houseRequest.LibraryHandoff
-                != PackageHouseLibraryHandoffMode.PackageOnly)
-        {
-            throw new InvalidOperationException(
-                "The version-cell executor returned a settlement for another request.");
-        }
-    }
-
-    private static PackageVersionCellMetadataCleanupEvidence DescribeCleanup(
-        InspectionWorkspaceCloseReport? report,
-        bool closeFaulted)
-    {
-        var failures =
-            ImmutableArray.CreateBuilder<
-                PackageVersionCellMetadataCleanupFailure>();
-        if (report is not null)
-        {
-            Add(
-                PackageVersionCellMetadataCleanupStage.WorkspaceGroupRelease,
-                report.Groups.Count(group => !group.Succeeded));
-            Add(
-                PackageVersionCellMetadataCleanupStage
-                    .WorkspaceArtifactRootRelease,
-                report.ArtifactSessionCleanupFailures.Length);
-        }
-        if (closeFaulted)
-        {
-            Add(
-                PackageVersionCellMetadataCleanupStage
-                    .WorkspaceCloseOrchestration,
-                1);
-        }
-        return new(failures.ToImmutable());
-
-        void Add(
-            PackageVersionCellMetadataCleanupStage stage,
-            int count)
-        {
-            if (count > 0)
-            {
-                failures.Add(
-                    new PackageVersionCellMetadataCleanupFailure(
-                        stage,
-                        count));
+                throw new ArgumentException(
+                    "A cleanup-failure outcome requires cleanup evidence.",
+                    nameof(cleanup));
             }
         }
-    }
-
-    private abstract record RootMetadataResult
-    {
-        private RootMetadataResult()
-        {
-        }
-
-        internal sealed record Inspected(
-            AssemblyContextResult<MetadataImageOverview> Metadata)
-            : RootMetadataResult;
-
-        internal sealed record NoAssemblyContext(
-            PackageCompileAssetSelectionStatus SelectionStatus)
-            : RootMetadataResult;
     }
 }
