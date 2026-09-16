@@ -47,12 +47,12 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["PrinterPrecedenceTests.cs"] = (1, "Product-output validity: compiles printer-produced precedence source per case."),
             ["TypeRefDecoderRecursionTests.cs"] = (1, "Malformed-input product-output validity: compiles invalid-rank renderings to prove they are rejected rather than binding as another array shape."),
             ["UnboxValueReadPassTests.cs"] = (1, "Product-output validity: compiles the normalized unbox value-read source (cast vs Unsafe.Unbox) per case."),
-            ["IrImporterTests.cs"] = (1, "Product-output validity: compiles synthesized source feeding the IR importer."),
             ["MemberBodyProducerUnionTests.cs"] = (1, "Product-output validity: recompiles member-body producer output per rule set."),
             ["MemberBodyProducerExpressionBodyTests.cs"] = (1, "Product-output validity: decompiles a compiled single-switch-return member and asserts the expression-bodied rendering (#3088)."),
             ["LadderRung6GateTests.cs"] = (1, "Product-output validity: compiles synthesized rung-6 gate source."),
             ["LadderRung9GateTests.cs"] = (1, "Product-output validity: compiles synthesized rung-9 gate source with feature parse options."),
             ["LambdaRaisingPassTests.cs"] = (1, "Product-output validity: compiles the recovered explicit ref-parameter lambda syntax."),
+            ["RaisingPassTests.cs"] = (1, "Product-output validity: compiles runtime-varying raised ref-local and ref-return bodies."),
 
             // Malformed-input / input-matrix / semantic-model seam isolation.
             ["ClosureDiagnosticEvidenceTests.cs"] = (6, "Input matrix + semantic-model seam: many compile-error/closure sources across a Theory."),
@@ -148,6 +148,8 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     the same retained platform images that Metadata resolves.
     //   #6105 adds CSharpMemorySafetySpellingCompileTests.cs (1 site): compiles
     //     CSharp-produced declarations unchanged and re-extracts their contracts.
+    //   RaisingPassTests.cs replaces the stale IrImporterTests.cs entry with a
+    //     runtime-varying ref-local/ref-return compile-back validity gate.
     //   Combined: 47 files, 61 sites.
     const int ExpectedDynamicFiles = 47;
     const int ExpectedDynamicSites = 61;
