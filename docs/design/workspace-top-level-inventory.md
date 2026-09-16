@@ -140,9 +140,21 @@ Both routes populate and admit one ephemeral realized Workspace through the
 same owner operations before calling
 `WorkspaceTopLevelInventoryOperation`. The inventory query cannot distinguish
 which construction route produced its admitted authority, and equal realized
-definition/scope state produces equal inventory content. Each route also
-retains the Definitions activation projection as the Share basis supplied to
-that operation.
+definition/scope state produces equal inventory content.
+
+The routes differ only in available Share evidence:
+
+- packet restoration retains the Definitions activation projection and supplies
+  its exact `PacketInput` basis;
+- direct explicit construction supplies `RealizedWorkspace` with
+  `NonProjectable(NoRetainedDefinitionProjection)`; and
+- a direct host that independently obtained and retained a valid
+  Definitions-owned projection may supply that associated `DefinitionInput`
+  basis instead.
+
+The second case is the default direct CLI contract. The inventory operation
+does not manufacture a `DefinitionInput` from `WorkspacePlan` or rerun
+construction merely to make the result shareable.
 
 A packet is inert input, not acquisition authority. Packet decode, migration,
 Registry resolution, source authorization, acquisition, Scope publication,
@@ -551,7 +563,8 @@ Required gates use Release configuration and include:
   state, preparation, and diagnostic arm, with exact expected fields;
 - CLI output tests for the real mixed Workspace, structured formats, filtering,
   overlaps, failed Package entries, Package occurrence drill-down, direct and
-  packet-restored semantic equivalence, invalid packet and incompatible-option
+  packet-restored content equivalence, their expected non-projectable versus
+  exact-packet Share difference, invalid packet and incompatible-option
   failures, and every coordinator failure or cleanup stage the CLI newly
   orchestrates; and
 - Browser managed-host and browser-runtime tests showing the same mixed
