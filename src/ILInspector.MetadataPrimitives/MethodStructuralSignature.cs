@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
@@ -371,13 +372,20 @@ internal sealed class StructuralEncodedSignature
 {
     readonly int _hashCode;
 
-    internal StructuralEncodedSignature(string text)
+    internal StructuralEncodedSignature(
+        string text,
+        SignatureHeader header,
+        int parameterCount)
     {
         Text = text;
+        Header = header;
+        ParameterCount = parameterCount;
         _hashCode = StringComparer.Ordinal.GetHashCode(text);
     }
 
     internal string Text { get; }
+    internal SignatureHeader Header { get; }
+    internal int ParameterCount { get; }
 
     public bool Equals(StructuralEncodedSignature? other)
         => ReferenceEquals(this, other)
@@ -431,6 +439,8 @@ public sealed class StructuralSignatureBuilder
     readonly Dictionary<TypeDefinitionHandle, StructuralTypeKey> _typeKeys = [];
     readonly Dictionary<TypeDefinitionHandle, string> _typeSegments = [];
     readonly Dictionary<BlobHandle, StructuralEncodedSignature> _methodSignatures = [];
+    readonly Dictionary<BlobHandle, StructuralEncodedSignature> _propertySignatures = [];
+    readonly Dictionary<BlobHandle, StructuralSignatureType> _fieldSignatures = [];
 
     /// <summary>
     /// Creates a reusable builder. The override map must remain unchanged for
@@ -442,21 +452,36 @@ public sealed class StructuralSignatureBuilder
         : this(
             reader,
             typeNameOverrides,
-            new StructuralSignatureWorkBudget())
+            new StructuralSignatureWorkBudget(),
+            requireUniqueLocalDefinitions: false)
+    {
+    }
+
+    internal StructuralSignatureBuilder(
+        MetadataReader reader,
+        bool requireUniqueLocalDefinitions)
+        : this(
+            reader,
+            typeNameOverrides: null,
+            new StructuralSignatureWorkBudget(),
+            requireUniqueLocalDefinitions)
     {
     }
 
     internal StructuralSignatureBuilder(
         MetadataReader reader,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides,
-        StructuralSignatureWorkBudget workBudget)
+        StructuralSignatureWorkBudget workBudget,
+        bool requireUniqueLocalDefinitions = false)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(workBudget);
         _reader = reader;
         _typeNameOverrides = typeNameOverrides;
         _workBudget = workBudget;
-        _provider = new StructuralSignatureTypeProvider(workBudget);
+        _provider = new StructuralSignatureTypeProvider(
+            workBudget,
+            requireUniqueLocalDefinitions);
     }
 
     /// <summary>Builds a method key, optionally substituting its name.</summary>
@@ -488,6 +513,112 @@ public sealed class StructuralSignatureBuilder
                 resolvedMethodName,
                 genericParameters,
                 BuildMethodSignature(method));
+        });
+
+    internal string BuildDeclarationMethod(MethodDefinition method)
+        => StructuralSignatureKey.Build(_reader, () =>
+        {
+            if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                    _reader,
+                    method.Signature,
+                    SignatureBlobGuard.Kind.Method))
+            {
+                throw new BadImageFormatException(
+                    "The method signature exceeds the structural safety limit "
+                    + "or is incomplete.");
+            }
+
+            StructuralMethodKey methodKey = BuildMethodKey(method);
+            bool isStatic =
+                (method.Attributes & MethodAttributes.Static) != 0;
+            if (methodKey.Component.Signature.Header.IsInstance == isStatic)
+            {
+                throw new BadImageFormatException(
+                    "The method signature and attributes disagree about staticness.");
+            }
+
+            string parameterFlags = EncodeParameterFlags(
+                method,
+                methodKey.Component.Signature.ParameterCount);
+            var builder = new StringBuilder();
+            builder.Append('M');
+            StructuralSignatureKey.AppendNumber(
+                builder,
+                isStatic ? 1 : 0);
+            StructuralSignatureKey.AppendPart(
+                builder,
+                methodKey.ToString());
+            builder.Append(parameterFlags);
+            _workBudget.Charge(builder.Length);
+            return builder.ToString();
+        });
+
+    internal string BuildDeclarationProperty(
+        PropertyDefinition property,
+        bool isStatic)
+        => StructuralSignatureKey.Build(_reader, () =>
+        {
+            StructuralEncodedSignature signature =
+                BuildPropertySignature(property);
+            if (signature.Header.IsInstance == isStatic)
+            {
+                throw new BadImageFormatException(
+                    "The property signature and accessors disagree about staticness.");
+            }
+
+            string name = MetadataSafetyPolicy.ReadStructuralString(
+                _reader,
+                property.Name);
+            var builder = new StringBuilder();
+            builder.Append('P');
+            StructuralSignatureKey.AppendPart(builder, name);
+            StructuralSignatureKey.AppendNumber(
+                builder,
+                isStatic ? 1 : 0);
+            StructuralSignatureKey.AppendPart(builder, signature.Text);
+            _workBudget.Charge(builder.Length);
+            return builder.ToString();
+        });
+
+    internal string BuildDeclarationEvent(
+        EventDefinition eventDefinition,
+        bool isStatic)
+        => StructuralSignatureKey.Build(_reader, () =>
+        {
+            string name = MetadataSafetyPolicy.ReadStructuralString(
+                _reader,
+                eventDefinition.Name);
+            StructuralSignatureType eventType =
+                BuildEventType(eventDefinition.Type);
+            var builder = new StringBuilder();
+            builder.Append('E');
+            StructuralSignatureKey.AppendPart(builder, name);
+            StructuralSignatureKey.AppendNumber(
+                builder,
+                isStatic ? 1 : 0);
+            StructuralSignatureKey.AppendPart(builder, eventType);
+            _workBudget.Charge(builder.Length);
+            return builder.ToString();
+        });
+
+    internal string BuildDeclarationField(FieldDefinition field)
+        => StructuralSignatureKey.Build(_reader, () =>
+        {
+            string name = MetadataSafetyPolicy.ReadStructuralString(
+                _reader,
+                field.Name);
+            StructuralSignatureType signature = BuildFieldSignature(field);
+            bool isStatic =
+                (field.Attributes & FieldAttributes.Static) != 0;
+            var builder = new StringBuilder();
+            builder.Append('F');
+            StructuralSignatureKey.AppendPart(builder, name);
+            StructuralSignatureKey.AppendNumber(
+                builder,
+                isStatic ? 1 : 0);
+            StructuralSignatureKey.AppendPart(builder, signature);
+            _workBudget.Charge(builder.Length);
+            return builder.ToString();
         });
 
     /// <summary>Builds a type key.</summary>
@@ -551,9 +682,137 @@ public sealed class StructuralSignatureBuilder
         _workBudget.Charge(encodedLength);
         var builder = new StringBuilder(encodedLength);
         StructuralSignatureKey.AppendMethodSignature(builder, signature);
-        signatureKey = new StructuralEncodedSignature(builder.ToString());
+        signatureKey = new StructuralEncodedSignature(
+            builder.ToString(),
+            signature.Header,
+            signature.ParameterTypes.Length);
         _methodSignatures.Add(method.Signature, signatureKey);
         return signatureKey;
+    }
+
+    StructuralEncodedSignature BuildPropertySignature(
+        PropertyDefinition property)
+    {
+        if (_propertySignatures.TryGetValue(
+                property.Signature,
+                out StructuralEncodedSignature? signatureKey))
+        {
+            return signatureKey;
+        }
+
+        _workBudget.EnsureAvailable();
+        if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                _reader,
+                property.Signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            throw new BadImageFormatException(
+                "The property signature exceeds the structural safety limit "
+                + "or is incomplete.");
+        }
+
+        MethodSignature<StructuralSignatureType> signature =
+            property.DecodeSignature(_provider, null);
+        int encodedLength =
+            StructuralSignatureKey.MethodSignatureLength(signature);
+        if (encodedLength > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+        {
+            throw new BadImageFormatException(
+                "The property signature exceeds the encoded-character budget.");
+        }
+
+        _workBudget.Charge(encodedLength);
+        var builder = new StringBuilder(encodedLength);
+        StructuralSignatureKey.AppendMethodSignature(builder, signature);
+        signatureKey = new StructuralEncodedSignature(
+            builder.ToString(),
+            signature.Header,
+            signature.ParameterTypes.Length);
+        _propertySignatures.Add(property.Signature, signatureKey);
+        return signatureKey;
+    }
+
+    StructuralSignatureType BuildFieldSignature(FieldDefinition field)
+    {
+        if (_fieldSignatures.TryGetValue(
+                field.Signature,
+                out StructuralSignatureType? signature))
+        {
+            return signature;
+        }
+
+        _workBudget.EnsureAvailable();
+        if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                _reader,
+                field.Signature,
+                SignatureBlobGuard.Kind.Field))
+        {
+            throw new BadImageFormatException(
+                "The field signature exceeds the structural safety limit "
+                + "or is incomplete.");
+        }
+
+        signature = field.DecodeSignature(_provider, null);
+        _workBudget.Charge(signature.EncodedLength);
+        _fieldSignatures.Add(field.Signature, signature);
+        return signature;
+    }
+
+    StructuralSignatureType BuildEventType(EntityHandle handle)
+        => handle.Kind switch
+        {
+            HandleKind.TypeDefinition =>
+                new PartPrefixStructuralSignatureType(
+                    'd',
+                    _provider.GetDefinitionType(
+                        _reader,
+                        (TypeDefinitionHandle)handle)),
+            HandleKind.TypeReference =>
+                new PartPrefixStructuralSignatureType(
+                    'r',
+                    new EncodedStructuralSignatureType(
+                        StructuralTypeName.OfReference(
+                            _reader,
+                            (TypeReferenceHandle)handle))),
+            HandleKind.TypeSpecification =>
+                new PartPrefixStructuralSignatureType(
+                    's',
+                    _provider.GetTypeFromSpecification(
+                        _reader,
+                        context: null,
+                        (TypeSpecificationHandle)handle,
+                        rawTypeKind: 0)),
+            _ => throw new BadImageFormatException(
+                $"Unsupported event type {handle.Kind}."),
+        };
+
+    string EncodeParameterFlags(
+        MethodDefinition method,
+        int parameterCount)
+    {
+        var flags = new ParameterAttributes[checked(parameterCount + 1)];
+        var seen = new bool[flags.Length];
+        foreach (ParameterHandle handle in method.GetParameters())
+        {
+            Parameter parameter = _reader.GetParameter(handle);
+            int sequence = parameter.SequenceNumber;
+            if ((uint)sequence >= (uint)flags.Length || seen[sequence])
+            {
+                throw new BadImageFormatException(
+                    "Method parameter sequences must be unique and within the signature.");
+            }
+
+            seen[sequence] = true;
+            flags[sequence] =
+                parameter.Attributes
+                & (ParameterAttributes.In | ParameterAttributes.Out);
+        }
+
+        var builder = new StringBuilder();
+        StructuralSignatureKey.AppendNumber(builder, flags.Length);
+        foreach (ParameterAttributes value in flags)
+            StructuralSignatureKey.AppendNumber(builder, (int)value);
+        return builder.ToString();
     }
 }
 
@@ -1081,13 +1340,20 @@ sealed class StructuralSignatureTypeProvider
     : ISignatureTypeProvider<StructuralSignatureType, object?>
 {
     readonly StructuralSignatureWorkBudget _workBudget;
+    readonly bool _requireUniqueLocalDefinitions;
     readonly Dictionary<EntityHandle, string> _constraintTypes = [];
     readonly Dictionary<BlobHandle, string> _constraintTypeSpecifications = [];
     readonly Dictionary<BlobHandle, StructuralSignatureType> _typeSpecifications = [];
+    readonly Dictionary<string, bool> _uniqueLocalDefinitions =
+        new(StringComparer.Ordinal);
 
     internal StructuralSignatureTypeProvider(
-        StructuralSignatureWorkBudget workBudget)
-        => _workBudget = workBudget;
+        StructuralSignatureWorkBudget workBudget,
+        bool requireUniqueLocalDefinitions = false)
+    {
+        _workBudget = workBudget;
+        _requireUniqueLocalDefinitions = requireUniqueLocalDefinitions;
+    }
 
     public StructuralSignatureType GetPrimitiveType(
         PrimitiveTypeCode typeCode)
@@ -1104,10 +1370,7 @@ sealed class StructuralSignatureTypeProvider
             reader,
             'd',
             rawTypeKind,
-            StructuralTypeName.OfDefinition(
-                reader,
-                handle,
-                typeNameOverrides: null));
+            GetDefinitionName(reader, handle));
 
     public StructuralSignatureType GetTypeFromReference(
         MetadataReader reader,
@@ -1165,11 +1428,9 @@ sealed class StructuralSignatureTypeProvider
             HandleKind.TypeDefinition =>
                 new PartPrefixStructuralSignatureType(
                     'd',
-                    NamedType(
-                        StructuralTypeName.OfDefinition(
-                            reader,
-                            (TypeDefinitionHandle)handle,
-                            typeNameOverrides: null))),
+                    GetDefinitionType(
+                        reader,
+                        (TypeDefinitionHandle)handle)),
             HandleKind.TypeReference =>
                 new PartPrefixStructuralSignatureType(
                     'r',
@@ -1320,6 +1581,56 @@ sealed class StructuralSignatureTypeProvider
 
     static StructuralSignatureType Encoded(string encoded)
         => new EncodedStructuralSignatureType(encoded);
+
+    internal StructuralSignatureType GetDefinitionType(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+        => NamedType(GetDefinitionName(reader, handle));
+
+    string GetDefinitionName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        string name = StructuralTypeName.OfDefinition(
+            reader,
+            handle,
+            typeNameOverrides: null);
+        if (!_requireUniqueLocalDefinitions)
+            return name;
+
+        if (!_uniqueLocalDefinitions.TryGetValue(
+                name,
+                out bool unique))
+        {
+            int matches = 0;
+            foreach (TypeDefinitionHandle candidate
+                     in reader.TypeDefinitions)
+            {
+                string candidateName = StructuralTypeName.OfDefinition(
+                    reader,
+                    candidate,
+                    typeNameOverrides: null);
+                _workBudget.Charge(candidateName.Length);
+                if (StringComparer.Ordinal.Equals(
+                        name,
+                        candidateName)
+                    && ++matches > 1)
+                {
+                    break;
+                }
+            }
+            unique = matches == 1;
+            _uniqueLocalDefinitions.Add(name, unique);
+        }
+
+        if (!unique)
+        {
+            throw new BadImageFormatException(
+                "A local TypeDef used by the declaration signature has an "
+                + "ambiguous exact metadata name.");
+        }
+        return name;
+    }
 }
 
 static class StructuralTypeName
