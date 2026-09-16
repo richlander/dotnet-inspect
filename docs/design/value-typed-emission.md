@@ -695,7 +695,7 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    confirms its named definition is a reference type and its complete type
    passes that same explicit-type spelling gate. This includes classes,
    interfaces, delegates, and their spellable constructed generic forms.
-   Unresolved definitions, bare generic parameters, non-exact producers, and
+   Unresolved definitions, non-exact producers, and
    unspellable or out-of-scope constructions remain deferred. Admission
    consumes existing metadata facts; it does not acquire dependencies or
    infer assignability, boxing, covariance, or generic constraints.
@@ -707,7 +707,7 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    inferred: every producer must already have the testified nominal type.
    The rewrite preserves each value-copy occurrence and each existing boxed
    operand rather than moving a read across a mutation. Unknown definitions,
-   managed references, bare generic parameters and ref-like lifetime cases
+   managed references and ref-like lifetime cases
    remain outside this admission; the existing numeric domain is unchanged.
    Microsoft.CodeAnalysis 5.0.0
    `Collections.RoslynImmutableInterlocked.VolatileRead` motivates this
@@ -719,6 +719,23 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    Release; the existing independent storage invariant checks ordered
    producer and occurrence preservation, not whole-method equivalence.
    Adoption is through the unchanged shared CLI and Browser/Wasm pipeline.
+   Bare type and method generic parameters also materialize as their exact
+   in-scope type when imported constraint flags establish that they do not
+   permit byref-like arguments. Every producer must already have that same
+   parameter identity; equal names do not identify type and method parameters.
+   Missing or ambiguous constraint facts, shadowed or unspellable parameters,
+   and `allows ref struct` remain deferred. This consumes existing constraint
+   facts without inferring conversions, assignability, constraint satisfaction,
+   or a value/reference classification for an unconstrained parameter.
+   `Newtonsoft.Json.JsonConverter<T>.ReadJson` in Newtonsoft.Json 13.0.4
+   motivates this boundary alongside Roslyn's `ArrayBuilder<T>.Pop`.
+   `GenericSlotMaterializationTests` gates the real Roslyn witness,
+   compiler-produced type/method parameters, class/struct constraints,
+   copy-before-replacement, typed boxing, incomplete copy components, and
+   ref-like decline. Admission cases are PR-fast; its slow native-RTS fixture
+   gate is owned by Deep Inspect and the focused pre-merge selection.
+   Existing rewrite conservation, pending-swap and scope boundaries apply;
+   the same shared pipeline serves CLI and Browser/Wasm.
    Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy
    boundaries remain in force. No value or control-flow edge moves.
