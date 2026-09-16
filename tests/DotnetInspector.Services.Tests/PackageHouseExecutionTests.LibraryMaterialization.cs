@@ -382,6 +382,90 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task RuntimeDiscoveredContentLimitPreservesTypedFailure()
+    {
+        byte[] assembly = ReadRealAsset("System.Text.Json.dll");
+        var content = new ForwardOnlyPackageContent(
+            CreatePackageContent(
+                (MaterializedLibraryPath, assembly)));
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        (PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff) =
+            await ExecuteMaterializationInputAsync(
+                environment,
+                content);
+        var limits =
+            new PackageHouseLibraryMaterializationLimits
+            {
+                MaxContentBytes = assembly.LongLength - 1,
+                MaxRetainedBytes = assembly.LongLength,
+            };
+
+        PackageHouseLibraryMaterializationOutcome.Terminal terminal =
+            Assert.IsType<
+                PackageHouseLibraryMaterializationOutcome.Terminal>(
+                await PackageHouseLibraryMaterializer.MaterializeAsync(
+                    settlement,
+                    handoff,
+                    limits,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            [
+                PackageHouseLibraryMaterializationFailureKind
+                    .ContentByteLimit,
+            ],
+            terminal.Evidence.Failures);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task RuntimeDiscoveredAggregateLimitPreservesTypedFailure()
+    {
+        byte[] assembly = ReadRealAsset("System.Text.Json.dll");
+        var content = new ForwardOnlyPackageContent(
+            CreatePackageContent(
+                (MaterializedApiPath, assembly),
+                (MaterializedImplementationPath, assembly)));
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        (PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff) =
+            await ExecuteMaterializationInputAsync(
+                environment,
+                content);
+        var limits =
+            new PackageHouseLibraryMaterializationLimits
+            {
+                MaxContentBytes = assembly.LongLength,
+                MaxRetainedBytes =
+                    (2 * assembly.LongLength) - 1,
+            };
+
+        PackageHouseLibraryMaterializationOutcome.Terminal terminal =
+            Assert.IsType<
+                PackageHouseLibraryMaterializationOutcome.Terminal>(
+                await PackageHouseLibraryMaterializer.MaterializeAsync(
+                    settlement,
+                    handoff,
+                    limits,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            [
+                PackageHouseLibraryMaterializationFailureKind
+                    .RetainedByteLimit,
+            ],
+            terminal.Evidence.Failures);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task MalformedSelectedAssemblyFailsMetadataProjection()
     {
         InMemoryPackageContent content = CreatePackageContent(
@@ -842,6 +926,101 @@ public sealed partial class PackageHouseExecutionTests
             HideEntries
                 ? []
                 : inner.EnumerateEntriesWithLengths();
+    }
+
+    private sealed class ForwardOnlyPackageContent(
+        InMemoryPackageContent inner) : IPackageContent
+    {
+        public string? RootPath => inner.RootPath;
+        public string? NupkgPath => inner.NupkgPath;
+        public bool FromCache => inner.FromCache;
+        public string ProducerKey => inner.ProducerKey;
+        public bool RequiresArchiveTreeMatch =>
+                inner.RequiresArchiveTreeMatch;
+
+        public bool TryOpenArchive(
+                [NotNullWhen(true)] out Stream? stream) =>
+                inner.TryOpenArchive(out stream);
+
+        public bool TryOpenEntry(
+                string relativePath,
+                [NotNullWhen(true)] out Stream? stream)
+        {
+            if (!inner.TryOpenEntry(
+                    relativePath,
+                    out Stream? opened))
+            {
+                stream = null;
+                return false;
+            }
+
+            stream = new ForwardOnlyReadStream(opened);
+            return true;
+        }
+
+        public IEnumerable<string> EnumerateEntries() =>
+                inner.EnumerateEntries();
+    }
+
+    private sealed class ForwardOnlyReadStream(Stream inner)
+        : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length =>
+                throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(
+                byte[] buffer,
+                int offset,
+                int count) =>
+                inner.Read(buffer, offset, count);
+
+        public override int Read(Span<byte> buffer) =>
+                inner.Read(buffer);
+
+        public override ValueTask<int> ReadAsync(
+                Memory<byte> buffer,
+                CancellationToken cancellationToken = default) =>
+                inner.ReadAsync(buffer, cancellationToken);
+
+        public override long Seek(
+                long offset,
+                SeekOrigin origin) =>
+                throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+                throw new NotSupportedException();
+
+        public override void Write(
+                byte[] buffer,
+                int offset,
+                int count) =>
+                throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                inner.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await inner.DisposeAsync();
+            GC.SuppressFinalize(this);
+        }
     }
 
     private sealed class DisposalTrackingMemoryStream(

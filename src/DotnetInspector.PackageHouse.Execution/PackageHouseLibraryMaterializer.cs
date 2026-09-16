@@ -246,8 +246,7 @@ public static class PackageHouseLibraryMaterializer
                     metadataProjectionFailed
                         ? PackageHouseLibraryMaterializationFailureKind
                             .MetadataProjection
-                        : PackageHouseLibraryMaterializationFailureKind
-                            .ArtifactPublication,
+                        : ClassifyPublicationFailure(notPublished),
                 };
                 if (notPublished.CleanupFailures.Count > 0)
                 {
@@ -371,6 +370,32 @@ public static class PackageHouseLibraryMaterializer
                 cleanup);
             throw;
         }
+    }
+
+    private static PackageHouseLibraryMaterializationFailureKind
+        ClassifyPublicationFailure(
+        ArtifactSetPublicationOutcome.NotPublished publication)
+    {
+        if (publication.Failures.Any(failure =>
+                failure.Diagnostic.Code.Equals(
+                    "artifact.session.artifact-byte-limit",
+                    StringComparison.Ordinal)))
+        {
+            return PackageHouseLibraryMaterializationFailureKind
+                .ContentByteLimit;
+        }
+
+        if (publication.Failures.Any(failure =>
+                failure.Diagnostic.Code.Equals(
+                    "artifact.session.byte-limit",
+                    StringComparison.Ordinal)))
+        {
+            return PackageHouseLibraryMaterializationFailureKind
+                .RetainedByteLimit;
+        }
+
+        return PackageHouseLibraryMaterializationFailureKind
+            .ArtifactPublication;
     }
 
     private static PackageHouseLibraryMaterializationFailureKind?
