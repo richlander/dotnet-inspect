@@ -31,25 +31,10 @@ export interface QuerySourceSelection {
   includePrerelease: boolean;
 }
 
-export interface QueryAssemblyPatternDescriptor {
-  id: string;
-  label: string;
-  summary: string;
-  maximumOperandLength: number;
-  maximumPackages: number;
-}
-
-export interface QueryAssemblyPatternRequest {
-  patternId: string;
-  operand: string;
-  packageCoordinates: readonly string[];
-  targetFramework: string;
-}
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest extends QuerySourceSelection {
   scopeQuery: string;
   facets: readonly QueryFacetTerm[];
-  assemblyPattern?: QueryAssemblyPatternRequest;
   /** Declared cap communicated to the source. The bounded-complete footer
    * renders the source's own free-text `completion.reason` (see design doc
    * "States"), not this field directly — a real source is expected to keep
@@ -68,23 +53,6 @@ export function createQueryRequest(
     facets: [],
     requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
     requestedMatchLimit: 100,
-  };
-}
-
-export function createAssemblyQueryRequest(
-  patternId: string,
-  operand: string,
-  packageCoordinates: readonly string[],
-  targetFramework: string,
-): QueryRequest {
-  return {
-    ...createQueryRequest(""),
-    assemblyPattern: {
-      patternId,
-      operand,
-      packageCoordinates: [...packageCoordinates],
-      targetFramework,
-    },
   };
 }
 

@@ -36,7 +36,6 @@ type PackageOperationName =
   | "classifyPackageGraphIdentities"
   | "getPlatformCatalog"
   | "getPlatformVersions"
-  | "listPackageAssemblyQueryPatterns"
   | "matchPackageDependencyCoordinate"
   | "searchTypes"
   | "activateWorkspacePackageOccurrence"
@@ -44,7 +43,6 @@ type PackageOperationName =
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryPackage"
-  | "openPackageAssemblyQueryResult"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
@@ -714,16 +712,6 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["getPlatformVersions"]>
       ) => facades.package.getPlatformVersions(...args),
     ),
-    listPackageAssemblyQueryPatterns: valueOperation(
-      "ordinary-package-list-assembly-query-patterns",
-      0,
-      (
-        facades,
-        ...args: Parameters<
-          PackageFacade["listPackageAssemblyQueryPatterns"]
-        >
-      ) => facades.package.listPackageAssemblyQueryPatterns(...args),
-    ),
     matchPackageDependencyCoordinate: valueOperation(
       "ordinary-package-match-dependency-coordinate",
       3,
@@ -785,16 +773,6 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryPackage"]>
       ) => facades.package.queryPackage(...args),
-    ),
-    openPackageAssemblyQueryResult: valueOperation(
-      "ordinary-package-open-assembly-query-result",
-      1,
-      (
-        facades,
-        ...args: Parameters<
-          PackageFacade["openPackageAssemblyQueryResult"]
-        >
-      ) => facades.package.openPackageAssemblyQueryResult(...args),
     ),
     loadRuntimePack: valueOperation(
       "ordinary-package-load-runtime-pack",
@@ -1214,10 +1192,6 @@ export function bindEngineWorkerOrdinaryClient(
       getPlatformVersions: bind(
         engineWorkerOrdinaryOperations.package.getPlatformVersions,
       ),
-      listPackageAssemblyQueryPatterns: bind(
-        engineWorkerOrdinaryOperations.package
-          .listPackageAssemblyQueryPatterns,
-      ),
       matchPackageDependencyCoordinate: bind(
         engineWorkerOrdinaryOperations.package
           .matchPackageDependencyCoordinate,
@@ -1241,10 +1215,6 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackage: bind(
         engineWorkerOrdinaryOperations.package.queryPackage,
-      ),
-      openPackageAssemblyQueryResult: bind(
-        engineWorkerOrdinaryOperations.package
-          .openPackageAssemblyQueryResult,
       ),
       loadRuntimePack: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePack,

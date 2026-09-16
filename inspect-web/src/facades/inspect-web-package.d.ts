@@ -129,13 +129,6 @@ export interface BrowserPackageAssemblyAssessment {
     readonly assetPath: string | null;
     readonly rootRequest: string;
 }
-export interface BrowserPackageAssemblyQueryPattern {
-    readonly id: string;
-    readonly label: string;
-    readonly summary: string;
-    readonly maximumOperandLength: number;
-    readonly maximumPackages: number;
-}
 export interface BrowserPackageCacheStats {
     readonly packages: number;
     readonly resident: number;
@@ -646,13 +639,11 @@ export declare function clearWorkspacePackageOccurrences(): Promise<void>;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function getPlatformCatalog(targetFramework: string, platformVersion: string): Promise<BrowserPlatformCatalog>;
 export declare function getPlatformVersions(targetFramework: string): Promise<ReadonlyArray<string>>;
-export declare function listPackageAssemblyQueryPatterns(): ReadonlyArray<BrowserPackageAssemblyQueryPattern>;
 export declare function listPackageChangesPackageSets(): BrowserPackageChangesPackageSetCatalog;
 export declare function listPackageQueryFacets(): BrowserPackageQueryFacetCatalog;
 export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
 export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string): Promise<string>;
 export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch;
-export declare function openPackageAssemblyQueryResult(rootRequest: string): Promise<BrowserPackageSurface>;
 export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void>;
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
@@ -663,7 +654,6 @@ export declare function queryPackageVersions(packageId: string, currentVersion: 
 export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function requestPackageQueryMatches(operationId: string, additionalMatchCredit: number): BrowserPackageQueryMatchCreditResponse;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
-export declare function runPackageAssemblyQuery(operationId: string, patternId: string, operand: string, packageCoordinatesJson: string, targetFramework: string, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function runPackageChanges(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult>;
 export declare function runPackageQuery(operationId: string, prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;
