@@ -1,5 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Instructions;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -223,6 +224,77 @@ public class FinallyReturnTimingTests
     }
 
     [Fact]
+    public void IndirectCarrierAliasReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunIndirectCarrierAlias(
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunIndirectCarrierAlias(
+            loop: true,
+            setValue: false,
+            exit: true));
+
+        using var source = MetadataSource.Open(SampleType.Assembly.Location);
+        IrFunction function = Assert.IsType<IrFunction>(IrImporter.Import(
+            source,
+            SampleType.FullName!,
+            nameof(FinallyReturnTimingSample.RunIndirectCarrierAlias)));
+        Assert.Contains(
+            function.Descendants.OfType<StoreIndirect>(),
+            store => store.Type?.Name.EndsWith(
+                "RefHolder",
+                StringComparison.Ordinal) == true);
+
+        var result = CSharpPrinter.PrintRaised(
+            function,
+            method => IrImporter.Import(source, method),
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+        string output = Assert.IsType<string>(result.Output)
+            .ReplaceLineEndings("\n");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
+    public void NestedReturnUsesOrderedSharedCleanupFacts()
+    {
+        using var source = MetadataSource.Open(SampleType.Assembly.Location);
+        IrFunction function = Assert.IsType<IrFunction>(IrImporter.Import(
+            source,
+            SampleType.FullName!,
+            nameof(FinallyReturnTimingSample.RunNested)));
+        InstructionExceptionFlowFacts facts = Assert.IsType<
+            InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available>(
+                    function.ExceptionFlow).Value;
+        InstructionNormalTransfer[] transfers =
+        [
+            .. function.Descendants.OfType<Leave>()
+                .Select(leave => facts.NormalTransferAt(
+                    leave.SourceOffset,
+                    leave.TargetOffset))
+                .OfType<InstructionExceptionFlowResult<
+                    InstructionNormalTransfer>.Available>()
+                .Select(static result => result.Value)
+                .Where(static transfer =>
+                    transfer.CleanupHandlers.Length > 0),
+        ];
+
+        Assert.Contains(
+            transfers,
+            transfer => transfer.CleanupHandlers.Length == 2
+                && transfer.CleanupHandlers.Select(
+                    static cleanup => cleanup.Clause).Distinct().Count() == 2);
+
+        var (_, output) = Render(
+            nameof(FinallyReturnTimingSample.RunNested));
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void FinallyReturnTimingMethodsCompileBackExactly()
     {
@@ -238,9 +310,10 @@ public class FinallyReturnTimingTests
                 or nameof(FinallyReturnTimingSample.RunArgumentAlias)
                 or nameof(FinallyReturnTimingSample.RunConstructorAlias)
                 or nameof(FinallyReturnTimingSample.RunHelperAlias)
-                or nameof(FinallyReturnTimingSample.RunCopiedFieldAlias));
+                or nameof(FinallyReturnTimingSample.RunCopiedFieldAlias)
+                or nameof(FinallyReturnTimingSample.RunIndirectCarrierAlias));
 
-        Assert.Equal(10, results.Count);
+        Assert.Equal(11, results.Count);
         Assert.All(results, result =>
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
     }

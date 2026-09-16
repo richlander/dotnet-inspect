@@ -1085,6 +1085,18 @@ public sealed partial class EhStructuringPass : IIrPass
             root,
             returned.Index,
             returned.IsArgument);
+
+        if (function.IsMetadataBacked)
+        {
+            return SharedCleanupMayWritePlace(
+                function,
+                root,
+                leave,
+                returned.Index,
+                returned.IsArgument,
+                aliases);
+        }
+
         for (IrNode? ancestor = leave.Parent;
              ancestor is not null;
              ancestor = ancestor.Parent)
@@ -1100,6 +1112,75 @@ public sealed partial class EhStructuringPass : IIrPass
                         aliases.Arguments,
                         aliases.StackSlots,
                         aliases.Fields)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool SharedCleanupMayWritePlace(
+        IrFunction function,
+        BlockContainer root,
+        Leave leave,
+        int index,
+        bool isArgument,
+        (
+            HashSet<int> Locals,
+            HashSet<int> Arguments,
+            HashSet<int> StackSlots,
+            List<ByRefFieldAlias> Fields) aliases)
+    {
+        if (function.ExceptionFlow is not
+            InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available available
+            || available.Value.NormalTransferAt(
+                leave.SourceOffset,
+                leave.TargetOffset) is not
+                InstructionExceptionFlowResult<
+                    InstructionNormalTransfer>.Available
+                    {
+                        Value:
+                        {
+                            Kind: InstructionNormalTransferKind.Leave,
+                        } transfer,
+                    })
+        {
+            return true;
+        }
+
+        foreach (InstructionCleanupHandler cleanup
+            in transfer.CleanupHandlers)
+        {
+            if (available.Value.GetClause(cleanup.Clause) is not
+                InstructionExceptionFlowResult<
+                    InstructionExceptionClause>.Available clause
+                || clause.Value.HandlerRegion != cleanup.Handler)
+            {
+                return true;
+            }
+
+            TryFinally? matched = null;
+            foreach (TryFinally candidate in
+                root.Descendants.OfType<TryFinally>())
+            {
+                if (candidate.ExceptionClause?.Id != clause.Value.Id)
+                    continue;
+                if (matched is not null)
+                    return true;
+                matched = candidate;
+            }
+
+            if (matched is null
+                || MayWritePlace(
+                    matched.FinallyBody,
+                    index,
+                    isArgument,
+                    aliases.Locals,
+                    aliases.Arguments,
+                    aliases.StackSlots,
+                    aliases.Fields))
             {
                 return true;
             }
@@ -1251,6 +1332,31 @@ public sealed partial class EhStructuringPass : IIrPass
                         stackSlotAliases,
                         fieldAliases);
                 }
+            }
+
+            foreach (var store in root.Descendants.OfType<StoreIndirect>())
+            {
+                if (ReferenceOwnership.IsInsideNestedFunctionBody(store)
+                    || !AliasesPlace(
+                        function,
+                        store.Value,
+                        index,
+                        isArgument,
+                        localAliases,
+                        argumentAliases,
+                        stackSlotAliases,
+                        fieldAliases))
+                {
+                    continue;
+                }
+
+                changed |= AddWritableCarrierAlias(
+                    function,
+                    store.Address,
+                    localAliases,
+                    argumentAliases,
+                    stackSlotAliases,
+                    fieldAliases);
             }
 
             foreach (var invocation in root.Descendants.OfType<IrExpression>())

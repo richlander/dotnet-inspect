@@ -357,6 +357,41 @@ public static class FinallyReturnTimingSample
         return result;
     }
 
+    public static int RunIndirectCarrierAlias(
+        bool loop,
+        bool setValue,
+        bool exit)
+    {
+        int result = 0;
+        scoped RefHolder holder = default;
+        holder.Value = ref result;
+        scoped RefHolder copy = default;
+        GetReference(ref copy) = holder;
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            copy.Value += 100;
+        }
+
+    Done:
+        return result;
+    }
+
     static ref int Select(bool first, ref int left, ref int right)
         => ref first ? ref left : ref right;
 
@@ -364,6 +399,9 @@ public static class FinallyReturnTimingSample
         scoped ref RefHolder holder,
         [System.Diagnostics.CodeAnalysis.UnscopedRef] ref int value)
         => holder.Value = ref value;
+
+    static ref RefHolder GetReference(ref RefHolder holder)
+        => ref holder;
 
     ref struct RefHolder
     {

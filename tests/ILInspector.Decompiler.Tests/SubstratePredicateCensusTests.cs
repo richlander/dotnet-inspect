@@ -14,6 +14,10 @@ public class SubstratePredicateCensusTests
             "Constructor diagnostics compare the declaring type with the current/base type; this is diagnostic routing, not a reusable rewrite gate.",
         [new("EhStructuringPass.cs", "SameZone")] =
             "Control-flow legality check over EH constructs and branch offsets, not a place/member identity predicate.",
+        [new("EhStructuringPass.cs", "SameCarrierPlace")] =
+            "Return-timing alias closure compares local, argument, stack-slot, and field carrier storage, admitting address/value forms of the same place; this pass-owned set is broader than any shared PlaceIdentity atom.",
+        [new("EhStructuringPass.cs", "SameFieldAlias")] =
+            "Return-timing alias closure compares one field identity plus its pass-owned recursive carrier-place identity; it is coupled to the closure's supported storage-transfer set.",
         [new("IncrementDecrementPass.cs", "SameField")] =
             "FieldRef equality (name + declaring type) for the user-defined ++/-- self-update lvalue receiver, mirroring NullCoalescingAssignmentPass.SameField.",
         [new("IncrementDecrementPass.cs", "SamePlaceExpr")] =

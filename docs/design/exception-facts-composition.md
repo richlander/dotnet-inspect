@@ -188,7 +188,10 @@ membership and normal-edge validation. Step 6 is implemented by
 `ProtectedRegionControlFlow`'s shared normal-transfer query, Decompiler-owned
 raisability policy, and exact bounded association check. Step 7 is implemented
 by classic async's shared `LocationAt` queries, exact structured association
-checks, and same-observation raw/planning join. Steps 8 and 9 remain.
+checks, and same-observation raw/planning join. Step 8 is implemented by
+`InlineReturnLeaves` consuming each `Leave` transfer's ordered cleanup-handler
+identities while retaining Decompiler-owned alias/write closure. Step 9
+remains.
 
 ## Production-host path
 
@@ -216,9 +219,9 @@ shape. Metadata can report its declared `finally`; Instructions can report the
 normal return continuation and cleanup order; Analysis and Decompiler can
 interpret those facts without sharing policy.
 
-PR [#6907](https://github.com/richlander/dotnet-inspect/pull/6907) remains
-paused. Its accepted indirect-store alias finding is not an EH fact and stays
-with Decompiler's return-timing consumer.
+PR [#6907](https://github.com/richlander/dotnet-inspect/pull/6907) consumes the
+shared exited-cleanup facts. Its indirect-store alias repair is not an EH fact
+and stays with Decompiler's return-timing consumer.
 
 No TLA+ model is planned. The owners publish immutable, single-body,
 single-threaded results without scheduling or distributed state. Focused

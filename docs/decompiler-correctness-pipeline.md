@@ -240,13 +240,13 @@ to infer arbitrary callee behavior. Constants, values whose storage has no
 relation to a handler write, and dedicated return blocks proven outside this
 relation retain the existing inlining path.
 
-This rule is **unverified on `main`**.
-PR [#6907](https://github.com/richlander/dotnet-inspect/pull/6907) is intended
-to establish `FinallyReturnTimingTests` as its Release gate. The pending
+This rule is implemented by
+PR [#6907](https://github.com/richlander/dotnet-inspect/pull/6907), with
+`FinallyReturnTimingTests` as its Release gate. The
 compiler-produced family covers direct and nested writes plus local, argument,
 stack-join, field, ref-return, ref-parameter, constructor, helper-bound,
 copied-carrier, and indirect-destination transfer; supported methods must also
-compile back `Exact`. The pending dedicated-return control and the existing
+compile back `Exact`. The dedicated-return control and the existing
 `IrImporterTests.TryFinallyTwoReturns_SinksBothReturnsIntoTry` plus
 `FidelityGateTests` gate the neighboring safe-inlining boundary. Corpus cards
 remain population evidence; they do not replace these method-level semantic
@@ -257,8 +257,8 @@ supplies the compiler-produced motivating witness. No qualifying package or
 repository witness is known. At the PR #6907 Round 6 boundary, the operator
 [chose a docs-only design
 slice](https://github.com/richlander/dotnet-inspect/pull/6907#issuecomment-5668866428)
-instead of abandoning the synthetic-only defect; that approval is limited to
-this focused design evidence and does not authorize Round 7 implementation.
+instead of abandoning the synthetic-only defect. The operator separately
+authorized Round 7 after shared-EH adoption steps 5 through 7 completed.
 The existing decompiler path already serves CLI and browser/Wasm consumers
 under tracker [#5876](https://github.com/richlander/dotnet-inspect/issues/5876);
 this rule adds no architecture, host path, rendering strategy, or adoption
