@@ -765,9 +765,11 @@ internal static class ResourceOwnershipFlow
                 }
                 else
                 {
-                    if (limit.ResolutionGap?.Kind
-                        == ResourceEffectResolutionGapKind
-                            .InterfaceApplicationIncomplete)
+                    if (limit.ResolutionGap?.Kind is
+                        ResourceEffectResolutionGapKind
+                            .InterfaceApplicationIncomplete
+                        or ResourceEffectResolutionGapKind
+                            .PopulationIncomplete)
                     {
                         return;
                     }

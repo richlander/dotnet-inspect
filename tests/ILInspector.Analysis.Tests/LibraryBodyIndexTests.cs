@@ -3645,10 +3645,14 @@ public class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_MalformedAsyncAttributePreservesIndependentEvidence()
     {
-        var index = LibraryBodyIndex.Open(
+        string path =
             FixtureCatalog.AnalysisLookalike
-                .AssemblyPath(),
-            LibraryBodyAnalysisFeatures.All);
+                .AssemblyPath();
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.All,
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path)));
         const string MethodName =
             "MalformedAsyncAttributeEvidence";
         MethodIdentity method = Assert.Single(
