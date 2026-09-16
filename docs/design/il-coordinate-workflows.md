@@ -49,7 +49,7 @@ The command resolves each coordinate against one assembly and prints a compact
 summary:
 
 ```bash
-dotnet-inspect library coordinate My.dll --file coords.txt
+dotnet-inspect library coordinate --file coords.txt --library My.dll
 ```
 
 ```text

@@ -89,16 +89,33 @@ admission. Output options continue to own projection of the completed content.
 The target shape is:
 
 ```console
-dotnet-inspect library coordinate ./My.dll 0x06000042+0x2f
-dotnet-inspect library coordinate ./My.dll "#Strings:0x1a4"
-dotnet-inspect library coordinate ./My.dll --file coordinates.txt
+dotnet-inspect library coordinate 0x06000042+0x2f --library ./My.dll
+dotnet-inspect library coordinate "#Strings:0x1a4" --library ./My.dll
+dotnet-inspect library coordinate --file coordinates.txt --library ./My.dll
 ```
 
 The examples lock the `library coordinate` placement and the distinction
-between one positional coordinate and one coordinate file. Exact argument and
-source-option binding remains with the CLI adoption, which must preserve local,
-Package, Platform, and other admitted Library sources without giving one
-positional slot several meanings.
+between one positional coordinate and one coordinate file. The first positional
+value after `coordinate` is always the point to resolve, matching the
+focus-first grammar of `type <Type> --library <source>` and
+`member <Type> <Member> --library <source>`. It is never the Library location.
+
+Library acquisition uses named source options:
+
+```console
+dotnet-inspect library coordinate 0x06000042+0x2f --library ./My.dll
+dotnet-inspect library coordinate 0x06000042+0x2f \
+  --package System.Text.Json@10.0.0 \
+  --library lib/net10.0/System.Text.Json.dll
+dotnet-inspect library coordinate 0x06000042+0x2f \
+  --platform System.Private.CoreLib
+```
+
+The child adopts the existing source-context roles of `--library`, `--package`,
+`--platform`, and their applicable selectors. The bare `library` inspection
+command may retain its historical positional source, but the child does not
+inherit that positional meaning: doing so would make its first value alternate
+between the coordinate being sought and the location in which to seek it.
 
 ### Exact coordinate mode
 
@@ -123,7 +140,7 @@ the selected root, heap, offset, and decoded value or typed failure. Explicit
 sections narrow those defaults to requested peer observations:
 
 ```console
-dotnet-inspect library coordinate ./My.dll 0x06000042+0x2f \
+dotnet-inspect library coordinate 0x06000042+0x2f --library ./My.dll \
   -S "Context: Instruction" -S "Context: Callsite"
 ```
 

@@ -1147,8 +1147,8 @@ A coordinate child keeps the subject and unary inspection basis while
 establishing a required subordinate address:
 
 ```text
-library -> library coordinate <coordinate>
-        -> library coordinate --file <coordinate-population>
+library -> library coordinate <coordinate> --library <source>
+        -> library coordinate --file <coordinate-population> --library <source>
 ```
 
 The initial coordinate families are MethodDef token plus IL offset and metadata
@@ -1157,6 +1157,13 @@ safety, cost, and heap-value views remain sections over that established
 request. Raw IL remains a representation lens. The child is a CLI grammar
 boundary over the shared owner queries, not another method-body or metadata
 architecture.
+
+The coordinate owns the child's positional slot. Library acquisition remains
+source context and therefore uses named `--library`, `--package`, or
+`--platform` options, with their applicable selectors. This matches Type and
+Member grammar: positional values identify what is sought, while named source
+options identify where it is resolved. The bare `library` command's historical
+positional source does not transfer into the child grammar.
 
 Graph uses the operation rule instead. `package graph`, `library graph`,
 `type graph`, and `member graph` are local single-seed operations. Top-level
