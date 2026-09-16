@@ -21,6 +21,11 @@ public sealed record ApiFacetDescriptor(
     int Count,
     bool IsDefault);
 
+/// <summary>One namespace and its public Type count.</summary>
+public sealed record ApiNamespaceDescriptor(
+    string Name,
+    int Count);
+
 /// <summary>
 /// Selects type-kind facets. Null or empty means the producer-declared defaults.
 /// </summary>
@@ -116,6 +121,24 @@ public static class ApiInventoryQuery
             .Where(type => selected.Contains(Classify(type, TypeKindFacets, "type")))
             .ToList();
         return new ApiTypeInventoryResult(types, descriptors, [.. surface.InspectionFailures]);
+    }
+
+    /// <summary>
+    /// Returns namespace counts in ordinal display order. The empty name represents
+    /// the global namespace.
+    /// </summary>
+    public static IReadOnlyList<ApiNamespaceDescriptor> Namespaces(
+        ApiSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        return surface.Types
+            .GroupBy(type => type.Namespace ?? "", StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => new ApiNamespaceDescriptor(
+                group.Key,
+                group.Count()))
+            .ToList();
     }
 
     /// <summary>
