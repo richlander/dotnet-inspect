@@ -174,7 +174,7 @@ The placement path has **9 steps**:
 | 4 | `member graph`, followed by retirement of the duplicate member `Call Graph` section after equivalent direct Calls/Callers, traversal, fields, limits, failures, and rendering coverage. |
 | 5 | `type graph` with the Dependency-backed base-type and interface relationship family, preserving the current selected-Type search scope, traversal, evidence, failure, and output contracts before retiring that `depends` mode. |
 | 6 | `library graph` with the existing resolved assembly-reference traversal, followed by retirement of duplicate `References --tree` traversal after equivalent edge, unresolved-target, limit, failure, and rendering coverage. |
-| 7 | `package graph` with the existing package-dependency traversal for one selected Package, followed by retirement of the duplicate subject `Dependency Graph` section after equivalent declaration, edge, limit, failure, and rendering coverage. |
+| 7 | `package graph` with the existing package-dependency traversal for one selected Package, followed by retirement of `package -S Dependencies --tree` and its `--dependencies` alias after equivalent declaration, edge, limit, failure, and rendering coverage; retain the direct `Dependencies` section. |
 | 8 | `graph dependencies` over the existing Dependency-owned heterogeneous asset-root request and sectioned result, preserving complete asset-mode parity before retiring that `depends` mode. |
 | 9 | Help, discovery, sharing/replay, completion, examples, relationship-skill adoption, and Type- and Package-oriented production demos. |
 
@@ -183,10 +183,12 @@ PRs. No subject child advertises Graph before its relationship, local-scope,
 completeness, and failure contracts are executable. Step 4 removes the old
 section only after replacement parity. Step 5 specifically closes the
 selected-Type Dependency workflow. Steps 6-7 close the initial local Library
-and Package traversal routes and retire their duplicate section traversal only
-after parity. Step 8 retains asset-mode Dependency ownership and does not
-depend on steps 1-3. `depends` retires only after steps 5, 8, and the applicable
-step 9 discovery and obsolete-token work.
+and Package traversal routes and retire their duplicate traversal gestures only
+after parity. Package step 7 retains `-S Dependencies` as direct evidence,
+rejects its obsolete `--tree` combination with guidance to `package graph`, and
+reserves `--dependencies` without forwarding. Step 8 retains asset-mode
+Dependency ownership and does not depend on steps 1-3. `depends` retires only
+after steps 5, 8, and the applicable step 9 discovery and obsolete-token work.
 
 The required pathological cases are a local subject whose selected
 relationship has no edges, a Workspace packet containing disconnected
