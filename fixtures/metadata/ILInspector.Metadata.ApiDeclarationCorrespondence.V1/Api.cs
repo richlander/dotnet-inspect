@@ -24,6 +24,12 @@ public sealed class Container<T>
         where U : struct
         => value;
 
+    public TValue? NullableMethod<TValue>(
+        string value,
+        Container<T>? options)
+        where TValue : class
+        => default;
+
     public int ReturnChanged(string value) => value.Length;
 
     public int BodyOnly(int originalName = 1) => originalName + 1;

@@ -1192,6 +1192,10 @@ public static class ApiDeclarationCorrespondence
             reader,
             declaringType,
             includeNonPublicMembers: true);
+        ApplyProductionMethodSignatures(
+            reader,
+            declaringType,
+            type);
         var anchors = new Dictionary<int, MemberAnchor>();
         foreach (ApiMember member in type.Members)
         {
@@ -1202,6 +1206,48 @@ public static class ApiDeclarationCorrespondence
                 ApiMemberIdentity.GetMemberAnchor(type, member));
         }
         return anchors;
+    }
+
+    static void ApplyProductionMethodSignatures(
+        MetadataReader reader,
+        TypeDefinitionHandle declaringType,
+        ApiType type)
+    {
+        Dictionary<int, ApiMember> membersByToken = type.Members
+            .Where(member => member.MetadataToken is not null)
+            .ToDictionary(
+                member => member.MetadataToken!.Value,
+                member => member);
+        TypeDefinition typeDefinition =
+            reader.GetTypeDefinition(declaringType);
+        GenericContext typeContext =
+            GenericContext.ForType(reader, typeDefinition);
+        byte typeNullableContext =
+            NullabilityReader.GetTypeNullableContext(
+                reader,
+                declaringType);
+        foreach (MethodDefinitionHandle methodHandle
+                 in typeDefinition.GetMethods())
+        {
+            int token = MetadataTokens.GetToken(methodHandle);
+            if (!membersByToken.TryGetValue(token, out ApiMember? member))
+                continue;
+
+            MethodDefinition method =
+                reader.GetMethodDefinition(methodHandle);
+            var signature =
+                ApiSurfaceExtractor.GetMethodSignatureForIdentity(
+                reader,
+                typeContext,
+                methodHandle,
+                method,
+                typeNullableContext);
+            member.Signature = signature.Text;
+            member.SignatureModel = signature.Model;
+            member.SignatureDecodeStatus = signature.IsDegraded
+                ? SignatureDecodeStatus.Degraded
+                : null;
+        }
     }
 
     static bool IsExtensionMethod(

@@ -3721,6 +3721,20 @@ public static class ApiSurfaceExtractor
         }
     }
 
+    internal static (string Text, ApiSignature Model, bool IsDegraded)
+        GetMethodSignatureForIdentity(
+            MetadataReader reader,
+            GenericContext typeContext,
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition method,
+            byte typeNullableContext)
+        => GetMethodSignature(
+            reader,
+            typeContext,
+            methodHandle,
+            method,
+            typeNullableContext);
+
     private static (string Text, ApiSignature Model, bool IsDegraded) GetMethodSignature(
         MetadataReader reader,
         GenericContext typeContext,

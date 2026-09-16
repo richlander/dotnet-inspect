@@ -194,6 +194,36 @@ public sealed class ApiDeclarationCorrespondenceTests
     }
 
     [Fact]
+    public void ApiCorrespondence_BindsNullableProductionMethodAnchor()
+    {
+        ResolvedAssemblyReference source = Reference(Pair.OldAssemblyPath());
+        ResolvedAssemblyReference destination =
+            Reference(Pair.NewAssemblyPath());
+        MetadataTypeDefinitionName container =
+            Name("MetadataCorrespondenceFixture", "Container`1");
+
+        ApiDeclarationReference declaration = BindMember(
+            source,
+            container,
+            ApiDeclarationKind.Method,
+            "NullableMethod");
+
+        Assert.Contains(
+            "MetadataCorrespondenceFixture.Container<T>?",
+            declaration.Member!.CanonicalSignature,
+            StringComparison.Ordinal);
+        ApiDeclarationCorrespondenceResult result =
+            ApiDeclarationCorrespondence.Match(
+                source,
+                declaration,
+                destination,
+                TestContext.Current.CancellationToken);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStatus.Exact,
+            result.Status);
+    }
+
+    [Fact]
     public void ApiCorrespondence_ExactEndpointAssociation()
     {
         ResolvedAssemblyReference source = Reference(Pair.OldAssemblyPath());

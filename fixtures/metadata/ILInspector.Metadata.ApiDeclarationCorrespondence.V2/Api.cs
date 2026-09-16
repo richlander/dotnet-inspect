@@ -45,6 +45,12 @@ public sealed class Container<T>
 
     public int BodyOnly(int renamed = 2) => renamed + 2;
 
+    public TValue? NullableMethod<TValue>(
+        string renamed,
+        Container<T>? options)
+        where TValue : class
+        => default;
+
     public U MethodConstraintChanged<U>(U value)
         where U : class
         => value;
