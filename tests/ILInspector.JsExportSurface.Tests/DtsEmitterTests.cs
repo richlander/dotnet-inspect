@@ -2817,6 +2817,36 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void SourceGeneratedJson_ConditionallyWritesArrayFields()
+    {
+        JsonTypeInfo<ValidWhenWritingNullArrayFieldFixture> typeInfo =
+            ValidWhenWritingNullArrayFieldJsonContext.Default
+                .ValidWhenWritingNullArrayFieldFixture;
+
+        Assert.Equal(
+            "{}",
+            JsonSerializer.Serialize(
+                new ValidWhenWritingNullArrayFieldFixture
+                {
+                    Values = null!,
+                    Numbers = null,
+                },
+                typeInfo));
+        Assert.Contains(
+            """
+            "Values":[{}],"Numbers":[42]
+            """,
+            JsonSerializer.Serialize(
+                new ValidWhenWritingNullArrayFieldFixture
+                {
+                    Values = [new WhenWritingNullArrayElementFixture()],
+                    Numbers = [42],
+                },
+                typeInfo),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     [SupportedOSPlatform("browser")]
     public void SourceGeneratedJson_ConditionallyWritesPrivateNestedReferenceType()
     {

@@ -166,7 +166,7 @@ internal sealed class JsonIgnoreNeverFixture
 internal sealed class InvalidWhenWritingNullValueTypeFixture
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int Value { get; set; }
+    public int Value { get; }
 }
 
 [JsonSerializable(typeof(InvalidWhenWritingNullValueTypeFixture))]
@@ -181,6 +181,23 @@ internal sealed class ValidWhenWritingNullNullableValueTypeFixture
 
 [JsonSerializable(typeof(ValidWhenWritingNullNullableValueTypeFixture))]
 internal sealed partial class ValidWhenWritingNullNullableValueTypeJsonContext
+    : JsonSerializerContext;
+
+internal struct WhenWritingNullArrayElementFixture;
+
+internal sealed class ValidWhenWritingNullArrayFieldFixture
+{
+    [JsonInclude]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WhenWritingNullArrayElementFixture[] Values = [];
+
+    [JsonInclude]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int[]? Numbers;
+}
+
+[JsonSerializable(typeof(ValidWhenWritingNullArrayFieldFixture))]
+internal sealed partial class ValidWhenWritingNullArrayFieldJsonContext
     : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(

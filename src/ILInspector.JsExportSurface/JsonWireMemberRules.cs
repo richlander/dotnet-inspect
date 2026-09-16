@@ -141,16 +141,27 @@ public static class JsonWireMemberRules
 
         if (member.IsStatic
             || member.IsCompilerGenerated
-            || !ParticipatesStructurally(member, direction))
+            || (!ParticipatesStructurally(
+                    member,
+                    JsonWireDirection.Serialize)
+                && !ParticipatesStructurally(
+                    member,
+                    JsonWireDirection.Deserialize)))
         {
             return JsonWireMemberPresence.Absent;
         }
 
-        return GetConditionPresence(
+        JsonWireMemberPresence presence = GetConditionPresence(
             member,
             direction,
             assemblyIdentity,
             typesByScopedIdentity);
+        if (presence == JsonWireMemberPresence.Unsupported)
+            return presence;
+
+        return ParticipatesStructurally(member, direction)
+            ? presence
+            : JsonWireMemberPresence.Absent;
     }
 
     /// <summary>
@@ -544,6 +555,9 @@ public static class JsonWireMemberRules
                 typesByScopedIdentity);
         }
 
+        if (IsRenderedArrayType(member.ReturnType))
+            return true;
+
         IReadOnlyList<ApiTypeReferenceIdentity>? references =
             member.SignatureModel?.ReturnTypeReferences;
         if (references is { Count: > 0 }
@@ -564,6 +578,19 @@ public static class JsonWireMemberRules
         }
 
         return CanRenderedTypeValueBeNull(member.ReturnType);
+    }
+
+    static bool IsRenderedArrayType(string? typeName)
+    {
+        if (string.IsNullOrEmpty(typeName))
+            return false;
+
+        int end = typeName.EndsWith("?", StringComparison.Ordinal)
+            ? typeName.Length - 1
+            : typeName.Length;
+        return end > 0
+            && typeName[end - 1] == ']'
+            && typeName.LastIndexOf('[', end - 1) >= 0;
     }
 
     static bool? CanTypeValueBeNull(

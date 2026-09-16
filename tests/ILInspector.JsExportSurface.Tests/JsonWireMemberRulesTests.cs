@@ -113,6 +113,25 @@ public sealed class JsonWireMemberRulesTests
     }
 
     [Fact]
+    public void InvalidWhenWritingNullPrecedesDirectionalAccessorAbsence()
+    {
+        ApiMember member = Property(
+            JsonWireIgnoreCondition.WhenWritingNull);
+        member.HasSetter = false;
+
+        Assert.Equal(
+            JsonWireMemberPresence.Unsupported,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Serialize));
+        Assert.Equal(
+            JsonWireMemberPresence.Unsupported,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Deserialize));
+    }
+
+    [Fact]
     public void ScopedPresenceClassifiesNamedReferenceAndValueTypes()
     {
         ApiAssemblyIdentity assembly = new(
@@ -1104,6 +1123,53 @@ public sealed class JsonWireMemberRulesTests
                 JsonWireDirection.Deserialize,
                 assembly,
                 typesByScopedIdentity));
+    }
+
+    [Fact]
+    public void ExtractedArrayFieldsAuthenticateOuterArrayType()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(ValidWhenWritingNullArrayFieldFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiAssemblyIdentity assembly = Assert.IsType<ApiAssemblyIdentity>(
+            surface.AssemblyIdentity);
+        ApiType declaringType = Assert.Single(
+            surface.Types,
+            type => type.Name
+                == nameof(ValidWhenWritingNullArrayFieldFixture));
+        var typesByScopedIdentity = surface.Types
+            .Where(type => type.DefinitionName is not null)
+            .ToDictionary(
+                type => new ApiTypeReferenceIdentity(
+                    assembly,
+                    type.FullName,
+                    type.DefinitionName),
+                type => type);
+
+        foreach (string memberName in new[] { "Values", "Numbers" })
+        {
+            ApiMember member = Assert.Single(
+                declaringType.Members,
+                candidate => candidate.Name == memberName);
+
+            Assert.Equal(
+                JsonWireMemberPresence.Conditional,
+                JsonWireMemberRules.GetPresence(
+                    member,
+                    JsonWireDirection.Serialize,
+                    assembly,
+                    typesByScopedIdentity));
+            Assert.Equal(
+                JsonWireMemberPresence.Present,
+                JsonWireMemberRules.GetPresence(
+                    member,
+                    JsonWireDirection.Deserialize,
+                    assembly,
+                    typesByScopedIdentity));
+        }
     }
 
     [Fact]
