@@ -9795,6 +9795,18 @@ async function spotlightPlatformTypeIsAvailable(
   }
 }
 
+function activateSpotlightTypePackage(pkg: AppPackage) {
+  const platformRootParent =
+    pkg.source.kind === "platform"
+    && state.rootKind === "platform"
+    && platformIsPresentedAsRoot();
+  activatePackage(pkg);
+  state.platformPresentedAsRoot = platformRootParent;
+  workspaceLocation.replace(
+    location.href,
+    withPlatformRootParentHistory(history.state, platformRootParent));
+}
+
 async function pickSpotlightMember(
   result: Extract<SpotlightResult, { kind: "member" }>,
 ) {
@@ -9819,7 +9831,7 @@ async function pickSpotlightMember(
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
   state.home = false;
-  activatePackage(pkg);
+  activateSpotlightTypePackage(pkg);
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
   state.libraryScope = new Set([libraryKey(type)]);
@@ -9869,7 +9881,7 @@ async function pickSpotlight(
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
   state.home = false;
-  activatePackage(pkg);
+  activateSpotlightTypePackage(pkg);
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
   state.libraryScope = new Set([libraryKey(type)]);

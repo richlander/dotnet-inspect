@@ -2816,12 +2816,29 @@ test("an unrelated Platform history entry does not parent a Spotlight Library", 
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
 
   await page.keyboard.press("Control+p");
-  await page.locator("#spotlight-input").fill("System.Text.Json");
-  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
-  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
-  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.locator("#spotlight-input").fill("Widget");
+  await page.locator(
+    '[data-sl-type*="Example.Widget"][data-sl-pkg="Microsoft.NETCore.App"]:not([data-sl-member])',
+  ).first().click();
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
-  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to library");
+  await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
+  await page.locator("[data-workspace-activate]").click();
+  await expect(page.locator(".inspected-target")).toContainText("Example.Package");
+
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("Run");
+  await page.locator(
+    '[data-sl-member][data-sl-type*="Example.Widget"][data-sl-pkg="Microsoft.NETCore.App"]',
+  ).first().click();
+  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
 });
 
 test("catalog-only Platform retains its Workspace identity and canonical URL across another Workspace", async ({ page }) => {
