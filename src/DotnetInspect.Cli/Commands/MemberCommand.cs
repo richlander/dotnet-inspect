@@ -480,17 +480,12 @@ public static class MemberCommand
                 if (!detailPlanningOptions.MemberSectionsPreResolved)
                 {
                     string[]? resolvedSelectors =
-                        detailPlanningOptions.IncludeSections is { Count: > 0 }
-                            ? [.. detailPlanningOptions.IncludeSections]
-                            : null;
+                        GetDetailReplanSelectors(detailPlanningOptions);
                     detailPlanningOptions = detailPlanningOptions with
                     {
                         IncludeSections = null,
                         ExactIncludeSectionsOverride = null,
-                        Select = resolvedSelectors
-                            ?? detailPlanningOptions.Select,
-                        SelectDefault = resolvedSelectors is null
-                            && detailPlanningOptions.SelectDefault,
+                        Select = resolvedSelectors,
                     };
                 }
                 executionPlan =
@@ -1414,6 +1409,51 @@ public static class MemberCommand
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         includeSections.Add(SectionNames.Callers);
         return options with { IncludeSections = includeSections };
+    }
+
+    private static string[]? GetDetailReplanSelectors(MemberOptions options)
+    {
+        if (options.Select is not { Length: > 0 }
+            && !options.SelectDefault)
+        {
+            return options.IncludeSections is { Count: > 0 }
+                ? [.. options.IncludeSections]
+                : null;
+        }
+
+        var inventoryOptions = options with { OverloadIndex = null };
+        var inventoryPipeline =
+            ApiMemberSectionPipelines.Create(inventoryOptions);
+        SelectResult inventorySelection =
+            SelectResolver.ResolveSelectAsSections(
+                options.Select,
+                inventoryPipeline.SelectableSectionNames,
+                inventoryPipeline.InfoSectionNames,
+                ApiMemberSectionPipelines.GetCategoryMap(
+                    inventoryPipeline),
+                options.SelectDefault);
+        HashSet<string> unresolvedSelectors =
+            inventorySelection.Unresolved
+                .Select(static miss => miss.Value)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        List<string> selectors =
+        [
+            .. options.Select?.Where(
+                selector => !unresolvedSelectors.Contains(selector))
+                ?? [],
+        ];
+
+        HashSet<string> selectedSections =
+            inventorySelection.Sections
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (options.IncludeSections is { Count: > 0 })
+        {
+            selectors.AddRange(
+                options.IncludeSections.Where(
+                    section => !selectedSections.Contains(section)));
+        }
+
+        return selectors.Count > 0 ? [.. selectors] : null;
     }
 
     private static readonly string[] SingleOverloadSectionNames =

@@ -1614,6 +1614,34 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_AutoSelectedOverload_PreservesCategorySelectorProvenance()
+    {
+        Type target = typeof(NuGet.Versioning.NuGetVersion);
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            target.FullName!,
+            "Parse",
+            "--library",
+            target.Assembly.Location,
+            "-S",
+            $"{SectionNames.Signature},{SectionCategoryNames.Source}",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(
+            "Source diff unavailable",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument json = JsonDocument.Parse(output);
+        Assert.Equal(
+            target.FullName,
+            $"{json.RootElement.GetProperty("namespace").GetString()}."
+                + json.RootElement.GetProperty("name").GetString());
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_PrintJson_RetainsTypedPdbSourceUrl()
     {
         var (exit, output, error) = await RunAppAsync(
