@@ -271,8 +271,11 @@ entry gate invalidates every later result, so run it first and report it.
    dotnet run --project tests/ILInspector.Metadata.Tests -c Release
    ```
 
-   Filter to a class while iterating, e.g.
-   `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
+   `DecompilerHarness.Tests`, `ILInspector.Analysis.Tests`, and
+   `ILInspector.Metadata.Tests` use MTP's `--filter-class` and
+   `--filter-method` options while iterating. `ILInspector.Decompiler.Tests`
+   remains on its transitional native host and uses its existing `-filter` and
+   trait options.
    [The repository xUnit test host](design/xunit-test-host.md) selects
    Microsoft Testing Platform (MTP) as the owner of aggregate non-vacuity.
    The decompiler host owns `--gate` preset expansion and the stronger

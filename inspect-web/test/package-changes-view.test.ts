@@ -24,7 +24,7 @@ const packageSets = [{
   order: 10,
 }];
 
-test("view renders the product catalog and a keyboard-addressable Packages | Changes peer selector", () => {
+test("view renders the product catalog and a keyboard-addressable Packages | Activity peer selector", () => {
   const html = renderPackageChangesView({
     state: initialPackageChangesState(),
     packageSets,
@@ -34,6 +34,8 @@ test("view renders the product catalog and a keyboard-addressable Packages | Cha
   assert.match(html, /role="tablist" aria-label="Query mode"/);
   assert.match(html, /data-query-mode="packages"/);
   assert.match(html, /data-query-mode="changes" aria-selected="true"/);
+  assert.match(html, />Activity<\/button>/);
+  assert.match(html, />Package Activity<\/h1>/);
   assert.match(html, /value="package-set\.product-issued"/);
   assert.match(html, /Product-issued set/);
   assert.match(html, /Package membership remains product-owned/);
@@ -88,7 +90,7 @@ test("positive security release, evidence availability, failures, and coverage u
   assert.match(html, /Completion and coverage/);
   assert.match(html, /1 in interval · 1 matching · 1 retained/);
   assert.match(html, /0 current-context · 0 security-release/);
-  assert.match(html, /Package Changes reports are not shareable yet/);
+  assert.match(html, /Package Activity reports are not shareable yet/);
 });
 
 test("checked-empty, partial-empty, and unavailable evidence remain distinct", () => {
@@ -147,10 +149,10 @@ test("a 1000-row report mounts no more than 30 rows while retaining total accoun
   assert.equal(
     (html.match(/<article class="query-row package-changes-row"/g) ?? []).length,
     30);
-  assert.match(html, /Changes 496 through 525 of 1000/);
+  assert.match(html, /Activity events 496 through 525 of 1000/);
   assert.match(html, /aria-posinset="496"/);
   assert.match(html, /aria-setsize="1000"/);
-  assert.match(html, /1,000 changes · streaming/);
+  assert.match(html, /1,000 activity events · streaming/);
 });
 
 test("row window uses measured variable extents for spacer accounting", () => {
@@ -178,7 +180,7 @@ test("row window uses measured variable extents for spacer accounting", () => {
     escapeHtml,
   });
 
-  assert.match(html, /Changes 21 through 50 of 100/);
+  assert.match(html, /Activity events 21 through 50 of 100/);
   assert.match(html, /style="height:8000\.00px"/);
   assert.match(html, /style="height:20000\.00px"/);
 });
@@ -205,7 +207,7 @@ test("row window preserves measured card extents above the estimation ceiling", 
     escapeHtml,
   });
 
-  assert.match(html, /Changes 21 through 50 of 100/);
+  assert.match(html, /Activity events 21 through 50 of 100/);
   assert.match(html, /style="height:35200\.00px"/);
   assert.match(html, /style="height:88000\.00px"/);
 });
