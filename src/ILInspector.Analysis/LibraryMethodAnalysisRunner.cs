@@ -162,7 +162,7 @@ internal sealed class LibraryMethodAnalysisResult
     public bool HasSignals;
     public BodySignals Signals;
     public LeakTriageResult? LeakTriage;
-    public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
+    public ResourceOwnershipFlowMethodInput? OwnershipFlowInput;
     public AnalysisDiagnostic? Diagnostic;
     public MethodIdentity? DeclaredSource;
 }
@@ -546,6 +546,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
         bool includeJsonWireContractFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        bool includeCallValueFlow =
+            includeJsonWireContractFlow || includeOwnershipFlow;
         bool includeLocalThrows = plan.Includes(
             LibraryBodyAnalysisFeatures.LocalThrows);
         LibraryBodyExceptionTypeClassifier? localExceptionTypes =
@@ -970,7 +972,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                         || hasUnsafeSignature
                         || hasUnsafeLocals,
                     includeCallValueFlow:
-                        includeJsonWireContractFlow,
+                        includeCallValueFlow,
                     resultSinks: resultSinks,
                     fieldStores: fieldStores,
                     fieldLoads: fieldLoads,
@@ -1155,8 +1157,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
             if (includeOwnershipFlow)
             {
-                result.OwnershipFlow =
-                    ArrayPoolOwnershipFlow.Analyze(
+                result.OwnershipFlowInput =
+                    new ResourceOwnershipFlowMethodInput(
                         context,
                         calls.ToImmutable());
             }

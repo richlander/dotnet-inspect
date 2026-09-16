@@ -64,8 +64,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
             ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
         var leakFailures =
             ImmutableArray.CreateBuilder<LeakTriageFailure>();
-        var ownershipFlow =
-            ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
+        var ownershipFlowInputs =
+            ImmutableArray.CreateBuilder<ResourceOwnershipFlowMethodInput>();
         var declaredSources = new Dictionary<int, MethodIdentity>();
         int none = 0, impl = 0, expl = 0, unavailable = 0;
 
@@ -95,13 +95,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     leakTriage.ExceptionPathCandidates);
                 leakFailures.AddRange(leakTriage.Failures);
             }
-            if (r.OwnershipFlow is { } methodOwnership
-                && (!methodOwnership.Rents.IsEmpty
-                    || !methodOwnership.Parameters.IsEmpty
-                    || !methodOwnership.IsComplete))
-            {
-                ownershipFlow.Add(methodOwnership);
-            }
+            if (r.OwnershipFlowInput is { } ownershipInput)
+                ownershipFlowInputs.Add(ownershipInput);
             if (!r.HasCaller)
             {
                 if (r.Diagnostic is not null)
@@ -279,7 +274,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 ScopeExcludedMethodTokens:
                     scopeExcludedOpportunityTokens,
                 ExceptionTypeNames: _exceptionTypeNames),
-            OwnershipFlow: new(ownershipFlow.ToImmutable()),
+            OwnershipFlow: new([], []),
+            OwnershipFlowInputs: ownershipFlowInputs.ToImmutable(),
             Resources: new(leakTriageResult),
             Diagnostics: diagnostics.ToImmutable());
     }

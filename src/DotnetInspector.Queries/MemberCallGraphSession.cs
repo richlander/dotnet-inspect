@@ -529,18 +529,21 @@ public sealed class MemberCallGraphSession : IDisposable
                     IncrementBuildCount(buildKind);
                     try
                     {
+                        ResolvedAssemblyReference snapshotAssembly =
+                            snapshot.RetainAssemblyReference(
+                                participant.Assembly);
                         Analysis.LibraryBodyIndex index =
                             Analysis.LibraryBodyIndex
                                 .OpenFromPrefetchedImage(
                                     ParticipantName(participant),
                                     snapshot.Content,
                                     _options.Features,
-                                    resolver: null,
+                                    snapshotAssembly,
+                                    participant.BindingPolicy,
                                     bodyScope);
                         ResolvedAssemblyReference assembly =
                             retainAssembly
-                                ? snapshot.RetainAssemblyReference(
-                                    participant.Assembly)
+                                ? snapshotAssembly
                                 : participant.Assembly;
                         var available =
                             new IndexBuildResult.Available(

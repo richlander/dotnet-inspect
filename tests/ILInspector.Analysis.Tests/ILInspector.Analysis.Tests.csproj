@@ -45,6 +45,7 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures\ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures\ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.OwnershipFlowFixtures\ILInspector.Analysis.OwnershipFlowFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.ResourceOwnershipApiFixtures\ILInspector.Analysis.ResourceOwnershipApiFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.TopLevelAsyncFixtures\ILInspector.Analysis.TopLevelAsyncFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.TopLevelClassicAsyncFixtures\ILInspector.Analysis.TopLevelClassicAsyncFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.UnoptimizedAsyncFixtures\ILInspector.Analysis.UnoptimizedAsyncFixtures.csproj" />

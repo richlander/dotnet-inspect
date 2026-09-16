@@ -1,4 +1,5 @@
 using DotnetInspector.Fixtures;
+using DotnetInspector.Services;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -15,6 +16,7 @@ public sealed class ArrayPoolOwnershipFlowTests
         LibraryBodyIndex index = LibraryBodyIndex.Open(
             CallerPath,
             LibraryBodyAnalysisFeatures.OwnershipFlow,
+            Resolver(),
             bodyScope: new HashSet<int> { root });
 
         ArrayPoolOwnershipMethodEvidence evidence =
@@ -49,11 +51,16 @@ public sealed class ArrayPoolOwnershipFlowTests
     {
         LibraryBodyIndex index = LibraryBodyIndex.Open(
             CallerPath,
-            LibraryBodyAnalysisFeatures.OwnershipFlow);
+            LibraryBodyAnalysisFeatures.OwnershipFlow,
+            Resolver());
 
         ArrayPoolOwnershipMethodEvidence evidence =
             index.ArrayPoolOwnership.Single(candidate =>
                 candidate.Method.Name == methodName);
+        ResourceOwnershipMethodEvidence resourceEvidence =
+            index.ResourceOwnership.Single(candidate =>
+                candidate.Method.Name == methodName);
+        Assert.Empty(resourceEvidence.Limits);
         ArrayPoolParameterOwnership parameter =
             Assert.Single(evidence.Parameters);
         ArrayPoolOwnershipUse use = Assert.Single(parameter.Uses);
@@ -78,7 +85,8 @@ public sealed class ArrayPoolOwnershipFlowTests
     {
         LibraryBodyIndex index = LibraryBodyIndex.Open(
             CallerPath,
-            LibraryBodyAnalysisFeatures.OwnershipFlow);
+            LibraryBodyAnalysisFeatures.OwnershipFlow,
+            Resolver());
 
         ArrayPoolOwnershipMethodEvidence evidence =
             index.ArrayPoolOwnership.Single(candidate =>
@@ -96,11 +104,19 @@ public sealed class ArrayPoolOwnershipFlowTests
     {
         LibraryBodyIndex index = LibraryBodyIndex.Open(
             CallerPath,
-            LibraryBodyAnalysisFeatures.OwnershipFlow);
+            LibraryBodyAnalysisFeatures.OwnershipFlow,
+            Resolver());
 
         ArrayPoolOwnershipMethodEvidence evidence =
             index.ArrayPoolOwnership.Single(candidate =>
                 candidate.Method.Name == methodName);
+        ResourceOwnershipMethodEvidence resourceEvidence =
+            index.ResourceOwnership.Single(candidate =>
+                candidate.Method.Name == methodName);
+        Assert.DoesNotContain(
+            resourceEvidence.Limits,
+            limit => limit.Kind
+                == ResourceOwnershipFlowLimitKind.AuthorityUnproven);
         ArrayPoolRentOwnership rent = Assert.Single(evidence.Rents);
         Assert.False(rent.IsComplete);
         Assert.Empty(rent.Uses);
@@ -111,7 +127,8 @@ public sealed class ArrayPoolOwnershipFlowTests
     {
         LibraryBodyIndex index = LibraryBodyIndex.Open(
             CallerPath,
-            LibraryBodyAnalysisFeatures.OwnershipFlow);
+            LibraryBodyAnalysisFeatures.OwnershipFlow,
+            Resolver());
 
         ArrayPoolOwnershipMethodEvidence evidence =
             index.ArrayPoolOwnership.Single(candidate =>
@@ -129,4 +146,9 @@ public sealed class ArrayPoolOwnershipFlowTests
                 LibraryBodyAnalysisFeatures.MethodEvidence)
             .Methods.Single(method => method.Name == methodName)
             .MetadataToken;
+
+    static AssemblyDependencyResolver Resolver() =>
+        new(
+            new AssemblyDependencyResolutionOptions(
+                CallerPath));
 }

@@ -16,4 +16,8 @@
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Analysis.ResourceOwnershipApiFixtures\ILInspector.Analysis.ResourceOwnershipApiFixtures.csproj" />
+  </ItemGroup>
+
 </Project>

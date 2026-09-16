@@ -48,206 +48,80 @@ public sealed record ArrayPoolOwnershipMethodEvidence(
     ImmutableArray<ArrayPoolParameterOwnership> Parameters,
     bool IsComplete);
 
-static class ArrayPoolOwnershipFlow
+static class ArrayPoolOwnershipProjection
 {
-    internal static ArrayPoolOwnershipMethodEvidence Analyze(
-        MethodBodyAnalysisContext context,
-        ImmutableArray<DirectCall> directCalls)
+    internal static ImmutableArray<ArrayPoolOwnershipMethodEvidence> Project(
+        ImmutableArray<ResourceOwnershipMethodEvidence> methods) =>
+    [
+        .. methods
+            .Select(Project)
+            .Where(static evidence =>
+                !evidence.Rents.IsEmpty
+                || !evidence.Parameters.IsEmpty
+                || !evidence.IsComplete),
+    ];
+
+    static ArrayPoolOwnershipMethodEvidence Project(
+        ResourceOwnershipMethodEvidence evidence)
     {
-        MethodIdentity method = context.Method;
-        MemberRef member = CallTreeMember.FromDefinition(method);
-        bool hasArrayParameter =
-            method.ParameterTypes.Any(static parameter =>
-                parameter.Kind == TypeRefKind.SzArray);
-        bool hasRent = directCalls.Any(static call =>
-            IsDirectInvocation(call)
-            && ArrayPoolUseClassifier.IsArrayPoolRent(call.Callee));
-        if (!hasArrayParameter && !hasRent)
-            return new(method, member, [], [], IsComplete: true);
-
-        if (!context.Blocks.IsComplete)
-            return new(method, member, [], [], IsComplete: false);
-
-        ReachingDefinitionsResult reaching =
-            ReachingDefinitions.Analyze(
-                context.Instructions,
-                method.ParameterTypes.Length
-                    + (method.IsStatic ? 0 : 1));
-        if (!reaching.IsComplete)
-            return new(method, member, [], [], IsComplete: false);
-
-        IReadOnlyDictionary<int, DirectCall> calls =
-            directCalls
-                .Where(IsDirectInvocation)
-                .ToDictionary(
-                    static call => call.ILOffset);
-        IReadOnlyDictionary<int, MemberRef> members =
-            calls.ToDictionary(
-                static pair => pair.Key,
-                static pair => pair.Value.Callee);
-        var ignoredCandidates =
-            ImmutableArray.CreateBuilder<LeakTriageCandidate>();
-        ImmutableArray<ArrayPoolUseClassifier.RentedLocal> rents =
-        [
-            .. ArrayPoolUseClassifier.FindRents(
-                method,
-                context.Instructions.Instructions,
-                context.Blocks,
-                reaching,
-                members,
-                ignoredCandidates),
-        ];
-
-        ImmutableArray<ArrayPoolRentOwnership> rentEvidence =
-        [
-            .. rents.Select(rent =>
-                AnalyzeDefinition(
-                    rent.RentOffset,
-                    rent.Definition,
-                    rent.Slot,
-                    isArgument: false,
-                    context,
-                    reaching,
-                    calls,
-                    members)),
-        ];
-
-        var parameters =
-            ImmutableArray.CreateBuilder<ArrayPoolParameterOwnership>();
-        for (int parameterIndex = 0;
-            parameterIndex < method.ParameterTypes.Length;
-            parameterIndex++)
-        {
-            if (method.ParameterTypes[parameterIndex].Kind
-                != TypeRefKind.SzArray)
-            {
-                continue;
-            }
-
-            int slot = parameterIndex + (method.IsStatic ? 0 : 1);
-            LocalDefinition? definition =
-                reaching.Definitions.SingleOrDefault(candidate =>
-                    candidate.IsArgument
-                    && candidate.Slot == slot
-                    && candidate.Offset == -1);
-            if (definition is null)
-            {
-                parameters.Add(
-                    new ArrayPoolParameterOwnership(
-                        parameterIndex,
-                        [],
-                        IsComplete: false));
-                continue;
-            }
-
-            ArrayPoolRentOwnership flow = AnalyzeDefinition(
-                rentOffset: -1,
-                definition,
-                slot,
-                isArgument: true,
-                context,
-                reaching,
-                calls,
-                members);
-            parameters.Add(
-                new ArrayPoolParameterOwnership(
-                    parameterIndex,
-                    flow.Uses,
-                    flow.IsComplete));
-        }
-
         return new(
-            method,
-            member,
-            rentEvidence,
-            parameters.ToImmutable(),
-            IsComplete: ignoredCandidates.Count == 0);
+            evidence.Method,
+            evidence.Member,
+            [
+                .. evidence.Acquisitions
+                    .Where(static acquisition =>
+                        acquisition.ResourceKind.Identity
+                            == ArrayPoolResourceEffectModel.BufferKind)
+                    .Select(static acquisition =>
+                        new ArrayPoolRentOwnership(
+                            acquisition.AcquisitionOffset,
+                            [
+                                .. acquisition.Uses.Select(
+                                    use => ProjectUse(
+                                        use,
+                                        acquisition.ResourceKind)),
+                            ],
+                            acquisition.IsComplete)),
+            ],
+            [
+                .. evidence.Parameters
+                    .Where(static parameter =>
+                        parameter.ValueType.Kind == TypeRefKind.SzArray)
+                    .Select(static parameter =>
+                        new ArrayPoolParameterOwnership(
+                            parameter.ParameterIndex,
+                            [
+                                .. parameter.Uses.Select(
+                                    use => ProjectUse(
+                                        use,
+                                        resourceKind: null)),
+                            ],
+                            parameter.IsComplete)),
+            ],
+            evidence.IsComplete);
     }
 
-    static bool IsDirectInvocation(DirectCall call) =>
-        call.Kind is CallKind.Call
-            or CallKind.CallVirtual
-            or CallKind.NewObject;
-
-    static ArrayPoolRentOwnership AnalyzeDefinition(
-        int rentOffset,
-        LocalDefinition definition,
-        int slot,
-        bool isArgument,
-        MethodBodyAnalysisContext context,
-        ReachingDefinitionsResult reaching,
-        IReadOnlyDictionary<int, DirectCall> calls,
-        IReadOnlyDictionary<int, MemberRef> members)
-    {
-        var uses = ImmutableArray.CreateBuilder<ArrayPoolOwnershipUse>();
-        bool complete = true;
-        foreach (LocalUse use in reaching.UsesOf(definition))
-        {
-            if (use.Address)
+    static ArrayPoolOwnershipUse ProjectUse(
+        ResourceOwnershipUse use,
+        ResolvedResourceKindReference? resourceKind) =>
+        new(
+            use.Kind switch
             {
-                complete = false;
-                continue;
-            }
-
-            ArrayPoolUseClassifier.UseClassification classification =
-                ArrayPoolUseClassifier.ClassifyUse(
-                    context.Instructions.Instructions,
-                    members,
-                    use.Offset,
-                    slot,
-                    isArgument: isArgument);
-            switch (classification.Kind)
-            {
-                case ArrayPoolUseClassifier.UseKind.Release:
-                    uses.Add(
-                        new(
-                            ArrayPoolOwnershipUseKind.ReturnedToPool,
-                            classification.OperationOffset));
-                    break;
-                case ArrayPoolUseClassifier.UseKind.Store:
-                    uses.Add(
-                        new(
-                            ArrayPoolOwnershipUseKind.Stored,
-                            classification.OperationOffset));
-                    break;
-                case ArrayPoolUseClassifier.UseKind.Return:
-                    uses.Add(
-                        new(
-                            ArrayPoolOwnershipUseKind.ReturnedToCaller,
-                            classification.OperationOffset));
-                    break;
-                case ArrayPoolUseClassifier.UseKind.Forward:
-                    if (calls.TryGetValue(
-                            classification.OperationOffset,
-                            out DirectCall? call)
-                        && classification.ParameterIndex >= 0)
-                    {
-                        uses.Add(
-                            new(
-                                ArrayPoolOwnershipUseKind.Forwarded,
-                                classification.OperationOffset,
-                                call,
-                                classification.ParameterIndex));
-                    }
-                    else
-                    {
-                        complete = false;
-                    }
-                    break;
-                case ArrayPoolUseClassifier.UseKind.LocalUse:
-                    break;
-                default:
-                    complete = false;
-                    break;
-            }
-        }
-
-        return new(
-            rentOffset,
-            uses
-                .OrderBy(static use => use.ILOffset)
-                .ThenBy(static use => use.Kind)
-                .ToImmutableArray(),
-            complete);
-    }
+                ResourceOwnershipUseKind.Released
+                    when resourceKind?.Identity
+                            == ArrayPoolResourceEffectModel.BufferKind
+                        || use.Effect?.ResourceKinds.Any(kind =>
+                            kind.Identity
+                                == ArrayPoolResourceEffectModel.BufferKind)
+                            == true =>
+                    ArrayPoolOwnershipUseKind.ReturnedToPool,
+                ResourceOwnershipUseKind.Stored =>
+                    ArrayPoolOwnershipUseKind.Stored,
+                ResourceOwnershipUseKind.ReturnedToCaller =>
+                    ArrayPoolOwnershipUseKind.ReturnedToCaller,
+                _ => ArrayPoolOwnershipUseKind.Forwarded,
+            },
+            use.ILOffset,
+            use.Call,
+            use.CalleeParameterIndex);
 }

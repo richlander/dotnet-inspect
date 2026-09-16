@@ -1,4 +1,5 @@
 using System.Buffers;
+using DeclaredOwnership;
 
 namespace Ownership;
 
@@ -202,6 +203,32 @@ public static class Entry
             + readOnlyMemory.Slice(1, 2).Span.Length;
         ArrayPool<byte>.Shared.Return(buffer);
         return length;
+    }
+
+    public static int HoldDistinctResources()
+    {
+        byte[] declared = DeclaredResourceApi.Acquire();
+        byte[] pooled = ArrayPool<byte>.Shared.Rent(16);
+        byte[] ordinary = new byte[16];
+        DeclaredResourceApi.Release(declared);
+        ArrayPool<byte>.Shared.Return(pooled);
+        return ordinary.Length;
+    }
+
+    public static int RentTwiceAndReturn()
+    {
+        byte[] first = ArrayPool<byte>.Shared.Rent(16);
+        byte[] second = ArrayPool<byte>.Shared.Rent(32);
+        ArrayPool<byte>.Shared.Return(first);
+        ArrayPool<byte>.Shared.Return(second);
+        return first.Length + second.Length;
+    }
+
+    public static int RentAndReturnToDifferentPool()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ArrayPool<byte>.Create().Return(buffer);
+        return buffer.Length;
     }
 
     public static BindingOutcome BindOccurrenceReferences()

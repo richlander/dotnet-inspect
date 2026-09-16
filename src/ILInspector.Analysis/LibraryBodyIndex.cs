@@ -128,7 +128,8 @@ public sealed class LibraryBodyIndex
             analysis.Methods.NonHeapNewObjOperandTokens;
         Features = features;
         _leakTriage = analysis.Resources.LeakTriage;
-        ArrayPoolOwnership = analysis.OwnershipFlow.Methods;
+        ResourceOwnership = analysis.OwnershipFlow.Methods;
+        ArrayPoolOwnership = analysis.OwnershipFlow.ArrayPoolMethods;
         _declaredSources = analysis.Methods.DeclaredSources;
     }
 
@@ -215,8 +216,16 @@ public sealed class LibraryBodyIndex
     public LibraryBodyAnalysisFeatures Features { get; }
 
     /// <summary>
-    /// Compact per-method ArrayPool ownership summaries produced during the
-    /// body walk. No IL or control-flow state is retained.
+    /// Compact per-method resource ownership summaries produced from resolved
+    /// effects and the body-local flow walk. No IL or control-flow state is
+    /// retained.
+    /// </summary>
+    public ImmutableArray<ResourceOwnershipMethodEvidence>
+        ResourceOwnership { get; }
+
+    /// <summary>
+    /// Compatibility projection of <see cref="ResourceOwnership"/> for
+    /// ArrayPool-specific Research consumers pending their focused migration.
     /// </summary>
     public ImmutableArray<ArrayPoolOwnershipMethodEvidence>
         ArrayPoolOwnership { get; }
@@ -1180,7 +1189,8 @@ public sealed class LibraryBodyIndex
                         new HashSet<int>(),
                     ExceptionTypeNames:
                         new HashSet<string>(StringComparer.Ordinal)),
-                OwnershipFlow: new(Methods: []),
+                OwnershipFlow: new(Methods: [], ArrayPoolMethods: []),
+                OwnershipFlowInputs: [],
                 Resources: new(LeakTriage: null),
                 Diagnostics: diagnostics.IsDefault ? [] : diagnostics),
             features: LibraryBodyAnalysisFeatures.MethodEvidence
@@ -1205,7 +1215,40 @@ public sealed class LibraryBodyIndex
         LibraryBodyAnalysisFeatures features,
         IAssemblyReferenceResolver? resolver = null,
         IReadOnlySet<int>? bodyScope = null,
+        Func<TypeRef, bool>? bodyTypeScope = null) =>
+        OpenCore(
+            path,
+            features,
+            resolver,
+            bodyScope,
+            bodyTypeScope,
+            resourceEffects: null);
+
+    internal static LibraryBodyIndex OpenWithResourceEffects(
+        string path,
+        LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver,
+        ResourceEffectAdmission resourceEffects,
+        IReadOnlySet<int>? bodyScope = null,
         Func<TypeRef, bool>? bodyTypeScope = null)
+    {
+        ArgumentNullException.ThrowIfNull(resourceEffects);
+        return OpenCore(
+            path,
+            features,
+            resolver,
+            bodyScope,
+            bodyTypeScope,
+            resourceEffects);
+    }
+
+    static LibraryBodyIndex OpenCore(
+        string path,
+        LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver,
+        IReadOnlySet<int>? bodyScope,
+        Func<TypeRef, bool>? bodyTypeScope,
+        ResourceEffectAdmission? resourceEffects)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         LibraryBodyAnalysisPlan plan =
@@ -1228,7 +1271,12 @@ public sealed class LibraryBodyIndex
                     imageReader,
                     plan,
                     resolver,
-                    rootSnapshot);
+                    rootSnapshot,
+                    ownershipAssembly: rootSnapshot.Assembly,
+                    ownershipPolicy: resolver is null
+                        ? null
+                        : new AssemblyReferenceBindingPolicy(resolver),
+                    resourceEffects: resourceEffects);
             }
         }
 
@@ -1246,7 +1294,10 @@ public sealed class LibraryBodyIndex
             peReader,
             plan,
             resolver,
-            rootSnapshot: null);
+            rootSnapshot: null,
+            ownershipAssembly: null,
+            ownershipPolicy: null,
+            resourceEffects: resourceEffects);
     }
 
     /// <summary>
@@ -1289,7 +1340,57 @@ public sealed class LibraryBodyIndex
             peReader,
             plan,
             resolver,
-            rootSnapshot);
+            rootSnapshot,
+            ownershipAssembly:
+                rootSnapshot?.Assembly
+                ?? (plan.Includes(
+                        LibraryBodyAnalysisFeatures.OwnershipFlow)
+                    ? CreateRootAssembly(path, reader, image)
+                    : null),
+            ownershipPolicy: resolver is null
+                ? null
+                : new AssemblyReferenceBindingPolicy(resolver),
+            resourceEffects: null);
+    }
+
+    /// <summary>
+    /// Builds an index over caller-owned immutable PE content while preserving
+    /// the acquisition owner's assembly registration and binding policy for
+    /// resolved ownership effects.
+    /// </summary>
+    public static LibraryBodyIndex OpenFromPrefetchedImage(
+        string path,
+        ImmutableArray<byte> image,
+        LibraryBodyAnalysisFeatures features,
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy bindingPolicy,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<TypeRef, bool>? bodyTypeScope = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (image.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A prefetched PE image is required.",
+                nameof(image));
+        }
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        LibraryBodyAnalysisPlan plan =
+            LibraryBodyAnalysisPlan.Create(
+                features,
+                bodyScope,
+                bodyTypeScope);
+        using var peReader = new PEReader(image);
+        return BuildFromReader(
+            path,
+            peReader,
+            plan,
+            resolver: null,
+            rootSnapshot: null,
+            ownershipAssembly: assembly,
+            ownershipPolicy: bindingPolicy,
+            resourceEffects: null);
     }
 
     /// <summary>
@@ -1355,7 +1456,10 @@ public sealed class LibraryBodyIndex
         PEReader peReader,
         LibraryBodyAnalysisPlan plan,
         IAssemblyReferenceResolver? resolver,
-        LibraryBodyRootSnapshot? rootSnapshot)
+        LibraryBodyRootSnapshot? rootSnapshot,
+        ResolvedAssemblyReference? ownershipAssembly,
+        IAssemblyBindingPolicy? ownershipPolicy,
+        ResourceEffectAdmission? resourceEffects)
     {
         if (!peReader.HasMetadata)
             throw new BadImageFormatException($"No managed metadata: {path}");
@@ -1374,11 +1478,80 @@ public sealed class LibraryBodyIndex
                 : rootSnapshot);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
+        if (plan.Includes(
+                LibraryBodyAnalysisFeatures.OwnershipFlow))
+        {
+            ResourceEffectResolutionOutcome resolved;
+            if (!reader.IsAssembly)
+            {
+                resolved = new ResourceEffectResolutionOutcome.Rejected(
+                    ResourceEffectResolutionRejectionKind
+                        .OccurrencePopulationRejected);
+            }
+            else
+            {
+                ownershipAssembly ??= CreateRootAssembly(
+                    path,
+                    reader);
+                ownershipPolicy ??= resolver is null
+                    ? NoResolverAssemblyBindingPolicy.Instance
+                    : new AssemblyReferenceBindingPolicy(resolver);
+                var provisional = new LibraryBodyIndex(
+                    path,
+                    moduleIdentity,
+                    analysis,
+                    plan.Features);
+                resolved = ResourceEffectResolver.Resolve(
+                    ownershipPolicy,
+                    resourceEffects
+                        ?? ArrayPoolResourceEffectModel.Create(),
+                    [
+                        new CatalogCallGraphParticipant(
+                            provisional,
+                            ownershipAssembly),
+                    ]);
+            }
+            ImmutableArray<ResourceOwnershipMethodEvidence> methods =
+                ResourceOwnershipFlow.Analyze(
+                    analysis.OwnershipFlowInputs,
+                    resolved);
+            analysis = analysis with
+            {
+                OwnershipFlow = new(
+                    methods,
+                    ArrayPoolOwnershipProjection.Project(methods)),
+                OwnershipFlowInputs = [],
+            };
+        }
         return new LibraryBodyIndex(
             path,
             moduleIdentity,
             analysis,
             plan.Features);
+    }
+
+    static ResolvedAssemblyReference CreateRootAssembly(
+        string path,
+        MetadataReader reader) =>
+        ResolvedAssemblyReference.Create(
+            AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+            System.IO.Path.GetFullPath(path),
+            () => File.OpenRead(System.IO.Path.GetFullPath(path)),
+            AssemblyResolutionProvenance.Local(
+                "LibraryBodyIndex"));
+
+    static ResolvedAssemblyReference CreateRootAssembly(
+        string path,
+        MetadataReader reader,
+        ImmutableArray<byte> image)
+    {
+        byte[] bytes = ImmutableCollectionsMarshal.AsArray(image)!;
+        return ResolvedAssemblyReference.Create(
+            AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+            System.IO.Path.GetFullPath(path),
+            () => new MemoryStream(bytes, writable: false),
+            AssemblyResolutionProvenance.Local(
+                "LibraryBodyIndex"));
     }
 
     static void ValidateSyntheticEvidenceIdentity(

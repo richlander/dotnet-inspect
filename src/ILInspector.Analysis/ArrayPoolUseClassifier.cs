@@ -108,7 +108,8 @@ static class ArrayPoolUseClassifier
         int loadOffset,
         int slot,
         TypeRef? valueType = null,
-        bool isArgument = false)
+        bool isArgument = false,
+        Func<int, int, bool?>? classifyRelease = null)
     {
         if (!TryFindInstruction(instructions, loadOffset, out int index, out var load)
             || !IsLoadSlotOrAddress(load, slot, isArgument))
@@ -145,11 +146,21 @@ static class ArrayPoolUseClassifier
             {
                 int parameterIndex =
                     callee.ParameterTypes.Length - extra - 1;
-                if (IsArrayPoolReturn(callee)
-                    && parameterIndex == 0)
+                bool? release = classifyRelease is null
+                    ? IsArrayPoolReturn(callee)
+                        && parameterIndex == 0
+                    : classifyRelease(
+                        instruction.Offset,
+                        parameterIndex);
+                if (release == true)
                 {
                     return UseClassification.ReleaseAt(
                         instruction.Offset);
+                }
+                if (release is null)
+                {
+                    return UseClassification.OwnershipTransfer(
+                        "Resource release semantics are incomplete.");
                 }
                 int consumedArguments =
                     callee.ParameterTypes.Length

@@ -101,6 +101,8 @@ public static class FixtureIds
     public const string AnalysisMethodCorrespondenceSurface =
         "analysis.method-correspondence.surface";
     public const string AnalysisOwnershipFlow = "analysis.ownership-flow";
+    public const string AnalysisResourceOwnershipApi =
+        "analysis.resource-ownership-api";
     public const string AnalysisTopLevelAsync = "analysis.top-level-async";
     public const string AnalysisTopLevelClassicAsync = "analysis.top-level-classic-async";
     public const string AnalysisProtobuf = "analysis.protobuf";
@@ -460,6 +462,16 @@ public static class FixtureCatalog
         "ILInspector.Analysis.OwnershipFlowFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "analysis", "ownership-flow");
+
+    public static readonly FixtureDefinition AnalysisResourceOwnershipApi =
+        Fixture(
+            FixtureIds.AnalysisResourceOwnershipApi,
+            "ILInspector.Analysis.ResourceOwnershipApiFixtures",
+            "ILInspector.Analysis.ResourceOwnershipApiFixtures.dll",
+            Boundaries(
+                FixtureBoundary.CrossAssemblyBoundary,
+                FixtureBoundary.CompilerLowering),
+            "analysis", "ownership-flow", "resource-api");
 
     public static readonly FixtureDefinition AnalysisTopLevelAsync = Fixture(
         FixtureIds.AnalysisTopLevelAsync,
@@ -955,6 +967,7 @@ public static class FixtureCatalog
         DiffAsmTarget,
         AnalysisCallerGraphCaller,
         AnalysisOwnershipFlow,
+        AnalysisResourceOwnershipApi,
         AnalysisTopLevelAsync,
         AnalysisTopLevelClassicAsync,
         AnalysisCallerGraphCallerTwin,
@@ -1046,6 +1059,7 @@ public static class FixtureCatalog
             AnalysisCallerGraphTargetV2,
             AnalysisCallerGraphCaller,
             AnalysisOwnershipFlow,
+            AnalysisResourceOwnershipApi,
             AnalysisStringLiterals,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
@@ -1386,6 +1400,7 @@ public static class FixtureCatalog
             "ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures" => "fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures",
             "ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures" => "fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures",
             "ILInspector.Analysis.OwnershipFlowFixtures" => "fixtures/analysis/ILInspector.Analysis.OwnershipFlowFixtures",
+            "ILInspector.Analysis.ResourceOwnershipApiFixtures" => "fixtures/analysis/ILInspector.Analysis.ResourceOwnershipApiFixtures",
             "ILInspector.Analysis.ProtobufFixtures" => "fixtures/analysis/ILInspector.Analysis.ProtobufFixtures",
             "ILInspector.Analysis.RenderFixtures" => "fixtures/analysis/ILInspector.Analysis.RenderFixtures",
             "ILInspector.Analysis.SpoofFixtures" => "fixtures/analysis/ILInspector.Analysis.SpoofFixtures",
