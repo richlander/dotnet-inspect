@@ -124,9 +124,9 @@ export interface EngineWorkerOrdinaryClient {
   readonly catalog: AsyncFacadeGroup<CatalogFacade, CatalogOperationName>;
 }
 
-export const engineWorkerOrdinaryMaximumJsonCharacters = 8_388_608;
+export const engineWorkerOrdinaryMaximumJsonCharacters = 16_777_216;
 export const engineWorkerOrdinaryMaximumNesting = 64;
-export const engineWorkerOrdinaryMaximumCollectionEntries = 262_144;
+export const engineWorkerOrdinaryMaximumCollectionEntries = 524_288;
 
 type JsonPrimitive = null | boolean | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [name: string]: JsonValue };
