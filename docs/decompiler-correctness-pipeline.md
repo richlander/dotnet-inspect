@@ -245,8 +245,9 @@ PR [#6907](https://github.com/richlander/dotnet-inspect/pull/6907), with
 `FinallyReturnTimingTests` as its Release gate. The
 compiler-produced family covers direct and nested writes plus local, argument,
 stack-join, field, ref-return, ref-parameter, constructor, helper-bound,
-copied-carrier, and indirect-destination transfer; supported methods must also
-compile back `Exact`. The dedicated-return control and the existing
+copied-carrier, indirect-destination, and conditional indirect-destination
+transfer; supported methods must also compile back `Exact`. The
+dedicated-return control and the existing
 `IrImporterTests.TryFinallyTwoReturns_SinksBothReturnsIntoTry` plus
 `FidelityGateTests` gate the neighboring safe-inlining boundary. Corpus cards
 remain population evidence; they do not replace these method-level semantic

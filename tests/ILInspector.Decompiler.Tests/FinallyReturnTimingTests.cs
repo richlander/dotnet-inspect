@@ -258,6 +258,60 @@ public class FinallyReturnTimingTests
     }
 
     [Fact]
+    public void ConditionalIndirectCarrierAliasReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunConditionalIndirectCarrierAlias(
+            useCopy: true,
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunConditionalIndirectCarrierAlias(
+            useCopy: true,
+            loop: true,
+            setValue: false,
+            exit: true));
+        Assert.Equal(10, FinallyReturnTimingSample.RunConditionalIndirectCarrierAlias(
+            useCopy: false,
+            loop: true,
+            setValue: true,
+            exit: true));
+
+        using var source = MetadataSource.Open(SampleType.Assembly.Location);
+        IrFunction function = Assert.IsType<IrFunction>(IrImporter.Import(
+            source,
+            SampleType.FullName!,
+            nameof(FinallyReturnTimingSample.RunConditionalIndirectCarrierAlias)));
+        StoreIndirect indirect = Assert.Single(
+            function.Descendants.OfType<StoreIndirect>(),
+            store => store.Type?.Name.EndsWith(
+                "RefHolder",
+                StringComparison.Ordinal) == true
+                && store.Address is LoadStackSlot);
+        int destinationSlot = Assert.IsType<LoadStackSlot>(
+            indirect.Address).Slot;
+        StoreStackSlot[] definitions =
+        [
+            .. function.Descendants.OfType<StoreStackSlot>()
+                .Where(store => store.Slot == destinationSlot),
+        ];
+        Assert.Equal(2, definitions.Length);
+        Assert.All(
+            definitions,
+            definition => Assert.IsType<LoadLocalAddress>(
+                definition.Value));
+
+        var result = CSharpPrinter.PrintRaised(
+            function,
+            method => IrImporter.Import(source, method),
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+        string output = Assert.IsType<string>(result.Output)
+            .ReplaceLineEndings("\n");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
     public void NestedReturnUsesOrderedSharedCleanupFacts()
     {
         using var source = MetadataSource.Open(SampleType.Assembly.Location);
@@ -311,9 +365,10 @@ public class FinallyReturnTimingTests
                 or nameof(FinallyReturnTimingSample.RunConstructorAlias)
                 or nameof(FinallyReturnTimingSample.RunHelperAlias)
                 or nameof(FinallyReturnTimingSample.RunCopiedFieldAlias)
-                or nameof(FinallyReturnTimingSample.RunIndirectCarrierAlias));
+                or nameof(FinallyReturnTimingSample.RunIndirectCarrierAlias)
+                or nameof(FinallyReturnTimingSample.RunConditionalIndirectCarrierAlias));
 
-        Assert.Equal(11, results.Count);
+        Assert.Equal(12, results.Count);
         Assert.All(results, result =>
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
     }

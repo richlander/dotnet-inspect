@@ -392,6 +392,45 @@ public static class FinallyReturnTimingSample
         return result;
     }
 
+    public static int RunConditionalIndirectCarrierAlias(
+        bool useCopy,
+        bool loop,
+        bool setValue,
+        bool exit)
+    {
+        int result = 0;
+        int other = 0;
+        scoped RefHolder holder = new(ref result);
+        scoped RefHolder copy = new(ref other);
+        scoped RefHolder spare = new(ref other);
+        ref RefHolder destination = ref (
+            useCopy ? ref copy : ref spare);
+        destination = holder;
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            copy.Value += 100;
+        }
+
+    Done:
+        return result;
+    }
+
     static ref int Select(bool first, ref int left, ref int right)
         => ref first ? ref left : ref right;
 

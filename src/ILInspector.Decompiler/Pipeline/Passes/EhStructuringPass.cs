@@ -1104,7 +1104,8 @@ public sealed partial class EhStructuringPass : IIrPass
             if (ancestor is TryFinally tryFinally
                 && IsDescendantOf(leave, tryFinally.TryBody)
                 && !IsDescendantOf(target, tryFinally)
-                && (MayWritePlace(
+                && (aliases.HasUnresolvedIndirectDestination
+                    || MayWritePlace(
                         tryFinally.FinallyBody,
                         returned.Index,
                         returned.IsArgument,
@@ -1130,7 +1131,8 @@ public sealed partial class EhStructuringPass : IIrPass
             HashSet<int> Locals,
             HashSet<int> Arguments,
             HashSet<int> StackSlots,
-            List<ByRefFieldAlias> Fields) aliases)
+            List<ByRefFieldAlias> Fields,
+            bool HasUnresolvedIndirectDestination) aliases)
     {
         if (function.ExceptionFlow is not
             InstructionExceptionFlowResult<
@@ -1146,6 +1148,12 @@ public sealed partial class EhStructuringPass : IIrPass
                             Kind: InstructionNormalTransferKind.Leave,
                         } transfer,
                     })
+        {
+            return true;
+        }
+
+        if (transfer.CleanupHandlers.Length > 0
+            && aliases.HasUnresolvedIndirectDestination)
         {
             return true;
         }
@@ -1231,7 +1239,8 @@ public sealed partial class EhStructuringPass : IIrPass
         HashSet<int> Locals,
         HashSet<int> Arguments,
         HashSet<int> StackSlots,
-        List<ByRefFieldAlias> Fields) ByRefAliases(
+        List<ByRefFieldAlias> Fields,
+        bool HasUnresolvedIndirectDestination) ByRefAliases(
         IrFunction function,
         BlockContainer root,
         int index,
@@ -1287,6 +1296,17 @@ public sealed partial class EhStructuringPass : IIrPass
             {
                 if (ReferenceOwnership.IsInsideNestedFunctionBody(store))
                     continue;
+
+                if (stackSlotAliases.Contains(store.Slot))
+                {
+                    changed |= AddWritableCarrierAlias(
+                        function,
+                        store.Value,
+                        localAliases,
+                        argumentAliases,
+                        stackSlotAliases,
+                        fieldAliases);
+                }
 
                 if (AliasesPlace(
                     function,
@@ -1399,7 +1419,31 @@ public sealed partial class EhStructuringPass : IIrPass
         }
         while (changed);
 
-        return (localAliases, argumentAliases, stackSlotAliases, fieldAliases);
+        bool hasUnresolvedIndirectDestination = root.Descendants
+            .OfType<StoreIndirect>()
+            .Any(store =>
+                !ReferenceOwnership.IsInsideNestedFunctionBody(store)
+                && AliasesPlace(
+                    function,
+                    store.Value,
+                    index,
+                    isArgument,
+                    localAliases,
+                    argumentAliases,
+                    stackSlotAliases,
+                    fieldAliases)
+                && !WritableCarrierDestinationIsResolved(
+                    function,
+                    root,
+                    store.Address,
+                    []));
+
+        return (
+            localAliases,
+            argumentAliases,
+            stackSlotAliases,
+            fieldAliases,
+            hasUnresolvedIndirectDestination);
     }
 
     static bool AliasesPlace(
@@ -1480,6 +1524,76 @@ public sealed partial class EhStructuringPass : IIrPass
         }
 
         return changed;
+    }
+
+    static bool WritableCarrierDestinationIsResolved(
+        IrFunction function,
+        BlockContainer root,
+        IrExpression value,
+        HashSet<int> resolvingSlots)
+    {
+        if (!IsWritableCarrierReference(function, value.ResultType))
+            return false;
+
+        if (value is LoadLocal
+            or LoadLocalAddress
+            or LoadArgument
+            or LoadArgumentAddress
+            or LoadField
+            or LoadFieldAddress)
+        {
+            return true;
+        }
+
+        if (value is LoadStackSlot slot)
+        {
+            if (!resolvingSlots.Add(slot.Slot))
+                return false;
+
+            bool found = false;
+            foreach (StoreStackSlot store in root.Descendants
+                .OfType<StoreStackSlot>())
+            {
+                if (store.Slot != slot.Slot
+                    || ReferenceOwnership.IsInsideNestedFunctionBody(store))
+                {
+                    continue;
+                }
+
+                found = true;
+                if (!WritableCarrierDestinationIsResolved(
+                        function,
+                        root,
+                        store.Value,
+                        resolvingSlots))
+                {
+                    resolvingSlots.Remove(slot.Slot);
+                    return false;
+                }
+            }
+
+            resolvingSlots.Remove(slot.Slot);
+            return found;
+        }
+
+        bool foundChild = false;
+        foreach (IrExpression child in value.Children.OfType<IrExpression>())
+        {
+            if (!IsWritableCarrierReference(function, child.ResultType))
+                continue;
+
+            foundChild = true;
+            if (!WritableCarrierDestinationIsResolved(
+                    function,
+                    root,
+                    child,
+                    resolvingSlots))
+            {
+                return false;
+            }
+        }
+
+        return foundChild;
     }
 
     static bool AddFieldAlias(
