@@ -1081,6 +1081,51 @@ public partial class CommandExecutionTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task Member_PerformanceCategory_DoesNotSelectCloneCandidates()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(CostOverlayFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(CostOverlayFixture.Caller)}:1",
+            "-S",
+            SectionCategoryNames.Performance,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Cost Facts", output);
+        Assert.DoesNotContain("## Clone Candidates", output);
+    }
+
+    [Theory]
+    [InlineData("@Calls")]
+    [InlineData("@Source")]
+    [InlineData("@Audit")]
+    public async Task Member_OverloadDomainCategory_PreservesInventoryRoute(
+        string category)
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded),
+            "-S",
+            category,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(
+            "requires a single selected overload",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("@All")]
     [InlineData("@Default")]

@@ -7946,7 +7946,7 @@ public class SectionPipelineTests
         }
 
         Assert.Equal(
-            [SectionNames.MemberIndex],
+            [SectionNames.MemberIndex, SectionNames.CloneCandidates],
             Uncategorized(broad));
         Assert.Equal(
             [
@@ -7954,10 +7954,11 @@ public class SectionPipelineTests
                 SectionNames.MemberIndex,
                 SectionNames.CustomAttributes,
                 SectionNames.FindingCensus,
+                SectionNames.CloneCandidates,
             ],
             Uncategorized(overload));
         Assert.Equal(
-            [SectionNames.FindingCensus],
+            [SectionNames.FindingCensus, SectionNames.CloneCandidates],
             Uncategorized(detail));
     }
 

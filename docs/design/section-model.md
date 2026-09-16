@@ -588,16 +588,17 @@ The member command's current authored ownership is:
 | `@Audit` | `Unsafe Members`, `Unsafe Operations`, `Safety Facts`, `Semantics Overlay` |
 | `@Calls` | `Called Types`, `Calls`, `Callers`, `Call Graph` |
 | `@Decompiler` | `Decompiled Source`, `Annotated Source`, `Annotated Source Document`, `Fidelity Causes`, `Applied Taste`, `Cost Overlay`, `Semantics Overlay`, `Facts`, `Exception Regions`, `IL` |
-| `@Performance` | `Allocation Facts`, `Cost Facts`, `Cost Overlay`, `Body Shapes`, `Body Shape Summary`, `Clone Candidates`, `Top Leverage`, `Performance Triage` |
+| `@Performance` | `Allocation Facts`, `Cost Facts`, `Cost Overlay`, `Body Shapes`, `Body Shape Summary`, `Top Leverage`, `Performance Triage` |
 | `@Source` | `Decompiled Source`, `Annotated Source`, `PDB Source`, `Source Diff`, `IL` |
 | `@SourceLink` | `Source Files`, `Source Locations` |
 
 `@Member` is the base category; the remaining categories are domains.
 `Member Index` and `Finding Census` remain exact-name sections: their focused
 selector and indivisible-document contracts are not coherent promises for a
-broader category. On an overload inventory, `Signature` and
-`Custom Attributes` also remain exact-name sections because both require one
-selected overload.
+broader category. `Clone Candidates` also remains exact-name-only because its
+cross-member comparison does not compose with partial category selection. On
+an overload inventory, `Signature` and `Custom Attributes` remain exact-name
+sections because both require one selected overload.
 
 ## Registration invariants
 
@@ -610,8 +611,8 @@ The section pipeline and derived catalog gates enforce these invariants:
    selectable library section is categorized except the explicitly pinned
    standalone `Unsafe Members` and coordinate-gated `Body Shapes` sections.
    Every selectable member section is categorized except the explicitly pinned
-   `Member Index` and `Finding Census` sections and overload-inventory
-   `Signature` and `Custom Attributes` sections. Gates:
+   `Member Index`, `Finding Census`, and `Clone Candidates` sections and
+   overload-inventory `Signature` and `Custom Attributes` sections. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
    `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles`.

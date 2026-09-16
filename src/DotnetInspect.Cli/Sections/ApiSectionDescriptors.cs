@@ -652,7 +652,6 @@ public static class ApiMemberSectionPipelines
         SectionNames.CostOverlay,
         SectionNames.BodyShapes,
         SectionNames.BodyShapeSummary,
-        SectionNames.CloneCandidates,
         SectionNames.TopLeverage,
         SectionNames.PerformanceTriage,
     ];

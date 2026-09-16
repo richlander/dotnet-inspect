@@ -1359,7 +1359,7 @@ public static class MemberCommand
                 .ToList();
             return sections.Count > 0;
         }
-        if (options.IncludeSections is not { Count: > 0 } includeSections)
+        if (options.IncludeSections is not { Count: > 0 })
             return false;
         // Bare -S carries no selector value, so it cannot be recognized by inspecting Select.
         if (!options.MemberSectionsPreResolved
@@ -1367,8 +1367,13 @@ public static class MemberCommand
                 || IsPureSelector(options.Select, SelectResolver.AllSelector)))
             return false;
 
+        IReadOnlySet<string>? exactIncludeSections =
+            options.ExactIncludeSections;
+        if (exactIncludeSections is null)
+            return false;
+
         sections = SingleOverloadSectionNames
-            .Where(includeSections.Contains)
+            .Where(exactIncludeSections.Contains)
             .ToList();
         return sections.Count > 0;
     }
