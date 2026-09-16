@@ -78,13 +78,15 @@ or a navigation state store.
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | Snapshot installation, history, focus, announcement, and acknowledgement |
 | [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) | Spotlight opening, modal behavior, keyboard interaction, and search-scope presentation |
 
-PR
-[#7223](https://github.com/richlander/dotnet-inspect/pull/7223)
-provides a related CLI cardinality analogue, not a dependency or Browser
-owner. This contract keeps the same distinctions: the active Workspace may
-contain many observations, Type is one result identity family, locator
-answers remain vectors for zero, one, and many candidates, and explicit row
-selection creates a separate scalar Navigation intent.
+The [command transition model's location and result
+cardinality](command-transition-model.md#location-and-result-cardinality),
+established by
+[#7223](https://github.com/richlander/dotnet-inspect/pull/7223),
+provides a related CLI analogue, not a dependency or Browser owner. This
+contract keeps the same distinctions: the active Workspace may contain many
+observations, Type is one result identity family, locator answers remain
+vectors for zero, one, and many candidates, and explicit row selection creates
+a separate scalar Navigation intent.
 
 ## Active-Workspace operation
 
