@@ -135,6 +135,12 @@ Spotlight's captured activation basis. It validates that all three name the
 same active Workspace, population occurrence, Library registration, and, for
 a Type action, structured definition.
 
+Before publication, the owner admits a strictly newer result generation and
+issues authority for that generation. Admitting a newer generation retires
+the prior action table even when the new result publishes no actions. Older,
+duplicate, or late generation authority is stale and cannot replace the
+newer table.
+
 The closed publication outcomes are:
 
 - **Published** — one opaque current-result action was issued;
@@ -167,6 +173,13 @@ and active realization are current. Result replacement, realization
 replacement, or host close retires the table entry and releases its retained
 association. Publication does not hold a realization operation lease while a
 person considers a row.
+
+The action table retains only detached identity and weak handles for live
+declaration context, group, and participant authority. The active Workspace
+remains the lifetime owner. Publication verifies that the declaration context
+is still admitted, and execution repeats that check after operation admission;
+a released context settles as typed unavailable evidence rather than escaping
+as a disposal exception.
 
 Dispatch enters the exact active realization through
 `BrowserWorkspaceRealizationHost` operation admission. It validates the
@@ -248,6 +261,9 @@ Release managed gates must prove:
 - equal labels and coordinates do not merge distinct observations;
 - stale result and active-realization authority invoke no bound operation and
   install no effect;
+- newer empty results retire prior actions, and late older generations cannot
+  publish over newer result authority;
+- canceled execution and declaration-context release remain typed non-success;
 - unavailable, ambiguous, refused, forwarder, malformed-Metadata, and
   participant-failure paths remain typed;
 - successful and failed detached outcomes do not retain live acquisition or
