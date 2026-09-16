@@ -545,12 +545,12 @@ whitespace. API scope (`--all`) remains admitted; post-service filters,
 presentation controls, and non-API or multi-Library operations are not admitted
 with `--envelope`. Explicitly projected JSON preserves its prior view.
 
-Complete Browser baseline transport and subject-command cutover remain
-explicit adoption work in the
+The [Browser owner](inspect-web-library-api-diff.md#managed-composition)
+delivers the same complete baseline beside its existing selected-inventory
+projection, using the canonical Content serializer. Subject-command cutover
+remains explicit adoption work in the
 [subject-owned Diff plan](command-transition-model.md#subject-owned-diff).
-Browser's current selected-inventory projection is unchanged and is not
-relabeled as complete envelope delivery. House acquisition and optional
-Evidence capture remain separate.
+House acquisition and optional Evidence capture remain separate.
 
 ### Browser consumer and remaining delivery
 
@@ -580,9 +580,9 @@ case is marked Slow; deterministic fixture cases remain PR-fast.
 
 The selected-Library query and Metadata bounds suites retain their own
 extraction gates. The existing Browser adopter calls the shared terminal and
-unwraps the available Document in its bounded wire projection.
+retains its complete baseline beside the bounded wire projection.
 `BrowserLibraryApiDiffOperationTests` gates that consumer's complete changed-Type
-inventory, unchanged serialized shape, empty and typed non-success cases, and
-bound rejection. Browser operation/lifetime and UI navigation remain governed
+inventory, baseline serialization, empty and typed non-success cases, and
+whole-result bound rejection. Browser operation/lifetime and UI navigation remain governed
 and gated by the [Browser owner](inspect-web-library-api-diff.md); this content
 adoption does not redefine them.

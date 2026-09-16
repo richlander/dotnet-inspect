@@ -128,6 +128,24 @@ function succeeded(
     error: null,
     diagnostic: null,
     reason: null,
+    inspection: inspection(),
+  };
+}
+
+function inspection(
+  content: unknown = { outcome: "available", document: {} },
+): NonNullable<BrowserLibraryApiDiffResult["inspection"]> {
+  const share = {
+    kind: "nonProjectable",
+    path: "comparison/endpoints",
+    reason: "Ordered endpoints are not shareable.",
+    fullUrl: null,
+    packet: null,
+  };
+  return {
+    content,
+    share,
+    diagnostics: [],
   };
 }
 
@@ -280,6 +298,110 @@ test("malformed success is recoverable and cannot enter ready rendering", async 
   coordinator.retry(active);
   await Promise.resolve();
   assert.equal(state.libraryApiDiff.status, "ready");
+});
+
+test("missing or contradictory baselines cannot publish a successful comparison", async () => {
+  const result = succeeded("1.0.0");
+  const { inspection: _omitted, ...withoutInspection } = result;
+  for (const malformed of [
+    withoutInspection,
+    { ...result, inspection: null },
+    {
+      ...result,
+      inspection: inspection({
+        outcome: "unavailable", kind: 0, before: {}, after: {},
+      }),
+    },
+    { ...result, inspection: { ...inspection(), diagnostics: null } },
+    { ...result, inspection: { ...inspection(), share: null } },
+  ]) {
+    const state: LibraryApiDiffStateHost = {
+      libraryApiDiff: { status: "idle" },
+    };
+    const coordinator = createLibraryApiDiffCoordinator({
+      state,
+      operationAuthority: createOperationAuthorityPage(),
+      query: () => Promise.resolve(malformed),
+      cancel: () => undefined,
+      describeError: String,
+      reportOperationDiagnostic: () => undefined,
+      render: () => undefined,
+    });
+    coordinator.reconcile(selection({}));
+    await Promise.resolve();
+    assert.equal(state.libraryApiDiff.status, "failed");
+  }
+});
+
+test("ready state retains the baseline and conditionally discloses ordered diagnostics", async () => {
+  const baseline = {
+    ...inspection(),
+    diagnostics: [
+      { code: "first", severity: 1, summary: "<warning>", correspondence: "T:Widget" },
+      { code: "second", severity: 0, summary: "information", correspondence: null },
+    ],
+  };
+  const result = { ...succeeded("1.0.0"), inspection: baseline };
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => Promise.resolve(result),
+    cancel: () => undefined,
+    describeError: String,
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  coordinator.reconcile(selection({}));
+  await Promise.resolve();
+  assert.equal(state.libraryApiDiff.status, "ready");
+  if (state.libraryApiDiff.status !== "ready")
+    throw new Error("Expected ready state.");
+  assert.equal(state.libraryApiDiff.result.inspection, baseline);
+  const html = renderLibraryApiDiff(
+    state.libraryApiDiff,
+    text => String(text).replaceAll("<", "&lt;").replaceAll(">", "&gt;"),
+  );
+  assert.match(html, /Inspection diagnostics \(2\)/);
+  assert.match(html, /Warning first: &lt;warning&gt; \(T:Widget\)/);
+  assert.ok(html.indexOf("first") < html.indexOf("second"));
+  assert.doesNotMatch(
+    renderLibraryApiDiff({ ...state.libraryApiDiff, result: succeeded("1.0.0") }, String),
+    /Inspection diagnostics/,
+  );
+});
+
+test("transport rejection has no partial baseline", async () => {
+  for (const baseline of [null, inspection()]) {
+    const result: BrowserLibraryApiDiffResult = {
+      ...succeeded("1.0.0"),
+      kind: "Rejected",
+      value: null,
+      inspection: baseline,
+      rejected: {
+        kind: "CollectionEntryLimitExceeded",
+        target: null,
+        current: null,
+        bound: 262144,
+        observed: 262145,
+      },
+    };
+    const state: LibraryApiDiffStateHost = { libraryApiDiff: { status: "idle" } };
+    const coordinator = createLibraryApiDiffCoordinator({
+      state,
+      operationAuthority: createOperationAuthorityPage(),
+      query: () => Promise.resolve(result),
+      cancel: () => undefined,
+      describeError: String,
+      reportOperationDiagnostic: () => undefined,
+      render: () => undefined,
+    });
+    coordinator.reconcile(selection({}));
+    await Promise.resolve();
+    assert.equal(state.libraryApiDiff.status, baseline === null ? "ready" : "failed");
+  }
 });
 
 test("leaving Compare cancels delayed work and suppresses its completion", async () => {
@@ -444,6 +566,9 @@ test("unavailable rendering discloses retained endpoint failure evidence", () =>
   const result: BrowserLibraryApiDiffResult = {
     ...succeeded("1.0.0"),
     kind: "Unavailable",
+    inspection: inspection({
+      outcome: "unavailable", kind: 0, before: {}, after: {},
+    }),
     value: null,
     unavailable: {
       kind: "TargetIncomplete",
