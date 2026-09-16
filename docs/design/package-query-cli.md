@@ -46,11 +46,11 @@ canary.
 
 The focused CLI adoption binds a deliberately smaller initial vocabulary:
 the broad .NET tool facet and its CLI v1/v2 alternatives. Other Browser facets
-are not automatically CLI surface. Assembly-semantic `find` is no longer a
-Package Query tier: its population composition and occurrence-result meaning
-are owned by
-[Find assembly-semantic query](find-assembly-semantic-query.md), while the
-one-candidate evaluator remains in
+are not automatically CLI surface. Assembly-semantic qualification is an explicit Package Query mode owned by
+[Package Query library-literal qualification](package-query-library-literal.md).
+Its Results have package grain; decoded literal occurrences remain typed
+evidence within each matched package Result. The one-candidate evaluator
+remains owned by
 [Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md).
 `package query` uses [CLI execution bounds](cli-execution-bounds.md):
 `--take` bounds candidate work and semantic `-n` selects final package rows.
@@ -94,9 +94,9 @@ Related docs:
   clients and manifest acquisition `package query` composes.
 - [Progressive disclosure](progressive-disclosure.md) — owns capability-gated,
   explicit-cost package enrichment.
-- [Find assembly-semantic query](find-assembly-semantic-query.md) — owns the
-  bounded package-population composition for occurrence-shaped Find results;
-  this Package Query owner does not own that route.
+- [Package Query library-literal qualification](package-query-library-literal.md)
+  — owns the bounded package-population composition and package-grain Results
+  for decoded literal qualification.
 - [Inspection graph document](inspection-graph-document.md) — owns the
   relational (`graph integrations`) shape a subset of "wide query" questions
   actually need, instead of this document's flat, per-package row model.
@@ -590,25 +590,30 @@ bound from 200 to 20 before dispatch; the CLI additionally offers
 `--nuspec-only` to reject such a plan before acquisition.
 
 Assembly-semantic escalation is not a `package query --where` tier and does
-not use a future `--deepen` flag. The focused
-[Find assembly-semantic query](find-assembly-semantic-query.md) owns its exact
-package and bounded prefix populations, occurrence rows, completion, and first
-production adoption. `package query` stops at package-content facets.
+not use a future `--deepen` flag. The explicit `--library-literal` gesture is
+owned by
+[Package Query library-literal qualification](package-query-library-literal.md).
+It uses a separate five-candidate ceiling, evaluates the selected primary
+implementation library, and returns package-grain Results with occurrence
+evidence. The occurrence-oriented
+[assembly-semantic evaluator query](find-assembly-semantic-query.md) remains
+the reusable evidence producer beneath that package adapter.
 
 ## Historical assembly-semantic route
 
 This document originally recorded `find --literal` as a promoted Package Query
-tier. The command separation completed by #6768 makes that classification
-obsolete: the route returns decoded body occurrences and candidate execution
-outcomes, not package facet rows.
+tier, then temporarily assigned assembly-semantic presentation to Find. That
+route is retired because Find returns Type Results.
 
-The current exact-package behavior, Match and Candidate row meanings, Count,
-exact Root reopening, and the bounded package-prefix target are now specified
-by [Find assembly-semantic query](find-assembly-semantic-query.md). The
+The current package-grain command behavior, Count, exact Root reopening, and
+bounded exact-ID or prefix population are specified by
+[Package Query library-literal
+qualification](package-query-library-literal.md). The occurrence-oriented
+evaluator contract remains in
+[Find assembly-semantic query](find-assembly-semantic-query.md), and the
 one-candidate selected-asset and producer contract remains in
 [Package Query assembly-pattern
-evaluation](package-query-assembly-evaluation.md). This historical note
-assigns no assembly-semantic responsibility to the `package query` command.
+evaluation](package-query-assembly-evaluation.md).
 
 ## Row declaration: coercing a wide per-package fact set into a Table
 

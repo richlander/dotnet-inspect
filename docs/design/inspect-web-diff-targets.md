@@ -4,7 +4,7 @@ This document owns the browser's Package-scoped Diff baseline inherited while
 navigating within that Package. It does not own comparison execution or
 acquisition authority. The production consumer is the Library Diff experience
 tracked by
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 The target-settings implementation is tracked by
 [#6156](https://github.com/richlander/dotnet-inspect/issues/6156).
 
@@ -106,7 +106,7 @@ comparison, but the manual version field and old result view do not remain.
 The same Browser adoption retires the contextual **Compare method bodies**
 action and Method Body Diff dialog under #6491 while preserving their managed
 exact-pair evidence for an immersive Omni destination.
-Type/Member narrowing and Clone execution remain follow-on work in #5083.
+Type/Member narrowing and Clone execution remain follow-on work in #7213.
 
 The Library API Diff delivery path is the selected-library query (#6128),
 these Package settings, the shared

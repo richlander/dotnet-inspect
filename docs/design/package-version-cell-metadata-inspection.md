@@ -235,9 +235,11 @@ This operation is step 2 of the six-step temporal ownership path:
 
 1. PackageHouse version-population settlement — complete in #7133.
 2. Package version-cell Metadata and explicit API Finding evidence — this owner.
-3. Analysis Finding and focus-reacquisition inspection.
-4. Shared Diff History and metadata-only version-count terminals.
-5. Subject CLI cutover with top-level `timeline` removal.
+3. Exact matched API Member to implementation Analysis — owned by
+   [matched API Member Analysis](matched-api-member-analysis.md).
+4. Bounded PackageHouse source/destination cell-pair Analysis — #7248.
+5. Shared Diff History and metadata-only version-count terminals, followed by
+   subject CLI cutover with top-level `timeline` removal.
 6. Browser Compare and version-count adoption.
 
 The later hosts supply their source authorization and cell executor while

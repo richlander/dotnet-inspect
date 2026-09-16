@@ -8,6 +8,7 @@ public enum NavigationOperationKind
     Initialize,
     Subject,
     Package,
+    RetainedType,
     Lens,
     DescendantLens,
     Maintenance,
@@ -18,6 +19,7 @@ public enum NavigationOutcomeKind
 {
     Applied,
     Unavailable,
+    Ambiguous,
     Rejected,
     Failed,
     Superseded,
@@ -41,6 +43,7 @@ public enum NavigationRejectionKind
     InvalidAction,
     ForeignWorkspace,
     ForeignOccurrence,
+    ForeignLibrary,
     NonDescendant,
     Registry,
 }

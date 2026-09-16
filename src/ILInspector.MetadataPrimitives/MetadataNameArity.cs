@@ -77,6 +77,49 @@ public static class MetadataNameArity
     const int MaxArityDigits = 5;
 
     /// <summary>
+    /// Whether the root-to-leaf metadata-name segments declare exactly
+    /// <paramref name="argumentCount"/> generic parameters.
+    /// </summary>
+    /// <remarks>
+    /// Metadata-verified introduced counts supply arity only for segments whose
+    /// raw metadata name has no canonical suffix. This matches the established
+    /// nested-type rendering rule without treating a malformed suffix as absent.
+    /// </remarks>
+    public static bool MatchesArgumentCount(
+        IReadOnlyList<string> segments,
+        int argumentCount,
+        IReadOnlyList<int>? introducedTypeParameterCounts = null)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+        if (argumentCount < 0)
+            return false;
+
+        bool hasTrustedCounts =
+            introducedTypeParameterCounts is not null
+            && introducedTypeParameterCounts.Count == segments.Count;
+        long declaredCount = 0;
+        for (int index = 0; index < segments.Count; index++)
+        {
+            string segment = segments[index];
+            ArgumentNullException.ThrowIfNull(segment);
+            int declared = OfSegment(segment);
+            if (declared == 0 && segment.Contains('`'))
+                return false;
+            int trusted = hasTrustedCounts
+                ? introducedTypeParameterCounts![index]
+                : declared;
+            if (trusted < 0 || declared > 0 && trusted != declared)
+                return false;
+            int effective = declared == 0 ? trusted : declared;
+            declaredCount += effective;
+            if (declaredCount > argumentCount)
+                return false;
+        }
+
+        return declaredCount == argumentCount;
+    }
+
+    /// <summary>
     /// Reads the canonical generic-arity suffix of one metadata-name segment.
     /// Returns false — leaving <paramref name="arity"/> zero and
     /// <paramref name="simpleNameLength"/> at the full length — when the segment

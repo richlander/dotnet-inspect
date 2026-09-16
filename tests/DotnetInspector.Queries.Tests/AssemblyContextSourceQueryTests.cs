@@ -273,7 +273,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(result);
         Assert.NotNull(unavailable.DecompiledAttempt);
         Assert.Contains(
-            unavailable.DecompiledAttempt.Diagnostics,
+            unavailable.DecompiledAttempt.Projection.Diagnostics,
             diagnostic => diagnostic.Id
                 == DiagnosticIds.MemorySafetyModeUnavailable);
     }
@@ -301,13 +301,11 @@ public sealed partial class AssemblyContextSourceQueryTests
         var unavailable =
             Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(result);
         Assert.Equal(
-            MemberBodyProductionStatus.Failed,
+            CSharpDecompilationStatus.Failed,
             unavailable.DecompiledAttempt?.Status);
+        Assert.Null(unavailable.DecompiledAttempt?.Text);
         Assert.Contains(
-            DiagnosticIds.MemorySafetyModeUnavailable,
-            unavailable.DecompiledAttempt?.Text);
-        Assert.Contains(
-            unavailable.DecompiledAttempt!.Failure!.Diagnostics,
+            unavailable.DecompiledAttempt!.Projection.Diagnostics,
             diagnostic => diagnostic.Id
                 == DiagnosticIds.MemorySafetyModeUnavailable);
     }
@@ -493,6 +491,9 @@ public sealed partial class AssemblyContextSourceQueryTests
             nameof(SourceFixture.Describe),
             decompiled.Result.Text,
             StringComparison.Ordinal);
+        Assert.True(decompiled.Result.PdbSupplied);
+        Assert.NotEmpty(decompiled.Result.BodyProjections);
+        Assert.True(decompiled.Result.BodyProjectionsAttempted > 0);
         Assert.True(assembly.Policy.SelectionCount > 0);
     }
 
@@ -537,9 +538,12 @@ public sealed partial class AssemblyContextSourceQueryTests
                 available.Pdb);
             Assert.NotEmpty(host.SymbolRequests);
         }
-        Assert.IsType<
+        var decompiled = Assert.IsType<
             AssemblyMemberDecompiledSourceAttempt.Available>(
                 available.Decompiled);
+        Assert.Equal(allowAdjacentPdbReads, decompiled.Result.PdbSupplied);
+        if (!allowAdjacentPdbReads)
+            Assert.Equal(DecompilerSymbolSource.None, decompiled.Result.Symbols);
     }
 
     [Theory]
@@ -741,6 +745,8 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(
             SourceChecksumVerification.Mismatch,
             pdb.Inspection.ChecksumVerification);
+        Assert.True(decompiled.Result.PdbSupplied);
+        Assert.NotEmpty(decompiled.Result.BodyProjections);
         Assert.Contains(
             nameof(SourceFixture.Describe),
             decompiled.Result.Text,
@@ -793,12 +799,15 @@ public sealed partial class AssemblyContextSourceQueryTests
                 AssemblyMemberDecompiledSourceAttempt.Unavailable>(
                     available.Decompiled);
         Assert.Equal(
-            MemberBodyProductionStatus.Failed,
+            CSharpDecompilationStatus.Failed,
             unavailable.Status);
-        Assert.Contains(
-            "member source unavailable",
-            unavailable.FailureDetail,
-            StringComparison.Ordinal);
+        CSharpBodyProjection body = Assert.Single(
+            unavailable.Result.BodyProjections,
+            projection => projection.Address.Token == metadataToken);
+        Assert.NotEqual(DecompilationFidelity.Full, body.Projection.Fidelity);
+        Assert.NotEmpty(body.Projection.Diagnostics);
+        Assert.All(body.Projection.Diagnostics, diagnostic =>
+            Assert.Contains(diagnostic.ToString(), unavailable.FailureDetail, StringComparison.Ordinal));
         Assert.Null(
             typeof(
                 AssemblyMemberDecompiledSourceAttempt.Unavailable)
@@ -833,9 +842,9 @@ public sealed partial class AssemblyContextSourceQueryTests
             PdbMemberSourceOutcome.PortablePdbUnavailable,
             unavailable.Pdb.Inspection.Outcome);
         Assert.Equal(
-            MemberBodyProductionStatus.Absent,
+            CSharpDecompilationStatus.Absent,
             unavailable.Decompiled.Status);
-        Assert.Null(unavailable.Decompiled.FailureDetail);
+        Assert.NotEmpty(unavailable.Decompiled.FailureDetail);
     }
 
     [Theory]
@@ -1161,10 +1170,69 @@ public sealed partial class AssemblyContextSourceQueryTests
             nameof(SourceFixture),
             decompiled.Text,
             StringComparison.Ordinal);
-        Assert.True(decompiled.Decompilation.Succeeded);
+        Assert.True(decompiled.Decompilation.IsAvailable);
+        Assert.False(decompiled.Decompilation.PdbSupplied);
+        Assert.NotEmpty(decompiled.Decompilation.BodyProjections);
         var failed = Assert.IsType<FindingInspection<string>.Failed>(
             decompiled.PdbAttempt.Lines.Value);
         Assert.Contains("remains unresolved", failed.Error.Reason);
+    }
+
+    [Fact]
+    public async Task DecompilerBudgetRemainsTypedForMemberAndTypeFallback()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var host = QueryHost.WithoutPdb(maxDecompilerBodyProjections: 0);
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([assembly.Participant]);
+
+        var member = Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(
+            await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                group, assembly.Participant,
+                assembly.MemberRequest(nameof(SourceFixture.Describe)), host.Context,
+                TestContext.Current.CancellationToken));
+        var type = Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group, assembly.Participant,
+                assembly.TypeRequest(typeof(SourceFixture).Name), host.Context,
+                TestContext.Current.CancellationToken));
+
+        foreach (CSharpDecompilationAttempt attempt in
+            new[] { member.DecompiledAttempt!, type.DecompiledAttempt! })
+        {
+            Assert.Equal(CSharpDecompilationStatus.Incomplete, attempt.Status);
+            Assert.Equal(0, attempt.BodyProjectionsAttempted);
+            Assert.Null(attempt.Text);
+            Assert.NotEmpty(attempt.Projection.Diagnostics);
+        }
+    }
+
+    [Fact]
+    public async Task DecompilerBudgetDoesNotSuppressAvailableAuthoredSource()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath, SourceFileBytes(), maxDecompilerBodyProjections: 0);
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([assembly.Participant]);
+        AssemblyMemberSourceRequest request = assembly.MemberRequest(nameof(SourceFixture.Describe));
+
+        var source = Assert.IsType<AssemblyMemberSourceEntry.Available>(
+            await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                group, assembly.Participant, request, host.Context,
+                TestContext.Current.CancellationToken));
+        Assert.IsType<AssemblyMemberSource.Pdb>(source.Source);
+
+        var comparison = Assert.IsType<AssemblyMemberSourceComparisonEntry.Available>(
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group, assembly.Participant, request, host.Context,
+                TestContext.Current.CancellationToken));
+        Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(comparison.Pdb);
+        var unavailable = Assert.IsType<AssemblyMemberDecompiledSourceAttempt.Unavailable>(
+            comparison.Decompiled);
+        Assert.Equal(CSharpDecompilationStatus.Incomplete, unavailable.Result.Status);
+        Assert.True(unavailable.Result.PdbSupplied);
+        Assert.NotEmpty(unavailable.FailureDetail);
     }
 
     [Fact]
@@ -3114,7 +3182,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             unavailable.Failure.Kind);
         Assert.NotNull(unavailable.PdbAttempt);
         Assert.NotNull(unavailable.DecompiledAttempt);
-        Assert.False(unavailable.DecompiledAttempt!.Succeeded);
+        Assert.False(unavailable.DecompiledAttempt!.IsAvailable);
     }
 
     [Fact]
@@ -3991,7 +4059,8 @@ public sealed partial class AssemblyContextSourceQueryTests
             IPdbStore? pdbStore = null,
             bool allowLocalSourceReads = false,
             SymbolAcquisitionLimits? symbolAcquisitionLimits = null,
-            bool allowAdjacentPdbReads = false)
+            bool allowAdjacentPdbReads = false,
+            int maxDecompilerBodyProjections = CSharpDecompilerService.DefaultMaxBodyProjections)
         {
             _symbolClient = new HttpClient(symbolHandler);
             _sourceClient = new HttpClient(sourceHandler);
@@ -4012,6 +4081,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                     allowAdjacentPdbReads,
                 SymbolAcquisitionLimits =
                     symbolAcquisitionLimits,
+                MaxDecompilerBodyProjections = maxDecompilerBodyProjections,
             };
             SymbolRequests = symbolHandler.RequestUris;
             SourceRequests = sourceHandler.RequestUris;
@@ -4028,7 +4098,8 @@ public sealed partial class AssemblyContextSourceQueryTests
             string pdbPath,
             byte[] sourceBytes,
             ISourceContentStore? sourceContentStore = null,
-            IPdbStore? pdbStore = null)
+            IPdbStore? pdbStore = null,
+            int maxDecompilerBodyProjections = CSharpDecompilerService.DefaultMaxBodyProjections)
         {
             Assert.True(
                 File.Exists(pdbPath),
@@ -4040,7 +4111,8 @@ public sealed partial class AssemblyContextSourceQueryTests
                         File.ReadAllBytes(pdbPath))),
                 new SourceHandler(sourceBytes),
                 sourceContentStore,
-                pdbStore);
+                pdbStore,
+                maxDecompilerBodyProjections: maxDecompilerBodyProjections);
         }
 
         internal static QueryHost WithPdb(
@@ -4074,13 +4146,15 @@ public sealed partial class AssemblyContextSourceQueryTests
         internal static QueryHost WithoutPdb(
             SymbolAcquisitionLimits? symbolAcquisitionLimits = null,
             bool allowLocalSourceReads = false,
-            bool allowAdjacentPdbReads = false)
+            bool allowAdjacentPdbReads = false,
+            int maxDecompilerBodyProjections = CSharpDecompilerService.DefaultMaxBodyProjections)
             => new(
                 new SymbolPackageHandler(snupkg: null),
                 new SourceHandler(content: null),
                 symbolAcquisitionLimits: symbolAcquisitionLimits,
                 allowLocalSourceReads: allowLocalSourceReads,
-                allowAdjacentPdbReads: allowAdjacentPdbReads);
+                allowAdjacentPdbReads: allowAdjacentPdbReads,
+                maxDecompilerBodyProjections: maxDecompilerBodyProjections);
 
         internal static QueryHost WithPairPdb(
             TestAssembly before,

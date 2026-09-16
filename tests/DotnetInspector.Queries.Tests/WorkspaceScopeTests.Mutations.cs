@@ -375,7 +375,7 @@ public sealed partial class WorkspaceScopeTests
         using var cancellation = new CancellationTokenSource();
         WorkspaceScopeOperationResult.Committed? winner = null;
         WorkspaceScopePreparationDescriptor? preparing = null;
-        Task<WorkspaceScopeOperationResult>? cancellationResult = null;
+        Task<WorkspaceScopeCancellationResult>? cancellationResult = null;
         PackageRootBinding package = Binding("Displaced.Package", onOpen: () =>
         {
             preparing = Assert.IsType<WorkspaceScopePreparationDescriptor>(
@@ -413,7 +413,11 @@ public sealed partial class WorkspaceScopeTests
             Assert.Same(winner.Snapshot, cancelled.Snapshot);
         }
         if (cancellationResult is not null)
-            Assert.Same(result, await cancellationResult);
+        {
+            var settled = Assert.IsType<WorkspaceScopeCancellationResult.Settled>(
+                await cancellationResult);
+            Assert.Same(result, settled.Settlement);
+        }
         Assert.Same(winner.Snapshot, await Current(workspace));
     }
 

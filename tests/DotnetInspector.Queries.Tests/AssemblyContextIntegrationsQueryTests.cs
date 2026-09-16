@@ -6,6 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -707,6 +708,100 @@ public sealed class AssemblyContextIntegrationsQueryTests
             first);
         Assert.IsType<AssemblyIntegrationsEntry.Available>(
             Assert.Single(second.Assemblies));
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    [Fact]
+    public async Task OpportunitiesInspection_ReturnsDetachedReusableEnvelope()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly source = TestAssembly.Create(
+            "ReusableOpportunitiesInspection",
+            "Amazon.S3.AmazonS3Client",
+            policy);
+        InspectionEnvelope<
+            AssemblyIntegrationOpportunitiesInspectionResult> inspection;
+
+        await using (var workspace = new InspectionWorkspace())
+        {
+            using AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup([source.Participant]);
+
+            inspection =
+                AssemblyIntegrationOpportunitiesInspection.Execute(
+                    group,
+                    source.Participant);
+            Assert.True(
+                AssemblyContextIntegrationsQuery.Execute(group).IsComplete);
+        }
+
+        var integrations =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                inspection.Content.Integrations);
+        var opportunities =
+            Assert.IsType<AssemblyIntegrationOpportunitiesEntry.Available>(
+                inspection.Content.Opportunities);
+        Assert.Same(
+            integrations.Subject.Registration,
+            opportunities.Subject.Registration);
+        Assert.Contains(
+            opportunities.Opportunities,
+            opportunity =>
+                opportunity.Integration
+                == EcosystemIntegrationNames.Aspire);
+        InspectionShare.NonProjectable share =
+            Assert.IsType<InspectionShare.NonProjectable>(
+                inspection.Share);
+        Assert.Equal(
+            "assembly-integration-opportunities/share",
+            share.Path);
+        Assert.Empty(inspection.Diagnostics);
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    [Fact]
+    public async Task OpportunitiesInspection_StreamingEnvelopeSurvivesRelease()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly source = TestAssembly.Create(
+            "StreamingOpportunitiesInspection",
+            "Npgsql.NpgsqlConnection",
+            policy);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([source.Participant]);
+        InspectionEnvelope<
+            AssemblyIntegrationOpportunitiesInspectionResult>? callback =
+            null;
+
+        InspectionEnvelope<
+            AssemblyIntegrationOpportunitiesInspectionResult> completed =
+            await AssemblyIntegrationOpportunitiesInspection
+                .ExecuteAndReleaseAsync(
+                    group,
+                    source.Participant,
+                    (retained, inspection) =>
+                    {
+                        Assert.NotNull(retained);
+                        Assert.True(group.RetainedImageBytes > 0);
+                        callback = inspection;
+                        return Task.CompletedTask;
+                    });
+
+        Assert.Same(callback, completed);
+        Assert.Equal(0, group.RetainedImageBytes);
+        Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            completed.Content.Integrations);
+        var opportunities =
+            Assert.IsType<AssemblyIntegrationOpportunitiesEntry.Available>(
+                completed.Content.Opportunities);
+        Assert.Contains(
+            opportunities.Opportunities,
+            opportunity =>
+                opportunity.Integration
+                == EcosystemIntegrationNames.HealthChecks);
         Assert.Equal(1, source.OpenCount);
     }
 

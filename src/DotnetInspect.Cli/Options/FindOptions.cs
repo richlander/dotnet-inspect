@@ -22,8 +22,6 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public string Pattern { get; init; } = "";
 
-    public string? Literal { get; init; }
-
     /// <summary>
     /// Packages to search (name or name@version). Can specify multiple.
     /// </summary>

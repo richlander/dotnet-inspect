@@ -505,22 +505,404 @@ public sealed class InspectionDefinitionV2Tests
     }
 
     [Fact]
-    public void Version2ProjectionToPacketFormat1_IsNonProjectable()
+    public void Version2ProjectionToPacketFormat2_RoundTripsCanonicalRecords()
     {
         var prepared =
             Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version2>(
-                Registry().PrepareScenario("scenario"));
+                Registry(
+                    packageState: new CommittedViewStateDefinition(
+                        "stj",
+                        new PortableSubjectRequest.Package(),
+                        new PortableRetainedSubjectContext.Type(
+                            Library(),
+                            Type("System.Text.Json", "JsonSerializer")),
+                        facet: "package.overview"))
+                    .PrepareScenario("scenario"));
 
         WorkspaceSharePacketProjectionResult result =
             WorkspaceSharePacketTransposer.ToPacket(
                 prepared.Definitions,
                 TestContext.Current.CancellationToken);
 
+        Assert.True(result.Succeeded);
+        WorkspaceSharePacket packet = Assert.IsType<WorkspaceSharePacket>(
+            result.Packet);
+        Assert.Equal(2, packet.FormatVersion);
+        Assert.Equal(0, packet.FocusedTabIndex);
+        Assert.IsType<PortableSubjectRequest.Package>(
+            packet.ViewStates[1].Subject);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            Assert.IsType<PortableRetainedSubjectContext.EscapedType>(
+                packet.ViewStates[1].Context).EscapedTypeIdentity);
+
+        CommittedScenarioDefinitionSet roundTripped =
+            WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                WorkspaceSharePacketCodec.Decode(
+                    WorkspaceSharePacketCodec.Encode(packet),
+                    TestContext.Current.CancellationToken),
+                TestContext.Current.CancellationToken);
+        WorkspaceSharePacketProjectionResult reprojection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                roundTripped,
+                TestContext.Current.CancellationToken);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.Encode(packet),
+            WorkspaceSharePacketCodec.Encode(
+                Assert.IsType<WorkspaceSharePacket>(reprojection.Packet)));
+    }
+
+    [Fact]
+    public void Version2Projection_PreservesWorkspaceSelection()
+    {
+        var prepared =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version2>(
+                Registry(focus: null).PrepareScenario("scenario"));
+
+        WorkspaceSharePacketProjectionResult result =
+            WorkspaceSharePacketTransposer.ToPacket(
+                prepared.Definitions,
+                TestContext.Current.CancellationToken);
+
+        WorkspaceSharePacket packet = Assert.IsType<WorkspaceSharePacket>(
+            result.Packet);
+        Assert.Null(packet.FocusedTabIndex);
+        Assert.Equal(
+            """{"f":2,"t":[["System.Text.Json","10.0.0","net10.0",null]],"g":[[0]],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""",
+            WorkspaceSharePacketCodec.SerializeJson(packet));
+    }
+
+    [Fact]
+    public void Version2Projection_PreservesDormantGroupAndInactivePackageState()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version2,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    "net10.0",
+                    subscribe: ":Platform@10.0.10",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "System.Text.Json",
+                            "10.0.0",
+                            "net10.0"),
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "Microsoft.Extensions.Hosting",
+                            "10.0.0",
+                            "net10.0"),
+                    ]),
+            ]);
+        var navigation = new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version2,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "platform",
+                    subscribe: ":Platform@10.0.10",
+                    framework: "net10.0"),
+                new NavigationTabDefinition(
+                    "json",
+                    coordinate:
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "System.Text.Json",
+                            "10.0.0",
+                            "net10.0")),
+                new NavigationTabDefinition(
+                    "hosting",
+                    coordinate:
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "Microsoft.Extensions.Hosting",
+                            "10.0.0",
+                            "net10.0")),
+            ],
+            "hosting");
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition("platform"),
+                new CommittedViewStateDefinition(
+                    "json",
+                    new PortableSubjectRequest.Workspace(),
+                    new PortableRetainedSubjectContext.Type(
+                        Library(),
+                        Type("System.Text.Json", "JsonSerializer"))),
+                new CommittedViewStateDefinition(
+                    "hosting",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package(),
+                    facet: "package.overview"),
+            ]);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            "scenario",
+            workspace: workspace.Id,
+            context: "context",
+            view: view.Id,
+            navigation: navigation.Id);
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(view);
+        registry.Add(scenario);
+        var prepared =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version2>(
+                registry.PrepareScenario(scenario.Id));
+
+        WorkspaceSharePacketProjectionResult result =
+            WorkspaceSharePacketTransposer.ToPacket(
+                prepared.Definitions,
+                TestContext.Current.CancellationToken);
+
+        WorkspaceSharePacket packet = Assert.IsType<WorkspaceSharePacket>(
+            result.Packet);
+        Assert.Equal(2, packet.FocusedTabIndex);
+        Assert.Null(packet.ViewStates[1].Subject);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            Assert.IsType<PortableRetainedSubjectContext.EscapedType>(
+                packet.ViewStates[2].Context).EscapedTypeIdentity);
+        Assert.IsType<PortableSubjectRequest.Package>(
+            packet.ViewStates[3].Subject);
+
+        string canonical = WorkspaceSharePacketCodec.Encode(packet);
+        CommittedScenarioDefinitionSet roundTripped =
+            WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                packet,
+                TestContext.Current.CancellationToken);
+        WorkspaceSharePacketProjectionResult reprojection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                roundTripped,
+                TestContext.Current.CancellationToken);
+        Assert.Equal(
+            canonical,
+            WorkspaceSharePacketCodec.Encode(
+                Assert.IsType<WorkspaceSharePacket>(reprojection.Packet)));
+    }
+
+    [Fact]
+    public void Version2Projection_QueryStateIsNonProjectable()
+    {
+        WorkspaceDefinition workspace =
+            Workspace(InspectionDefinitionSchema.Version2);
+        CommittedNavigationDefinition navigation = Navigation();
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition(
+                    "stj",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package(),
+                    facet: "package.overview",
+                    queries: ["package-query"]),
+            ]);
+        ScenarioDefinition scenario = Scenario();
+        var definitions = new CommittedScenarioDefinitionSet(
+            scenario,
+            workspace,
+            navigation,
+            view,
+            []);
+
+        WorkspaceSharePacketProjectionResult result =
+            WorkspaceSharePacketTransposer.ToPacket(
+                definitions,
+                TestContext.Current.CancellationToken);
+
         Assert.False(result.Succeeded);
         Assert.Equal(
             WorkspaceSharePacketProjectionFailureKind.NonProjectable,
             result.Failure?.Kind);
-        Assert.Equal("schemaVersion", result.Failure?.Path);
+        Assert.Equal("view.states[1]", result.Failure?.Path);
+    }
+
+    [Fact]
+    public void Version2Projection_AllowsTopologyBeyondFormat1DecodedLimit()
+    {
+        DefinitionMemberCoordinate.PackageCoordinate[] packages =
+        [
+            .. Enumerable.Range(0, WorkspaceSharePacketCodec.MaxTabs)
+                .Select(index =>
+                    new DefinitionMemberCoordinate.PackageCoordinate(
+                        $"Package.{index}",
+                        "1.0.0",
+                        "net11.0")),
+        ];
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version2,
+            "workspace",
+            [new WorkspaceContextDefinition("context", members: packages)]);
+        var navigation = new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version2,
+            "navigation",
+            [
+                .. packages.Select((package, index) =>
+                    new NavigationTabDefinition(
+                        $"t{index}",
+                        coordinate: package)),
+            ],
+            "t0");
+        var longType = new string('A', 1_000);
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                .. packages.Select((_, index) =>
+                    new CommittedViewStateDefinition(
+                        $"t{index}",
+                        new PortableSubjectRequest.Package(),
+                        new PortableRetainedSubjectContext.EscapedType(
+                            new PortableLibraryIdentity(
+                                "Library",
+                                "1.0.0.0",
+                                null,
+                                null),
+                            longType))),
+            ]);
+        ScenarioDefinition scenario = Scenario();
+        var definitions = new CommittedScenarioDefinitionSet(
+            scenario,
+            workspace,
+            navigation,
+            view,
+            []);
+
+        WorkspaceSharePacketProjectionResult result =
+            WorkspaceSharePacketTransposer.ToPacket(
+                definitions,
+                TestContext.Current.CancellationToken);
+
+        WorkspaceSharePacket packet =
+            Assert.IsType<WorkspaceSharePacket>(result.Packet);
+        string json = WorkspaceSharePacketCodec.SerializeJson(packet);
+        Assert.True(
+            json.Length > WorkspaceSharePacketCodec.MaxFormat1DecodedUtf8Length);
+        Assert.True(
+            json.Length <= WorkspaceSharePacketCodec.MaxDecodedUtf8Length);
+    }
+
+    [Fact]
+    public void Version2Projection_InvalidTopologyPrecedesPresentationFailure()
+    {
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version2,
+            "workspace",
+            [new WorkspaceContextDefinition("context", members: [Package()])],
+            title: "Presented workspace");
+        CommittedNavigationDefinition navigation = Navigation();
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition("wrong"),
+            ]);
+        ScenarioDefinition scenario = Scenario();
+        var definitions = new CommittedScenarioDefinitionSet(
+            scenario,
+            workspace,
+            navigation,
+            view,
+            []);
+
+        WorkspaceSharePacketProjectionResult result =
+            WorkspaceSharePacketTransposer.ToPacket(
+                definitions,
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            result.Failure?.Kind);
+        Assert.Equal("scenario", result.Failure?.Path);
+    }
+
+    [Fact]
+    public void Version2Projection_InvalidViewTextPrecedesPresentationFailure()
+    {
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version2,
+            "workspace",
+            [new WorkspaceContextDefinition("context", members: [Package()])],
+            title: "Presented workspace");
+        CommittedNavigationDefinition navigation = Navigation();
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition(
+                    "stj",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.EscapedType(
+                        Library(),
+                        "\uD800")),
+            ]);
+        ScenarioDefinition scenario = Scenario();
+        var definitions = new CommittedScenarioDefinitionSet(
+            scenario,
+            workspace,
+            navigation,
+            view,
+            []);
+
+        WorkspaceSharePacketProjectionResult result =
+            WorkspaceSharePacketTransposer.ToPacket(
+                definitions,
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            result.Failure?.Kind);
+        Assert.Equal("view", result.Failure?.Path);
+    }
+
+    [Fact]
+    public void Version2Projection_InvalidGroupPrecedesNonProjectableGroup()
+    {
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version2,
+            "workspace",
+            [new WorkspaceContextDefinition("context", members: [Package()])],
+            groups: [new CatalogGroupDefinition("bad$name")]);
+        CommittedNavigationDefinition navigation = Navigation();
+        CommittedViewDefinition view = View();
+        ScenarioDefinition scenario = Scenario();
+        var definitions = new CommittedScenarioDefinitionSet(
+            scenario,
+            workspace,
+            navigation,
+            view,
+            []);
+
+        WorkspaceSharePacketProjectionResult result =
+            WorkspaceSharePacketTransposer.ToPacket(
+                definitions,
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.InvalidDefinitionSet,
+            result.Failure?.Kind);
+        Assert.Equal("workspace.groups[0].name", result.Failure?.Path);
     }
 
     [Fact]

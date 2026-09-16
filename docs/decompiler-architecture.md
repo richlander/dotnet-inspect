@@ -18,7 +18,7 @@ retain their contracts:
 | [Decompiler quality](decompiler-quality.md) | Quality strategy, oracle interpretation, and target selection. |
 | [Correctness pipeline](decompiler-correctness-pipeline.md) | Evidence levels, test selection, gates, and change-specific requirements. |
 | [Raise-work discipline](decompiler-raise-discipline.md) | Lowering recognition, ownership proofs, and decline boundaries. |
-| [C# decompiler service](design/csharp-decompiler-service.md) (planned) | The independent producer's explicit symbol input, composition work, and detached result evidence. |
+| [C# decompiler service](design/csharp-decompiler-service.md) | The independent producer's explicit symbol input, composition work, and detached result evidence. |
 | [Harness reference](../tools/DecompilerHarness/README.md) | Diagnostic and measurement commands. |
 
 The named classes and paths below describe current implementation. The ordered
@@ -121,6 +121,16 @@ is the reusable body/member/type composition entry. It adapts recovered body
 facts to CSharp-owned bodies and declaration rendering rather than having each
 host reassemble signatures and bodies.
 
+[`CSharpDecompilerService`](../src/ILInspector.Decompiler/CSharpDecompilerService.cs)
+is the independent producer boundary used by the shared source-query family.
+It accepts a caller-selected assembly, resolved target, binding policy, explicit
+Portable PDB or no-PDB input, options, and a body-projection limit. Type selection
+uses the Metadata-issued `ApiType` TypeDef token and structured definition name
+in that exact input, rather than building a whole-module name index or following
+forwarders. The result retains detached native body projections and their method
+addresses; it does not expose the composer's borrowed IR. Source acquisition
+and fallback remain query-owned.
+
 ## Implementation regions
 
 Paths in this table are relative to
@@ -128,7 +138,7 @@ Paths in this table are relative to
 
 | Region | Responsibility and starting points |
 | --- | --- |
-| Project root | Results and diagnostics (`DecompilerResult`), member/type production (`MemberBodyProducer`), body search, annotated documents, Findings, and C# comparison contracts. |
+| Project root | Results and diagnostics (`DecompilerResult`), independent production (`CSharpDecompilerService`), member/type composition (`MemberBodyProducer`), body search, annotated documents, Findings, and C# comparison contracts. |
 | `Pipeline/` | Metadata sessions, method import, `TypeRef`, `PassContext`, CFG adapters, type/conversion evidence, and stepping. |
 | `Pipeline/Ir/` | `IrNode`/`IrFunction`, stack importer, printer partials, naming, IL projections, runtime invariants, and printed ranges. |
 | `Pipeline/Passes/` | Individual transforms and their ordered registry in `IrPass.cs`; lowering and closure coverage ledgers. |
@@ -278,22 +288,22 @@ dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build --
 
 # Iterate on one pass's positive and decline cases.
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -class ILInspector.Decompiler.Tests.UsingStatementPassTests
+  --filter-class ILInspector.Decompiler.Tests.UsingStatementPassTests
 
 # Run the fidelity area, including its slow tests.
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   --gate fidelity
 ```
 
-The current decompiler host's
+The decompiler host's
 [`Program.cs`](../tests/ILInspector.Decompiler.Tests/Program.cs) expands `--gate`
-before invoking xUnit. `Speed=Slow` is a cost classification; `Area` selects
-functional slices. Area tags are not an exhaustive inventory of all tests.
-The decompiler still uses its transitional native selectors such as `-class`
-and `-trait`; do not assume another suite's MTP filter spelling applies.
-The [test-host migration contract](design/xunit-test-host.md) and
+before invoking MTP. `Speed=Slow` is a cost classification; `Area` selects
+functional slices. Area tags are not an exhaustive inventory of all tests. Use
+MTP's `--filter-class`, `--filter-method`, `--filter-trait`, and
+`--filter-not-trait` options for additional selections. The
+[test-host contract](design/xunit-test-host.md) and
 [gate reference](decompiler-correctness-pipeline.md#--gate-preset-flag-discoverable-trait-bundles)
-own the transition and full preset list.
+own the host and full preset list.
 
 ### CI and broader evidence
 

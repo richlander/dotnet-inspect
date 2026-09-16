@@ -84,8 +84,7 @@ public static class InspectionDefinitionJson
     public static string Serialize(InspectionDefinitionRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        EnsureWithinPortableLimits(record);
-        EnsureWellFormedUtf16(record);
+        ValidatePortableRecord(record);
         string json;
         try
         {
@@ -114,6 +113,14 @@ public static class InspectionDefinitionJson
         }
 
         return json;
+    }
+
+    internal static void ValidatePortableRecord(
+        InspectionDefinitionRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        EnsureWithinPortableLimits(record);
+        EnsureWellFormedUtf16(record);
     }
 
     /// <summary>
@@ -331,6 +338,20 @@ public static class InspectionDefinitionJson
             case PortableRetainedSubjectContext.Member member:
                 EnsureLibraryUtf16(member.LibraryIdentity);
                 EnsureTypeUtf16(member.TypeIdentity);
+                EnsureUtf16(member.MemberAnchor, "context.memberAnchor");
+                EnsureUtf16(member.MemberSignature, "context.memberSignature");
+                break;
+            case PortableRetainedSubjectContext.EscapedType type:
+                EnsureLibraryUtf16(type.LibraryIdentity);
+                EnsureUtf16(
+                    type.EscapedTypeIdentity,
+                    "context.escapedTypeIdentity");
+                break;
+            case PortableRetainedSubjectContext.EscapedMember member:
+                EnsureLibraryUtf16(member.LibraryIdentity);
+                EnsureUtf16(
+                    member.EscapedTypeIdentity,
+                    "context.escapedTypeIdentity");
                 EnsureUtf16(member.MemberAnchor, "context.memberAnchor");
                 EnsureUtf16(member.MemberSignature, "context.memberSignature");
                 break;
