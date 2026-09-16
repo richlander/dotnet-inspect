@@ -3164,12 +3164,13 @@ public class ApiCommand
 
         if (options.Tabular)
         {
+            var renderedWriter = new StringWriter { NewLine = "\n" };
             RenderedSectionManifest projectionManifest;
             if (ApiOutputFormatter.ShouldRenderSectionedTabularView(type, options))
             {
                 var writerOpts = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
                 OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                OutputFormatter.WriteTable(sink, !options.NoHeader,
+                OutputFormatter.WriteTable(renderedWriter, !options.NoHeader,
                     (writer, formatter) =>
                     {
                         var markoutWriter = new MarkoutWriter(writer, formatter, writerOpts);
@@ -3223,7 +3224,11 @@ public class ApiCommand
             else
             {
                 var (tableView, _) = ApiOutputFormatter.BuildTypeTableView(type, options);
-                OutputFormatter.WriteProjectedTable(sink, !options.NoHeader, options.Tsv, options.Jsonl,
+                OutputFormatter.WriteProjectedTable(
+                    renderedWriter,
+                    !options.NoHeader,
+                    options.Tsv,
+                    options.Jsonl,
                     options.Columns, options.Fields,
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions),
@@ -3255,6 +3260,8 @@ public class ApiCommand
                     GetTypeDocumentSchema(options),
                     options.IncludeSections))
                 return 1;
+
+            sink.Write(renderedWriter.ToString());
         }
         else
         {

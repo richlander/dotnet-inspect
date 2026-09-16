@@ -8787,6 +8787,29 @@ public partial class CommandExecutionTests
             error);
     }
 
+    [Fact]
+    public async Task Member_TabularUnknownFieldDoesNotPublishRowsBeforeFailure()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "--fields",
+            "NoSuchField",
+            "--tsv",
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "No fields matched projection: NoSuchField",
+            error);
+    }
+
     /// <summary>
     /// Bare <c>-S</c> on a single type renders the fixed overview: sections whose length does not
     /// depend on which type is being viewed. It used to render the Info set - the per-kind member
