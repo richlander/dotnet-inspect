@@ -211,6 +211,9 @@ seed-to-checkpoint correspondence across gaps, transition classification,
 Count, and detached output retention or streaming. The Workspace-local source
 Member produced by each exact pair binding does not survive that pair, while
 the baseline-issued `FindingSubject` remains unchanged across observations.
+That owner invokes this query only for exact correspondence; it separately
+projects strict declaration absence to `SubjectAbsent` and binding,
+correspondence, or operational non-success to Finding failure.
 
 ## Evidence
 

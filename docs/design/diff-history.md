@@ -395,6 +395,27 @@ independent checkpoints, and a later direct exact edge may establish that the
 seeded declaration is present again. It does not bridge through or derive
 identity from the intervening gap.
 
+Diff History owns the checkpoint evaluation projection from binding and
+correspondence evidence to the selected producer's `FindingInspection<T>`:
+
+- exact source binding plus exact correspondence invokes the matched-Member
+  Analysis query and preserves its native inspection;
+- exact source binding plus strict declaration absence produces
+  `FindingInspection<T>.Absent(SubjectAbsent)` with the native absence detail;
+- ambiguous, refused, or failed correspondence produces
+  `FindingInspection<T>.Failed` with that Finding subject, the selected
+  producer's descriptor, and the native non-success detail; and
+- any source-rebinding non-success produces `FindingInspection<T>.Failed`,
+  because failure to re-establish the exact source is not evidence that the
+  destination subject is absent.
+
+The checkpoint record retains the native source-binding outcome and, when
+binding succeeded, the native correspondence edge beside this projection.
+History does not relabel ambiguity, refusal, or failure as subject absence.
+Caller cancellation remains terminal and produces no projection. Unevaluated
+Versions remain population-minus-evaluations and do not receive a fabricated
+`FindingInspection<T>`.
+
 Checkpoint-to-checkpoint declaration chaining is not admitted. In particular,
 History does not make a later destination the source for the next edge, replay
 the source display ordinal in each Version, infer identity from adjacent array
@@ -422,8 +443,9 @@ requested Count result defined below. The Document preserves:
   source-selection outcome, never a Workspace-local structural subject;
 - each completed evaluation's version address, provenance, resolved subject,
   producer, and native Finding inspection;
+- each exact-Member checkpoint's native source-binding outcome;
 - native source-to-checkpoint declaration correspondence edges for exact-Member
-  Analysis;
+  Analysis when source binding succeeded;
 - native census correlation and, when requested, exact-identity tracks;
 - native comparison evidence joined to its exact evaluated endpoints;
 - the Type/Member Changed Versions cohort, with its destination/predecessor
@@ -787,6 +809,17 @@ The implementation slices must supply Release gates for:
 - direct source-to-checkpoint exact and non-exact declaration edges, including
   a later exact edge after an intervening gap without checkpoint chaining or
   transitive identity;
+- exact correspondence preserving matched Analysis, strict declaration absence
+  projecting to `SubjectAbsent`, and ambiguous, refused, or failed
+  correspondence projecting to Finding failure while retaining the native
+  edge;
+- source-rebinding non-success producing Finding failure rather than
+  destination absence, retaining the native binding outcome, and allowing
+  later independent checkpoints to run;
+- an exact → absent → exact three-checkpoint history producing comparable
+  removal and reappearance transitions and correct Changed Versions/Count,
+  while a source-binding mismatch makes affected Count evidence insufficient
+  rather than omitting the evaluated checkpoint or inventing absence;
 - consecutive Finding transitions consuming those direct-edge-qualified
   observations without manufacturing declaration correspondence;
 - endpoint-only, endpoint-plus-checkpoint, and endpoint-plus-midpoint sampling,
