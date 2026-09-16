@@ -13,7 +13,7 @@ namespace ILInspector.Decompiler.Tests;
 // which reflects the seam's emitted spelling — matches the index key by construction
 // (issue #2778). Each case pins index-key == CSharpIdentifier.Sanitize(<arity-stripped
 // metadata name>) against the real compiled type-identity fixture assembly
-// (FixtureIds.DecompilerTypeIdentity), whose source retains the exact type shapes.
+// (FixtureIds.DecompilerTypeIdentity), which supplies the exact type shapes.
 [Trait("Area", "RoundTrip")]
 public class CompileBackTypeIdentityTests
 {
@@ -63,7 +63,9 @@ public class CompileBackTypeIdentityTests
     public void FromDefinition_FileLocalType_KeysOnSanitizedSpellableIdentifier()
     {
         using var compiled = OpenFixture();
-        var metadataName = FindMetadataName(compiled.Reader, name => name.StartsWith('<'));
+        var metadataName = FindMetadataName(
+            compiled.Reader,
+            name => name.StartsWith('<') && name.EndsWith("__Widget", StringComparison.Ordinal));
         var identity = IdentityOf(compiled.Reader, metadataName);
 
         Assert.Equal(Expected(metadataName), identity.DisplayName);
