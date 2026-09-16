@@ -166,7 +166,7 @@ internal static class TypeFindIfMissResolver
                     Library = r.Assembly ?? "",
                     Source = r.Source ?? "",
                     SourceVersion = r.SourceVersion,
-                    Match = MatchKind.Exact
+                    Match = TypeFindMatchKind.Direct
                 })
                 .DistinctBy(r => r.FullName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
