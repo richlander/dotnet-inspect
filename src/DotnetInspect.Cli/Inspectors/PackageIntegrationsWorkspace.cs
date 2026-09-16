@@ -352,8 +352,7 @@ internal sealed class PackageIntegrationsWorkspace : IAsyncDisposable
                 .ConfigureAwait(false);
         }
 
-        return await AssemblyContextIntegrationsQuery
-            .ExecuteParticipantAsync(
+        return await ExecuteIntegrationsAsync(
                 participant.SelectedGroup,
                 participant.SelectedParticipant,
                 (selectedAssembly, selectedIntegrations) =>
@@ -385,12 +384,43 @@ internal sealed class PackageIntegrationsWorkspace : IAsyncDisposable
                     group,
                     queryParticipant,
                     consumer)
-                : AssemblyContextIntegrationsQuery
-                    .ExecuteParticipantAsync(
+                : ExecuteIntegrationsAsync(
                         group,
                         queryParticipant,
                         (retained, integrations) =>
                             consumer(retained, integrations, null));
+
+        static async Task<TResult> ExecuteIntegrationsAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            Func<
+                ResolvedAssemblyReference?,
+                AssemblyIntegrationsEntry,
+                Task<TResult>> consumer)
+        {
+            TResult result = default!;
+            bool hasResult = false;
+            await AssemblyIntegrationsInspection
+                .ExecuteAndReleaseAsync(
+                    group,
+                    participant,
+                    async (retained, inspection) =>
+                    {
+                        result = await consumer(
+                                retained,
+                                inspection.Content)
+                            .ConfigureAwait(false);
+                        hasResult = true;
+                    })
+                .ConfigureAwait(false);
+            if (!hasResult)
+            {
+                throw new InvalidOperationException(
+                    "The package Integrations consumer did not run.");
+            }
+
+            return result;
+        }
 
         static async Task<TResult> ExecuteOpportunitiesAsync(
             AssemblyContextGroup group,
