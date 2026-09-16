@@ -8,8 +8,9 @@ Workspace-rooted inspection tracker
 [#7301](https://github.com/richlander/dotnet-inspect/issues/7301).
 
 The operator approved one Ecosystem-specific loader extension point and the
-first production use: a Workspace obtains the .NET runtime platform through
-the `.NET` Ecosystem rather than through a separately presented Platform
+first two production uses: a Workspace obtains the .NET runtime platform
+through the `.NET` Ecosystem and the ASP.NET Core platform through the
+`ASP.NET Core` Ecosystem rather than through a separately presented Platform
 component. An Ecosystem may contribute one special loader when its population
 cannot be satisfied by ordinary exact-Library, package-root, or package-prefix
 processing.
@@ -64,7 +65,8 @@ It consumes without redefining:
 
 ## User experience
 
-The user selects or restores one `.NET` Ecosystem, not a Platform component:
+The user selects or restores `.NET` or `ASP.NET Core`, not a Platform
+component:
 
 ```text
 Workspace
@@ -74,9 +76,14 @@ Workspace
 |  |  |- System.Text.Json (Library)
 |  |- System.Text.Json 10.0.1 (Package)
 |     |- System.Text.Json (Library)
+|- ASP.NET Core
+|  |- Microsoft.AspNetCore.Http.Abstractions (ASP.NET Core Library)
+|  |- Microsoft.AspNetCore.OpenApi 10.0.0 (Package)
+|     |- Microsoft.AspNetCore.OpenApi (Library)
 ```
 
-The `.NET` Ecosystem has two independent contributions:
+The `.NET` and `ASP.NET Core` Ecosystems each have two independent
+contributions:
 
 ```text
 .NET Ecosystem
@@ -84,6 +91,12 @@ The `.NET` Ecosystem has two independent contributions:
     PackagePrefix("System.")
   special loader
     .NET runtime platform population
+
+ASP.NET Core Ecosystem
+  ordinary population
+    PackagePrefix("Microsoft.AspNetCore.")
+  special loader
+    ASP.NET Core platform population
 ```
 
 The prefix supplies inert relevance and route evidence for already admitted
@@ -92,11 +105,16 @@ The loader satisfies the source-native runtime population through
 PlatformHouse. The resulting `System.Text.Json` Library remains
 Platform-origin and source-distinct from the two Package-origin Libraries.
 
-Adding `.NET` to a saved Workspace definition records the Ecosystem
-registration. Opening that definition constructs a fresh live Workspace and
-may explicitly request realization of the selected Ecosystem. The visible
-gesture is "add or open `.NET`"; no user-facing Platform registration,
-selector, root, or fallback is introduced.
+The same separation applies to ASP.NET Core. Its prefix supplies relevance for
+already admitted `Microsoft.AspNetCore.*` packages, while its loader satisfies
+the source-native `Microsoft.AspNetCore.App` population through PlatformHouse.
+
+Adding either Ecosystem to a saved Workspace definition records its exact
+Ecosystem registration. Opening that definition constructs a fresh live
+Workspace and may explicitly request realization of the selected Ecosystem.
+The visible gesture is "add or open `.NET`" or "add or open `ASP.NET Core`";
+no user-facing Platform registration, selector, root, or fallback is
+introduced.
 
 ## Why a loader is separate from registration
 
@@ -118,8 +136,8 @@ restoration behavior depend on ambient host capabilities.
 
 The loader therefore remains an explicit operation selected after one exact
 registration revision is current. A product flow may make that operation the
-normal consequence of opening or adding `.NET`, but the operation and any
-failure stay observable and independently cancellable.
+normal consequence of opening or adding `.NET` or `ASP.NET Core`, but the
+operation and any failure stay observable and independently cancellable.
 
 ## Static loader binding
 
@@ -130,6 +148,10 @@ The owner-issued currencies are `EcosystemPopulationLoaderId` and
 EcosystemPopulationLoaderBinding.Create(
   EcosystemPopulationLoaderId("ecosystem-loader.dotnet"),
   DotNetEcosystemPopulationLoader.LoadAsync)
+
+EcosystemPopulationLoaderBinding.Create(
+  EcosystemPopulationLoaderId("ecosystem-loader.aspnetcore"),
+  AspNetCoreEcosystemPopulationLoader.LoadAsync)
 ```
 
 Construction accepts exactly one target-free static method group. It rejects a
@@ -299,10 +321,11 @@ This separation keeps an Ecosystem extension from bypassing:
 - Navigation relation issuance; or
 - failure visibility.
 
-## The `.NET` loader
+## Initial platform-family loaders
 
-The `.NET` Ecosystem is the first loader consumer. Its static catalog
-registration supplies:
+The `.NET` and `ASP.NET Core` Ecosystems are the first loader consumers. Each
+static catalog registration supplies one ordinary package-prefix population
+and one special loader:
 
 ```text
 EcosystemPack
@@ -312,10 +335,18 @@ EcosystemPack
     PackagePrefix("System.")
   loader:
     DotNetEcosystemPopulationLoader
+
+EcosystemPack
+  id: ecosystem.aspnetcore
+  title: ASP.NET Core
+  ordinary populations:
+    PackagePrefix("Microsoft.AspNetCore.")
+  loader:
+    AspNetCoreEcosystemPopulationLoader
 ```
 
-The loader owns no platform target or source algorithm. It composes the
-owner-issued platform contracts:
+Neither loader owns a platform target or source algorithm. Each composes the
+owner-issued platform contracts while preserving its exact family:
 
 ```text
 Workspace revision
@@ -327,6 +358,16 @@ Workspace revision
   -> PlatformHouse outcome and receipt
   -> exact Platform-origin Library population
   -> ordinary Workspace admission
+
+Workspace revision
+  -> ASP.NET Core Ecosystem registration
+  -> ASP.NET Core loader binding
+  -> PlatformLibraryPopulationDeclaration(AspNetCore)
+  -> family-preserving platform demand
+  -> PlatformHouse request
+  -> PlatformHouse outcome and receipt
+  -> exact ASP.NET Core focus Library population
+  -> ordinary Workspace admission
 ```
 
 The `.NET` loader must retain the
@@ -334,20 +375,32 @@ The `.NET` loader must retain the
 PlatformHouse result. It cannot infer `DotNetRuntime` from `.NET`, `System.`,
 `net11.0`, an assembly name, or installed layout.
 
+The ASP.NET Core loader must likewise retain
+`PlatformLibraryPopulationDeclaration(AspNetCore)`. It cannot infer that
+family from `ASP.NET Core`, `Microsoft.AspNetCore.`, an assembly name, or a
+shared-framework layout.
+
+An ASP.NET Core PlatformHouse result may retain a .NET runtime support closure.
+The loader preserves the source owner's focus and binding-support roles.
+Workspace may admit support Libraries needed for binding, but only exact
+`AspNetCore` focus members receive an ASP.NET Core Ecosystem contribution
+relation. A runtime support Library receives a `.NET` Ecosystem route only from
+an independent `.NET` registration and loader receipt; equal target or assembly
+text is not relation evidence.
+
 CLI composition may authorize installed and package-backed PlatformHouse
 sources. Browser/Wasm composition authorizes package-backed, generated-catalog,
 or embedded sources and never references installed adapters. Both hosts invoke
-the same loader contract and interpret the same result algebra.
+the same loader contract for both Ecosystems and interpret the same result
+algebra.
 
-The loader does not process `PackagePrefix("System.")`. Generic bounded package
-discovery remains a separate operation. A package named `System.Text.Json`
-cannot satisfy a PlatformHouse request, and an equal Metadata assembly identity
-cannot replace the source-native Platform Library.
-
-ASP.NET Core may later adopt its own loader or become another authored special
-contribution behind the `.NET` loader. That is a separate Ecosystems decision.
-This initial contract does not merge its `AspNetCore` platform family into
-`DotNetRuntime`.
+Neither loader processes its package prefix. Generic bounded package discovery
+remains a separate operation. A package named `System.Text.Json` or
+`Microsoft.AspNetCore.Http.Abstractions` cannot satisfy a PlatformHouse
+request, and an equal Metadata assembly identity cannot replace the matching
+source-native Platform Library. The two loaders remain independent;
+`AspNetCore` is never merged into `DotNetRuntime` or hidden behind the `.NET`
+loader.
 
 ## Persistence and restoration
 
@@ -366,7 +419,7 @@ selects the current static pack by owner-issued correspondence. Explicit
 realization of a known pack with no current loader returns selection
 `Unavailable`; an unknown or mismatched pack returns selection `Rejected`.
 Neither produces a bound request or loader receipt. Restoration does not fall
-back to a Platform component, infer a loader from `ecosystem.dotnet`, or reuse
+back to a Platform component, infer a loader from either Ecosystem ID, or reuse
 a loader recorded by an older process.
 
 Changing the shipped loader affects later operations. It does not mutate a
@@ -406,8 +459,8 @@ Failure remains attributable to the exact boundary that produced it:
 | Cancellation | Cancellation with all untransferred owners retired |
 
 No branch converts a loader failure into an empty Workspace, a Package-origin
-substitute, a direct Platform registration, or a successful `.NET` route with
-no supporting relation.
+substitute, a direct Platform registration, or a successful Ecosystem route
+with no supporting relation.
 
 ## Analogous implementation evidence
 
@@ -444,30 +497,38 @@ The contract must preserve these cases:
 
 1. `.NET` loads a source-native `System.Text.Json` Library while two admitted
    `System.Text.Json` Package versions remain separate subjects and routes.
-2. Browser/Wasm has no installed source capability; the same `.NET` request
-   succeeds through an authorized package-backed source or returns typed
-   `Unavailable`.
-3. The PlatformHouse population returns incomplete after exhausting a finite
+2. ASP.NET Core loads source-native
+   `Microsoft.AspNetCore.Http.Abstractions` while an admitted package with the
+   same Library name remains source-distinct.
+3. An ASP.NET Core realization includes .NET runtime binding support; only its
+   `AspNetCore` focus members receive the ASP.NET Core Ecosystem relation.
+4. Browser/Wasm has no installed source capability; the same `.NET` or
+   ASP.NET Core request succeeds through an authorized package-backed source
+   or returns typed `Unavailable`.
+5. A PlatformHouse population returns incomplete after exhausting a finite
    work bound; it transfers no Library owners, and the loader preserves its
    resource-free partial evidence as `Incomplete`.
-4. The `.NET` registration is removed while its loaded Libraries remain
+6. An Ecosystem registration is removed while its loaded Libraries remain
    admitted; later loading through that registration rejects, while direct
    Library inspection remains valid.
-5. Two Ecosystems produce a relation to one exact Library; their receipts and
+7. Two Ecosystems produce a relation to one exact Library; their receipts and
    routes remain distinct without duplicate Library identity.
-6. A restored `ecosystem.dotnet` registration has no corresponding loader in
-   the current application catalog; restoration succeeds as registration
-   state, and explicit realization returns visible selection `Unavailable`
-   without inventing a binding or receipt.
-7. Workspace admission fails after successful PlatformHouse realization; every
+8. A restored `ecosystem.dotnet` or `ecosystem.aspnetcore` registration has no
+   corresponding loader in the current application catalog; restoration
+   succeeds as registration state, and explicit realization returns visible
+   selection `Unavailable` without inventing a binding or receipt.
+9. Workspace admission fails after successful PlatformHouse realization; every
    untransferred Library owner is retired, and no loader receipt is relabeled
    as admission success.
 
 The motivating real assets are
 `Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Text.Json.dll` and
-`System.Text.Json@10.0.0/lib/net10.0/System.Text.Json.dll`. Equal simple and
-Metadata assembly identity across these assets must not erase their Platform
-and Package source distinction.
+`System.Text.Json@10.0.0/lib/net10.0/System.Text.Json.dll`, plus
+`Microsoft.AspNetCore.App.Ref@10.0.0/ref/net10.0/Microsoft.AspNetCore.Http.Abstractions.dll`
+and
+`Microsoft.AspNetCore.Http.Abstractions@2.3.0/lib/netstandard2.0/Microsoft.AspNetCore.Http.Abstractions.dll`.
+Equal simple names across either pair, and equal Metadata assembly identity
+where present, must not erase Platform and Package source distinction.
 
 ## Production adoption
 
@@ -476,16 +537,17 @@ This shared capability has eight focused stages:
 1. Lock this Ecosystem Population Loading contract.
 2. Implement the host-neutral binding, request, outcome, receipt, and
    owner-transfer contract with a public consumer canary.
-3. Have Static Ecosystem Packs define `ecosystem.dotnet`, its `System.` package
-   prefix, and its loader binding; retire the user-facing `Platform` pack
-   identity.
+3. Have Static Ecosystem Packs define `ecosystem.dotnet` and
+   `ecosystem.aspnetcore`, their package prefixes, and their independent loader
+   bindings; retire the user-facing `Platform` pack identity.
 4. Have Workspace Ecosystem Registration Handoff preserve the lower
    registration and exact application correspondence needed for loader
    selection without moving executable callbacks into Workspace state.
-5. Implement the `.NET` loader over PlatformHouse and the shared Library
-   contract.
+5. Implement the `.NET` and ASP.NET Core loaders over PlatformHouse and the
+   shared Library contract, preserving focus and binding-support roles.
 6. Have Workspace admission and Navigation retain loader and admission
-   correspondence and issue exact `.NET` contribution relations.
+   correspondence and issue exact `.NET` and ASP.NET Core contribution
+   relations.
 7. Adopt equivalent explicit loading in the CLI and Browser/Wasm; Browser uses
    only supported non-installed source capabilities.
 8. Retire direct host-local platform population activation and include the
@@ -510,7 +572,8 @@ stages add these focused Release gates:
 | Partial ownership | A loader-level incomplete result transfers owners only from independently completed children; incomplete PlatformHouse work transfers none |
 | Admission separation | A loader has no Workspace mutation authority; admission retains the loader receipt and owns occurrence publication |
 | Owner disposition | Every returned Library owner transfers once or is retired on non-success, cancellation, or partial admission |
-| `.NET` source distinction | Runtime and Package `System.Text.Json` Libraries remain distinct through loading, admission, and Navigation |
+| Platform-family source distinction | Runtime and Package `System.Text.Json`, and ASP.NET Core and Package `Microsoft.AspNetCore.Http.Abstractions`, remain distinct through loading, admission, and Navigation |
+| ASP.NET Core focus role | Runtime binding-support Libraries do not receive an ASP.NET Core Ecosystem relation without an independent exact witness |
 | Host parity | CLI and Browser/Wasm issue equivalent logical requests and interpret the same outcomes with different authorized source plans |
 | Visible absence | Missing loader or host capability returns typed `Unavailable` without a Platform fallback |
 
