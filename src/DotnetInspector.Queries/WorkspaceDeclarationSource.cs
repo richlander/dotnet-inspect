@@ -19,6 +19,10 @@ public abstract record WorkspaceDeclarationRequest
         PackageReferencePackCoordinate Coordinate,
         PackageReferencePopulationDemand Population)
         : WorkspaceDeclarationRequest;
+
+    public sealed record PackageScope(
+        WorkspacePackageOccurrenceDescriptor Occurrence)
+        : WorkspaceDeclarationRequest;
 }
 
 /// <summary>Detached source evidence, not a re-acquisition or binding request.</summary>
@@ -32,6 +36,11 @@ public abstract record WorkspaceDeclarationOrigin
 
     public sealed record PlatformReference(
         WorkspaceReferenceSourceEvidence Source, string Path)
+        : WorkspaceDeclarationOrigin;
+
+    public sealed record PackageScope(
+        WorkspacePackageOccurrenceDescriptor Occurrence,
+        PackageCompileAsset Asset)
         : WorkspaceDeclarationOrigin;
 }
 
@@ -98,5 +107,10 @@ public abstract record WorkspaceDeclarationFailure
         WorkspaceReferenceSourceEvidence Source,
         string Path,
         CandidateOpenFailure Failure)
+        : WorkspaceDeclarationFailure;
+
+    public sealed record PackageScopeSelection(
+        WorkspacePackageOccurrenceDescriptor Occurrence,
+        PackageCompileAssetSelectionStatus Status)
         : WorkspaceDeclarationFailure;
 }

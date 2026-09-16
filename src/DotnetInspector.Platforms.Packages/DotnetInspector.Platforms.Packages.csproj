@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
+    <ProjectReference Include="../DotnetInspector.Platforms.Formats/DotnetInspector.Platforms.Formats.csproj" />
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
   </ItemGroup>

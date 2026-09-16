@@ -12,6 +12,7 @@ import {
   type OperationId,
 } from "../src/operation-authority.ts";
 import type { BrowserTypeSourceResult } from "../src/facades/inspect-web-source.d.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -50,7 +51,7 @@ function fixture() {
     cancelTypeSourceRequest: (id, reason) => { cancellations.push([id, reason]); },
     queryMemberSource: async () => { throw new Error("unused member query"); },
     queryGraphSource: async () => ({
-      provider: "pdb", provenance: "verified", url: null,
+      provider: "pdb", provenance: inertStringFixture("verified"), url: null,
       pdbSourceLimitation: null, text: "graph",
     }),
     memberSourceHasConcreteOverload: () => false,
@@ -84,7 +85,7 @@ function fixture() {
 function succeeded(text: string): BrowserTypeSourceResult {
   return {
     version: 1, kind: "Succeeded",
-    value: { provider: "pdb", provenance: "verified", url: null,
+    value: { provider: "pdb", provenance: inertStringFixture("verified"), url: null,
       pdbSourceLimitation: null, text },
     failureKind: null, error: null, diagnostic: null, reason: null,
   };

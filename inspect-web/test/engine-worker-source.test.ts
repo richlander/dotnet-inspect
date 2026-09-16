@@ -45,10 +45,11 @@ import {
 import type {
   ManagedOperationSettlement,
 } from "../src/worker-runtime-protocol.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 const source: BrowserSource = {
   provider: "decompiled",
-  provenance: "dotnet-inspect fixture",
+  provenance: inertStringFixture("dotnet-inspect fixture"),
   url: null,
   pdbSourceLimitation: "PDB unavailable",
   text: "public sealed class Widget {}",
@@ -400,7 +401,7 @@ test("Type Source managed terminal results map without losing failure kind", () 
   });
   assert.deepEqual(mapEngineWorkerTypeSourceResult(succeeded({
     ...source,
-    provenance: "P".repeat(64 * 1024),
+    provenance: inertStringFixture("P".repeat(64 * 1024)),
   })), {
     kind: "failed",
     failureKind: "unexpected",
