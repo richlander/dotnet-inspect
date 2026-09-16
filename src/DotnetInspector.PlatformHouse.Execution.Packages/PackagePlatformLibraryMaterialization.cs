@@ -1,40 +1,57 @@
+using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Formats;
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Packages;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
+using NuGetFetch;
 
-namespace DotnetInspector.PlatformHouse.Installed;
+namespace DotnetInspector.PlatformHouse.Packages;
 
 /// <summary>
-/// Resource-free provenance for one installed reference assembly snapshot.
+/// Resource-free provenance for one package-backed reference assembly
+/// snapshot.
 /// </summary>
-public sealed record InstalledReferenceArtifactProvenance(
-    InstalledPlatformSourceGeneration SourceGeneration,
-    InstalledReferencePackCoordinate Coordinate,
-    string FileName,
+public sealed record PackageReferenceArtifactProvenance(
+    PackagePlatformSourceGeneration SourceGeneration,
+    PackageReferencePackCoordinate Coordinate,
+    string Path,
+    PackageAcquisitionCandidate Candidate,
+    ConfiguredPackageAuthority Authority,
+    PackageSourceResultIdentity Source,
+    PackageContentGenerationIdentity ContentGeneration,
+    PackagePayloadOrigin Origin,
     AssemblyReferenceIdentity Identity) : IArtifactProvenance;
 
 /// <summary>
-/// Resource-free provenance for one installed implementation assembly snapshot.
+/// Resource-free provenance for one package-backed implementation assembly
+/// snapshot.
 /// </summary>
-public sealed record InstalledImplementationArtifactProvenance(
-    InstalledPlatformSourceGeneration SourceGeneration,
-    InstalledImplementationPlatformCoordinate Coordinate,
+public sealed record PackageImplementationArtifactProvenance(
+    PackagePlatformSourceGeneration SourceGeneration,
+    PackageImplementationPlatformCoordinate Coordinate,
     PlatformFrameworkName FrameworkName,
+    PlatformFamily FrameworkFamily,
     PlatformVersion FrameworkVersion,
+    string PackageId,
+    string RuntimeIdentifier,
     PlatformManifestAssetCoordinate ManifestCoordinate,
+    PackageAcquisitionCandidate Candidate,
+    ConfiguredPackageAuthority Authority,
+    PackageSourceResultIdentity Source,
+    PackageContentGenerationIdentity ContentGeneration,
+    PackagePayloadOrigin Origin,
     AssemblyReferenceIdentity Identity,
-    InstalledPlatformContentDigest ContentDigest) : IArtifactProvenance;
+    PackagePlatformContentDigest ContentDigest) : IArtifactProvenance;
 
 /// <summary>
-/// Result of materializing successful installed source values into one
+/// Result of materializing successful package-backed source values into one
 /// Platform Library.
 /// </summary>
-public abstract class InstalledPlatformLibraryMaterializationResult
+public abstract class PackagePlatformLibraryMaterializationResult
 {
-    private protected InstalledPlatformLibraryMaterializationResult(
+    private protected PackagePlatformLibraryMaterializationResult(
         PlatformLibraryRealizationResult realization) =>
         Realization = realization;
 
@@ -45,7 +62,7 @@ public abstract class InstalledPlatformLibraryMaterializationResult
     /// separately.
     /// </summary>
     public sealed class Completed :
-        InstalledPlatformLibraryMaterializationResult
+        PackagePlatformLibraryMaterializationResult
     {
         internal Completed(
             PlatformLibraryRealizationResult.Completed library,
@@ -75,7 +92,7 @@ public abstract class InstalledPlatformLibraryMaterializationResult
     /// Retains only resource-free terminal evidence after composition cleanup.
     /// </summary>
     public sealed class Terminal :
-        InstalledPlatformLibraryMaterializationResult
+        PackagePlatformLibraryMaterializationResult
     {
         internal Terminal(
             PlatformLibraryRealizationResult.Terminal realization)
@@ -89,19 +106,21 @@ public abstract class InstalledPlatformLibraryMaterializationResult
 }
 
 /// <summary>
-/// Selects successful installed source snapshots for the shared Artifact and
-/// exact one-Library ownership handoff.
+/// Selects successful package-backed source snapshots for the shared Artifact
+/// and exact one-Library ownership handoff.
 /// </summary>
-public static class InstalledPlatformLibraryMaterializer
+public static class PackagePlatformLibraryMaterializer
 {
-    private const string IdentityPrefix = "installed-platform-library";
+    private const string IdentityPrefix = "package-platform-library";
 
-    /// <summary>Materializes one successful installed reference result.</summary>
-    public static ValueTask<InstalledPlatformLibraryMaterializationResult>
+    /// <summary>
+    /// Materializes one successful package-backed reference result.
+    /// </summary>
+    public static ValueTask<PackagePlatformLibraryMaterializationResult>
         MaterializeReferenceAsync(
             PlatformHouseRequest request,
-            InstalledPlatformHouseResult<
-                InstalledReferenceRealization>.Succeeded reference,
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded reference,
             PlatformHouseConsumedWork consumedWork) =>
         MaterializeAsync(
             request,
@@ -111,16 +130,16 @@ public static class InstalledPlatformLibraryMaterializer
             consumedWork);
 
     /// <summary>
-    /// Materializes corresponding successful installed reference and
+    /// Materializes corresponding successful package-backed reference and
     /// implementation results.
     /// </summary>
-    public static ValueTask<InstalledPlatformLibraryMaterializationResult>
+    public static ValueTask<PackagePlatformLibraryMaterializationResult>
         MaterializeReferenceAndImplementationAsync(
             PlatformHouseRequest request,
-            InstalledPlatformHouseResult<
-                InstalledReferenceRealization>.Succeeded reference,
-            InstalledPlatformHouseResult<
-                InstalledImplementationRealization>.Succeeded implementation,
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded reference,
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded implementation,
             PlatformHouseConsumedWork consumedWork) =>
         MaterializeAsync(
             request,
@@ -130,14 +149,14 @@ public static class InstalledPlatformLibraryMaterializer
             consumedWork);
 
     /// <summary>
-    /// Materializes one successful installed implementation result in both
-    /// Library roles.
+    /// Materializes one successful package-backed implementation result in
+    /// both Library roles.
     /// </summary>
-    public static ValueTask<InstalledPlatformLibraryMaterializationResult>
+    public static ValueTask<PackagePlatformLibraryMaterializationResult>
         MaterializeImplementationAsync(
             PlatformHouseRequest request,
-            InstalledPlatformHouseResult<
-                InstalledImplementationRealization>.Succeeded implementation,
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded implementation,
             PlatformHouseConsumedWork consumedWork) =>
         MaterializeAsync(
             request,
@@ -146,14 +165,14 @@ public static class InstalledPlatformLibraryMaterializer
             implementation,
             consumedWork);
 
-    static async ValueTask<InstalledPlatformLibraryMaterializationResult>
+    static async ValueTask<PackagePlatformLibraryMaterializationResult>
         MaterializeAsync(
             PlatformHouseRequest request,
             PlatformViewDemand expectedView,
-            InstalledPlatformHouseResult<
-                InstalledReferenceRealization>.Succeeded? reference,
-            InstalledPlatformHouseResult<
-                InstalledImplementationRealization>.Succeeded? implementation,
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded? reference,
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded? implementation,
             PlatformHouseConsumedWork consumedWork)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -179,11 +198,11 @@ public static class InstalledPlatformLibraryMaterializer
         return outcome switch
         {
             PlatformLibraryArtifactMaterializationOutcome.Completed completed =>
-                new InstalledPlatformLibraryMaterializationResult.Completed(
+                new PackagePlatformLibraryMaterializationResult.Completed(
                     completed.Library,
                     completed.Artifacts),
             PlatformLibraryArtifactMaterializationOutcome.Terminal terminal =>
-                new InstalledPlatformLibraryMaterializationResult.Terminal(
+                new PackagePlatformLibraryMaterializationResult.Terminal(
                     terminal.TerminalRealization),
             _ => throw new InvalidOperationException(
                 "Unknown Platform Library Artifact materialization outcome."),
@@ -193,10 +212,10 @@ public static class InstalledPlatformLibraryMaterializer
     static bool TryPrepare(
         PlatformHouseRequest request,
         PlatformViewDemand expectedView,
-        InstalledPlatformHouseResult<
-            InstalledReferenceRealization>.Succeeded? reference,
-        InstalledPlatformHouseResult<
-            InstalledImplementationRealization>.Succeeded? implementation,
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.Succeeded? reference,
+        PackagePlatformHouseResult<
+            PackageImplementationRealization>.Succeeded? implementation,
         out IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items)
     {
         items = [];
@@ -232,25 +251,34 @@ public static class InstalledPlatformLibraryMaterializer
                     reference.Contribution,
                     PlatformSourceFacet.Reference,
                     reference.Value.Generation.Name)
-                || !ReferenceTargetMatches(
-                    reference.Value,
-                    exact.Target)
+                || reference.Value.Coordinate.Target != exact.Target
+                || reference.Value.Population
+                    is not PackageReferencePopulationDemand.Assembly
+                        population
+                || !AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    assembly.Identity,
+                    population.Identity)
                 || !TrySingle(
                     reference.Value.Libraries,
                     library =>
                         AssemblyReferenceIdentity.EquivalentComparer.Equals(
                             assembly.Identity,
                             library.Identity),
-                    out InstalledReferenceLibrary? library))
+                    out PackageReferenceLibrary? library))
             {
                 return false;
             }
 
             var provenance =
-                new InstalledReferenceArtifactProvenance(
+                new PackageReferenceArtifactProvenance(
                     reference.Value.Generation,
                     reference.Value.Coordinate,
-                    library!.FileName,
+                    library!.Path,
+                    reference.Value.Candidate,
+                    reference.Value.Authority,
+                    reference.Value.Source,
+                    reference.Value.ContentGeneration,
+                    reference.Value.Origin,
                     library.Identity);
             prepared.Add(
                 new PlatformLibraryArtifactMaterializationItem(
@@ -270,27 +298,39 @@ public static class InstalledPlatformLibraryMaterializer
                     implementation.Contribution,
                     PlatformSourceFacet.Implementation,
                     implementation.Value.Generation.Name)
-                || !ImplementationTargetMatches(
-                    implementation.Value,
-                    exact.Target)
+                || implementation.Value.Coordinate.Target != exact.Target
                 || !TrySingle(
                     implementation.Value.Libraries,
                     library =>
                         AssemblyReferenceIdentity.EquivalentComparer.Equals(
                             assembly.Identity,
                             library.Identity),
-                    out InstalledImplementationLibrary? library))
+                    out PackageImplementationLibrary? library)
+                || !string.Equals(
+                    library!.Framework.RuntimeIdentifier,
+                    implementation.Value.Coordinate.RuntimeIdentifier,
+                    StringComparison.Ordinal))
             {
                 return false;
             }
 
+            PackageImplementationFramework framework =
+                library.Framework;
             var provenance =
-                new InstalledImplementationArtifactProvenance(
+                new PackageImplementationArtifactProvenance(
                     implementation.Value.Generation,
                     implementation.Value.Coordinate,
-                    library!.FrameworkName,
-                    library.FrameworkVersion,
+                    framework.Name,
+                    framework.Family,
+                    framework.Version,
+                    framework.PackageId,
+                    framework.RuntimeIdentifier,
                     library.ManifestCoordinate,
+                    framework.Candidate,
+                    framework.Authority,
+                    framework.Source,
+                    framework.ContentGeneration,
+                    framework.Origin,
                     library.Identity,
                     library.ContentDigest);
             prepared.Add(
@@ -329,39 +369,6 @@ public static class InstalledPlatformLibraryMaterializer
         && request.Sources.Authorizes(
             expectedFacet,
             realization.Capability);
-
-    static bool ReferenceTargetMatches(
-        InstalledReferenceRealization realization,
-        PlatformFamilyTarget target) =>
-        TryInstalledFamily(target.Family, out InstalledPlatformFamily family)
-        && realization.Coordinate.Family == family
-        && realization.Coordinate.TargetFramework == target.TargetFramework
-        && realization.Coordinate.Version == target.Version;
-
-    static bool ImplementationTargetMatches(
-        InstalledImplementationRealization realization,
-        PlatformFamilyTarget target) =>
-        TryInstalledFamily(target.Family, out InstalledPlatformFamily family)
-        && realization.Coordinate.Family == family
-        && realization.Coordinate.Version == target.Version;
-
-    static bool TryInstalledFamily(
-        PlatformFamily family,
-        out InstalledPlatformFamily installed)
-    {
-        switch (family)
-        {
-            case PlatformFamily.DotNetRuntime:
-                installed = InstalledPlatformFamily.DotNetRuntime;
-                return true;
-            case PlatformFamily.AspNetCore:
-                installed = InstalledPlatformFamily.AspNetCore;
-                return true;
-            default:
-                installed = default;
-                return false;
-        }
-    }
 
     static bool TrySingle<T>(
         IEnumerable<T> values,
