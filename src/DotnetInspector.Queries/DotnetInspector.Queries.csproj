@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Inspector.Artifacts.Workspaces\Inspector.Artifacts.Workspaces.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Libraries\DotnetInspector.Libraries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.Platforms.Packages\DotnetInspector.Platforms.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.QueryEngine\DotnetInspector.QueryEngine.csproj" />

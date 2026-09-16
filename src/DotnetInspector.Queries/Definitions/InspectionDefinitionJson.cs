@@ -2076,6 +2076,7 @@ internal sealed class MemberCoordinateDto
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,
+    NewLine = "\n",
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
