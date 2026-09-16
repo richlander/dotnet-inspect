@@ -980,6 +980,32 @@ no-floor execution, snapshot serialization, report disclosure, input identity,
 and same-sample loss regression. The broad pinned-corpus snapshot is retained
 as Deep Inspect evidence rather than added to PR CI.
 
+### Ordinary fidelity and PR-gate migration
+
+**Owner:** ReturnToSender / DecompilerHarness.
+**Focused issue:** step 7 of the eight-step adoption and legacy-retirement
+tracker
+[#6199](https://github.com/richlander/dotnet-inspect/issues/6199).
+
+Ordinary fidelity consumers migrate independently according to the evidence
+they require. A bounded raised-view gate that asks whether named product
+decompiler bodies remain compile-back checkable uses
+`ReturnToSender.CompileBackTargets` with the compile-back floor disabled. The
+gate requires one native result for each requested target and preserves the
+existing available statuses: `Exact`, `OpcodeDiff`, and `OperandDiff`. Missing
+or failed native evidence remains a failure and cannot be replaced by legacy
+compile-back.
+
+This migration does not translate architecture-specific whole-module
+reconstruction tests into RTS. Tests whose claim depends on unrelated
+declarations, module-wide skeleton construction, or legacy rendering controls
+retain the labelled legacy path and run on their appropriate Deep Inspect
+cadence. Raised and lowered fidelity remain separate evidence rails; a lowered
+consumer cannot migrate until the product artifact provider owns a lowered
+artifact request. Broad standalone fidelity and changed-method fidelity also
+retain their current paths until their population, typed identity, completeness,
+and reporting contracts can be preserved without harness-owned C# construction.
+
 ### Member comparison query consumption
 
 **Owner:** ReturnToSender / DecompilerHarness.

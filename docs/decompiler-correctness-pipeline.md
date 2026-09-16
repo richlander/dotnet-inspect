@@ -683,9 +683,10 @@ truncated report.
 `pre-merge` deliberately selects the workload classes named by its fail-closed
 inventory rather than the whole `Fidelity` area. The bounded receipt covers
 byte-neutral and byte-divergent behavior, whole-module skeleton hazards around
-selected bodies, typed diff fixtures, nested target identity, authored rebuild
-and typed failure paths, plus `GateExpectedClassesTests`, the plumbing guard
-that rides along in the preset it guards.
+selected bodies, product-artifact RTS over typed diff fixtures, nested target
+identity, authored rebuild and typed failure paths, plus
+`GateExpectedClassesTests`, the plumbing guard that rides along in the preset it
+guards.
 
 `FidelityGateTests`, `LoweredFidelityGateTests`, `ClusterCaptureTests`, and
 `PrinterPrecedenceTests` are daily-only whole-pipeline evidence. On #6835 they
@@ -729,6 +730,14 @@ starts each ID exactly once. The delayed-enumeration negative canary remains
 `TheoryData<IrExpression, Precedence>` discovers two case IDs but executes
 nineteen tests, with one ID starting eighteen times. The checker rejects that
 shape as `NON-ENUMERATED OR REPEATED CASES`.
+
+`DiffFixtureFidelityTests` requests the seven named raised-view methods from
+each paired fixture through product-artifact RTS with the legacy compile-back
+floor disabled. The gate requires exactly one native result per requested
+target and accepts the same checkable status set as before: `Exact`,
+`OpcodeDiff`, or `OperandDiff`. It therefore proves native product-artifact
+compile-back for this bounded fixture surface without allowing the retiring
+whole-module path to rescue missing or failed evidence.
 
 `SkeletonEmitTests` now contributes its eight cases to `pre-merge` (#3872).
 Its focused `FidelityCheck.Evaluate` calls select a typed
