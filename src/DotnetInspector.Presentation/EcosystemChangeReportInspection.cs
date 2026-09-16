@@ -96,6 +96,6 @@ public static class EcosystemChangeReportInspection
             document,
             new InspectionShare.NonProjectable(
                 "package-changes/share",
-                "Package Changes does not yet have a canonical Workspace Share projection."));
+                "Package Activity does not yet have a canonical Workspace Share projection."));
     }
 }

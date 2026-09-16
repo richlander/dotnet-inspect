@@ -312,10 +312,10 @@ function publishPackageChangesEvent(
 ): void {
   if ((typeof eventSink !== "object" && typeof eventSink !== "function")
     || eventSink === null) {
-    throw new TypeError("Package Changes event sink is unavailable.");
+    throw new TypeError("Package Activity event sink is unavailable.");
   }
   if (!Reflect.set(eventSink, "event", JSON.stringify(event))) {
-    throw new TypeError("Package Changes event sink rejected an event.");
+    throw new TypeError("Package Activity event sink rejected an event.");
   }
 }
 
@@ -598,7 +598,7 @@ export function bindPackageChangesFacade(
   authority: SharedEngineOperationAuthority,
 ): Pick<
   EngineClient["package"],
-  "cancelPackageChanges" | "runPackageChanges"
+  "cancelPackageActivity" | "runPackageActivity"
 > & { readonly dispose: () => void } {
   type PackageChangesInspection =
     import("./facades/inspect-web-package.d.ts")
@@ -623,19 +623,19 @@ export function bindPackageChangesFacade(
   const active = new Map<string, ActivePackageChanges>();
 
   return {
-    cancelPackageChanges(operationId, reason) {
+    cancelPackageActivity(operationId, reason) {
       active.get(operationId)?.handle.cancel(operationCancelReason(reason));
     },
-    async runPackageChanges(operationId, requestJson, eventSink) {
+    async runPackageActivity(operationId, requestJson, eventSink) {
       if (active.has(operationId)) {
         throw new Error(
-          `Package Changes operation '${operationId}' is already active.`);
+          `Package Activity operation '${operationId}' is already active.`);
       }
       let rawRequest: unknown;
       try {
         rawRequest = JSON.parse(requestJson);
       } catch (error: unknown) {
-        throw new TypeError("Package Changes request JSON is invalid.", {
+        throw new TypeError("Package Activity request JSON is invalid.", {
           cause: error,
         });
       }
@@ -678,7 +678,7 @@ export function bindPackageChangesFacade(
       if (started.kind === "rejected") {
         session.dispose();
         throw new Error(
-          `Package Changes could not start: ${
+          `Package Activity could not start: ${
             startFailureReason(started.reason)
           }.`);
       }
