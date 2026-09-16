@@ -2160,10 +2160,15 @@ and focused scrolling; `test/spotlight-identity.test.js` gates composition-root
 wiring.
 
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
-scope/result rendering, selection, and keyboard interaction.
+scope/result rendering, selection, and keyboard interaction. Entering
+`PackageId@Version` produces a direct exact-coordinate package action in both
+the home search and Workspace package picker, including for unlisted versions;
+the coordinate bypasses Gallery discovery and remains subject to ordinary
+package acquisition and framework selection.
 `src/spotlight-package-search.ts` owns debounced NuGet discovery, its
 idle/loading/ready/failed result state, current-loading publication guard,
-successful-result cache, snapshot settlement, and reset state.
+successful-result cache, snapshot settlement, exact-coordinate bypass, and
+reset state.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
 `dotnet-inspect.ts` retains command effects, the NuGet query endpoint, package
 navigation, acquisition, editable Spotlight input, and scope so the components

@@ -381,6 +381,7 @@ import {
 import {
   createPackageControls,
   findOpenPackageForQuery,
+  parsePackageQuery,
   type PackageControlPackage,
   type ParsedPackageQuery,
 } from "./package-controls.ts";
@@ -9128,6 +9129,28 @@ function spotlightResults(): SpotlightResult[] {
   const results: SpotlightResult[] = [];
 
   if (all || spotlightScope === "packages") {
+    const parsedPackageQuery = parsePackageQuery(query);
+    if (parsedPackageQuery?.explicitVersion) {
+      const openPackage = findOpenPackageForQuery(state, parsedPackageQuery);
+      if (openPackage) {
+        results.push({
+          kind: "pkg-loaded",
+          pkg: openPackage,
+          ranges: [[0, openPackage.id.length]],
+        });
+      } else {
+        results.push({
+          kind: "pkg-nuget",
+          hit: {
+            id: parsedPackageQuery.packageId,
+            version: parsedPackageQuery.version,
+            exact: true,
+          },
+          ranges: [[0, parsedPackageQuery.packageId.length]],
+        });
+      }
+      return results;
+    }
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
     const openIds = new Set(state.packages.map(pkg => pkg.id.toLowerCase()));
