@@ -247,31 +247,38 @@ public class SlotMaterializationPassTests
         function.CheckInvariant();
     }
 
-    // 5b-2 Opus review (de-inlining): a multi-store slot with a single read is
-    // the printer's inline consumer fold (`Use(c ? a : b)`); materializing it
-    // renders a branchy statement-level assignment instead. It stays deferred.
     [Fact]
-    public void DefersMultiStoreSlotWithSingleRead()
+    public void MaterializesMultiStoreSlotWithSingleRead()
     {
         var body = new BlockContainer();
-        var thenBlock = new Block(0);
+        var entry = new Block(0);
+        entry.Add(new ConditionalBranch(new Comparison(ComparisonKind.NotEqual, isUnsigned: false,
+            new LoadArgument(0, "x", Int32), new Constant(0, Int32)), 4));
+        entry.Add(new Branch(8));
+        var thenBlock = new Block(4);
         thenBlock.Add(new StoreStackSlot(0, new Constant(1, Int32)));
-        thenBlock.Add(new Branch(8));
-        var elseBlock = new Block(4);
+        thenBlock.Add(new Branch(12));
+        var elseBlock = new Block(8);
         elseBlock.Add(new StoreStackSlot(0, new Constant(2, Int32)));
-        var join = new Block(8);
+        elseBlock.Add(new Branch(12));
+        var join = new Block(12);
         join.Add(new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)));
-        foreach (var block in (Block[])[thenBlock, elseBlock, join])
+        foreach (var block in (Block[])[entry, thenBlock, elseBlock, join])
             body.Add(block);
         var function = Function([Int32], body);
 
         var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
-        Assert.True(decision.Vetoes.HasFlag(SlotMaterializationVeto.MultiStoreSingleLoadFold));
+        Assert.True(decision.WillMaterialize);
 
+        var invariant = SlotMaterializationInvariant.Capture(function);
         new SlotMaterializationPass().Run(function, PassContext.None);
+        invariant.Check();
 
-        Assert.Equal(2, function.Descendants.OfType<StoreStackSlot>().Count());
-        Assert.Single(function.Locals);
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Equal([Int32, Int32], function.Locals);
+        Assert.Equal([entry, thenBlock, elseBlock, join], body.Blocks);
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Fact]
@@ -611,8 +618,7 @@ public class SlotMaterializationPassTests
         Assert.Contains(decisions, decision => decision.Slot == 4
             && decision.Vetoes.HasFlag(SlotMaterializationVeto.OutsideCoercionDomain));
         Assert.Contains(decisions, decision => decision.Slot == 5
-            && decision.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType)
-            && decision.Vetoes.HasFlag(SlotMaterializationVeto.MultiStoreSingleLoadFold));
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType));
     }
 
     [Fact]
@@ -702,7 +708,7 @@ public class SlotMaterializationPassTests
     }
 
     [Fact]
-    public void AnalysisAttributesStructuralFoldsWithoutTypeTestimony()
+    public void AnalysisDefersMultiStoreSingleReadWithoutTypeTestimony()
     {
         var body = new BlockContainer();
         var firstStore = new Block(0);
@@ -719,8 +725,7 @@ public class SlotMaterializationPassTests
         var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
 
         Assert.Equal(
-            SlotMaterializationVeto.UnderivableTypeTestimony
-                | SlotMaterializationVeto.MultiStoreSingleLoadFold,
+            SlotMaterializationVeto.UnderivableTypeTestimony,
             decision.Vetoes);
     }
 }

@@ -11,7 +11,6 @@ public enum SlotMaterializationVeto
     ConflictingTypeTestimony = 1 << 4,
     OutsideCoercionDomain = 1 << 6,
     UnrenderableStoreType = 1 << 7,
-    MultiStoreSingleLoadFold = 1 << 8,
     BooleanSinkIdentityRecovery = 1 << 10,
     ElementStoreIdentityRecovery = 1 << 11,
     IncompleteCopyComponent = 1 << 12,
@@ -168,9 +167,6 @@ public sealed class SlotMaterializationPass : IIrPass
             {
                 throw new InvalidOperationException($"Slot {candidate.Slot} loads had no testimony decision.");
             }
-
-            if (candidate.Stores.Count > 1 && candidate.Loads.Count == 1)
-                candidate.Vetoes |= SlotMaterializationVeto.MultiStoreSingleLoadFold;
 
             if (candidate.Type is not { } slotType)
                 continue;
