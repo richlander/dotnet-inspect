@@ -282,8 +282,12 @@ actually have Package ancestry:
 ```text
 Workspace
 |- .NET
-|  |- System.Text.Json
-|     |- System.Text.Json.JsonSerializer
+|  |- System.Text.Json (.NET Library)
+|  |  |- System.Text.Json.JsonSerializer
+|  |- System.Text.Json 10.0.0 (Package)
+|  |  |- System.Text.Json (Library)
+|  |- System.Text.Json 10.0.1 (Package)
+|     |- System.Text.Json (Library)
 |- ASP.NET Core
 |  |- Microsoft.AspNetCore.Http.Abstractions
 |- Newtonsoft.Json 13.0.4
@@ -291,19 +295,44 @@ Workspace
 |- one directly admitted Library
 ```
 
-The first two entries are Ecosystem subjects. `System.Text.Json` and
-`Microsoft.AspNetCore.Http.Abstractions` are exact source-native Library
-subjects without invented Package ancestry. `Newtonsoft.Json@13.0.4` is an
-exact Package occurrence with its admitted Library beneath it. A directly
-admitted Library may be activated from Workspace without passing through
-either Ecosystem or Package.
+The target `.NET` Ecosystem authors the .NET runtime platform contribution and
+the `System.` Package Prefix contribution. The source-native
+`System.Text.Json` Library and both admitted Package occurrences therefore
+have exact routes beneath that Ecosystem. The prefix provides population and
+route evidence; it did not admit either Package, grant source authorization,
+or make the Ecosystem their exclusive provenance owner.
+
+That Ecosystem composition is an adjacent Ecosystems-catalog target, not
+current implementation or a Navigation-owned policy. The current product pack
+projects the .NET runtime platform population without the `System.` Package
+Prefix. Its focused adoption must add that prefix and the `.NET` presentation
+identity before this complete demo is supported. Prefix matching semantics
+remain owned by `PackagePrefixDeclaration`.
+
+The three visible `System.Text.Json` observations remain distinct:
+
+- the source-native Library has no invented Package ancestry;
+- `System.Text.Json@10.0.0` is one exact Package occurrence with its admitted
+  Library; and
+- `System.Text.Json@10.0.1` is another exact Package occurrence with its own
+  admitted Library.
+
+The `.NET` Ecosystem may share either Package or Library with another
+Ecosystem because route membership is many-to-many. `ASP.NET Core` is another
+Ecosystem with its source-native
+`Microsoft.AspNetCore.Http.Abstractions` Library.
+`Newtonsoft.Json@13.0.4` is the neighboring Package without a `.NET` Ecosystem
+route. A directly admitted Library may be activated from Workspace without
+passing through either Ecosystem or Package.
 
 The real assets are
 `Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Text.Json.dll`,
 `Microsoft.AspNetCore.App.Ref@10.0.0/ref/net10.0/Microsoft.AspNetCore.Http.Abstractions.dll`,
-and `Newtonsoft.Json@13.0.4`. They preserve the source-native framework,
-source-native ASP.NET Core, and package-backed neighboring cases through
-ordinary product acquisition rather than synthetic subject labels.
+`System.Text.Json@10.0.0`, `System.Text.Json@10.0.1`, and
+`Newtonsoft.Json@13.0.4`. They preserve the source-native framework,
+two-version package, source-native ASP.NET Core, and package-backed neighboring
+cases through ordinary product acquisition rather than synthetic subject
+labels.
 
 Spotlight may reach the same exact `System.Text.Json` Library directly:
 
@@ -317,7 +346,9 @@ Library and Type subject identities when they bind the same owner-issued
 Workspace occurrences. The route differs; the inspected subject does not.
 Conversely, the `System.Text.Json` framework Library and a package-origin
 Library with the same visible assembly name remain distinct exact subjects
-because their owner-issued source occurrences differ.
+because their owner-issued source occurrences differ. The two package
+occurrences also remain distinct despite equal Package ID and Library name
+because their exact versions and Workspace occurrence identities differ.
 
 The existing production Browser/Wasm scenario in #5433 proves the
 Package-backed subset: Workspace and Package are distinct navigation
@@ -602,6 +633,19 @@ application Ecosystem selection into a lower-layer Workspace declaration.
 Navigation consumes an exact Workspace-bound registration occurrence and
 owner-issued contribution relations; it does not infer them from an Ecosystem
 label or recreate catalog projection.
+
+[Workspace top-level
+inventory](workspace-top-level-inventory.md) owns the complete flat report of
+Package occurrences and inert Exact Library, Package Prefix, and Ecosystem
+registrations from one definition/scope observation. Its selection receipt may
+resolve a reported row to the owner-issued Package occurrence or registration
+arm before the responsible activation owner runs. Navigation never treats the
+document-local row key as subject identity, changes that inventory's canonical
+order, or deduplicates the `.NET` Ecosystem registration and two admitted
+`System.Text.Json` Package occurrences merely because its route graph groups
+their exact subjects beneath `.NET`. The platform and `System.` prefix remain
+ordered populations inside the Ecosystem entry rather than being flattened
+into independent registrations.
 
 [Inspect Web saved Workspaces](inspect-web-saved-workspaces.md) owns the plural
 saved-definition collection and its Save, Open, and Forget behavior.
@@ -1996,41 +2040,46 @@ retaining a navigation session.
 ## Workspace-rooted graph adoption
 
 Issue [#7301](https://github.com/richlander/dotnet-inspect/issues/7301) is the
-overall tracker. The current plan has fifteen focused stages:
+overall tracker. The current plan has sixteen focused stages:
 
 1. Lock this Navigation-owned subject, identity, route, policy, and evidence
    contract.
-2. Have the Workspace registration and ecosystem-handoff owners issue exact
+2. Have the Ecosystems catalog define the `.NET` Ecosystem contribution as the
+   .NET runtime platform population plus the `System.` Package Prefix, with
+   `.NET` as its user-facing identity.
+3. Have the Workspace registration and ecosystem-handoff owners issue exact
    Workspace-bound Ecosystem occurrences and contribution-relation witnesses.
-3. Have the responsible admission owner issue exact Workspace-bound Library
+4. Have the responsible admission owner issue exact Workspace-bound Library
    occurrences and direct, Package, and Ecosystem relation witnesses.
-4. Supply one host-neutral Ecosystem Overview inspection over the exact
+5. Supply one host-neutral Ecosystem Overview inspection over the exact
    registration occurrence and admitted-descendant descriptors through the
    repository's `InspectionEnvelope<T>` boundary.
-5. Have View Facet Registry adopt the Ecosystem Overview descriptor, preferred
+6. Have View Facet Registry adopt the Ecosystem Overview descriptor, preferred
    role, exact applicability, and execution binding.
-6. Have View Facet Registry make an explicit target-aware applicability
+7. Have View Facet Registry make an explicit target-aware applicability
    decision for existing Compare descriptors; the initial path keeps
    source-native subjects without Package association inapplicable.
-7. Replace Navigation's package-only subject implementation with the closed
+8. Replace Navigation's package-only subject implementation with the closed
    subject graph, route state, activation, reconciliation, and Release gates.
-8. Have Workspace Definitions resolve portable subject intent into exact fresh
+9. Have Workspace Definitions resolve portable subject intent into exact fresh
    Workspace subjects and routes without serializing runtime identities.
-9. Adopt the same Workspace-rooted subjects and routes in the CLI through its
-   existing Markout and structured-output path.
-10. Adopt the product-issued routes, actions, and outcomes in the Inspect Web
-   Navigation Consumer.
-11. Have Inspect Web Workspace Editing expose configuration as an explicit
+10. Adopt the same Workspace-rooted subjects and routes in the CLI through the
+   existing Workspace top-level inventory selection receipt, Markout, and
+   structured-output path.
+11. Adopt the product-issued routes, actions, and outcomes in the Inspect Web
+   Navigation Consumer, resolving Workspace inventory rows through their
+   exact top-level inventory selection receipt.
+12. Have Inspect Web Workspace Editing expose configuration as an explicit
    action on the singular live Workspace rather than as a structural subject.
-12. Have Inspect Web Saved Workspaces expose the plural saved-definition
+13. Have Inspect Web Saved Workspaces expose the plural saved-definition
    collection and lifecycle separately from the active Workspace subject.
-13. Have Inspect Web Navigation Presentation make singular Workspace the
+14. Have Inspect Web Navigation Presentation make singular Workspace the
    visible inspection root and compose the separately owned Configure
    Workspace and Workspaces actions or surfaces without redefining them.
-14. Have Spotlight destination activation add typed Ecosystem destinations and
+15. Have Spotlight destination activation add typed Ecosystem destinations and
    explicit registration effects, then retire its Browser-local framework
    Library activation path after shared Navigation covers it.
-15. Include the CLI and website behavior in a separately authorized product
+16. Include the CLI and website behavior in a separately authorized product
    release and production-site deployment.
 
 Each stage owns only its component's adoption decisions. This document does not
@@ -2039,9 +2088,9 @@ more than one independently coherent claim; the tracker must then update the
 count rather than hide the additional work.
 
 The package-only `StructuralSubjectIdentity` is an alternative architecture,
-not a compatibility contract. Stage 7 replaces it in place once all current
+not a compatibility contract. Stage 8 replaces it in place once all current
 Package behavior has equivalent gates. The Browser-local framework Library
-route remains visible migration state until stages 10 through 14 replace and
+route remains visible migration state until stages 11 through 15 replace and
 retire it; no design-only claim presents that path as already shared.
 
 ## Verification
@@ -2098,6 +2147,8 @@ The eventual subject-navigation implementation must include named gates for:
 - `DirectLibraryRoute_PreservesPackageProvenanceWithoutPackageAncestry`
 - `EmptyEcosystemSubject_DoesNotAcquireOrInventChildren`
 - `RouteLoss_UsesOnlyCurrentOwnerIssuedReplacement`
+- `DotNetEcosystem_RoutesRuntimeAndEveryAdmittedSystemPrefixOccurrence`
+- `EcosystemGrouping_PreservesTopLevelInventoryEntriesAndIdentity`
 - `OneLibraryInventory_DoesNotRequirePackageOccurrence`
 - `DirectLibraryDescendantActivation_UsesExactLibraryRelations`
 - `NonPackageRefresh_PreservesExactSubjectAndRoute`
@@ -2376,6 +2427,8 @@ must preserve the same typed outcomes and fresh destination content.
 | Compare requested on a direct package-origin Library | Applicability uses the exact Package association in subject identity, not whether Package appears in the active route |
 | Two Ecosystems contribute the same exact Package | One Package subject with two exact available routes; Ecosystem labels do not duplicate Package identity |
 | Framework and package Libraries share an assembly simple name | Distinct subjects because their owner-issued source occurrences differ |
+| `.NET` contains runtime and two `System.Text.Json` Package versions | Three distinct observations and routes: one source-native Library plus two exact Package occurrences with their own Libraries |
+| Workspace inventory reports the same `.NET` inputs | One Ecosystem entry retains its platform and `System.` populations while both Package occurrences remain separate top-level entries; Navigation grouping changes neither identity nor duplicate policy |
 | Active Ecosystem registration is removed while its Library remains admitted | Retain the Library only through a current owner-issued replacement route; otherwise fall back to the last valid exact ancestor |
 | Saved definition appears in Workspaces | No structural subject or Navigation action until Open constructs a fresh singular Workspace |
 | Workspace selected with an active occurrence | Exact Workspace subject and ordered retained-coordinate descriptors; the active occurrence and its Package, Library, Type, and Member context remain available |
