@@ -1022,8 +1022,9 @@ Raised standalone `--fidelity-check` uses floor-disabled product-artifact RTS
 over a tools-owned population selected before either fidelity oracle runs. For
 each caller-ordered assembly, the harness filters live metadata to concrete
 methods whose product C# type, namespace, member, parameter, generic-parameter,
-and referenced-signature identities are exactly representable on
-non-generated top-level classes and structs,
+generic-constraint, and referenced-signature identities are exactly
+representable on non-generated top-level classes and structs, requires an
+available canonical metadata signature shape,
 applies `CB_TYPE` before sampling, and chooses a stable hash-ranked set up to the
 remaining global `--compile-cap`. The cap remains a maximum across the complete
 assembly list: a run with fewer eligible methods reports the shorter population

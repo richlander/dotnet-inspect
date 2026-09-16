@@ -299,23 +299,28 @@ static class FidelityCheck
                          source,
                          remaining,
                          candidate => IsStandaloneReturnToSenderCandidate(
-                             reader,
-                             candidate,
-                             typeFilter,
-                             targetApiIndex)))
+                                 reader,
+                                 candidate,
+                                 typeFilter,
+                                 targetApiIndex)
+                             && MetadataMemberSignatureShape.Create(
+                                 reader,
+                                 candidate.MethodHandle).Shape is not null))
             {
                 var signatureShape = MetadataMemberSignatureShape.Create(
                     reader,
                     candidate.MethodHandle);
-                string signature = signatureShape.Shape is { } shape
-                    ? MemberSignatureShapeCodec.Encode(shape)
-                    : "";
+                if (signatureShape.Shape is not { } shape)
+                {
+                    throw new InvalidOperationException(
+                        "A selected standalone RTS target lost its canonical signature.");
+                }
                 selected.Add(new CompileBackTarget(
                     assemblyPath,
                     candidate.TypeName,
                     candidate.MethodName,
                     candidate.Overload,
-                    signature,
+                    MemberSignatureShapeCodec.Encode(shape),
                     MetadataMethodAddress.Create(reader, candidate.MethodHandle)));
             }
         }

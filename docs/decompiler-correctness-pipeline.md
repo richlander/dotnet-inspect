@@ -1069,8 +1069,9 @@ the flags, buckets, and current baselines.
 Bare raised `--fidelity-check` is a broad product-artifact RTS measurement, not
 a whole-module reconstruction sweep. Before running an oracle, it selects
 concrete methods from live metadata whose product C# type, namespace, member,
-parameter, generic-parameter, and referenced-signature identities are exactly
-representable on non-generated top-level classes and structs. `CB_TYPE`
+parameter, generic-parameter, generic-constraint, and referenced-signature
+identities are exactly representable on non-generated top-level classes and
+structs and whose canonical metadata signature shape is available. `CB_TYPE`
 filters that population first. Stable
 hash ranking then chooses up to the remaining caller-ordered global
 `--compile-cap` for each assembly. The cap is a maximum, so an input set with

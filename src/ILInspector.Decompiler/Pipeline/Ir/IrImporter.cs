@@ -616,6 +616,8 @@ public static class IrImporter
             methodName,
             signature.ReturnType.ToDisplayString(),
             signature.Header.IsInstance ? "instance" : "static",
+            signature.GenericParameterCount.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
             string.Join(",", signature.ParameterTypes.Select(type => type.ToDisplayString())));
     }
 

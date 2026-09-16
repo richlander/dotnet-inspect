@@ -2336,6 +2336,8 @@ public static class ApiSurfaceExtractor
             };
             beforeRetain?.Invoke(typeParam.Name);
             var structured = new List<TypeParameterConstraint>();
+            var constraintTypeReferences = new List<ApiTypeReferenceIdentity>();
+            bool constraintTypeReferencesAvailable = true;
 
             var attrs = param.Attributes;
             if (includeVariance && GenericConstraintKeywords.VarianceKeyword(attrs) is { } variance)
@@ -2366,14 +2368,25 @@ public static class ApiSurfaceExtractor
             foreach (var constraintHandle in param.GetConstraints())
             {
                 var constraint = reader.GetGenericParameterConstraint(constraintHandle);
+                TypeNode? constraintTypeNode = null;
                 string constraintTypeName = ResolveRequiredTypeName(
                     reader,
                     constraint.Type,
                     context,
                     beforeRetain,
-                    beforeDecodeWork);
+                    beforeDecodeWork,
+                    node => constraintTypeNode = node);
                 if (constraintTypeName is "System.ValueType" or "System.Object")
                     continue;
+                if (constraintTypeNode is null || constraintTypeNode.IsDegraded)
+                {
+                    constraintTypeReferencesAvailable = false;
+                }
+                else
+                {
+                    constraintTypeReferences.AddRange(
+                        constraintTypeNode.ReferencedTypes());
+                }
                 var formatted = FormatConstraintType(
                     reader,
                     constraint,
@@ -2402,6 +2415,9 @@ public static class ApiSurfaceExtractor
             }
 
             typeParam.StructuredConstraints = structured;
+            typeParam.ConstraintTypeReferences = constraintTypeReferencesAvailable
+                ? [.. constraintTypeReferences.Distinct()]
+                : null;
             typeParam.TypeKind = TypeParameterKindClassifier.Classify(
                 reader,
                 paramHandle,
@@ -5998,6 +6014,16 @@ public static class ApiSurfaceExtractor
         {
             foreach (TypeParameterConstraint constraint in parameter.StructuredConstraints)
                 AddText(ref count, constraint.Value);
+        }
+        if (parameter.ConstraintTypeReferences is not null)
+        {
+            foreach (ApiTypeReferenceIdentity reference
+                in parameter.ConstraintTypeReferences)
+            {
+                AddText(ref count, reference.Assembly);
+                AddText(ref count, reference.FullName);
+                AddText(ref count, reference.DefinitionName);
+            }
         }
     }
 

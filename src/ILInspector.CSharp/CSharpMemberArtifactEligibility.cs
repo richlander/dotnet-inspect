@@ -23,6 +23,8 @@ public static class CSharpMemberArtifactEligibility
             || member.SignatureModel is not { } signature
             || signature.TypeParameters.Any(parameter => !IsIdentifier(parameter.Name))
             || signature.Parameters.Any(parameter => !IsIdentifier(parameter.Name))
+            || !ConstraintsAreRepresentable(type.TypeParameters)
+            || !ConstraintsAreRepresentable(signature.TypeParameters)
             || !ReferencesAreRepresentable(type.BaseTypeReference.AsEnumerable())
             || !ReferencesAreRepresentable(type.InterfaceReferences)
             || !ReferencesAreRepresentable(signature.ReturnTypeReferences)
@@ -64,6 +66,30 @@ public static class CSharpMemberArtifactEligibility
         }
 
         return IsIdentifier(name);
+    }
+
+    static bool ConstraintsAreRepresentable(
+        IEnumerable<TypeParameter> parameters)
+    {
+        foreach (TypeParameter parameter in parameters)
+        {
+            if (parameter.StructuredConstraints is not { } constraints)
+            {
+                if (parameter.Constraints.Count > 0)
+                    return false;
+                continue;
+            }
+
+            if (constraints.Any(constraint => constraint.IsTypeName)
+                && (parameter.ConstraintTypeReferences is null
+                    || !ReferencesAreRepresentable(
+                        parameter.ConstraintTypeReferences)))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     static bool ReferencesAreRepresentable(
