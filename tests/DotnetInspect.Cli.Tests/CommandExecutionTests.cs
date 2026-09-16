@@ -14661,15 +14661,21 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Find_JsonWithoutProjection_KeepsPreLoweredShape()
     {
-        // The lowering is opt-in: plain --json must keep emitting the typed per-result objects
-        // with their machine keys, not the title-cased display view (#3494).
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath, "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("\"type\":", output);
-        Assert.DoesNotContain("\"Results\":", output);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.All(
+            document.RootElement.EnumerateArray(),
+            static result =>
+            {
+                Assert.True(result.TryGetProperty("type", out _));
+                Assert.False(result.TryGetProperty("location", out _));
+                Assert.False(result.TryGetProperty("navigation", out _));
+            });
     }
 
     [Fact]
@@ -20106,6 +20112,319 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
+    }
+
+    [Fact]
+    public async Task Find_ExactPackageAndPlatformJsonPreservesResultArray()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.JsonSerializer",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--platform",
+            "System.Text.Json",
+            "--ecosystem",
+            "ecosystem.aspire",
+            "--ecosystem",
+            "ecosystem.ai",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        JsonElement[] rows =
+        [
+            .. document.RootElement.EnumerateArray(),
+        ];
+        Assert.Equal(2, rows.Length);
+        Assert.All(
+            rows,
+            static row =>
+                Assert.Equal(
+                    "class",
+                    row.GetProperty("kind").GetString()));
+        Assert.Contains(
+            rows,
+            static row =>
+                row.GetProperty("source").GetString()
+                    == "System.Text.Json");
+        Assert.Contains(
+            rows,
+            static row =>
+                row.GetProperty("source").GetString()
+                    == "runtime");
+        Assert.All(
+            rows,
+            static row =>
+            {
+                Assert.Equal(
+                    [
+                        "pattern",
+                        "match",
+                        "similarity",
+                        "type",
+                        "namespace",
+                        "full_name",
+                        "kind",
+                        "library",
+                        "source",
+                        "source_version",
+                    ],
+                    row.EnumerateObject()
+                        .Select(static property => property.Name)
+                        .ToArray());
+            });
+    }
+
+    [Theory]
+    [InlineData("FSharpKind", false, null)]
+    [InlineData("System.Text.Json.JsonDocument.*", true, null)]
+    [InlineData("System.Text.Json.JsonDocument.*", true, 1)]
+    [Trait("Speed", "Slow")]
+    public async Task Find_LocatorPreservesCompatibilityVisibility(
+        string pattern,
+        bool includeAll,
+        int? limit)
+    {
+        async Task<string[]> SearchAsync(bool forceCompatibility)
+        {
+            var arguments = new List<string>
+            {
+                "find",
+                pattern,
+                "--package",
+                "System.Text.Json@10.0.0",
+                "--tfm",
+                "net10.0",
+                "--json",
+                "--tips",
+                "q",
+            };
+            if (includeAll)
+                arguments.Add("--all");
+            if (limit is not null)
+            {
+                arguments.Add("-n");
+                arguments.Add(limit.Value.ToString());
+            }
+            if (forceCompatibility)
+            {
+                arguments.Add("--library");
+                arguments.Add(TestAssemblyPath);
+            }
+
+            var (exit, output, error) =
+                await RunAppAsync([.. arguments]);
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            return
+            [
+                .. document.RootElement
+                    .EnumerateArray()
+                    .Select(static row => row.GetRawText())
+                    .Order(StringComparer.Ordinal),
+            ];
+        }
+
+        string[] locator = await SearchAsync(forceCompatibility: false);
+        string[] compatibility =
+            await SearchAsync(forceCompatibility: true);
+
+        Assert.Equal(compatibility, locator);
+        if (includeAll)
+        {
+            Assert.DoesNotContain(
+                locator,
+                static row =>
+                    row.Contains(@".\u003C", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.Contains(
+                locator,
+                static row =>
+                    row.Contains(
+                        "System.Text.Json.Serialization.Metadata."
+                            + "FSharpCoreReflectionProxy.FSharpKind",
+                        StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Find_LocatorDottedGlobMissReportsWarning()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.JsonSerializer,System.Text.Json.NoSuchTypeXYZ*",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Warning: 1 search pattern matched no types.",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            Assert.Single(document.RootElement.EnumerateArray())
+                .GetProperty("full_name")
+                .GetString());
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Find_LocatorSimilarityCutoffPreservesInventoryOrder()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "JsonNodeX",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--all",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            [
+                "System.Text.Json.JsonDocument",
+                "System.Text.Json.JsonProperty",
+                "System.Text.Json.Schema.JsonSchema",
+                "System.Text.Json.Nodes.JsonNode",
+                "System.Text.Json.Nodes.JsonNodeOptions",
+            ],
+            document.RootElement
+                .EnumerateArray()
+                .Select(
+                    static row =>
+                        row.GetProperty("full_name").GetString()!)
+                .ToArray());
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Find_LocatorMixedPatternsPreservePatternOrderBeforeLimit()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.Serialization,JsonSerializer",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--tips",
+            "q",
+            "-n",
+            "1");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Showing prefix matches",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            "System.Text.Json.Serialization.JsonAttribute",
+            row.GetProperty("full_name").GetString());
+        Assert.Equal("Glob", row.GetProperty("match").GetString());
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Find_LocatorCollidingEffectivePatternsReplaceEarlierGroup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.Nodes,System.Text.Json.Nodes*,JsonSerializer",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--tips",
+            "q",
+            "-n",
+            "8");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Showing prefix matches",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(
+            [
+                "System.Text.Json.Nodes.JsonArray",
+                "System.Text.Json.Nodes.JsonNode",
+                "System.Text.Json.Nodes.JsonNodeOptions",
+                "System.Text.Json.Nodes.JsonObject",
+                "System.Text.Json.Nodes.JsonValue",
+                "System.Text.Json.JsonSerializer",
+            ],
+            rows
+                .Select(
+                    static row =>
+                        row.GetProperty("full_name").GetString()!)
+                .ToArray());
+        Assert.All(
+            rows[..5],
+            static row =>
+                Assert.Equal(
+                    "System.Text.Json.Nodes*",
+                    row.GetProperty("pattern").GetString()));
+        Assert.Equal(
+            "JsonSerializer",
+            rows[^1].GetProperty("pattern").GetString());
+    }
+
+    [Fact]
+    public async Task Find_IncompleteLocatorMarkdownPreservesResultsView()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Object",
+            "--package",
+            "System.Runtime@4.3.1",
+            "--platform",
+            "System.Private.CoreLib",
+            "--tfm",
+            "net10.0",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Results", output);
+        Assert.DoesNotContain("## Coverage", output);
+        Assert.DoesNotContain("## Gaps", output);
+        Assert.Contains(
+            "No assemblies found for target framework 'net10.0' "
+                + "in package 'System.Runtime@4.3.1'.",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,6 +1,9 @@
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Ecosystems;
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Inspectors;
 
@@ -10,6 +13,9 @@ internal sealed record FindSearchResult<T>(
     IReadOnlyList<string>? UnmatchedPatterns = null)
 {
     public bool SourceSelectionIncomplete { get; init; }
+
+    public IReadOnlyList<TypeDeclarationLocatorSectionResult> LocatorSections
+    { get; init; } = [];
 }
 
 /// <summary>
@@ -18,6 +24,16 @@ internal sealed record FindSearchResult<T>(
 /// </summary>
 internal static class FindSourceCollector
 {
+    internal static WorkspacePlan CreateWorkspacePlan(
+        FindOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return options.Ecosystems is null
+            ? EcosystemPackCatalog.CreateWorkspacePlan()
+            : EcosystemPackCatalog.CreateWorkspacePlan(
+                options.Ecosystems);
+    }
+
     /// <summary>
     /// Builds the complete ordered find request.
     /// </summary>
