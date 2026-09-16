@@ -295,9 +295,13 @@ is not required merely because the report is package-aware.
 [#6124](https://github.com/richlander/dotnet-inspect/issues/6124) enumerates
 eight delivery steps: contract/evidence; source acquisition; security
 evidence; shared report query; shared presentation; CLI adoption; browser
-adoption; and end-to-end evidence/docs. The named production consumers are
-both hosts. This proposal introduces one query owner, retires no architecture,
-and depends on separate owner work for missing source/security capabilities.
+adoption; and end-to-end evidence/docs. Six are complete. Two independent
+production slices remain: #7179 moves the Browser report to `/activity` and
+retires the `/query` peer mode, while #7175 renames the CLI and Browser surface
+to Package Activity. Together they complete steps 7 and 8. The named production
+consumers are both hosts. This proposal introduces one query owner, retires no
+architecture, and depends on separate owner work for missing source/security
+capabilities.
 
 The shared-query Release gates cover the default 42-day range and explicit
 bounds, exact-set and literal-prefix scope, exact-coordinate evidence

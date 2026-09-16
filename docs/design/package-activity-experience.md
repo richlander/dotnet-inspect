@@ -11,19 +11,25 @@ route and its placement among the working surfaces.
 transport, cancellation, and physical settlement.
 
 The end-to-end production tracker is
-[#7179](https://github.com/richlander/dotnet-inspect/issues/7179), which owns
-the `/activity` route, retirement of the `/query` peer mode, and the gates that
-move with them. [#7175](https://github.com/richlander/dotnet-inspect/issues/7175)
-owns the rename across CLI and Browser, and the two are independent: neither
-needs the other to land first.
+[#6124](https://github.com/richlander/dotnet-inspect/issues/6124). Two
+production slices remain:
+
+1. [#7179](https://github.com/richlander/dotnet-inspect/issues/7179) owns the
+   `/activity` route, retirement of the `/query` peer mode, and the gates that
+   move with them.
+2. [#7175](https://github.com/richlander/dotnet-inspect/issues/7175) owns the
+   rename across CLI and Browser.
+
+The slices are independent and may land in either order. Together they complete
+issue #6124's remaining Browser adoption and cross-host
+evidence/documentation steps.
 
 [#7118](https://github.com/richlander/dotnet-inspect/issues/7118) delivered this
-surface's five adoption steps — product catalog projection, startup discovery,
-progressive controller/source adaptation, bounded typed rendering, and real-Wasm
-publication evidence — and is closed. Its sixth outcome, `Packages | Changes` as
-peer modes on `/query`, is superseded by #7179 rather than reopened; a reader
-following #7118 alone would build the control this document retires. This owner
-introduces no replacement architecture.
+surface's product catalog projection, startup discovery, progressive
+controller/source adaptation, bounded typed rendering, and real-Wasm
+publication evidence, and is closed. Its `Packages | Changes` peer-mode outcome
+is superseded by #7179 rather than reopened; #6124 points its remaining Browser
+work at that replacement. This owner introduces no replacement architecture.
 
 **Normative claim.** The `/activity` surface preserves the product-issued
 package scope, requested interval, progressive event sequence, and typed
