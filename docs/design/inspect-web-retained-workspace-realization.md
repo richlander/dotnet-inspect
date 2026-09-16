@@ -558,8 +558,9 @@ tracks the end-to-end architecture retirement.
    generation checks.
 6. **Platform realization.** Route Platform selection and operations through
    the same host, preserving only catalog-specific transient bounds.
-   Spotlight's focused Platform adopter is
-   [#7029](https://github.com/richlander/dotnet-inspect/issues/7029).
+   Spotlight framework-Library realization remains direct and does not adopt
+   a Platform action or destination; the former focused adopter
+   [#7029](https://github.com/richlander/dotnet-inspect/issues/7029) is retired.
 7. **Legacy registry retirement.** Decouple package-cache accounting and
    occurrence actions, then delete the managed multi-scope registry and every
    lookup, LRU, capacity, quarantine, and compatibility-search surface that
