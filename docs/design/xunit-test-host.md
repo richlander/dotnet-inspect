@@ -360,6 +360,12 @@ outcome-level host gate without changing the suite's ownership-role attribute,
 stack-only snapshot view, borrow lifetime, callback, failure-propagation, or
 owner-release evidence.
 
+`NetworkAccess.Tests` is the thirty-second migrated adopter. Its required
+network-policy CI and developer commands remain unfiltered. This path reuses
+the pinned outcome-level host gate without changing the suite-owned IPv4 and
+IPv6 non-public destination-classification evidence used by independent
+desktop transports.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

@@ -158,6 +158,7 @@ public static class ApiMemberSectionDescriptors
             .Add<SafetyFacts>()
             .Add<CostFacts>()
             .Add<TopLeverage>()
+            .Add<ImplementationProfiles>()
             .Add<OptimizationOpportunities>()
             .Add<ApiMemberDetailSectionDescriptors.BodyShapes>()
             .Add<ApiMemberDetailSectionDescriptors.BodyShapeSummary>()
@@ -461,6 +462,19 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         // Backed by the whole-assembly body index; list structurally during -D rather
         // than opening the index to probe, mirroring OptimizationOpportunities.
+        public static bool ProbeEffectiveness => false;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(IsBodyBacked);
+    }
+
+    public sealed class ImplementationProfiles
+        : ISectionDescriptor<ApiType>
+    {
+        public static string Name =>
+            SectionNames.ImplementationProfiles;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionCost Cost => SectionCost.Unbounded;
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsBodyBacked);
@@ -793,6 +807,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.CloneCandidates>(
                 model => model.Members.Count == 1)
             .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.ImplementationProfiles>()
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.SemanticsOverlay>(HasSingleBodyBackedMember)
@@ -886,6 +901,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<BodyShapeSummary>()
             .Add<ApiMemberSectionDescriptors.CloneCandidates>()
             .Add<ApiMemberSectionDescriptors.TopLeverage>()
+            .Add<ApiMemberSectionDescriptors.ImplementationProfiles>()
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
             .Add<Facts>()
             .Add<ILBody>();

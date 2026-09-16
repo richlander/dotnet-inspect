@@ -715,7 +715,7 @@ public sealed class PackagePlatformSourceTests
     }
 
     [Fact]
-    public async Task MemoryAndFilesystemStoresProduceEquivalentReferenceEvidence()
+    public async Task MemoryAndFilesystemStoresProduceEquivalentPlatformEvidence()
     {
         byte[] first = PackagePlatformTestData.Assembly("First");
         byte[] second = PackagePlatformTestData.Assembly("Second");
@@ -729,6 +729,28 @@ public sealed class PackagePlatformSourceTests
                     + "</version></metadata></package>")),
             PackagePlatformTestData.Entry("ref/net11.0/Second.dll", second),
             PackagePlatformTestData.Entry("ref/net11.0/First.dll", first),
+        ];
+        IReadOnlyList<KeyValuePair<string, byte[]>> implementationEntries =
+        [
+            PackagePlatformTestData.Entry(
+                PackagePlatformTestEnvironment.RuntimeImplementationPackageId
+                    + ".nuspec",
+                System.Text.Encoding.UTF8.GetBytes(
+                    "<package><metadata><id>"
+                    + PackagePlatformTestEnvironment
+                        .RuntimeImplementationPackageId
+                    + "</id><version>"
+                    + PackagePlatformTestEnvironment.Version
+                    + "</version></metadata></package>")),
+            ..
+            PackagePlatformTestData.RuntimePackEntries(
+                "Microsoft.NETCore.App",
+                PackagePlatformTestData.RuntimeConfiguration(),
+                PackagePlatformTestData.DependencyManifest(
+                    "First.dll",
+                    "Second.dll"),
+                ("First.dll", first),
+                ("Second.dll", second)),
         ];
         string root = Path.Combine(
             Environment.CurrentDirectory,
@@ -747,6 +769,14 @@ public sealed class PackagePlatformSourceTests
                 await RealizeWithStoreAsync(new InMemoryPackageStore(), entries);
             PackageReferenceRealization filesystem =
                 await RealizeWithStoreAsync(new FileSystemPackageStore(), entries);
+            PackageImplementationRealization memoryImplementation =
+                await RealizeImplementationWithStoreAsync(
+                    new InMemoryPackageStore(),
+                    implementationEntries);
+            PackageImplementationRealization filesystemImplementation =
+                await RealizeImplementationWithStoreAsync(
+                    new FileSystemPackageStore(),
+                    implementationEntries);
 
             Assert.Equal(
                 memory.Libraries.Select(static library => (library.Path, library.Identity)),
@@ -756,6 +786,27 @@ public sealed class PackagePlatformSourceTests
                 Assert.Equal(
                     await PackagePlatformTestData.ReadAllAsync(memory.Libraries[index]),
                     await PackagePlatformTestData.ReadAllAsync(filesystem.Libraries[index]));
+            }
+            Assert.Equal(
+                memoryImplementation.Libraries.Select(
+                    static library => (
+                        library.ManifestCoordinate,
+                        library.Identity,
+                        library.ContentDigest)),
+                filesystemImplementation.Libraries.Select(
+                    static library => (
+                        library.ManifestCoordinate,
+                        library.Identity,
+                        library.ContentDigest)));
+            for (int index = 0;
+                index < memoryImplementation.Libraries.Length;
+                index++)
+            {
+                Assert.Equal(
+                    await PackagePlatformTestData.ReadAllAsync(
+                        memoryImplementation.Libraries[index]),
+                    await PackagePlatformTestData.ReadAllAsync(
+                        filesystemImplementation.Libraries[index]));
             }
         }
         finally
@@ -863,6 +914,54 @@ public sealed class PackagePlatformSourceTests
                 ?.Diagnostic.Kind);
         var realization =
             ((PackagePlatformSourceOutcome<PackageReferenceRealization>.Succeeded)outcome).Value;
+        await environment.AssertSettledAsync();
+        return realization;
+    }
+
+    private static async Task<PackageImplementationRealization>
+        RealizeImplementationWithStoreAsync(
+            IPackageStore store,
+            IReadOnlyList<KeyValuePair<string, byte[]>> entries)
+    {
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment
+                        .RuntimeImplementationPackageId,
+                    entries: entries),
+            ],
+            store);
+        var coordinate = new PackageImplementationPlatformCoordinate(
+            new PlatformFamilyTarget(
+                PlatformFamily.DotNetRuntime,
+                PlatformTargetFramework.Parse("net11.0"),
+                PlatformVersion.Parse(
+                    PackagePlatformTestEnvironment.Version)),
+            "linux-x64");
+        var work = new PackageImplementationWorkBudget(
+            maxFrameworks: 4,
+            maxResolutionSteps: 8,
+            maxManifestLibraries: 32,
+            maxManifestAssets: 512,
+            maxAssemblies: 512,
+            maxBytes: 64 * 1024 * 1024);
+        var outcome = await environment.CreateSource()
+            .RealizeImplementationAsync(
+                coordinate,
+                work,
+                environment.IssueOperation(
+                    TestContext.Current.CancellationToken));
+        Assert.True(
+            outcome is PackagePlatformSourceOutcome<
+                PackageImplementationRealization>.Succeeded,
+            $"{outcome.GetType().FullName}: "
+            + (outcome as PackagePlatformSourceOutcome<
+                    PackageImplementationRealization>.NotSucceeded)
+                ?.Diagnostic.Kind);
+        var realization =
+            ((PackagePlatformSourceOutcome<
+                PackageImplementationRealization>.Succeeded)outcome).Value;
         await environment.AssertSettledAsync();
         return realization;
     }

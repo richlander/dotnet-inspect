@@ -30,20 +30,20 @@ internal static class PerformanceTriageRowQuery
                     CompareAllocationFanout),
                 direction));
 
-    private static readonly RowQueryFacetValuePresentation TextValue =
+    private static readonly RowQueryKeyValuePresentation TextValue =
         new("text/glob", [], "*");
 
-    private static readonly RowQueryFacetValuePresentation IntegerValue =
+    private static readonly RowQueryKeyValuePresentation IntegerValue =
         new("integer", [], "10");
 
     private static readonly ImmutableArray<string> RankedValues =
         ["low", "medium", "high"];
 
-    private static readonly RowQueryFacetValuePresentation RankedValue =
+    private static readonly RowQueryKeyValuePresentation RankedValue =
         new("rank", RankedValues, "high");
 
-    private static readonly ImmutableArray<FieldBinding> FieldBindings =
-        [.. CreateFields()];
+    private static readonly ImmutableArray<KeyBinding> KeyBindings =
+        [.. CreateKeys()];
 
     // AllocationFanout is selected only by focused shape lowering; the public
     // --order-by grammar does not bind it.
@@ -51,39 +51,39 @@ internal static class PerformanceTriageRowQuery
         RowQueryNamedOrder<Analysis.OptimizationOpportunity>>
         DiscoverableNamedOrders = [TriageOrder];
 
-    private static readonly RowQuerySchema<Analysis.OptimizationOpportunity>
-        Schema =
-        RowQuerySchema<Analysis.OptimizationOpportunity>.Create(
-            RowQuerySchemaIdentity.Create(),
-            [.. FieldBindings.Select(binding => binding.Field)],
+    private static readonly RowQueryVocabulary<Analysis.OptimizationOpportunity>
+        Vocabulary =
+        RowQueryVocabulary<Analysis.OptimizationOpportunity>.Create(
+            RowQueryVocabularyIdentity.Create(),
+            [.. KeyBindings.Select(binding => binding.Key)],
             [TriageOrder, AllocationFanoutOrder],
             defaultTopRanking:
                 new(
                     TriageOrder,
                     RowQueryOrderDirection.Descending));
 
-    internal static RowQuerySchema<Analysis.OptimizationOpportunity>
-        ExecutableSchema => Schema;
+    internal static RowQueryVocabulary<Analysis.OptimizationOpportunity>
+        ExecutableVocabulary => Vocabulary;
 
-    internal static ImmutableArray<SectionQueryFacet> QueryFacets { get; } =
-        RowQueryFacetProjection.Create(
-            Schema,
+    internal static ImmutableArray<SectionQueryKey> QueryKeys { get; } =
+        RowQueryKeyProjection.Create(
+            Vocabulary,
             ValuePresentation,
             DiscoverableNamedOrders);
 
     internal static IReadOnlyList<string> FilterableFields { get; } =
-        [.. Schema.Fields
-            .Where(field => field.Operators.Count > 0)
-            .Select(field => field.Key)];
+        [.. Vocabulary.Keys
+            .Where(key => key.Operators.Count > 0)
+            .Select(key => key.Key)];
 
     internal static IReadOnlyList<string> SortableFields { get; } =
         CreateSortableFields();
 
-    internal static bool IsNumericField(string field) =>
-        ValuePresentation(Field(field)).ValueKind == "integer";
+    internal static bool IsNumericKey(string field) =>
+        ValuePresentation(Key(field)).ValueKind == "integer";
 
-    internal static bool IsRankedField(string field) =>
-        ValuePresentation(Field(field)).ValueKind == "rank";
+    internal static bool IsRankedKey(string field) =>
+        ValuePresentation(Key(field)).ValueKind == "rank";
 
     internal static bool IsRankedValue(string value) =>
         Rank(value) >= 0;
@@ -167,7 +167,7 @@ internal static class PerformanceTriageRowQuery
 
         RowQueryResolutionResult<Analysis.OptimizationOpportunity> result =
             RowQueryResolver.Resolve(
-                Schema,
+                Vocabulary,
                 RowQueryIntent.Create(
                     loweredPredicates,
                     baseline,
@@ -199,7 +199,7 @@ internal static class PerformanceTriageRowQuery
                 Direction(terms[0].Descending));
         }
 
-        return RowQueryOrderIntent.Fields(
+        return RowQueryOrderIntent.Keys(
             [
                 .. terms.Select(
                     term => new RowQueryOrderTermIntent(
@@ -213,69 +213,69 @@ internal static class PerformanceTriageRowQuery
             ? RowQueryOrderDirection.Descending
             : RowQueryOrderDirection.Ascending;
 
-    private static IReadOnlyList<FieldBinding> CreateFields() =>
+    private static IReadOnlyList<KeyBinding> CreateKeys() =>
         [
-            Describe(MemberField(), TextValue, sortablePosition: 8),
+            Describe(MemberKey(), TextValue, sortablePosition: 8),
             Describe(
-                TextField("Candidate", row => row.CandidateId, ordered: true),
+                TextKey("Candidate", row => row.CandidateId, ordered: true),
                 TextValue,
                 sortablePosition: 9),
             Describe(
-                TextField("Finding", row => row.SourceFinding, ordered: true),
+                TextKey("Finding", row => row.SourceFinding, ordered: true),
                 TextValue,
                 sortablePosition: 10),
             Describe(
-                TextField(
+                TextKey(
                     "Provenance",
                     row => LibraryMetadataService.FormatProvenance(row.Provenance),
                     ordered: true),
                 TextValue,
                 sortablePosition: 11),
             Describe(
-                NumericField(
+                NumericKey(
                     "RootReach",
                     row => row.RootReach,
                     missingLast: false),
                 IntegerValue,
                 sortablePosition: 1),
             Describe(
-                TextField("Shape", row => row.Shape, ordered: true),
+                TextKey("Shape", row => row.Shape, ordered: true),
                 TextValue,
                 sortablePosition: 12),
             Describe(
-                TextField("Operation", row => row.Operation, ordered: true),
+                TextKey("Operation", row => row.Operation, ordered: true),
                 TextValue,
                 sortablePosition: 13),
-            Describe(TokenField(), TextValue, sortablePosition: 14),
+            Describe(TokenKey(), TextValue, sortablePosition: 14),
             Describe(
-                TextField(
+                TextKey(
                     "EvidenceMethod",
                     row => FormatToken(row.EvidenceMethodToken),
                     ordered: true),
                 TextValue,
                 sortablePosition: 15),
             Describe(
-                TextField("Evidence", row => row.Evidence, ordered: false),
+                TextKey("Evidence", row => row.Evidence, ordered: false),
                 TextValue),
             Describe(
-                TextField("Fix", row => row.SafeFixDirection, ordered: false),
+                TextKey("Fix", row => row.SafeFixDirection, ordered: false),
                 TextValue),
             Describe(
-                RankedField(
+                RankedKey(
                     "Priority",
                     row => (int)Analysis.OptimizationOpportunityRanking.Priority(row),
                     missing: false),
                 RankedValue,
                 sortablePosition: 2),
             Describe(
-                RankedField(
+                RankedKey(
                     "Confidence",
                     row => Rank(row.Confidence),
                     missing: false),
                 RankedValue,
                 sortablePosition: 3),
             Describe(
-                TextField(
+                TextKey(
                     "Loop",
                     row => Analysis.OptimizationOpportunityRanking.IteratesInLoop(row)
                         ? "loop"
@@ -284,128 +284,128 @@ internal static class PerformanceTriageRowQuery
                 TextValue,
                 sortablePosition: 4),
             Describe(
-                TextField(
+                TextKey(
                     "CallerLoop",
                     row => LibraryMetadataService.FormatCallerLoop(row.CallerLoop),
                     ordered: true),
                 TextValue,
                 sortablePosition: 5),
             Describe(
-                NumericField(
+                NumericKey(
                     "CallerLoopDepth",
                     row => row.CallerLoop?.Depth,
                     missingLast: true),
                 IntegerValue,
                 sortablePosition: 6),
             Describe(
-                TextField(
+                TextKey(
                     "CallerLoopWitness",
                     row => LibraryMetadataService.FormatCallerLoopWitness(row.CallerLoop),
                     ordered: true),
                 TextValue,
                 sortablePosition: 7),
             Describe(
-                TextField(
+                TextKey(
                     "Allocation",
                     row => row.RuntimeAllocationType,
                     ordered: true),
                 TextValue,
                 sortablePosition: 17),
             Describe(
-                TextField("Path", row => row.PathContext, ordered: true),
+                TextKey("Path", row => row.PathContext, ordered: true),
                 TextValue,
                 sortablePosition: 18),
             Describe(
-                TextField(
+                TextKey(
                     "PathConfidence",
                     row => row.PathConfidence,
                     ordered: true),
                 TextValue,
                 sortablePosition: 19),
             Describe(
-                TextField(
+                TextKey(
                     "PostDominance",
                     row => row.PostDominance,
                     ordered: true),
                 TextValue,
                 sortablePosition: 20),
-            Describe(IlField(), TextValue, sortablePosition: 16),
+            Describe(IlKey(), TextValue, sortablePosition: 16),
             Describe(
-                RankedField(
+                RankedKey(
                     "Weight",
                     row => row.Weight is null ? null : Rank(row.Weight),
                     missing: true),
                 RankedValue,
                 sortablePosition: 21),
             Describe(
-                NumericField(
+                NumericKey(
                     "DirectSites",
                     row => row.DirectAllocationSites,
                     missingLast: false),
                 IntegerValue,
                 sortablePosition: 22),
             Describe(
-                NumericField(
+                NumericKey(
                     "OncePaths",
                     row => row.OnceAllocationPaths,
                     missingLast: false),
                 IntegerValue,
                 sortablePosition: 23),
             Describe(
-                NumericField(
+                NumericKey(
                     "ConditionalPaths",
                     row => row.ConditionalAllocationPaths,
                     missingLast: false),
                 IntegerValue,
                 sortablePosition: 24),
             Describe(
-                NumericField(
+                NumericKey(
                     "RepeatedPaths",
                     row => row.RepeatedAllocationPaths,
                     missingLast: false),
                 IntegerValue,
                 sortablePosition: 25),
             Describe(
-                NumericField(
+                NumericKey(
                     "UnknownPaths",
                     row => row.UnknownAllocationPaths,
                     missingLast: false),
                 IntegerValue,
                 sortablePosition: 26),
             Describe(
-                NumericField(
+                NumericKey(
                     "CachedSites",
                     row => row.CachedAllocationSites,
                     missingLast: false),
                 IntegerValue,
                 sortablePosition: 27),
             Describe(
-                NumericField(
+                NumericKey(
                     "OpaquePaths",
                     row => row.OpaqueCallPaths,
                     missingLast: false),
                 IntegerValue,
                 sortablePosition: 28),
             Describe(
-                TextField(
+                TextKey(
                     "Saturated",
                     row => row.AllocationCountSaturated ? "yes" : null,
                     ordered: false),
                 TextValue),
         ];
 
-    private static FieldBinding Describe(
-        RowQueryField<Analysis.OptimizationOpportunity> field,
-        RowQueryFacetValuePresentation valuePresentation,
+    private static KeyBinding Describe(
+        RowQueryKey<Analysis.OptimizationOpportunity> key,
+        RowQueryKeyValuePresentation valuePresentation,
         int? sortablePosition = null) =>
-        new(field, valuePresentation, sortablePosition);
+        new(key, valuePresentation, sortablePosition);
 
-    private static RowQueryField<Analysis.OptimizationOpportunity> TextField(
+    private static RowQueryKey<Analysis.OptimizationOpportunity> TextKey(
         string key,
         Func<Analysis.OptimizationOpportunity, string?> accessor,
         bool ordered) =>
-        RowQueryField<Analysis.OptimizationOpportunity>.Create(
-            RowQueryFieldIdentity.Create(),
+        RowQueryKey<Analysis.OptimizationOpportunity>.Create(
+            RowQueryKeyIdentity.Create(),
             key,
             [RowQueryOperator.Equals, RowQueryOperator.NotEquals],
             row => RowQueryValue<string>.Present(accessor(row) ?? ""),
@@ -421,12 +421,12 @@ internal static class PerformanceTriageRowQuery
                     missingLast: false)
                 : null);
 
-    private static RowQueryField<Analysis.OptimizationOpportunity> NumericField(
+    private static RowQueryKey<Analysis.OptimizationOpportunity> NumericKey(
         string key,
         Func<Analysis.OptimizationOpportunity, long?> accessor,
         bool missingLast) =>
-        RowQueryField<Analysis.OptimizationOpportunity>.Create(
-            RowQueryFieldIdentity.Create(),
+        RowQueryKey<Analysis.OptimizationOpportunity>.Create(
+            RowQueryKeyIdentity.Create(),
             key,
             [
                 RowQueryOperator.Equals,
@@ -443,12 +443,12 @@ internal static class PerformanceTriageRowQuery
                 direction,
                 missingLast || direction is RowQueryOrderDirection.Descending));
 
-    private static RowQueryField<Analysis.OptimizationOpportunity> RankedField(
+    private static RowQueryKey<Analysis.OptimizationOpportunity> RankedKey(
         string key,
         Func<Analysis.OptimizationOpportunity, int?> accessor,
         bool missing) =>
-        RowQueryField<Analysis.OptimizationOpportunity>.Create(
-            RowQueryFieldIdentity.Create(),
+        RowQueryKey<Analysis.OptimizationOpportunity>.Create(
+            RowQueryKeyIdentity.Create(),
             key,
             [
                 RowQueryOperator.Equals,
@@ -465,9 +465,9 @@ internal static class PerformanceTriageRowQuery
                 direction,
                 missing && direction is RowQueryOrderDirection.Descending));
 
-    private static RowQueryField<Analysis.OptimizationOpportunity> MemberField() =>
-        RowQueryField<Analysis.OptimizationOpportunity>.Create(
-            RowQueryFieldIdentity.Create(),
+    private static RowQueryKey<Analysis.OptimizationOpportunity> MemberKey() =>
+        RowQueryKey<Analysis.OptimizationOpportunity>.Create(
+            RowQueryKeyIdentity.Create(),
             "Member",
             [RowQueryOperator.Equals, RowQueryOperator.NotEquals],
             row => RowQueryValue<MemberValue>.Present(
@@ -491,9 +491,9 @@ internal static class PerformanceTriageRowQuery
                 direction,
                 missingLast: false));
 
-    private static RowQueryField<Analysis.OptimizationOpportunity> IlField() =>
-        RowQueryField<Analysis.OptimizationOpportunity>.Create(
-            RowQueryFieldIdentity.Create(),
+    private static RowQueryKey<Analysis.OptimizationOpportunity> IlKey() =>
+        RowQueryKey<Analysis.OptimizationOpportunity>.Create(
+            RowQueryKeyIdentity.Create(),
             "IL",
             [RowQueryOperator.Equals, RowQueryOperator.NotEquals],
             row => RowQueryValue<IlValue>.Present(
@@ -518,9 +518,9 @@ internal static class PerformanceTriageRowQuery
                 direction,
                 missingLast: false));
 
-    private static RowQueryField<Analysis.OptimizationOpportunity> TokenField() =>
-        RowQueryField<Analysis.OptimizationOpportunity>.Create(
-            RowQueryFieldIdentity.Create(),
+    private static RowQueryKey<Analysis.OptimizationOpportunity> TokenKey() =>
+        RowQueryKey<Analysis.OptimizationOpportunity>.Create(
+            RowQueryKeyIdentity.Create(),
             "Token",
             [RowQueryOperator.Equals, RowQueryOperator.NotEquals],
             row => RowQueryValue<TokenValue>.Present(
@@ -558,11 +558,11 @@ internal static class PerformanceTriageRowQuery
     private static IReadOnlyList<string> CreateSortableFields()
     {
         // Preserve the established -D and diagnostic ordering independently
-        // from the schema-owned ordering capability.
-        FieldBinding[] sortable =
+        // from the vocabulary-owned ordering capability.
+        KeyBinding[] sortable =
         [
-            .. FieldBindings
-                .Where(binding => binding.Field.SupportsOrdering)
+            .. KeyBindings
+                .Where(binding => binding.Key.SupportsOrdering)
                 .OrderBy(binding => binding.SortablePosition),
         ];
         if (sortable.Any(binding => binding.SortablePosition is null)
@@ -577,22 +577,22 @@ internal static class PerformanceTriageRowQuery
         return
         [
             .. DiscoverableNamedOrders.Select(order => order.Key),
-            .. sortable.Select(binding => binding.Field.Key),
+            .. sortable.Select(binding => binding.Key.Key),
         ];
     }
 
-    internal static RowQueryField<Analysis.OptimizationOpportunity> Field(
+    internal static RowQueryKey<Analysis.OptimizationOpportunity> Key(
         string key) =>
-        Schema.Fields.Single(
-            field => string.Equals(
-                field.Key,
+        Vocabulary.Keys.Single(
+            candidate => string.Equals(
+                candidate.Key,
                 key,
                 StringComparison.Ordinal));
 
-    private static RowQueryFacetValuePresentation ValuePresentation(
-        RowQueryField<Analysis.OptimizationOpportunity> field) =>
-        FieldBindings.Single(
-            binding => ReferenceEquals(binding.Field, field))
+    private static RowQueryKeyValuePresentation ValuePresentation(
+        RowQueryKey<Analysis.OptimizationOpportunity> key) =>
+        KeyBindings.Single(
+            binding => ReferenceEquals(binding.Key, key))
         .ValuePresentation;
 
     private static Predicate<string>? BindText(
@@ -785,9 +785,9 @@ internal static class PerformanceTriageRowQuery
         string Text,
         int? Token);
 
-    private sealed record FieldBinding(
-        RowQueryField<Analysis.OptimizationOpportunity> Field,
-        RowQueryFacetValuePresentation ValuePresentation,
+    private sealed record KeyBinding(
+        RowQueryKey<Analysis.OptimizationOpportunity> Key,
+        RowQueryKeyValuePresentation ValuePresentation,
         int? SortablePosition);
 
     private sealed class TokenValueComparer : IComparer<TokenValue>

@@ -393,7 +393,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(59 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(60 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
@@ -503,6 +503,7 @@ public class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.UnsafeMembers,
+                SectionNames.ImplementationProfiles,
                 SectionNames.BodyShapes,
                 SectionNames.BodyShapeSummary,
                 SectionNames.CloneCandidates,
@@ -1823,6 +1824,7 @@ public class SectionPipelineTests
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
+                ImplementationProfilesQuery.Definition,
                 MetadataImageQuery.Definition,
                 OptimizationOpportunitiesQuery.Definition,
                 ReadyToRunImageQuery.Definition,
@@ -5403,6 +5405,7 @@ public class SectionPipelineTests
             SectionNames.ArrayPoolEscapes,
             SectionNames.BodyShapes,
             SectionNames.BodyShapeSummary,
+            SectionNames.ImplementationProfiles,
             SectionNames.PerformanceHotspots,
             SectionNames.PerformanceArrays,
             SectionNames.PerformanceAsync,
@@ -7825,7 +7828,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(34, pipeline.AllSectionNames.Length);
+        Assert.Equal(35, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
     }
 
@@ -7946,7 +7949,11 @@ public class SectionPipelineTests
         }
 
         Assert.Equal(
-            [SectionNames.MemberIndex, SectionNames.CloneCandidates],
+            [
+                SectionNames.MemberIndex,
+                SectionNames.ImplementationProfiles,
+                SectionNames.CloneCandidates,
+            ],
             Uncategorized(broad));
         Assert.Equal(
             [
@@ -7955,10 +7962,15 @@ public class SectionPipelineTests
                 SectionNames.CustomAttributes,
                 SectionNames.FindingCensus,
                 SectionNames.CloneCandidates,
+                SectionNames.ImplementationProfiles,
             ],
             Uncategorized(overload));
         Assert.Equal(
-            [SectionNames.FindingCensus, SectionNames.CloneCandidates],
+            [
+                SectionNames.FindingCensus,
+                SectionNames.CloneCandidates,
+                SectionNames.ImplementationProfiles,
+            ],
             Uncategorized(detail));
     }
 

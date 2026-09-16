@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Source;
 using NuGet.Versioning;
@@ -105,16 +106,27 @@ public static partial class SourceExports
             afterScope.SurfaceParticipant(
                 afterCoordinate, afterCoordinate.CompileAsset(request.Assembly)));
 
-        AssemblyMemberSourcePairResult pair = await before.Scope.UseImplementationParticipant(
-            before.ImplementationParticipant,
-            (beforeGroup, beforeParticipant) => afterScope.UseImplementationParticipant(
-                after,
-                (afterGroup, afterParticipant) => AssemblyContextMemberSourcePairQuery.ExecuteAsync(
-                    beforeGroup, beforeParticipant, afterGroup, afterParticipant,
-                    pairRequest, CreateSourceContext(), cancellationToken)));
+        InspectionEnvelope<AssemblyMemberSourcePairResult> inspection =
+            await before.Scope.UseImplementationParticipant(
+                before.ImplementationParticipant,
+                (beforeGroup, beforeParticipant) =>
+                    afterScope.UseImplementationParticipant(
+                        after,
+                        (afterGroup, afterParticipant) =>
+                            MemberSourcePairInspection.ExecuteAsync(
+                                beforeGroup,
+                                beforeParticipant,
+                                afterGroup,
+                                afterParticipant,
+                                pairRequest,
+                                CreateSourceContext(),
+                                cancellationToken)));
         cancellationToken.ThrowIfCancellationRequested();
         return BrowserSourceComparisonProjection.Project(
-            request, pair, before.ImplementationParticipant, after);
+            request,
+            inspection.Content,
+            before.ImplementationParticipant,
+            after);
     }
 
     static void ValidateSourceComparisonRequest(BrowserSourceComparisonRequest request)

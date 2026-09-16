@@ -21,7 +21,7 @@ public sealed record IntegrationQueryOptions
 
     public static IntegrationQueryOptions Default { get; } = new(null, []);
 
-    public static SectionQueryFacet QueryFacet { get; } = new(
+    public static SectionQueryKey QueryKey { get; } = new(
         "ecosystem",
         ["--where"],
         ["="],

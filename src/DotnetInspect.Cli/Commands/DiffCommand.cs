@@ -433,7 +433,7 @@ public class DiffCommand
                             implementation.Local,
                             inputs.FromVersion,
                             inputs.ToVersion,
-                            implementation.SelectedSource);
+                            implementation.SelectedSource?.Content);
                     }
                     if (options.Tabular)
                     {
@@ -1183,7 +1183,7 @@ public class DiffCommand
                         implementation.Local,
                         inputs.FromVersion,
                         inputs.ToVersion,
-                        implementation.SelectedSource);
+                        implementation.SelectedSource?.Content);
             }
         }
 
@@ -1388,7 +1388,8 @@ public class DiffCommand
 
     internal sealed record ImplementationDiffWithSource(
         ImplementationDiffResult Local,
-        AssemblyMemberSourcePairResult? SelectedSource = null);
+        InspectionEnvelope<AssemblyMemberSourcePairResult>?
+            SelectedSource = null);
 
     internal static async Task<ImplementationDiffWithSource> BuildImplementationDiffWithSourceAsync(
         IReadOnlyList<string> fromPaths,
@@ -1466,9 +1467,10 @@ public class DiffCommand
                 NuGetSourceOptions = options.SourceOptions,
                 Log = logger.Log,
             };
-            var pair = await AssemblyContextMemberSourcePairQuery.ExecuteAsync(
+            InspectionEnvelope<AssemblyMemberSourcePairResult> inspection =
+                await MemberSourcePairInspection.ExecuteAsync(
                 beforeGroup, before, afterGroup, after, request, sourceContext);
-            return new(result, pair);
+            return new(result, inspection);
         }
 
         // Broader selections and targets without one exact MethodDef anchor

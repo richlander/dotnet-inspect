@@ -158,7 +158,7 @@ public class ObjectSlotMaterializationTests
             nameof(ObjectSlotMaterializationSamples.SwapObjects));
 
         var pending = Assert.Single(SlotMaterializationPass.Analyze(function),
-            decision => decision.Vetoes == SlotMaterializationVeto.PendingReferenceSwap);
+            decision => decision.Vetoes == SlotMaterializationVeto.PendingStorageSwap);
         new SlotMaterializationPass().Run(function, PassContext.None);
         Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == pending.Slot);
         new SwapIdiomPass().Run(function, PassContext.None);

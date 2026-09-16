@@ -41,15 +41,13 @@ public class NamedReferenceSlotMaterializationTests
         function.CheckInvariant(includeSemantics: true);
     }
 
-    [Theory]
-    [InlineData(TypeShape.Unknown)]
-    [InlineData(TypeShape.ValueType)]
-    public void NamedShapeMustBeKnownReference(TypeShape shape)
+    [Fact]
+    public void UnknownNamedShapeRemainsDeferred()
     {
         var function = Function(Reference,
             new StoreStackSlot(0, new Constant(null, Reference)),
             new Return(new LoadStackSlot(0, Reference)));
-        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [Reference] = shape };
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [Reference] = TypeShape.Unknown };
 
         Assert.Equal(SlotMaterializationVeto.OutsideCoercionDomain,
             Assert.Single(SlotMaterializationPass.Analyze(function)).Vetoes);
@@ -187,7 +185,7 @@ public class NamedReferenceSlotMaterializationTests
         var function = RaiseToMaterialization(source, typeof(NamedReferenceSlotMaterializationSamples).FullName!,
             nameof(NamedReferenceSlotMaterializationSamples.SwapClasses));
         var pending = Assert.Single(SlotMaterializationPass.Analyze(function),
-            decision => decision.Vetoes == SlotMaterializationVeto.PendingReferenceSwap);
+            decision => decision.Vetoes == SlotMaterializationVeto.PendingStorageSwap);
         new SlotMaterializationPass().Run(function, PassContext.None);
         Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == pending.Slot);
         new SwapIdiomPass().Run(function, PassContext.None);

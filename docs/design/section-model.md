@@ -596,8 +596,10 @@ The member command's current authored ownership is:
 `Member Index` and `Finding Census` remain exact-name sections: their focused
 selector and indivisible-document contracts are not coherent promises for a
 broader category. `Clone Candidates` also remains exact-name-only because its
-cross-member comparison does not compose with partial category selection. On
-an overload inventory, `Signature` and `Custom Attributes` remain exact-name
+cross-member comparison does not compose with partial category selection.
+`Implementation Profiles` remains exact-name-only because its unbounded
+whole-assembly acquisition must not be implied by category selection. On an
+overload inventory, `Signature` and `Custom Attributes` remain exact-name
 sections because both require one selected overload.
 
 ## Registration invariants
@@ -611,8 +613,9 @@ The section pipeline and derived catalog gates enforce these invariants:
    selectable library section is categorized except the explicitly pinned
    standalone `Unsafe Members` and coordinate-gated `Body Shapes` sections.
    Every selectable member section is categorized except the explicitly pinned
-   `Member Index`, `Finding Census`, and `Clone Candidates` sections and
-   overload-inventory `Signature` and `Custom Attributes` sections. Gates:
+   `Member Index`, `Finding Census`, `Clone Candidates`, and `Implementation
+   Profiles` sections and overload-inventory `Signature` and `Custom Attributes`
+   sections. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
    `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles`.

@@ -566,7 +566,10 @@ public static class MemberCommand
                 effectiveOptions = effectiveOptions with
                 {
                     DllPath = detailDllPath,
-                    OverloadIndex = target.Body?.DeclaringOverloadIndex ?? target.DeclaringOverloadIndex
+                    OverloadIndex = target.Body?.DeclaringOverloadIndex
+                        ?? target.DeclaringOverloadIndex,
+                    SelectedBodyMethodToken =
+                        target.Body?.MetadataToken,
                 };
                 if (effectiveOptions.EffectiveDiscovery)
                 {
@@ -723,6 +726,17 @@ public static class MemberCommand
                 && (runtimeAssemblyPath ?? apiDllPath) is { } unsafeDllPath)
             {
                 effectiveOptions = effectiveOptions with { DllPath = unsafeDllPath };
+            }
+
+            if (effectiveOptions.OverloadIndex is null
+                && effectiveOptions.IncludeSections?
+                    .Contains(SectionNames.ImplementationProfiles) == true
+                && (apiType.SourceAssemblyPath
+                    ?? runtimeAssemblyPath
+                    ?? apiDllPath) is { } profileDllPath)
+            {
+                effectiveOptions =
+                    effectiveOptions with { DllPath = profileDllPath };
             }
 
             // Enrich with local XML docs only (source info is in the source command)

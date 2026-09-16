@@ -1082,7 +1082,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_PerformanceCategory_DoesNotSelectCloneCandidates()
+    public async Task Member_PerformanceCategory_DoesNotSelectExactOnlySections()
     {
         var (exit, output, error) = await RunAppAsync(
             "member",
@@ -1098,6 +1098,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Cost Facts", output);
+        Assert.DoesNotContain("## Implementation Profiles", output);
         Assert.DoesNotContain("## Clone Candidates", output);
     }
 

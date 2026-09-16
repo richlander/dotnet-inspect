@@ -708,6 +708,177 @@ public sealed class PackagePlatformHouseAdapterTests
         await environment.AssertSettledAsync();
     }
 
+    [Fact]
+    public async Task ExactImplementationRealizationContributesRuntimePackEvidence()
+    {
+        byte[] image = PackagePlatformTestData.Assembly("System.Runtime");
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment
+                        .RuntimeImplementationPackageId,
+                    entries: PackagePlatformTestData.RuntimePackEntries(
+                        "Microsoft.NETCore.App",
+                        PackagePlatformTestData.RuntimeConfiguration(),
+                        PackagePlatformTestData.DependencyManifest(
+                            "System.Runtime.dll"),
+                        ("System.Runtime.dll", image))),
+            ]);
+        PackagePlatformHouseAdapter adapter = CreateAdapter(environment);
+        PlatformHouseRequest request = ExactImplementationRequest(
+            adapter,
+            new PlatformPopulationDemand.CompletePopulation(),
+            TestContext.Current.CancellationToken);
+
+        var result = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(
+                        request,
+                        "linux-x64",
+                        environment.IssueOperation(
+                            request.CancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var contribution =
+            Assert.IsType<PlatformSourceContribution.Realization>(
+                result.Contribution);
+
+        Assert.Same(request.Snapshot, contribution.Request);
+        Assert.Same(
+            adapter.ImplementationRealization,
+            contribution.Capability);
+        Assert.Equal(
+            PlatformSourceFacet.Implementation,
+            contribution.Facet);
+        Assert.Equal(
+            PlatformViewDemand.Implementation,
+            contribution.View);
+        Assert.Equal(Target(), contribution.Target);
+        Assert.Contains(
+            "linux-x64",
+            contribution.Coordinate.Name,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "System.Runtime",
+            Assert.Single(result.Value.Libraries).Identity.Name);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task ImplementationLibraryDemandRequiresExactClosureMember()
+    {
+        byte[] image = PackagePlatformTestData.Assembly("System.Runtime");
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment
+                        .RuntimeImplementationPackageId,
+                    payloadFailure:
+                        PackageSourceFailureKind.Transport),
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment
+                        .RuntimeImplementationPackageId,
+                    entries: PackagePlatformTestData.RuntimePackEntries(
+                        "Microsoft.NETCore.App",
+                        PackagePlatformTestData.RuntimeConfiguration(),
+                        PackagePlatformTestData.DependencyManifest(
+                            "System.Runtime.dll"),
+                        ("System.Runtime.dll", image))),
+            ]);
+        PackagePlatformHouseAdapter adapter = CreateAdapter(environment);
+        PlatformHouseRequest request = ExactImplementationRequest(
+            adapter,
+            new PlatformPopulationDemand.Library(
+                new PlatformLibraryDemand.Assembly(
+                    new AssemblyReferenceIdentity(
+                        "Missing",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null))),
+            TestContext.Current.CancellationToken);
+
+        var result = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.NotSucceeded>(
+                    await adapter.RealizeImplementationAsync(
+                        request,
+                        "linux-x64",
+                        environment.IssueOperation(
+                            request.CancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+
+        Assert.Equal(
+            PackagePlatformSourceDiagnosticKind.MemberUnavailable,
+            result.Diagnostic.Kind);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Transport,
+            Assert.Single(result.Diagnostic.PackageFailures).Kind);
+        Assert.Equal(
+            PlatformSourceContributionKind.Unavailable,
+            result.Contribution.Kind);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task ImplementationRejectsUnauthorizedRidAndReferenceOnlyDemandBeforeSourceWork()
+    {
+        foreach (string scenario in new[]
+        {
+            "unauthorized",
+            "rid",
+            "reference",
+        })
+        {
+            await using PackagePlatformTestEnvironment environment =
+                PackagePlatformTestEnvironment.Create(
+                [
+                    TestSourceBehavior.Create(
+                        PackagePlatformTestEnvironment
+                            .RuntimeImplementationPackageId),
+                ]);
+            PackagePlatformHouseAdapter adapter =
+                CreateAdapter(environment);
+            PlatformHouseRequest request = ExactImplementationRequest(
+                adapter,
+                new PlatformPopulationDemand.CompletePopulation(),
+                TestContext.Current.CancellationToken,
+                authorizedCapability:
+                    scenario == "unauthorized"
+                        ? PlatformSourceCapabilityIdentity.Create("other")
+                        : null,
+                view:
+                    scenario == "reference"
+                        ? PlatformViewDemand.Reference
+                        : PlatformViewDemand.Implementation);
+
+            var result = Assert.IsType<
+                PackagePlatformHouseResult<
+                    PackageImplementationRealization>.NotSucceeded>(
+                        await adapter.RealizeImplementationAsync(
+                            request,
+                            scenario == "rid"
+                                ? "linux/x64"
+                                : "linux-x64",
+                            environment.IssueOperation(
+                                request.CancellationToken,
+                                operationTimeout:
+                                    request.Work.MaxDuration)));
+
+            Assert.Equal(
+                PackagePlatformSourceDiagnosticKind.InvalidSelection,
+                result.Diagnostic.Kind);
+            Assert.Equal(
+                PlatformSourceContributionKind.Rejected,
+                result.Contribution.Kind);
+            Assert.Equal(0, environment.Clients[0].PayloadRequests);
+            await environment.AssertSettledAsync();
+        }
+    }
+
     private static PackagePlatformHouseAdapter CreateAdapter(
         PackagePlatformTestEnvironment environment) =>
         new(environment.CreateSource(), "package-test");
@@ -789,6 +960,46 @@ public sealed class PackagePlatformHouseAdapterTests
                 maxBytes,
                 maxForwardingHops: 0,
                 maxDuration ?? TimeSpan.FromSeconds(30)),
+            cancellationToken);
+
+    private static PlatformHouseRequest ExactImplementationRequest(
+        PackagePlatformHouseAdapter adapter,
+        PlatformPopulationDemand population,
+        CancellationToken cancellationToken,
+        PlatformSourceCapabilityIdentity? authorizedCapability = null,
+        PlatformViewDemand view =
+            PlatformViewDemand.Implementation) =>
+        new(
+            PlatformHouseRequestIdentity.Create(
+                "package-implementation"),
+            new PlatformTargetDemand.Exact(Target()),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    "package-test")),
+            new PlatformHouseOperation.Realize(population, view),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create("package-plan"),
+                PlatformSourcePolicyGeneration.Create(
+                    "package-policy"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Implementation,
+                        PlatformSourceSelectionMode.Precedence,
+                        [
+                            authorizedCapability
+                                ?? adapter.ImplementationRealization,
+                        ]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 1,
+                maxTargetCandidates: 0,
+                maxAssemblies: 512,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: 64 * 1024 * 1024,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromSeconds(30)),
             cancellationToken);
 
     private static PlatformSourcePlan Plan(

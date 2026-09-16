@@ -476,6 +476,21 @@ the invoking row action. The request's package-ID/version submission and
 failure semantics are owned by
 [Package Query Experience](package-query-experience.md#layout).
 
+### Package Activity entry and return
+
+Package Activity's `/activity` route follows the same full-bleed
+Back/Forward, predecessor-identity, and proportional focus-restoration pattern.
+Entry from Search returns focus to Search; entry from the application-scope
+strip returns focus to its Activity control. The visible `Back` action falls
+back to Home only when the route was loaded without an in-app predecessor.
+
+Selecting Activity restores the current session request, admitted rows,
+failures, progress, and typed completion state. Leaving `/activity`, route
+disposal, or replacement cancels active Worker work without clearing admitted
+evidence. Direct load and refresh have no prior in-memory report and begin from
+the initial state. Activity has no Workspace handoff or URL-encoded report
+state.
+
 ## Non-claims
 
 This document does not render navigation descriptors, decide which subject or

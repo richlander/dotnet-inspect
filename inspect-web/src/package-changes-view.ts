@@ -14,18 +14,12 @@ import {
   restorePackageChangesViewport,
   type PackageChangesViewportSnapshot,
 } from "./package-changes-window.ts";
-import {
-  bindQueryModeSelector,
-  renderQueryModeSelector,
-  type QueryMode,
-} from "./query-mode.ts";
 
 const MAXIMUM_INTERVAL_MILLISECONDS = 42 * 24 * 60 * 60 * 1_000;
 
 export interface PackageChangesBindingActions {
   readonly onBack: () => void;
   readonly onCancel: () => void;
-  readonly onModeChange: (mode: QueryMode) => void;
   readonly onResultViewportChange: () => void;
   readonly onRun: (
     packageSetId: string,
@@ -48,7 +42,6 @@ export function bindPackageChangesView(
   root: ParentNode,
   actions: PackageChangesBindingActions,
 ): void {
-  bindQueryModeSelector(root, actions.onModeChange);
   root.querySelector("#package-changes-back")
     ?.addEventListener("click", actions.onBack);
   root.querySelector("#package-changes-cancel")
@@ -148,7 +141,6 @@ export function renderPackageChangesView(
         </div>
       </header>
       <main class="query-main">
-        ${renderQueryModeSelector("changes")}
         <div class="query-heading">
           <p class="query-kicker">Product package sets · NuGet catalog and advisory evidence</p>
           <h1 id="package-changes-heading" tabindex="-1">Package Activity</h1>
