@@ -112,6 +112,13 @@ This path does not activate embedded or adjacent PDB discovery; callers that
 want embedded symbols continue to select the existing bounded embedded-PDB
 operation explicitly.
 
+`PdbContext.GetPortablePdbImage` copies the currently loaded Portable PDB into
+independent immutable content, or returns null when none is loaded. Consumers
+can supply that content to another producer after disposing the acquisition
+context, without reopening `PortablePdbPath`. The accessor requires a live
+context; `PortablePdbSnapshotTests` gates byte preservation, post-disposal use
+of the returned image, absent/rejected PDBs, and use after context disposal.
+
 `VerifyChecksum` applies the existing SHA-1/SHA-256 and accepted bytewise CR/LF
 normalization rules to supplied bytes. `VerifySourceContent` then returns the
 detached `VerifiedSourceTextResult`, retaining `Exact`, `LineEndingNormalized`,

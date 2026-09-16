@@ -764,6 +764,7 @@ public sealed partial class NavigationSessionTests
         public required PackageRootBinding[] Bindings { get; init; }
         public NavigationTestHost Session { get; private set; } = null!;
         public NavigationEvaluationRequest? LastRequest { get; private set; }
+        public int RequestCount { get; private set; }
         public Func<NavigationEvaluationRequest, ValueTask<NavigationPreparation>>? Prepare { get; set; }
         public Func<ViewFacetId, ViewFacetAvailability?>? Override { get; set; }
         public ViewFacetRegistry Registry { get; init; } = InspectionViewFacetCatalog.Registry;
@@ -845,6 +846,7 @@ public sealed partial class NavigationSessionTests
             NavigationEvaluationRequest request, CancellationToken cancellationToken)
         {
             LastRequest = request;
+            RequestCount++;
             ValueTask<NavigationPreparation> result =
                 Prepare?.Invoke(request) ?? ValueTask.FromResult(Ready(request));
             _requested.TrySetResult();
