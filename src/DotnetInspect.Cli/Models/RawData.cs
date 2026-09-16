@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Models;
 
@@ -55,6 +56,9 @@ public record TypeFindResult
 
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; init; }
+
+    [JsonIgnore]
+    internal TypeDeclarationLocatorSectionCandidate? Location { get; init; }
 }
 
 /// <summary>

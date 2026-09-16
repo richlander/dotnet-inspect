@@ -17,6 +17,29 @@ public sealed class PackageAssemblyContextRealizationTests
     const string Framework = "net11.0";
 
     [Fact]
+    public void PackageRoot_ReportsAssemblyCandidatesOutsideImplementationUniverse()
+    {
+        PackageRootRealization complete = Selection(
+            "Complete.Package",
+            ("lib/net11.0/Complete.Package.dll", [0x01]));
+        PackageRootRealization reference = Selection(
+            "Reference.Package",
+            ("lib/net11.0/Reference.Package.dll", [0x01]),
+            ("ref/net11.0/Reference.Package.dll", [0x01]));
+        PackageRootRealization runtime = Selection(
+            "Runtime.Package",
+            ("lib/net11.0/Runtime.Package.dll", [0x01]),
+            ("runtimes/any/lib/net11.0/Runtime.Package.dll", [0x01]));
+
+        Assert.False(
+            complete.HasUnselectedTargetFrameworkAssemblyCandidates);
+        Assert.True(
+            reference.HasUnselectedTargetFrameworkAssemblyCandidates);
+        Assert.True(
+            runtime.HasUnselectedTargetFrameworkAssemblyCandidates);
+    }
+
+    [Fact]
     public async Task PackageWithoutCompileAssets_RetainsRootWithoutAssemblyRoles()
     {
         PackageRootRealization package = RootSelection(

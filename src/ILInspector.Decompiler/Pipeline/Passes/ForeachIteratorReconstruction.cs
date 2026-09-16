@@ -202,6 +202,7 @@ internal static class ForeachIteratorReconstruction
         }
 
         work.Regions = ImmutableArray<HandlerRegion>.Empty;
+        work.ClearImportedExceptionFacts();
         work.Body.ReplaceWith(container);
 
         // Re-run the pipeline: the enumerator loop is reducible now, so the structurer

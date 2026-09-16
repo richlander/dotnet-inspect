@@ -7636,7 +7636,22 @@ public class SectionPipelineTests
                 new ApiType { Name = "D", Kind = "delegate" },
             ]
         };
-        yield return DiscoverableCase("type", typePipeline, surface);
+        var forwardingSurface = new ApiSurface
+        {
+            TypeForwarders =
+            [
+                new TypeForwarder
+                {
+                    TypeName = "Forwarded",
+                    TargetAssembly = "Target",
+                },
+            ],
+        };
+        yield return DiscoverableCase(
+            "type",
+            typePipeline,
+            surface,
+            forwardingSurface);
 
         var apiType = new ApiType
         {
@@ -7703,7 +7718,7 @@ public class SectionPipelineTests
     public void ApiTypePipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        Assert.Equal(7, pipeline.AllSectionNames.Length);
+        Assert.Equal(8, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -7713,6 +7728,7 @@ public class SectionPipelineTests
         var names = pipeline.AllSectionNames;
 
         Assert.Contains(SectionNames.ApiInfo, names);
+        Assert.Contains(SectionNames.TypeForwarders, names);
         Assert.Contains("Classes", names);
         Assert.Contains("Structs", names);
         Assert.Contains("Interfaces", names);
@@ -7721,6 +7737,17 @@ public class SectionPipelineTests
         Assert.Contains(
             SectionNames.InspectionFailures,
             names);
+    }
+
+    [Fact]
+    public void ApiTypePipeline_UsesAuthoredSurfaceCategoryWithoutComputedPoles()
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+
+        var category = Assert.Single(pipeline.GetCategoryMap());
+        Assert.Equal(SectionCategoryNames.Surface, category.Key);
+        Assert.Equal(pipeline.AllSectionNames, category.Value);
+        Assert.Equal([SectionCategoryNames.Surface], pipeline.GetBaseCategoryDoors());
     }
 
     [Fact]
@@ -7733,6 +7760,31 @@ public class SectionPipelineTests
 
         Assert.Contains("Classes", effective);
         Assert.DoesNotContain("Structs", effective);
+    }
+
+    [Fact]
+    public void ApiTypePipeline_MixedTypesAndForwardersShowsBoth()
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var model = new ApiSurface
+        {
+            Types = [new ApiType { Name = "Foo", Kind = "class" }],
+            TypeForwarders =
+            [
+                new TypeForwarder
+                {
+                    TypeName = "Forwarded",
+                    TargetAssembly = "Target",
+                },
+            ],
+        };
+
+        var effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Minimal);
+
+        Assert.Contains("Classes", effective);
+        Assert.Contains(SectionNames.TypeForwarders, effective);
     }
 
     [Fact]

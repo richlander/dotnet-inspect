@@ -16,7 +16,8 @@ This contract is implemented by `MethodBodySource.Read`,
 `MethodBodyReadResult`, and `MethodExceptionRegionCatalog`, tracked as step 2
 of [#6965](https://github.com/richlander/dotnet-inspect/issues/6965).
 Instructions consumes the contract in step 3 and Analysis in step 4.
-Decompiler adoption remains a later focused step.
+Decompiler physical import consumes it in step 5. Later Decompiler consumers
+remain separately staged.
 
 The owner is `ILInspector.Metadata`, alongside Metadata's
 `StateMachineRelationshipResult` and `MemorySafetyRulesResult`. Those APIs
@@ -123,6 +124,12 @@ admission, structural-clone EH admission, and catch-type evidence. Its
 caller-owned `PEReader` paths use the static `MethodBodySource.Read` adapter,
 which retains reader ownership with the caller and returns the same detached
 closed result.
+
+Decompiler step 5 consumes the same closed body result for physical import. It
+preserves each Metadata clause identity through a flat handler adapter and
+onto a successfully structured catch or cleanup node. Rejected catch-type
+evidence and unavailable body evidence remain visible failures rather than
+becoming catch-all or empty-region success.
 
 ## Closed result
 

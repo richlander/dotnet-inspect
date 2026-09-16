@@ -290,6 +290,13 @@ public static class DiagnosticIds
     /// context-placement semantics without inventing compiler behavior.
     /// </summary>
     public const string MemorySafetyModeUnavailable = "DEC0016";
+
+    /// <summary>
+    /// Metadata-backed exception clauses could not be joined to complete
+    /// Instructions topology, location, or catch-type evidence. The flat IR
+    /// remains available, but cannot claim Full fidelity.
+    /// </summary>
+    public const string ExceptionFactsUnavailable = "DEC0017";
 }
 
 /// <summary>

@@ -27,8 +27,14 @@ public abstract record AssemblyResolutionProvenance
         string packageId,
         string packageVersion,
         string? tfm,
-        string? rid) =>
-        new PackageAsset(packageId, packageVersion, tfm, rid);
+        string? rid,
+        string? assetPath = null) =>
+        new PackageAsset(
+            packageId,
+            packageVersion,
+            tfm,
+            rid,
+            assetPath);
 
     public static AssemblyResolutionProvenance Platform(
         string framework,
@@ -74,7 +80,8 @@ public abstract record AssemblyResolutionProvenance
             string packageId,
             string packageVersion,
             string? tfm,
-            string? rid)
+            string? rid,
+            string? assetPath = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
             ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
@@ -82,6 +89,7 @@ public abstract record AssemblyResolutionProvenance
             PackageVersion = packageVersion;
             Tfm = tfm;
             Rid = rid;
+            AssetPath = assetPath;
         }
 
         private protected override int Discriminator => 0;
@@ -89,6 +97,7 @@ public abstract record AssemblyResolutionProvenance
         public string PackageVersion { get; }
         public string? Tfm { get; }
         public string? Rid { get; }
+        public string? AssetPath { get; }
     }
 
     public sealed record PlatformAsset : AssemblyResolutionProvenance
