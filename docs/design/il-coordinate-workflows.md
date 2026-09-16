@@ -60,6 +60,27 @@ Coordinate      Label            Member      IL Offset  Meaning         Evidence
 0x06000051+0x10 debugger-frame   My.Type.M2  IL_0010    allocation      array int[]
 ```
 
+### Population bound
+
+One sparse file accepts at most **1,024 significant records**. Each non-empty,
+non-comment line consumes one record from that budget before coordinate
+parsing, so malformed records and valid coordinates share the same bound.
+Blank lines and lines whose first non-whitespace character is `#` do not
+consume it.
+
+The parser must detect a 1,025th significant record before opening the selected
+Library or resolving any coordinate. It returns the typed
+`CoordinatePopulationLimitExceeded` request failure with the 1,024-record
+limit and observed line number. It produces no coordinate rows and never
+silently truncates the file. Per-line malformed-input rows and partial useful
+output apply only to files admitted within the population bound.
+
+The adopting query owns this limit because it controls the number of
+coordinate-resolution operations. A Release gate supplies 1,024 mixed valid
+and malformed records, and a second gate supplies one additional significant
+record and proves pre-acquisition rejection. This is an operation-work bound,
+not a claim that local files are hostile or immutable.
+
 ## Prototype producer workflows
 
 These workflows are intentionally producer-agnostic. The skill-worthy part is

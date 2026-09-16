@@ -153,14 +153,17 @@ child does not silently rename or merge their evidence.
 `--file` selects a bounded coordinate population rather than one exact point.
 The first adoption preserves the current sparse IL-coordinate file semantics:
 input order, optional labels, per-line malformed-input rows, and partial useful
-output. It returns a coordinate-explanation Document, not a scalar Library
-inspection with several incidental sections.
+output within the admitted 1,024-significant-record population. It returns a
+coordinate-explanation Document, not a scalar Library inspection with several
+incidental sections.
 
 Exact and file modes are mutually exclusive. File bounds, accepted coordinate
 families, normalization, ordering, failures, and output schema remain with
 [IL coordinate workflows](il-coordinate-workflows.md) and its adopting query.
-The coordinate child does not imply debugger, profiler, dump, or trace format
-parsers.
+That owner counts valid and malformed significant records together, rejects
+record 1,025 before Library acquisition without partial rows, and gates the
+boundary plus one. The coordinate child does not imply debugger, profiler,
+dump, or trace format parsers.
 
 ## Initial cutover
 
