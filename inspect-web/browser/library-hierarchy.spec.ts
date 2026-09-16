@@ -2495,6 +2495,14 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
   await expect(page.locator("[data-workspace-framework-library]")).toContainText("System.Text.Json");
   await page.locator("[data-workspace-framework-library]").click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+  await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
+  await expect.poll(() => new URL(page.url()).pathname).not.toBe("/query");
   await page.reload();
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");

@@ -9636,7 +9636,9 @@ async function openPlatformLibrary(
   const navigationSeq = options.navigationSeq ?? navigationSequence.begin();
   if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
   const hasPlatformRootParent =
-    state.rootKind === "platform" && state.atPackageRoot;
+    state.rootKind === "platform"
+    && state.atPackageRoot
+    && platformIsPresentedAsRoot();
   const tfm = options.tfm ?? platformScopeTfm();
   const version = options.version ?? state.platformSelection?.version;
   if (createsWorkspace) spotlight.reset();
