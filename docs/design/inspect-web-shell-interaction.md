@@ -551,7 +551,7 @@ outcomes.
 12. Open general and command-scoped Spotlight at the narrow supported width and
     confirm that every footer-guidance item, including `Ctrl P search`, remains
     visible within the modal.
-12. Confirm that Spotlight exposes no Platform scope or root result and that a
+13. Confirm that Spotlight exposes no Platform scope or root result and that a
     matching installed framework assembly appears only as a Library result.
 
 ### Local Open
