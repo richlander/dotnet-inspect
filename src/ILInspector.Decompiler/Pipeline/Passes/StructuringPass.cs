@@ -202,6 +202,7 @@ public sealed class StructuringPass : IIrPass
     /// </summary>
     sealed class Ctx
     {
+        public required IrFunction Function { get; init; }
         public required IReadOnlyList<Block> Blocks { get; init; }
         public required StructuringFlowFacts FlowFacts { get; init; }
         public required HashSet<int> DroppableBlocks { get; init; }
@@ -283,10 +284,13 @@ public sealed class StructuringPass : IIrPass
         // leave-to-finally-continuation can disappear before the outer container
         // decides whether that target block still needs a printable label.
         foreach (var container in function.Descendants.OfType<BlockContainer>().OrderByDescending(Depth).ToList())
-            Structure(container, context);
+            Structure(function, container, context);
     }
 
-    static void Structure(BlockContainer container, PassContext context)
+    static void Structure(
+        IrFunction function,
+        BlockContainer container,
+        PassContext context)
     {
         var blocks = container.Blocks;
         if (blocks.Count <= 1)
@@ -383,6 +387,7 @@ public sealed class StructuringPass : IIrPass
         var recorder = context.StructuringDiagnostics is null ? null : new StopRecorder();
         var ctx = new Ctx
         {
+            Function = function,
             Blocks = blocks,
             FlowFacts = flowFacts,
             DroppableBlocks = droppable,
@@ -955,6 +960,7 @@ public sealed class StructuringPass : IIrPass
 
         return new Ctx
         {
+            Function = sourceCtx.Function,
             Blocks = blocks,
             FlowFacts = flowFacts,
             DroppableBlocks = droppable,
@@ -977,6 +983,7 @@ public sealed class StructuringPass : IIrPass
         IReadOnlyList<int> retainedMergeIndices,
         bool allowRetainedMergeWithinLoop) => new()
     {
+        Function = template.Function,
         Blocks = template.Blocks,
         FlowFacts = template.FlowFacts,
         DroppableBlocks = [.. template.DroppableBlocks],
@@ -1056,12 +1063,12 @@ public sealed class StructuringPass : IIrPass
                     break;
                 case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
                     && breakTarget == leaveTarget
-                    && CanRaiseRetryLeave(leave):
+                    && CanRaiseRetryLeave(ctx, leave):
                     i++;
                     break;
                 case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
                     && continueTarget == leaveTarget
-                    && CanRaiseRetryLeave(leave):
+                    && CanRaiseRetryLeave(ctx, leave):
                     i++;
                     break;
                 case Leave leave when !offsetToIndex.ContainsKey(leave.TargetOffset):
@@ -1350,7 +1357,8 @@ public sealed class StructuringPass : IIrPass
                 }
                 continue;
             }
-            if (node is not Leave leave || !CanRaiseRetryLeave(leave))
+            if (node is not Leave leave
+                || !CanRaiseRetryLeave(ctx, leave))
                 continue;
 
             IrNode? owner = null;
@@ -1672,7 +1680,8 @@ public sealed class StructuringPass : IIrPass
             var retryLeaves = RetryLeavesTo(blocks[j], headOffset);
             if (retryLeaves.Count == 0)
                 continue;
-            if (retryLeaves.Any(leave => !CanRaiseRetryLeave(leave)))
+            if (retryLeaves.Any(leave =>
+                    !CanRaiseRetryLeave(ctx, leave)))
                 return null;
             latch = j;
         }
@@ -1709,7 +1718,11 @@ public sealed class StructuringPass : IIrPass
 
     static bool HasLoopExit(Ctx ctx, Block block, int blockIndex, int headOffset, int head, int latch)
     {
-        if (blockIndex == latch && MayFallThroughAfterRetryReplacement(block, headOffset))
+        if (blockIndex == latch
+            && MayFallThroughAfterRetryReplacement(
+                ctx,
+                block,
+                headOffset))
             return true;
 
         foreach (var node in block.DescendantsOutsideNestedFunctions.Prepend(block))
@@ -1722,7 +1735,7 @@ public sealed class StructuringPass : IIrPass
                 return true;
             if (node is Leave leave
                 && leave.TargetOffset != headOffset
-                && CanRaiseRetryLeave(leave)
+                && CanRaiseRetryLeave(ctx, leave)
                 && (!ctx.FlowFacts.OffsetToIndex.TryGetValue(leave.TargetOffset, out int target) || target < head || target > latch))
             {
                 return true;
@@ -1735,27 +1748,63 @@ public sealed class StructuringPass : IIrPass
         => ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target)
             && (target < head || target > latch);
 
-    static bool MayFallThroughAfterRetryReplacement(Block block, int retryTargetOffset)
-        => block.Children.Count == 0 || MayFallThroughAfterRetryReplacement(block.Children[^1], retryTargetOffset);
+    static bool MayFallThroughAfterRetryReplacement(
+        Ctx ctx,
+        Block block,
+        int retryTargetOffset)
+        => block.Children.Count == 0
+            || MayFallThroughAfterRetryReplacement(
+                ctx,
+                block.Children[^1],
+                retryTargetOffset);
 
-    static bool MayFallThroughAfterRetryReplacement(IrNode node, int retryTargetOffset) => node switch
+    static bool MayFallThroughAfterRetryReplacement(
+        Ctx ctx,
+        IrNode node,
+        int retryTargetOffset) => node switch
     {
         Return or Throw or Break or Branch or EndFinally or EndFilter => false,
-        Leave leave => !(leave.TargetOffset == retryTargetOffset && CanRaiseRetryLeave(leave)),
+        Leave leave => !(leave.TargetOffset == retryTargetOffset
+            && CanRaiseRetryLeave(ctx, leave)),
         IfStatement branch => !branch.HasElse
-            || MayFallThroughAfterRetryReplacement(branch.Then, retryTargetOffset)
-            || MayFallThroughAfterRetryReplacement(branch.Else!, retryTargetOffset),
-        TryCatch tryCatch => MayFallThroughAfterRetryReplacement(tryCatch.TryBody, retryTargetOffset)
-            || tryCatch.Clauses.Any(clause => MayFallThroughAfterRetryReplacement(clause.Body, retryTargetOffset)),
-        TryFinally tryFinally => MayFallThroughAfterRetryReplacement(tryFinally.TryBody, retryTargetOffset),
+            || MayFallThroughAfterRetryReplacement(
+                ctx,
+                branch.Then,
+                retryTargetOffset)
+            || MayFallThroughAfterRetryReplacement(
+                ctx,
+                branch.Else!,
+                retryTargetOffset),
+        TryCatch tryCatch => MayFallThroughAfterRetryReplacement(
+                ctx,
+                tryCatch.TryBody,
+                retryTargetOffset)
+            || tryCatch.Clauses.Any(clause =>
+                MayFallThroughAfterRetryReplacement(
+                    ctx,
+                    clause.Body,
+                    retryTargetOffset)),
+        TryFinally tryFinally => MayFallThroughAfterRetryReplacement(
+            ctx,
+            tryFinally.TryBody,
+            retryTargetOffset),
         _ => true,
     };
 
-    static bool MayFallThroughAfterRetryReplacement(BlockContainer container, int retryTargetOffset)
-        => container.Blocks.Count == 0 || MayFallThroughAfterRetryReplacement(container.Blocks[^1], retryTargetOffset);
+    static bool MayFallThroughAfterRetryReplacement(
+        Ctx ctx,
+        BlockContainer container,
+        int retryTargetOffset)
+        => container.Blocks.Count == 0
+            || MayFallThroughAfterRetryReplacement(
+                ctx,
+                container.Blocks[^1],
+                retryTargetOffset);
 
-    static bool CanRaiseRetryLeave(Leave leave)
-        => ProtectedRegionControlFlow.CanRaiseLeave(leave);
+    static bool CanRaiseRetryLeave(Ctx ctx, Leave leave)
+        => ProtectedRegionControlFlow.CanRaiseDetachedLeave(
+            leave,
+            ctx.Function);
 
     /// <summary>The <c>true</c> condition of a raised <c>while (true)</c> loop.</summary>
     static Constant TrueLiteral() => new(true, TypeRef.CoreLib("System", "Boolean"));
@@ -1867,7 +1916,9 @@ public sealed class StructuringPass : IIrPass
             return false;
         }
 
-        var inlineCtx = CreateInlineCtx([CloneBlock(ctx.Blocks[target])]);
+        var inlineCtx = CreateInlineCtx(
+            ctx,
+            [CloneBlock(ctx.Blocks[target])]);
         if (!Validate(inlineCtx, 0, 1, joinIndex: 1, breakTarget: null, continueTarget: null))
         {
             ctx.PastRegionTerminatorCache[target] = null;
@@ -1905,7 +1956,7 @@ public sealed class StructuringPass : IIrPass
             for (int i = target; i < stop; i++)
                 clonedBlocks.Add(CloneBlock(ctx.Blocks[i]));
 
-            var inlineCtx = CreateInlineCtx(clonedBlocks);
+            var inlineCtx = CreateInlineCtx(ctx, clonedBlocks);
             if (!Validate(inlineCtx, 0, clonedBlocks.Count, joinIndex: clonedBlocks.Count, breakTarget: null, continueTarget: null))
                 continue;
 
@@ -1960,7 +2011,9 @@ public sealed class StructuringPass : IIrPass
         return clone;
     }
 
-    static Ctx CreateInlineCtx(IReadOnlyList<Block> blocks)
+    static Ctx CreateInlineCtx(
+        Ctx sourceCtx,
+        IReadOnlyList<Block> blocks)
     {
         var flowFacts = StructuringFlowFacts.Collect(blocks, includeDispatchFacts: false);
 
@@ -1985,6 +2038,7 @@ public sealed class StructuringPass : IIrPass
 
         return new Ctx
         {
+            Function = sourceCtx.Function,
             Blocks = blocks,
             FlowFacts = flowFacts,
             DroppableBlocks = [],
@@ -2627,7 +2681,10 @@ public sealed class StructuringPass : IIrPass
             if (continueTarget != i && FindInfiniteLoopShape(ctx, i, stop) is { } latch)
             {
                 bool fallthroughExits = IsLeaveRetryLoopHead(ctx, i)
-                    && MayFallThroughAfterRetryReplacement(blocks[latch], blocks[i].StartOffset);
+                    && MayFallThroughAfterRetryReplacement(
+                        ctx,
+                        blocks[latch],
+                        blocks[i].StartOffset);
                 var loopBody = BuildRegion(
                     ctx,
                     i,
@@ -2644,7 +2701,10 @@ public sealed class StructuringPass : IIrPass
                 {
                     ctx.CandidateOwnershipUnsafe = true;
                 }
-                ReplaceRetryLeavesWithContinues(loopBody, blocks[i].StartOffset);
+                ReplaceRetryLeavesWithContinues(
+                    ctx,
+                    loopBody,
+                    blocks[i].StartOffset);
                 if (fallthroughExits)
                     loopBody.Add(new Break());
                 var loop = new WhileLoop(TrueLiteral(), loopBody);
@@ -2693,7 +2753,7 @@ public sealed class StructuringPass : IIrPass
                 }
                 case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
                     && breakTarget == leaveTarget
-                    && CanRaiseRetryLeave(leave):
+                    && CanRaiseRetryLeave(ctx, leave):
                 {
                     var next = new Break();
                     next.InheritSourceOffset(leave);
@@ -2704,7 +2764,7 @@ public sealed class StructuringPass : IIrPass
                 }
                 case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
                     && continueTarget == leaveTarget
-                    && CanRaiseRetryLeave(leave):
+                    && CanRaiseRetryLeave(ctx, leave):
                 {
                     var next = new Continue();
                     next.InheritSourceOffset(leave);
@@ -2773,11 +2833,20 @@ public sealed class StructuringPass : IIrPass
                         {
                             ctx.CandidateOwnershipUnsafe = true;
                         }
-                        ReplaceRetryLeavesWithContinues(body, blocks[branchTarget].StartOffset);
+                        ReplaceRetryLeavesWithContinues(
+                            ctx,
+                            body,
+                            blocks[branchTarget].StartOffset);
                         if (loop.ContinueAt < blocks.Count)
-                            ReplaceRetryLeavesWithBreaks(body, blocks[loop.ContinueAt].StartOffset);
+                            ReplaceRetryLeavesWithBreaks(
+                                ctx,
+                                body,
+                                blocks[loop.ContinueAt].StartOffset);
                         if (loopRegionExitBreakTarget is not null && ctx.RegionExitLeaveTarget is { } regionExitTarget)
-                            ReplaceRetryLeavesWithBreaks(body, regionExitTarget);
+                            ReplaceRetryLeavesWithBreaks(
+                                ctx,
+                                body,
+                                regionExitTarget);
                         var condition = BuildWhileCondition(loop);
                         var whileLoop = new WhileLoop(condition, body);
                         ctx.GeneratedLoopOwners.Add(whileLoop);
@@ -3027,9 +3096,16 @@ public sealed class StructuringPass : IIrPass
         return arm;
     }
 
-    static void ReplaceRetryLeavesWithContinues(IrNode root, int targetOffset)
+    static void ReplaceRetryLeavesWithContinues(
+        Ctx ctx,
+        IrNode root,
+        int targetOffset)
     {
-        foreach (var leave in RaisableLeavesTargeting(root, targetOffset, replacementIsContinue: true))
+        foreach (var leave in RaisableLeavesTargeting(
+                     ctx,
+                     root,
+                     targetOffset,
+                     replacementIsContinue: true))
         {
             var next = new Continue();
             next.InheritSourceOffset(leave);
@@ -3037,9 +3113,16 @@ public sealed class StructuringPass : IIrPass
         }
     }
 
-    static void ReplaceRetryLeavesWithBreaks(IrNode root, int targetOffset)
+    static void ReplaceRetryLeavesWithBreaks(
+        Ctx ctx,
+        IrNode root,
+        int targetOffset)
     {
-        foreach (var leave in RaisableLeavesTargeting(root, targetOffset, replacementIsContinue: false))
+        foreach (var leave in RaisableLeavesTargeting(
+                     ctx,
+                     root,
+                     targetOffset,
+                     replacementIsContinue: false))
         {
             var next = new Break();
             next.InheritSourceOffset(leave);
@@ -3051,6 +3134,7 @@ public sealed class StructuringPass : IIrPass
     // rewritten during iteration. Collected in one pooled-DFS pass with inline filtering, avoiding
     // the per-call closure/delegate/iterator allocations of the equivalent LINQ chain.
     static List<Leave> RaisableLeavesTargeting(
+        Ctx ctx,
         IrNode root,
         int targetOffset,
         bool replacementIsContinue)
@@ -3060,7 +3144,7 @@ public sealed class StructuringPass : IIrPass
         {
             if (node is not Leave leave
                 || leave.TargetOffset != targetOffset
-                || !CanRaiseRetryLeave(leave))
+                || !CanRaiseRetryLeave(ctx, leave))
             {
                 continue;
             }

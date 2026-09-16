@@ -97,6 +97,7 @@ public static class TypeCommand
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, SelectDefault = options.SelectDefault,
             Columns = options.Columns, Fields = options.Fields,
+            FieldsExplicitlySet = options.FieldsExplicitlySet,
             Discover = options.Discover, Tree = options.Tree,
             ShapeOutput = options.ShapeOutput,
             ShapeExplicitlySet = options.ShapeExplicitlySet,

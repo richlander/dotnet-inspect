@@ -11,4 +11,8 @@
     <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../../../src/InertText/InertText.csproj" />
+  </ItemGroup>
+
 </Project>

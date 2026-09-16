@@ -7,6 +7,37 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class PackageAssemblyContextRolesTests
 {
     [Fact]
+    public async Task RoleSelection_AttestsAcquisitionFreeAndDoesNotOpenDescriptors()
+    {
+        int opens = 0;
+        ResolvedAssemblyReference assembly = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity("Retained.Role", new Version(1, 0, 0, 0), null, null),
+            path: null,
+            () =>
+            {
+                opens++;
+                throw new InvalidOperationException("Role selection must not open a descriptor.");
+            },
+            AssemblyResolutionProvenance.Package("Role.Tests", "1.0.0", "net11.0", null));
+        await using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRoles roles = workspace.CreatePackageAssemblyContextRoles(
+            [assembly], [assembly], [new(assembly, assembly)], shareImplementationGroup: true);
+        var policy = Assert.IsAssignableFrom<IAcquisitionFreeAssemblyBindingPolicy>(
+            Assert.Single(roles.SurfaceParticipants).BindingPolicy);
+
+        AssemblyBindingSelection selected = policy.Select(new(
+            AssemblyBindingTarget.Reference(assembly.Identity),
+            AssemblyBindingOrigin.FromAssembly(assembly), AssemblyResolutionScope.Any)).Selection;
+        AssemblyBindingSelection missing = policy.Select(new(
+            AssemblyBindingTarget.Reference(new("Missing.Role", new Version(1, 0, 0, 0), null, null)),
+            AssemblyBindingOrigin.FromAssembly(assembly), AssemblyResolutionScope.Any)).Selection;
+
+        Assert.Same(assembly, Assert.IsType<AssemblyBindingSelection.Selected>(selected).Assembly);
+        Assert.IsType<AssemblyBindingSelection.Missing>(missing);
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
     public async Task SeparateRoles_PreserveExactSurfaceImplementationCorrespondence()
     {
         ResolvedAssemblyReference surface = Assembly("Sample", marker: 1);
