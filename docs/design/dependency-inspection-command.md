@@ -3,14 +3,18 @@
 This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
-**Status:** adopted implementation contract. Asset-mode `depends` implements
-the explicit-root, traversal, section, and output contract in #5994. The
-separate `dependency-evidence` command and positional type-to-library fallback
-were retired in #5995.
+**Status:** adopted operation contract with a proposed placement transition.
+Asset-mode `depends` implements the explicit-root, traversal, section, and
+output contract in #5994. The separate `dependency-evidence` command and
+positional type-to-library fallback were retired in #5995. The next target,
+tracked as step 8 of
+[#7308](https://github.com/richlander/dotnet-inspect/issues/7308), moves this
+complete operation to `graph dependencies` and retires `depends`.
 
 ## Owner and claim
 
-The `depends` command owns one CLI operation:
+The Dependency command owner defines one CLI operation, currently exposed as
+`depends` and targeted for `graph dependencies`:
 
 > Admit explicitly named dependency subjects and assets, project their
 > owner-issued relationships and evidence, and apply one traversal, section,
@@ -29,7 +33,8 @@ This owner defines:
 - the dependency graph document and its CLI section composition;
 - row selection, count, output-format eligibility, diagnostics, and exit
   status; and
-- migration from the two current commands to one supported `depends` surface.
+- migration from the former two-command split to the current `depends`
+surface, then to the target `graph dependencies` placement.
 
 It consumes owner-issued facts and does not redefine their construction:
 
@@ -96,8 +101,10 @@ The target experience lets the user vary two independent axes:
    completion, and failure sections are rendered.
 
 Neither axis changes the admitted subject or operation arity, so the
-[Command Transition Model](command-transition-model.md) keeps them within
-`depends`.
+[Command Transition Model](command-transition-model.md) keeps them within one
+Dependency operation. Moving that complete operation beneath the top-level
+`graph` namespace does not split traversal from evidence or route it through
+the Inspection Graph substrate.
 
 The historical `dependency-evidence` design used heterogeneous root cardinality to
 justify a separate command. This target supersedes that conclusion. Root-set
@@ -111,7 +118,12 @@ shapes that previously made those plans appear to be separate operations.
 
 ## Consumer, tracker, and delivery
 
-The production consumer is the `depends` CLI command.
+The current production consumer is the `depends` CLI command. The target
+production consumer is `graph dependencies`, tracked by
+[#7308](https://github.com/richlander/dotnet-inspect/issues/7308). This document
+remains the sole owner of its request, result, rendering eligibility, failure,
+and migration contracts; the Graph owner supplies only the root command
+namespace.
 
 The shared evidence substrate is implemented by
 [#5533](https://github.com/richlander/dotnet-inspect/issues/5533), and
@@ -120,7 +132,7 @@ end-to-end dependency-evidence tracker. Browser/Wasm adoption remains owned by
 [#5535](https://github.com/richlander/dotnet-inspect/issues/5535); this
 CLI-focused design neither changes nor blocks that host.
 
-The seven-step delivery is complete:
+The original seven-step consolidation delivery is complete:
 
 1. Lock this command contract in #5993.
 2. Supply the shared declaration-to-exact-candidate handoff under
@@ -893,7 +905,7 @@ truncation is partial and returns nonzero.
 
 ## Migration and retirement
 
-The final command surface is intentionally breaking:
+The completed consolidation into `depends` was intentionally breaking:
 
 - `depends` gains asset-root, depth, section, discovery, table, and normalized
   evidence behavior;
@@ -906,19 +918,50 @@ The final command surface is intentionally breaking:
 - `dependency-evidence` is removed as a supported command; and
 - current README examples, help, demos, and product skills use `depends`.
 
-No compatibility alias or hidden forwarding command remains. Keeping both
-names would preserve the conceptual split this design removes and would leave
-two published entry points for one operation.
+No compatibility alias or hidden forwarding command remains for
+`dependency-evidence`. Keeping both former names would preserve the conceptual
+split this design removed and would leave two published entry points for one
+operation.
 
 The removed `dependency-evidence` token remains reserved because releasing it
 would send a bare invocation through implicit package-target routing. The
 focused invalid-input guard fails nonzero and points to `depends`; it does not
 execute the replacement command or reinterpret old arguments.
 
-The change is **intentionally breaking** under
+That completed change was **intentionally breaking** under
 [CLI Change Classification](cli-change-classification.md). Its implementation
 requires a Breaking release-note entry, replacement examples, routing tests,
 and machine-contract tests for the new `depends` document.
+
+### Target Graph placement
+
+The next placement is also intentionally breaking:
+
+```text
+depends <roots and traversal>
+  -> graph dependencies <same roots and traversal>
+```
+
+`graph dependencies` adopts the complete Dependency operation. It does not
+construct a Workspace, consume a Workspace packet, or convert the dependency
+document into `InspectionGraphDocument`. All existing explicit roots, type and
+asset modes, traversal, sections, row semantics, partial failures, output
+formats, and source policies remain owned here.
+
+The cutover:
+
+1. adds `graph dependencies` with full current `depends` parity;
+2. updates help, discovery, completion, README examples, demos, replay or
+   sharing surfaces, and product skills;
+3. removes `depends` without a forwarding alias or hidden fallback; and
+4. reserves the removed `depends` token so obsolete input fails nonzero and
+   points to `graph dependencies` without executing it or reinterpreting its
+   arguments.
+
+Replacement parity and obsolete-token routing are Release gates for step 8 of
+[#7308](https://github.com/richlander/dotnet-inspect/issues/7308). Missing
+support for any currently admitted Dependency root, mode, section, failure, or
+output blocks retirement rather than becoming an implicit capability removal.
 
 The [Dependency Evidence CLI](dependency-evidence-cli.md) document is
 historical. This document is the sole command owner.
