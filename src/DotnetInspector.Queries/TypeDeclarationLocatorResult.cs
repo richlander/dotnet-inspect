@@ -19,17 +19,28 @@ public sealed class TypeDeclarationLocatorCandidate
     internal TypeDeclarationLocatorCandidate(
         ExactLibrarySourceCoordinate coordinate,
         AssemblyTypeDeclaration declaration,
+        int declarationOrder,
         WorkspaceDeclarationMember observation)
     {
         Coordinate = coordinate;
         Name = declaration.Name;
         Kind = declaration.Kind;
+        DefinitionKind = declaration.DefinitionKind;
+        IsDefinitionPublic = declaration.IsDefinitionPublic;
+        IsPublicSurface = declaration.IsPublicSurface;
+        DiscoveryAttributes = declaration.DiscoveryAttributes;
+        DeclarationOrder = declarationOrder;
         Observation = observation;
     }
 
     public ExactLibrarySourceCoordinate Coordinate { get; }
     public MetadataTypeDefinitionName Name { get; }
     public AssemblyTypeDeclarationKind Kind { get; }
+    public AssemblyTypeDefinitionKind? DefinitionKind { get; }
+    public bool? IsDefinitionPublic { get; }
+    public bool IsPublicSurface { get; }
+    public TypeDeclarationDiscoveryAttributes? DiscoveryAttributes { get; }
+    public int DeclarationOrder { get; }
     public WorkspaceDeclarationMember Observation { get; }
 }
 
@@ -58,7 +69,9 @@ public abstract record TypeDeclarationLocatorMemberOutcome(WorkspaceDeclarationM
     public sealed record CoordinateUnavailable(WorkspaceDeclarationMember Member)
         : TypeDeclarationLocatorMemberOutcome(Member);
 
-    public sealed record NotEvaluated(WorkspaceDeclarationMember Member)
+    public sealed record NotEvaluated(
+        WorkspaceDeclarationMember Member,
+        WorkspaceDeclarationInventoryBound? Bound = null)
         : TypeDeclarationLocatorMemberOutcome(Member);
 }
 

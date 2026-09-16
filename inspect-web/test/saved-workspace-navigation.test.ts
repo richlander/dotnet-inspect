@@ -30,6 +30,7 @@ import {
   createPackageAcquisition,
   type PackageAcquisitionDependencies,
 } from "../src/package-acquisition.ts";
+import { retainDiagnosticDetail } from "../src/failure-detail.ts";
 import { workspaceDependencyKey } from "../src/package-inspection.ts";
 import {
   isProductHomeDemosPath,
@@ -122,7 +123,8 @@ const hostNames = new Set([
   "failWorkspaceCatalogAction", "afterCurrentNavigationFrame",
   "focusInspectionResult", "focusLevelOneHeading",
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
-  "errorMessage", "isRecord", "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
+  "errorMessage", "friendlyLoadError", "isRecord",
+  "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
   "openPlatformSubject", "openPlatformLibrary", "platformCoordinateCapacityError",
   "canRestoreWorkbenchFocus", "isTextEntry",
@@ -140,6 +142,13 @@ const acquisitionDeclaration = app.program.body.find(node =>
 assert.ok(acquisitionDeclaration);
 const hostDeclarations = [...hostFunctions, acquisitionDeclaration]
   .map(node => appSource.slice(node.start, node.end)).join("\n");
+const loadPackageDeclaration = app.program.body.find(node =>
+  node.type === "FunctionDeclaration" && node.id?.name === "loadPackage");
+assert.ok(loadPackageDeclaration);
+const loadPackageSource = appSource.slice(
+  loadPackageDeclaration.start,
+  loadPackageDeclaration.end,
+);
 
 interface Package extends ComparisonPackage {
   isRuntimePack?: boolean;
@@ -208,7 +217,9 @@ function deferred<T>() {
 function harness() {
   const state = {
     home: false, credits: false, packageQueryOpen: false,
-    engineReady: true, loading: false, error: "",
+    engineReady: true, loading: false, error: "", errorTitle: "",
+    errorDetail: "", retryAction: null as (() => void) | null,
+    loadingMessage: "", loadingSubtitle: "",
     workspaceSubjectOpen: true, atPackageRoot: true, atLibraryRoot: false,
     packageLens: "overview",
     rootKind: "package" as "package" | "platform",
@@ -418,6 +429,7 @@ function harness() {
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
     pendingWorkspaceConstruction: null,
+    packageContentLoadingSequence: null as number | null,
     activeWorkspaceUrl: null as string | null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
     platformLibraryRetry: null, platformCatalogRetry: null,
@@ -429,6 +441,7 @@ function harness() {
     HTMLElement: class { isContentEditable = false; },
     URL, URLSearchParams, Error, structuredClone, Set,
     MAX_WORKSPACE_PACKAGES, packageIdentityKey, memberScopeIsActive,
+    retainDiagnosticDetail,
     graphSourceIsOpen: (value: { status: string }) =>
       value.status !== "closed",
     documentViewerIsOpen,
@@ -665,10 +678,65 @@ function harness() {
       return operation;
     },
     openPicker: (): void => { runInNewContext("openWorkspacePackagePicker()", context); },
+    restoreWithProductionLoad: async (
+      loc: ParsedWorkspaceLocation,
+    ): Promise<void> => {
+      runInNewContext(stripTypeScriptTypes(loadPackageSource), context);
+      await runInNewContext(
+        "restoreWorkspaceFromLocation(loc, loc)",
+        { ...context, loc },
+      );
+    },
     settle: async () => { await Promise.all(operations); },
     flushFocus: () => { for (const frame of frames.splice(0)) frame(); },
   };
 }
+
+test("failed workspace restore retains the background Wasm stack through its foreground retry", async () => {
+  const h = harness();
+  const runtimeDiagnostic = [
+    "index out of bounds",
+    "WasmR2RToInterpreterThunk@wasm://wasm/0123456a:wasm-function[18442]:0x4f22bc",
+  ].join("\n");
+  const runtimeFailure = new Error(runtimeDiagnostic);
+  runtimeFailure.stack = runtimeDiagnostic;
+  const cleanupDiagnostic = [
+    "Error: Assert failed: The runtime is not running.",
+    "    at engine-worker-client.js:1:74861",
+  ].join("\n");
+  const cleanupFailure = new Error(cleanupDiagnostic);
+  cleanupFailure.stack = cleanupDiagnostic;
+  let attempts = 0;
+  h.controls.queryPackage = async () => {
+    attempts++;
+    throw attempts === 1 ? runtimeFailure : cleanupFailure;
+  };
+  const loc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Microsoft.Extensions.Primitives"
+        + "&version=10.0.0&framework=net10.0#pkg",
+    ),
+    () => assert.fail("A package route must not decode a workspace packet."),
+  );
+
+  await h.restoreWithProductionLoad(loc);
+
+  assert.equal(attempts, 2);
+  assert.match(h.state.error, /index out of bounds/u);
+  assert.match(h.state.error, /runtime is not running/u);
+  assert.doesNotMatch(
+    h.state.error,
+    /WasmR2RToInterpreterThunk|engine-worker-client/u,
+  );
+  assert.doesNotMatch(h.state.error, /\n/u);
+  assert.match(h.state.errorDetail, /^index out of bounds/u);
+  assert.match(h.state.errorDetail, /wasm-function\[18442\]/u);
+  assert.match(h.state.errorDetail, /Subsequent failure:/u);
+  assert.ok(
+    h.state.errorDetail.indexOf("index out of bounds")
+      < h.state.errorDetail.indexOf("runtime is not running"),
+  );
+});
 
 test("capture projects package Dependencies through the packet lens", () => {
   const h = harness();

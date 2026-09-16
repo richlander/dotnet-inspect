@@ -8,7 +8,7 @@ using NuGetFetch;
 
 namespace ILInspector.Metadata.Tests;
 
-public sealed class AssemblyTypeDeclarationInventoryTests
+public sealed partial class AssemblyTypeDeclarationInventoryTests
 {
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
 
@@ -16,7 +16,13 @@ public sealed class AssemblyTypeDeclarationInventoryTests
     public void BorrowedInventory_ReusesOwnerAndSurvivesDisposal()
     {
         byte[] image = BuildImage(metadata =>
-            AddDefinition(metadata, TypeAttributes.Public, "N", "Type"));
+        {
+            DiscoveryAttributeConstructors attributes =
+                AddDiscoveryAttributeConstructors(metadata);
+            TypeDefinitionHandle type =
+                AddDefinition(metadata, TypeAttributes.Public, "N", "Type");
+            AddEditorBrowsable(metadata, type, attributes.EditorBrowsable, 1);
+        });
         int opens = 0;
         var descriptor = Descriptor(image, () =>
         {
@@ -29,7 +35,14 @@ public sealed class AssemblyTypeDeclarationInventoryTests
             using var session = AssemblyInspectionSession.Borrow(context);
             inventory = Read(session);
             Assert.Equal(descriptor.Identity, inventory.Identity);
-            Assert.Equal("Type", Assert.Single(inventory.GetDeclarations()).Name.Segments[0]);
+            AssemblyTypeDeclaration declaration =
+                Assert.Single(inventory.GetDeclarations());
+            Assert.Equal("Type", declaration.Name.Segments[0]);
+            Assert.Equal(
+                new TypeDeclarationDiscoveryAttributes(
+                    IsEditorBrowsableNever: true,
+                    IsObsolete: false),
+                declaration.DiscoveryAttributes);
 
             session.Dispose();
             Assert.True(context.HasMetadata);
@@ -37,10 +50,78 @@ public sealed class AssemblyTypeDeclarationInventoryTests
         }
 
         Assert.Equal(1, opens);
-        Assert.Equal(Name("N", "Type"), Assert.Single(inventory.GetDeclarations()).Name);
+        AssemblyTypeDeclaration detached = Assert.Single(inventory.GetDeclarations());
+        Assert.Equal(Name("N", "Type"), detached.Name);
+        Assert.True(detached.DiscoveryAttributes!.IsEditorBrowsableNever);
         Assert.Equal(
             AssemblyTypeDeclarationKind.Definition,
             Assert.Single(inventory.Declarations).Kind);
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.Class,
+            Assert.Single(inventory.Declarations).DefinitionKind);
+    }
+
+    [Fact]
+    public void Definitions_RetainHighLevelTypeKinds()
+    {
+        byte[] image = BuildImage(metadata =>
+        {
+            AssemblyReferenceHandle core =
+                AddReference(metadata, "System.Runtime");
+            TypeReferenceHandle Base(string name) =>
+                metadata.AddTypeReference(
+                    core,
+                    metadata.GetOrAddString("System"),
+                    metadata.GetOrAddString(name));
+
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Class",
+                Base("Object"));
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public | TypeAttributes.Interface,
+                "N",
+                "Interface");
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Struct",
+                Base("ValueType"));
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Enum",
+                Base("Enum"));
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Delegate",
+                Base("MulticastDelegate"));
+        });
+        using var session =
+            AssemblyInspectionSession.Open(Descriptor(image));
+        Dictionary<string, AssemblyTypeDefinitionKind?> kinds =
+            Read(session).Declarations.ToDictionary(
+                static declaration => declaration.Name.Segments[0],
+                static declaration => declaration.DefinitionKind);
+
+        Assert.Equal(AssemblyTypeDefinitionKind.Class, kinds["Class"]);
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.Interface,
+            kinds["Interface"]);
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.ValueType,
+            kinds["Struct"]);
+        Assert.Equal(AssemblyTypeDefinitionKind.Enum, kinds["Enum"]);
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.Delegate,
+            kinds["Delegate"]);
     }
 
     [Fact]
@@ -80,8 +161,19 @@ public sealed class AssemblyTypeDeclarationInventoryTests
         Assert.Equal(6, inventory.GetDeclarations(includeAll: true).Count());
         Assert.DoesNotContain(inventory.Declarations, declaration => declaration.Name == Name("", "<Module>"));
         Assert.Contains(Name("", "<Module>"), inventory.Definitions);
-        Assert.False(inventory.Declarations.Single(
-            declaration => declaration.Name == Name("N", "Hidden", "Child")).IsPublicSurface);
+        AssemblyTypeDeclaration hiddenChild =
+            inventory.Declarations.Single(
+                declaration =>
+                    declaration.Name
+                    == Name("N", "Hidden", "Child"));
+        Assert.True(hiddenChild.IsDefinitionPublic);
+        Assert.False(hiddenChild.IsPublicSurface);
+        Assert.False(
+            inventory.Declarations.Single(
+                declaration =>
+                    declaration.Name
+                    == Name("N", "Outer`1", "Private"))
+                .IsDefinitionPublic);
     }
 
     [Fact]
@@ -125,7 +217,9 @@ public sealed class AssemblyTypeDeclarationInventoryTests
         Assert.All(inventory.Declarations, declaration =>
         {
             Assert.Equal(AssemblyTypeDeclarationKind.Forwarder, declaration.Kind);
+            Assert.Null(declaration.DefinitionKind);
             Assert.True(declaration.IsPublicSurface);
+            Assert.Null(declaration.DiscoveryAttributes);
         });
         Assert.Equal(
             [Name("N", "Outer`1"), Name("N", "Outer`1", "Inner`2")],
@@ -152,7 +246,13 @@ public sealed class AssemblyTypeDeclarationInventoryTests
         Assert.Empty(inventory.Forwarders);
         Assert.Equal(2, inventory.GetDeclarations().Count());
         Assert.All(inventory.Declarations, declaration =>
-            Assert.Equal(AssemblyTypeDeclarationKind.ModuleExport, declaration.Kind));
+        {
+            Assert.Equal(
+                AssemblyTypeDeclarationKind.ModuleExport,
+                declaration.Kind);
+            Assert.Null(declaration.DefinitionKind);
+            Assert.Null(declaration.DiscoveryAttributes);
+        });
         Assert.Equal(Name("N", "Outer", "Inner"), inventory.Declarations[1].Name);
     }
 
@@ -277,6 +377,38 @@ public sealed class AssemblyTypeDeclarationInventoryTests
             Assert.Contains(inventory.GetDeclarations(), declaration =>
                 declaration.Name == Name("System", "Environment", "SpecialFolder")
                 && declaration.Kind == kind);
+            if (kind == AssemblyTypeDeclarationKind.Forwarder)
+            {
+                Assert.All(inventory.Declarations, declaration =>
+                    Assert.Null(declaration.DiscoveryAttributes));
+            }
+            else
+            {
+                Assert.All(inventory.Declarations, declaration =>
+                    Assert.NotNull(declaration.DiscoveryAttributes));
+                Assert.Equal(
+                    new TypeDeclarationDiscoveryAttributes(false, false),
+                    objectDeclaration.DiscoveryAttributes);
+                Assert.Equal(
+                    new TypeDeclarationDiscoveryAttributes(true, false),
+                    Assert.Single(inventory.Declarations, declaration =>
+                        declaration.Name == Name(
+                            "System.Runtime.CompilerServices",
+                            "IsExternalInit")).DiscoveryAttributes);
+                Assert.Equal(
+                    new TypeDeclarationDiscoveryAttributes(false, true),
+                    Assert.Single(inventory.Declarations, declaration =>
+                        declaration.Name == Name(
+                            "System",
+                            "ExecutionEngineException")).DiscoveryAttributes);
+                var span = Assert.Single(inventory.Declarations, declaration =>
+                    declaration.Name == Name("System", "Span`1"));
+                Assert.Equal(
+                    new TypeDeclarationDiscoveryAttributes(false, false),
+                    span.DiscoveryAttributes);
+                AssertCompilerCompatibilityAttributes(
+                    bytes.ToArray(), "System", "Span`1");
+            }
             Assert.Equal(
                 Project(Assert.IsType<AssemblyTypeDeclarationInventoryOutcome.Read>(
                     AssemblyTypeDeclarationInventoryReader.Read(descriptor)).Inventory),
@@ -284,10 +416,20 @@ public sealed class AssemblyTypeDeclarationInventoryTests
         }
     }
 
-    static IEnumerable<(MetadataTypeDefinitionName Name, AssemblyTypeDeclarationKind Kind, bool Public)>
+    static IEnumerable<(
+        MetadataTypeDefinitionName Name,
+        AssemblyTypeDeclarationKind Kind,
+        AssemblyTypeDefinitionKind? DefinitionKind,
+        bool Public,
+        TypeDeclarationDiscoveryAttributes? DiscoveryAttributes)>
         Project(AssemblyTypeDeclarationInventory inventory) =>
         inventory.Declarations.Select(declaration =>
-            (declaration.Name, declaration.Kind, declaration.IsPublicSurface));
+            (
+                declaration.Name,
+                declaration.Kind,
+                declaration.DefinitionKind,
+                declaration.IsPublicSurface,
+                declaration.DiscoveryAttributes));
 
     static AssemblyTypeDeclarationInventory Read(AssemblyInspectionSession session) =>
         Assert.IsType<AssemblyTypeDeclarationInventoryOutcome.Read>(
@@ -312,10 +454,14 @@ public sealed class AssemblyTypeDeclarationInventoryTests
             default, default, 0, default);
 
     static TypeDefinitionHandle AddDefinition(
-        MetadataBuilder metadata, TypeAttributes attributes, string ns, string name) =>
+        MetadataBuilder metadata,
+        TypeAttributes attributes,
+        string ns,
+        string name,
+        EntityHandle baseType = default) =>
         metadata.AddTypeDefinition(
             attributes, metadata.GetOrAddString(ns), metadata.GetOrAddString(name),
-            default, MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+            baseType, MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
 
     static byte[] BuildImage(Action<MetadataBuilder> addRows)
     {

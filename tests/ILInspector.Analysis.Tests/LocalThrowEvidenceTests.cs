@@ -258,7 +258,7 @@ public sealed class LocalThrowEvidenceTests
         var context = new MethodBodyAnalysisContext(
             new MethodIdentity("Fixture", Guid.Empty, s_exception, "M",
                 [s_exception], s_void, 0x06000001, IsStatic: true),
-            instructions, [], [], [s_exception]);
+            instructions, [], [s_exception]);
         var sites = ImmutableArray.CreateBuilder<LocalThrowSite>();
         MethodCallAnalysis.Collect(
             context, new ValueResolver(), static _ => AllocationMultiplicity.Once,

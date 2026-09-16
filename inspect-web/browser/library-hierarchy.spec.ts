@@ -310,8 +310,11 @@ async function installFacades(
   `;
   const surfaceLookup = `
     const surfaces = ${JSON.stringify([model, ...additionalSurfaces])};
-    function surfaceFor(id) {
-      return surfaces.find(item => item.package === id) ?? surfaces[0];
+    function surfaceFor(id, version, framework) {
+      return surfaces.find(item => item.package === id
+        && (!version || item.version === version)
+        && (!framework || item.activeFramework === framework))
+        ?? surfaces.find(item => item.package === id) ?? surfaces[0];
     }`;
   const modules: Record<string, string> = {
     host: `
@@ -441,7 +444,7 @@ async function installFacades(
           }
         }
         return {
-          ...surface,
+          ...surfaceFor(id, version, framework),
           package: id,
           version: version === "latest" ? surface.version : version,
           activeFramework: framework || surface.activeFramework,
@@ -481,15 +484,37 @@ async function installFacades(
             "finish-package-cache-stats", resolve, { once: true }));
         }
         if (diagnosticsOptions.cacheFailure) throw new Error("Cache storage offline");
-        return { packages: 1, resident: 1, workspaces: 1, residentBytes: 0 };
+        return {
+          packages: 1,
+          resident: 1,
+          maxPackageEntries: 256,
+          workspaces: 1,
+          maxWorkspaces: 4,
+          maxWorkspaceAssembliesPerRole: 256,
+          residentBytes: 0,
+          maxResidentBytes: 134217728,
+          maxWorkspaceRetainedImageBytes: 67108864,
+        };
       }
-      export function listPackageQueryFacets() { return { facets: [] }; }
+      export function listPackageActivityPackageSets() {
+        return {
+          version: 1,
+          packageSets: [{
+            id: "package-set.fixture",
+            title: "Fixture packages",
+            summary: "Browser fixture package set.",
+            order: 10,
+          }],
+        };
+      }
+      export function listPackageQueryCatalog() { return { facets: [], terms: [] }; }
       export async function queryMemberDocumentation() {
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
       }
       export async function queryPackageDependencies(id, version, framework, asset) {
         document.documentElement.dataset.referenceRequest = asset;
-        const surface = surfaceFor(id);
+        document.documentElement.dataset.packageDependenciesRequest = JSON.stringify([id, version, framework]);
+        const surface = surfaceFor(id, version, framework);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         const scenario = ${JSON.stringify(references)};
@@ -500,7 +525,7 @@ async function installFacades(
         if (scenario === "query-error") throw new Error("Reference query unavailable.");
         return {
           package: id, version, activeFramework: framework, assembly: selected.name,
-          dependencyGroups: [], dependencyGroupError: null,
+          dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
           assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
             : { references: scenario === "empty" ? [] : scenario === "long"
             ? Array.from({ length: 80 }, (_, index) => ({
@@ -536,7 +561,8 @@ async function installFacades(
       }
       export async function queryPackageMetadata(id, version, framework, asset) {
         document.documentElement.dataset.metadataRequest = asset;
-        const surface = surfaceFor(id);
+        document.documentElement.dataset.metadataCoordinate = JSON.stringify([id, version, framework, asset]);
+        const surface = surfaceFor(id, version, framework);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         return {
@@ -880,9 +906,10 @@ const frameworkRoot = "/?package=System.Text.Json&version=10.0.0&framework=net10
 async function installPackageLoadingFacades(
   page: Page,
   options: PackageLoadingFixture = {},
+  replacement?: BrowserPackageSurface,
 ) {
   await installFacades(
-    page, frameworkSurface, [], "ready", "ready", undefined,
+    page, frameworkSurface, replacement ? [replacement] : [], "ready", "ready", undefined,
     "ready", "ready", undefined, {},
     { deferChanges: true, versions: ["10.0.1", "10.0.0"], ...options });
 }
@@ -909,84 +936,278 @@ const packageCoordinateChanges = [{
   error: "Version inspection failed",
 }];
 
-for (const change of packageCoordinateChanges) {
-  for (const width of [1280, 390]) {
-    test(`package ${change.name} loading stays in the content pane at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await installPackageLoadingFacades(page);
-      await page.goto(frameworkRoot);
-      const selector = page.locator(change.selector);
-      await expect(selector).toHaveValue(change.original);
-      const target = await page.locator(".targetbar").textContent();
-      const titlebar = await page.locator(".titlebar").boundingBox();
-      const url = page.url();
-      await page.evaluate(() => {
-        new MutationObserver(records => {
-          if (records.some(record => [...record.addedNodes].some(node =>
-            node instanceof Element
-            && (node.matches(".loading-screen")
-              || node.querySelector(".loading-screen"))))) {
-            document.documentElement.dataset.interstitialShown = "true";
-          }
-        }).observe(document.querySelector("#app")!, { childList: true, subtree: true });
-      });
-      await selector.focus();
-      await selector.selectOption(change.selected);
+const packageCoordinateViews = [{
+  id: "overview",
+  name: "Overview",
+  surface: ".package-overview-surface",
+}, {
+  id: "dependencies",
+  name: "Dependencies",
+  surface: ".package-dependencies-surface",
+}];
 
-      await expect(page.locator("html")).toHaveAttribute(
-        "data-package-query-pending",
-        JSON.stringify(["System.Text.Json", change.version, change.framework]));
+async function expectPackageCoordinateView(
+  page: Page,
+  view: typeof packageCoordinateViews[number],
+  version: string,
+  framework: string,
+) {
+  await expect(page.locator(view.surface)).toBeVisible();
+  if (view.id === "dependencies") {
+    await expect(page.locator("[data-package-dependencies-status]")).toHaveText("0 packages");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-package-dependencies-request",
+      JSON.stringify(["System.Text.Json", version, framework]));
+    await expect(page.locator(".package-dependencies-surface footer"))
+      .toContainText(`System.Text.Json@${version}`);
+    await expect(page.locator(".package-dependencies-surface footer")).toContainText(framework);
+  }
+}
+
+async function openCoordinateLibrary(page: Page) {
+  await page.goto(frameworkRoot);
+  await page.locator(`.library-list [data-lib-scope="${other.id}"]`).click();
+  await chooseInspector(page, "data-library-lens", "metadata", "Metadata");
+  await expect(page.locator('[data-mde-open="0"]')).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-metadata-request", other.id);
+}
+
+async function expectCoordinateLibrary(
+  page: Page,
+  version: string,
+  framework: string,
+  selected: BrowserAssemblySurface,
+) {
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-metadata-coordinate",
+    JSON.stringify(["System.Text.Json", version, framework, selected.id]));
+  await expect(page.locator('[data-mde-open="0"]')).toBeVisible();
+  await expect(page.locator("#inspector-panel")).toContainText(`${selected.name}.dll`);
+}
+
+for (const change of packageCoordinateChanges) {
+  const nextLibrary = {
+    ...library("replacement:other", other.name, 2),
+    asset: `lib/${change.framework}/${other.name}.dll`,
+  };
+  const replacement: BrowserPackageSurface = {
+    ...frameworkSurface,
+    version: change.version,
+    activeFramework: change.framework,
+    assemblies: [empty, nextLibrary, core],
+    types: [
+      type("Example.Widget", core),
+      type("Example.ReplacementNeighbor", nextLibrary),
+      type("Example.AddedNeighbor", nextLibrary),
+    ],
+    totalMembers: 3,
+  };
+
+  for (const view of packageCoordinateViews) {
+    for (const width of [1280, 390]) {
+      test(`package ${change.name} loading retains ${view.name} at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await installPackageLoadingFacades(page);
+        await page.goto(frameworkRoot);
+        await chooseInspector(page, "data-package-lens", view.id, view.name);
+        await expectPackageCoordinateView(page, view, "10.0.0", "net10.0");
+        const selector = page.locator(change.selector);
+        await expect(selector).toHaveValue(change.original);
+        const target = await page.locator(".targetbar .subject-path").textContent();
+        const titlebar = await page.locator(".titlebar").boundingBox();
+        const url = page.url();
+        await page.evaluate(() => {
+          new MutationObserver(records => {
+            if (records.some(record => [...record.addedNodes].some(node =>
+              node instanceof Element
+              && (node.matches(".loading-screen")
+                || node.querySelector(".loading-screen"))))) {
+              document.documentElement.dataset.interstitialShown = "true";
+            }
+          }).observe(document.querySelector("#app")!, { childList: true, subtree: true });
+        });
+        await selector.focus();
+        await selector.selectOption(change.selected);
+
+        await expect(page.locator("html")).toHaveAttribute(
+          "data-package-query-pending",
+          JSON.stringify(["System.Text.Json", change.version, change.framework]));
+        await expect(page.locator("#package-content-loading")).toHaveText(change.loadingLabel);
+        await expect(page.locator("#package-content-loading")).toBeFocused();
+        await expect(page.locator("#inspector-panel")).toHaveAttribute("aria-busy", "true");
+        await expect(page.locator(".loading-screen, .loading-bot")).toHaveCount(0);
+        await expect(page.locator(".targetbar .subject-path")).toHaveText(target!);
+        await expect(page.locator(".data-bar")).toBeVisible();
+        expect(await page.locator(".titlebar").boundingBox()).toEqual(titlebar);
+        expect(page.url()).toBe(url);
+        expect(await page.evaluate(() =>
+          document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+        await releaseFacade(page, "finish-package-query");
+        await expect(selector).toHaveValue(change.selected);
+        await expectPackageCoordinateView(page, view, change.version, change.framework);
+        await expect(selector).toBeFocused();
+        await expect(page.locator("#inspector-panel")).not.toHaveAttribute("aria-busy", "true");
+        await expect(page.locator("#package-content-loading, .loading-screen")).toHaveCount(0);
+
+        await selector.selectOption(change.original);
+        await expect(selector).toHaveValue(change.original);
+        await expectPackageCoordinateView(page, view, "10.0.0", "net10.0");
+        await expect(selector).toBeFocused();
+        await expect(page.locator("#package-content-loading")).toHaveCount(0);
+        await expect(page.locator("html")).not.toHaveAttribute("data-interstitial-shown");
+      });
+    }
+
+    test(`package ${change.name} failure restores ${view.name} and retries inside the same page`, async ({ page }) => {
+      await installPackageLoadingFacades(page, change.failure);
+      await page.goto(frameworkRoot);
+      await chooseInspector(page, "data-package-lens", view.id, view.name);
+      await expectPackageCoordinateView(page, view, "10.0.0", "net10.0");
+      await page.locator(change.selector).focus();
+      await page.locator(change.selector).selectOption(change.selected);
+      await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+      await page.locator("html").evaluate(element => {
+        delete element.dataset.packageQueryPending;
+      });
+      await releaseFacade(page, "finish-package-query");
+      await expect(page.locator(change.selector)).toHaveValue(change.original);
+      await expectPackageCoordinateView(page, view, "10.0.0", "net10.0");
+      await expect(page.locator(change.selector)).toBeFocused();
+      await expect(page.locator(".query-notice")).toContainText(change.error);
+      await expect(page.locator(".loading-screen")).toHaveCount(0);
+      const retry = page.locator(".query-notice").getByRole("button", { name: "Retry" });
+      await retry.focus();
+      await retry.press("Enter");
       await expect(page.locator("#package-content-loading")).toHaveText(change.loadingLabel);
       await expect(page.locator("#package-content-loading")).toBeFocused();
-      await expect(page.locator("#inspector-panel")).toHaveAttribute("aria-busy", "true");
-      await expect(page.locator(".loading-screen, .loading-bot")).toHaveCount(0);
-      await expect(page.locator(".targetbar")).toHaveText(target!);
-      await expect(page.locator(".data-bar")).toBeVisible();
-      expect(await page.locator(".titlebar").boundingBox()).toEqual(titlebar);
-      expect(page.url()).toBe(url);
-      expect(await page.evaluate(() =>
-        document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-
+      await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
       await releaseFacade(page, "finish-package-query");
-      await expect(selector).toHaveValue(change.selected);
-      await expect(selector).toBeFocused();
-      await expect(page.locator("#inspector-panel")).not.toHaveAttribute("aria-busy", "true");
-      await expect(page.locator("#package-content-loading, .loading-screen")).toHaveCount(0);
-      await expect(page.locator(".package-overview-surface")).toBeVisible();
-
-      await selector.selectOption(change.original);
-      await expect(selector).toHaveValue(change.original);
-      await expect(selector).toBeFocused();
-      await expect(page.locator("#package-content-loading")).toHaveCount(0);
-      await expect(page.locator("html")).not.toHaveAttribute("data-interstitial-shown");
+      await expect(page.locator(change.selector)).toHaveValue(change.selected);
+      await expectPackageCoordinateView(page, view, change.version, change.framework);
+      await expect(page.locator(".query-notice")).toHaveCount(0);
+      await expect(page.locator(change.selector)).toBeFocused();
     });
   }
 
-  test(`package ${change.name} failure restores content and retries inside the same page`, async ({ page }) => {
-    await installPackageLoadingFacades(page, change.failure);
-    await page.goto(frameworkRoot);
-    await page.locator(change.selector).focus();
-    await page.locator(change.selector).selectOption(change.selected);
+  for (const width of [1280, 390]) {
+    test(`Library metadata ${change.name} retains selection intent at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installPackageLoadingFacades(page, {}, replacement);
+      await openCoordinateLibrary(page);
+      const target = await page.locator(".targetbar .subject-path").textContent();
+      const url = page.url();
+      const selector = page.locator(change.selector);
+      await selector.focus();
+      await selector.selectOption(change.selected);
+      await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+      await expect(page.locator("#package-content-loading")).toHaveText(change.loadingLabel);
+      await expect(page.locator("#package-content-loading")).toBeFocused();
+      await expect(page.locator(".targetbar .subject-path")).toHaveText(target!);
+      await expect(page.locator(".loading-screen")).toHaveCount(0);
+      expect(page.url()).toBe(url);
+      await releaseFacade(page, "finish-package-query");
+      await expectCoordinateLibrary(page, change.version, change.framework, nextLibrary);
+      await expect(selector).toHaveValue(change.selected);
+      await expect(selector).toBeFocused();
+      await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
+      await expect(page.locator("#type-list")).toContainText("ReplacementNeighbor");
+      await expect(page.locator("#type-list")).toContainText("AddedNeighbor");
+      await expect(page.locator("#type-list")).not.toContainText("Widget");
+      await expect(page.locator(".query-notice")).toHaveCount(0);
+      expect(await page.evaluate(() =>
+        document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+      await selector.selectOption(change.original);
+      await expectCoordinateLibrary(page, "10.0.0", "net10.0", other);
+      await expect(selector).toBeFocused();
+      await expect(page.locator("#type-list")).toContainText("Neighbor");
+      await expect(page.locator("#type-list")).not.toContainText("AddedNeighbor");
+      await expect(page.locator("#package-content-loading, .loading-screen")).toHaveCount(0);
+    });
+  }
+
+  test(`Library metadata ${change.name} failure retains selection intent through Retry`, async ({ page }) => {
+    await installPackageLoadingFacades(page, change.failure, replacement);
+    await openCoordinateLibrary(page);
+    const selector = page.locator(change.selector);
+    await selector.focus();
+    await selector.selectOption(change.selected);
     await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
     await page.locator("html").evaluate(element => {
       delete element.dataset.packageQueryPending;
     });
     await releaseFacade(page, "finish-package-query");
-    await expect(page.locator(change.selector)).toHaveValue(change.original);
-    await expect(page.locator(change.selector)).toBeFocused();
     await expect(page.locator(".query-notice")).toContainText(change.error);
-    await expect(page.locator(".loading-screen")).toHaveCount(0);
+    await expectCoordinateLibrary(page, "10.0.0", "net10.0", other);
+    await expect(selector).toHaveValue(change.original);
+    await expect(selector).toBeFocused();
     const retry = page.locator(".query-notice").getByRole("button", { name: "Retry" });
     await retry.focus();
     await retry.press("Enter");
-    await expect(page.locator("#package-content-loading")).toHaveText(change.loadingLabel);
     await expect(page.locator("#package-content-loading")).toBeFocused();
     await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
     await releaseFacade(page, "finish-package-query");
-    await expect(page.locator(change.selector)).toHaveValue(change.selected);
+    await expectCoordinateLibrary(page, change.version, change.framework, nextLibrary);
+    await expect(selector).toBeFocused();
     await expect(page.locator(".query-notice")).toHaveCount(0);
-    await expect(page.locator(change.selector)).toBeFocused();
   });
+
+  test(`Library metadata ${change.name} retains a library whose public Type inventory becomes empty`, async ({ page }) => {
+    const emptied = { ...nextLibrary, publicTypes: 0, publicMembers: 0 };
+    await installPackageLoadingFacades(page, {}, {
+      ...replacement,
+      assemblies: [core, emptied],
+      types: [type("Example.Widget", core)],
+      totalMembers: 1,
+    });
+    await openCoordinateLibrary(page);
+    await page.locator(change.selector).selectOption(change.selected);
+    await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+    await releaseFacade(page, "finish-package-query");
+    await expectCoordinateLibrary(page, change.version, change.framework, emptied);
+    await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+    await expect(page.locator('[data-subject-tab][data-scope="type"]')).toHaveCount(0);
+    await expect(page.locator(".query-notice")).toHaveCount(0);
+  });
+
+  for (const scenario of ["missing", "ambiguous", "root-only"] as const) {
+    test(`Library metadata ${change.name} explains the ${scenario} selection fallback`, async ({ page }) => {
+      const rootOnly = scenario === "root-only";
+      await installPackageLoadingFacades(page, {}, {
+        ...replacement,
+        defaultAssemblyId: rootOnly ? null : core.id,
+        compileLibrary: rootOnly
+          ? { status: "NoCompileAssets", targetFramework: change.framework, message: "No compile Libraries." }
+          : replacement.compileLibrary,
+        assemblies: rootOnly ? [] : [
+          core,
+          ...(scenario === "ambiguous"
+            ? [nextLibrary, { ...nextLibrary, id: "replacement:duplicate" }]
+            : []),
+        ],
+        types: rootOnly ? [] : [type("Example.Widget", core)],
+        totalMembers: rootOnly ? 0 : 1,
+      });
+      await openCoordinateLibrary(page);
+      const selector = page.locator(change.selector);
+      await selector.focus();
+      await selector.selectOption(change.selected);
+      await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+      await releaseFacade(page, "finish-package-query");
+      await expect(page.locator(".package-overview-surface")).toBeVisible();
+      await expect(page.locator(".query-notice").filter({ hasText: "Showing Package Overview." })).toContainText(
+        `The library '${other.name}' is not uniquely available in System.Text.Json@${change.version} (${change.framework}). Showing Package Overview.`);
+      if (rootOnly) {
+        await expect(page.locator(".query-notice").filter({ hasText: "No compile Libraries." })).toBeVisible();
+      }
+      await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+      await expect(selector).toHaveValue(change.selected);
+      await expect(selector).toBeFocused();
+      await expect(page.locator(".loading-screen")).toHaveCount(0);
+    });
+  }
 
   test(`leaving a pending package ${change.name} ignores its late completion`, async ({ page }) => {
     await installPackageLoadingFacades(page);
@@ -1010,6 +1231,7 @@ test("initial package loading retains the full acquisition interstitial", async 
   await expect(page.locator("#package-content-loading, .titlebar")).toHaveCount(0);
   await releaseFacade(page, "finish-package-query");
   await expect(page.locator("#framework")).toHaveValue("net10.0");
+  await expect(page.locator(".package-overview-surface")).toBeVisible();
 });
 
 async function installDiagnosticsFacades(
@@ -1061,7 +1283,7 @@ test("Home keeps Search and curated demos ahead of artwork", async ({
   await expect(page.locator(".home-demos-copy"))
     .toContainText("Start from a curated package query.");
   await expect(page.locator(".data-bar"))
-    .toContainText("CLI tool · Agent skill · Diagnostics · Credits");
+    .toContainText("CLI tool · Agent skill · Demos · Diagnostics · Credits");
 
   const wideSearch = await page.locator(".home-search").boundingBox();
   const wideDemos = await page.locator(".home-demos").boundingBox();
@@ -1352,7 +1574,17 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
     .toContainText("engine ready");
   await expect(page.locator("#diagnostics-build-heading")).toHaveText("Build");
   await expect(page.locator("#diagnostics-cache-heading"))
-    .toHaveText("Package cache");
+    .toHaveText("Isolated storage");
+  const storageCard = page.locator(".diagnostics-card").filter({
+    has: page.locator("#diagnostics-cache-heading"),
+  });
+  await expect(storageCard).toContainText("Resident payloads");
+  await expect(storageCard).toContainText("Package-entry budget");
+  await expect(storageCard).toContainText("12");
+  await expect(storageCard).toContainText("0 B of 128 MB");
+  await expect(storageCard).toContainText("1 of 4");
+  await expect(storageCard).toContainText("256 per role");
+  await expect(storageCard).toContainText("64 MB each");
   await expect(page.locator(".data-bar")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Back to previous page" }))
     .toBeVisible();
@@ -1819,6 +2051,102 @@ async function openHomeDemo(
   return share;
 }
 
+test("Demos is a dedicated page reached from Home and the data bar", async ({
+  page,
+}, testInfo) => {
+  const id = await installHomeDemo(page, "Methods", "package");
+  await page.goto("/");
+  await page.locator("#home-demos").click();
+  await expect(page).toHaveURL("/demos");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeFocused();
+  await expect(page.locator(`[data-workspace-demo="${id}"]`)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
+    .toHaveCount(0);
+  await expect(page.locator("[data-workspace-add-package], [data-workspace-save]"))
+    .toHaveCount(0);
+  await expect(page.locator("html")).not.toHaveAttribute("data-home-demo-run");
+  await page.screenshot({ path: testInfo.outputPath("demos-wide.png") });
+
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await expect(page).toHaveURL("/");
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await expect(page).toHaveURL("/demos");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(`[data-workspace-demo="${id}"]`))
+    .toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+    .toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("demos-narrow.png") });
+  await page.keyboard.press("Control+p");
+  await expect(page.locator("#spotlight-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#spotlight-input")).toHaveCount(0);
+});
+
+test("Package navigation retains the shared System.Text.Json packet and Workspace stays separate from Demos", async ({
+  page,
+}) => {
+  const assembly = library(
+    "compile:lib/netstandard2.0/System.Text.Json.dll", "System.Text.Json", 1);
+  const jsonSurface: BrowserPackageSurface = {
+    ...surface,
+    package: "System.Text.Json",
+    version: platformVersion,
+    frameworks: ["net11.0", "netstandard2.0"],
+    activeFramework: "netstandard2.0",
+    defaultAssemblyId: assembly.id,
+    compileLibrary: { status: "Selected", targetFramework: "netstandard2.0", message: null },
+    assemblies: [assembly],
+    types: [type("System.Text.Json.JsonSerializer", assembly)],
+  };
+  await installFacades(page, jsonSurface);
+  await page.goto(`/?package=System.Text.Json&version=${platformVersion}&framework=netstandard2.0`);
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
+  const sharedLibraryUrl = page.url();
+  await page.reload();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(sharedLibraryUrl);
+
+  await chooseSubject(page, "package", "Package");
+  await expect.poll(() => page.evaluate((): unknown => {
+    const packet = new URL(location.href).searchParams.get("w");
+    return packet ? JSON.parse(atob(packet)) : null;
+  })).toMatchObject({
+    tabs: [{ source: "System.Text.Json", version: platformVersion, framework: "netstandard2.0" }],
+    view: { lens: "overview" },
+  });
+  const packageUrl = page.url();
+  expect([...new URL(packageUrl).searchParams.keys()]).toEqual(["package", "w"]);
+  await page.reload();
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#framework")).toHaveValue("netstandard2.0");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
+    .toBeVisible();
+  await expect(page.locator("[data-workspace-activate]")).toContainText("System.Text.Json");
+  await expect(page.locator("[data-workspace-activate]")).toContainText("netstandard2.0");
+  await expect(page.locator("[data-workspace-demo]")).toHaveCount(0);
+  await page.waitForFunction(() => location.hash === "#workspace");
+  const workspaceUrl = page.url();
+
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await expect(page).toHaveURL("/demos");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
+  await expect(page.locator("[data-workspace-activate]")).toHaveCount(0);
+  await page.goBack();
+  await expect(page).toHaveURL(workspaceUrl);
+  await expect(page.locator("[data-workspace-activate]")).toContainText("System.Text.Json");
+  await expect(page.locator("[data-workspace-activate]")).toContainText("netstandard2.0");
+  await expect(page.locator("[data-workspace-demo]")).toHaveCount(0);
+});
+
 test("package Methods demo retains all returned coordinates and publishes its exact type", async ({
   page,
 }) => {
@@ -1934,9 +2262,8 @@ test("home demo history failure restores the catalog without publication", async
   await expect(page.locator(".query-notice-text"))
     .toContainText("could not commit its destination");
   await expect(page).toHaveURL(/\/demos$/);
-  await expect(page.locator("#subject-panel")).toBeVisible();
-  await expect(page.locator("#subject-panel")
-    .getByRole("heading", { name: "Workspace", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Demos", exact: true })).toBeVisible();
+  await expect(page.locator(`[data-workspace-demo="${id}"]`)).toBeFocused();
   await expect(page.locator("[data-workspace-switch]"))
     .toHaveCount(retainedBefore);
 });

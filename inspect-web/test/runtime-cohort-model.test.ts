@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createRuntimeCohortBenchmarkReceipt,
   createRuntimeCohortReceipt,
+  createRuntimeSiteDeploymentReceipt,
   type RuntimeCohortVariantName,
   type RuntimeVariantAdmissionEvidence,
   type RuntimeVariantReceipt,
@@ -195,6 +196,79 @@ test("runtime pin advancement rejects unfamiliar R2R product failures", () => {
       "b".repeat(40),
     ),
     /proposal source commit/u,
+  );
+});
+
+test("runtime sites require exact accepted deployment evidence", () => {
+  const knownFailure = [
+    "INSPECT_WEB_PRODUCT_OPERATION_FAILURE:producer-contract",
+    "Error: page.evaluate: index out of bounds",
+  ].join("\n");
+  const cohort = createRuntimeCohortReceipt(
+    sourceCommit,
+    "2026-09-14T00:47:00Z",
+    [
+      evidence("mono"),
+      evidence("coreclr-il"),
+      evidence("coreclr-r2r", 1, knownFailure),
+    ],
+  );
+  const cohortText = `${JSON.stringify(cohort)}\n`;
+  const il = createRuntimeSiteDeploymentReceipt(
+    cohortText,
+    `${JSON.stringify(variant("coreclr-il"))}\n`,
+    sourceCommit,
+  );
+  assert.equal(il.admission.status, "admitted");
+  const r2r = createRuntimeSiteDeploymentReceipt(
+    cohortText,
+    `${JSON.stringify(variant("coreclr-r2r"))}\n`,
+    sourceCommit,
+  );
+  assert.equal(r2r.admission.status, "correctness-rejection");
+  assert.equal(
+    r2r.admission.knownIssue,
+    "dotnet/runtime#129622; dotnet/runtime#129857",
+  );
+
+  const unfamiliar = {
+    ...cohort,
+    variants: cohort.variants.map(item => item.name === "coreclr-r2r"
+      ? {
+        ...item,
+        admission: {
+          ...item.admission,
+          knownIssue: null,
+        },
+      }
+      : item),
+  };
+  assert.throws(
+    () => createRuntimeSiteDeploymentReceipt(
+      JSON.stringify(unfamiliar),
+      JSON.stringify(variant("coreclr-r2r")),
+      sourceCommit,
+    ),
+    /deployable admission/u,
+  );
+  assert.throws(
+    () => createRuntimeSiteDeploymentReceipt(
+      cohortText,
+      JSON.stringify(variant("coreclr-il")),
+      "9".repeat(40),
+    ),
+    /deployment source commit/u,
+  );
+  const mismatchedVariant = variant("coreclr-il", {
+    siteManifestSha256: "a".repeat(64),
+  });
+  assert.throws(
+    () => createRuntimeSiteDeploymentReceipt(
+      cohortText,
+      JSON.stringify(mismatchedVariant),
+      sourceCommit,
+    ),
+    /publication does not match/u,
   );
 });
 

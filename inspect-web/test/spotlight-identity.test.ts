@@ -1321,7 +1321,7 @@ test("keyboard help projects available global and current graph bindings", () =>
     renderWorkspaceFocus.match(
       /restoreWorkspaceFocus\(document, workspaceFocus\)/g,
     )?.length,
-    2);
+    3);
   assert.match(
     renderWorkspaceFocus,
     /const workspaceFocus = captureWorkspaceFocus\(focusedElement\);[\s\S]*renderWorkspaceCatalogView\(\);[\s\S]*else if \(workspaceFocus\) \{\s*if \(!restoreWorkspaceFocus\(document, workspaceFocus\)\) \{\s*focusLevelOneHeading\(\);[\s\S]*recordNav\(\);[\s\S]*return;/);
@@ -1882,13 +1882,13 @@ test("typed settings panel owns its rendered control bindings", () => {
         && node.name === "bindSettingsPanel").length,
     3);
   const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
-  assert.equal(eventBinderCalls.length, 4);
+  assert.equal(eventBinderCalls.length, 5);
   assert.equal(
     syntaxNodes(
       appSyntax,
       node => node.type === "Identifier"
         && node.name === "bindSettingsPanelEvents").length,
-    5);
+    6);
   const settingsBinders: readonly (readonly [
     DeclaredFunction,
     string,
@@ -2486,7 +2486,7 @@ test("data bar shows versioned linked build provenance", () => {
   assert.match(
     appSource,
     /async function loadBuildIdentity\(\) \{[\s\S]*state\.buildIdentity = await engineClient\.host\.buildIdentity\(\);[\s\S]*state\.buildIdentityStatus = "ready";[\s\S]*state\.buildIdentityStatus = "failed"/);
-  assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 4);
+  assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 5);
   assert.match(
     appSource,
     /<\/main>[\s\S]{0,700}\$\{dataBarHtml\(\{/);
@@ -2863,7 +2863,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /function retainFailedWorkspaceUrl\(\) \{\s*const failedState = failedWorkspaceUrlState;\s*const retainedState = retainWorkspaceUrlPreservation\(\s*failedState,\s*location\.href,\s*workspaceUrlProjection\(\)\);\s*if \(retainedState\) return true;\s*if \(failedState\?\.kind === "route"\s*&& !recoverWorkspaceRouteFailure\(\s*failedState,\s*location,\s*url => workspaceLocation\.replace\(url, history\.state\)\)\) \{\s*return true;\s*\}\s*failedWorkspaceUrlState = null;\s*return false;\s*\}/);
   assert.match(
     appSource,
-    /if \(\(state\.loading && !loadingPackageContent\) \|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.home\)/);
+    /if \(\(state\.loading && !loadingPackageContent\) \|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.workspaceSubjectOpen && isProductHomeDemosPath\(location\.pathname\)\)/);
   assert.match(
     appSource,
     /navigation: navigationHistory\.snapshot\(\),\s*failedWorkspaceUrlState: failedWorkspaceUrlState[\s\S]*structuredClone\(failedWorkspaceUrlState\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\);[\s\S]*failedWorkspaceUrlState = snapshot\.failedWorkspaceUrlState[\s\S]*structuredClone\(snapshot\.failedWorkspaceUrlState\)/);
@@ -2897,7 +2897,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /const productDemosRouteVisible =\s*scope\(\) === "workspace"\s*&& isProductHomeDemosPath\(location\.pathname\);[\s\S]*document\.title = "Demos — dotnet-inspect";[\s\S]*else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\)/);
   assert.match(
     stateUrl,
-    /state\.atPackageRoot && state\.rootKind === "package" && state\.package[\s\S]*buildPackageRootStateUrl/);
+    /const snapshot = captureWorkspaceUrlState\(\);[\s\S]*await workspaceLocation\.build\(snapshot, base\)/);
   assert.match(
     scopePlatform,
     /platformLibraryMatchesDescriptor\(row, item\)[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\)[\s\S]*if \(scopeOnly\) return pkg/);
@@ -2983,7 +2983,7 @@ test("malformed package routes use the contained restore failure path", () => {
     1);
   assert.equal(
     appSource.match(/\${renderQueryNotice\(\)}/g)?.length,
-    3);
+    4);
   assert.match(
     appSource,
     /state\.queryNotice && state\.queryNoticeRetryAction\s*\? '<button id="retry-notice"/);
@@ -3464,13 +3464,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /@media \(max-width: 860px\) \{\s*body\.package-query-route \{ min-width: 0; \}/);
   assert.match(
     handoff,
-    /if \(!canPublishRetainedWorkspace\(\)\)[\s\S]*packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*const \{ rollbackSnapshot, retainedSnapshot \} =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);\s*prepareUnpublishedWorkspace\(\);[\s\S]*await loadPackage\([\s\S]*deferWorkspacePublication: true,[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;[\s\S]*destination = \(await buildStateUrl\(\)\)\.toString\(\);[\s\S]*discardPendingWorkspaceConstruction\(\);[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(rollbackSnapshot\);[\s\S]*state\.packageQueryOpen = true;[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
-  assert.match(
-    appSource,
-    /queryPackageRoot: rootRequest =>\s*inspectOpenPackageAssemblyQueryResult\(rootRequest\)/);
-  assert.match(
-    appSource,
-    /runAssembly: \([\s\S]*?\) => inspectRunPackageAssemblyQuery\([\s\S]*?eventSink\)/);
+    /if \(!canPublishRetainedWorkspace\(\)\)[\s\S]*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*const \{ rollbackSnapshot, retainedSnapshot \} =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);\s*prepareUnpublishedWorkspace\(\);[\s\S]*await loadPackage\([\s\S]*deferWorkspacePublication: true,[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;[\s\S]*destination = \(await buildStateUrl\(\)\)\.toString\(\);[\s\S]*discardPendingWorkspaceConstruction\(\);[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(rollbackSnapshot\);[\s\S]*state\.packageQueryOpen = true;[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
   assert.match(
     syncUrl,
     /function syncUrl\(\) \{\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(pendingDemoNavigation[\s\S]*navigationSequence\.isCurrent\(pendingDemoNavigation\.navigationSeq\)\) return;\s*if \(pendingWorkspaceConstruction[\s\S]*pendingWorkspaceConstruction\.navigationSeq\)\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
@@ -3484,7 +3478,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /state\.packageQueryReturnFocusPending = true/);
   assert.match(
     appSource,
-    /function renderPackageQueryPage\(\) \{\s*cancelPackageQueryStreamRender\(\);\s*const focus = capturePackageQueryFocus\(document\);\s*const viewport =\s*capturePackageQueryViewport\(document\) \?\? packageQueryViewport;[\s\S]*app\.innerHTML = renderPackageQueryView\(\{[\s\S]*viewport,[\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryViewport\(document, viewport\);\s*packageQueryViewport =\s*capturePackageQueryViewport\(document\) \?\? viewport;\s*restorePackageQueryFocus\(document, focus\)/);
+    /function renderPackageQueryPage\(\) \{\s*cancelPackageQueryStreamRender\(\);[\s\S]*const focus = capturePackageQueryFocus\(document\);\s*const viewport =\s*capturePackageQueryViewport\(document\) \?\? packageQueryViewport;[\s\S]*app\.innerHTML = renderPackageQueryView\(\{[\s\S]*viewport,[\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryViewport\(document, viewport\);\s*packageQueryViewport =\s*capturePackageQueryViewport\(document\) \?\? viewport;\s*restorePackageQueryFocus\(document, focus\)/);
   const streamPatch =
     appSource.match(/function patchPackageQueryPage\(\) \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
@@ -3533,7 +3527,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function closePackageQueryRoute\(\) \{[\s\S]*state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null;[\s\S]*history\.back\(\)/);
   assert.match(
     appSource,
-    /function openCredits\(\) \{[\s\S]*?navigationSequence\.begin\(\);\s*state\.loading = false;\s*state\.packageQueryOpen = false/);
+    /function openCredits\(\) \{[\s\S]*?navigationSequence\.begin\(\);\s*state\.loading = false;\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false/);
   assert.match(
     appSource,
     /function restorePackageQueryReturnFocus\(\) \{\s*if \(!state\.packageQueryReturnFocusPending\) return;[\s\S]*state\.packageQueryReturnFocus === "application-query"[\s\S]*if \(state\.packageQueryReturnFocus !== "package-search"\) return;[\s\S]*focusWorkbenchSearch\(document\)[\s\S]*focusLevelOneHeading\(\)/);
@@ -3559,10 +3553,13 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     1);
   assert.match(
     appSource,
-    /onAssemblyRun: request => \{\s*state\.packageQueryNavigationError = "";\s*packageQueryLiveAnnouncer\.reset\(\);\s*void packageQueryController\.run\(request\)/);
+    /function submitPackageQueryRequest\(request: QueryRequest\) \{\s*packageQueryLiveAnnouncer\.reset\(\);\s*if \(!shouldExecuteQuery\(request\)\) \{\s*packageQueryController\.configure\(request\);\s*return;\s*\}\s*void packageQueryController\.run\(request\)/);
   assert.match(
     appSource,
-    /function submitPackageQueryRequest\(request: QueryRequest\) \{\s*packageQueryLiveAnnouncer\.reset\(\);\s*if \(!shouldExecuteQuery\(request\)\) \{\s*packageQueryController\.configure\(request\);\s*return;\s*\}\s*void packageQueryController\.run\(request\)/);
+    /function resetPackageQueryState\(\) \{[\s\S]*state\.packageQueryState\.termDraft = fresh\.termDraft \?\? null;\s*state\.packageQueryState\.termEdits = fresh\.termEdits \?\? \[\]/);
+  assert.match(
+    appSource,
+    /function goHome\(\) \{[\s\S]*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false/);
   assert.match(
     appSource,
     /function runPackageQuery\(text: string\) \{\s*const request = preparePackageQueryRequest\(text\);\s*submitPackageQueryRequest\(request\)/);
@@ -3572,10 +3569,19 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function preparePackageQueryControlRequest\(\s*text: string,\s*\): QueryRequest \{\s*return preparePackageQueryRequest\(text\)/);
   assert.match(
     appSource,
-    /state\.packageQueryCatalogError =\s*`Package-query facets are unavailable/);
+    /state\.packageQueryCatalogError =\s*`Package-query vocabulary is unavailable/);
   assert.match(
     appSource,
-    /try \{\s*state\.packageQueryFacets =\s*packageQueryFacets\(await engineClient\.package\.listPackageQueryFacets\(\)\);\s*\} catch \(error\) \{[\s\S]*state\.packageQueryCatalogError =[\s\S]*\}\s*try \{\s*state\.packageQueryAssemblyPatterns =\s*packageQueryAssemblyPatterns\(\s*await engineClient\.package\.listPackageAssemblyQueryPatterns\(\)\);\s*\} catch \(error\) \{\s*state\.packageQueryAssemblyPatterns = \[\];\s*console\.error\("Package-query assembly patterns are unavailable\.", error\);\s*\}/);
+    /try \{\s*const catalog =\s*packageQueryCatalog\(await engineClient\.package\.listPackageQueryCatalog\(\)\);\s*state\.packageQueryFacets = catalog\.facets;\s*state\.packageQueryTerms = catalog\.terms;\s*\} catch \(error\) \{[\s\S]*state\.packageQueryFacets = \[\];\s*state\.packageQueryTerms = \[\];\s*state\.packageQueryCatalogError =[\s\S]*\}/);
+  assert.match(
+    appSource,
+    /function applyPackageQueryTerm\([\s\S]*\? withTerm\(current, descriptor, operator, value\)\s*: replaceTerm\(current, index, operator, value\);[\s\S]*state\.packageQueryState\.termDraft = null;[\s\S]*state\.packageQueryState\.termEdits = edits;[\s\S]*submitPackageQueryRequest\(request\)/);
+  assert.match(
+    appSource,
+    /function editPackageQueryTerm\([\s\S]*state\.packageQueryState\.termDraft = \{[\s\S]*operator,[\s\S]*value,[\s\S]*state\.packageQueryState\.termEdits = edits/);
+  assert.match(
+    appSource,
+    /function removePackageQueryTerm\([\s\S]*submitPackageQueryRequest\(withoutTerm\(current, index\)\)/);
   assert.doesNotMatch(
     appSource,
     /state\.packageQuerySourceCatalog/);
@@ -3605,7 +3611,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /onApplicationScopeSelect: applicationScope => \{[\s\S]*applicationScope === "query"[\s\S]*else if \(scope\(\) !== "workspace"\) \{\s*observeAsync\(\s*selectWorkspaceApplicationScope\(\),\s*"Opening the Workspace scope"\)/);
   assert.match(
     appSource,
-    /const focusWorkspaceAfterQuery = state\.packageQueryOpen;\s*if \(focusWorkspaceAfterQuery\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*if \(focusWorkspaceAfterQuery\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*let loc: ParsedLocation;\s*try \{\s*loc = await parseWorkspaceHref\(url\.toString\(\)\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(!sameWorkspace\) \{[\s\S]*openFreshWorkspaceLink\(loc, navigationSeq\)[\s\S]*\} else \{\s*workspaceLocation\.push/);
+    /const focusWorkspaceAfterQuery = state\.packageQueryOpen;\s*if \(focusWorkspaceAfterQuery\) \{\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*if \(focusWorkspaceAfterQuery\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*let loc: ParsedLocation;\s*try \{\s*loc = await parseWorkspaceHref\(url\.toString\(\)\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(!sameWorkspace\) \{[\s\S]*openFreshWorkspaceLink\(loc, navigationSeq\)[\s\S]*\} else \{\s*workspaceLocation\.push/);
   assert.match(
     appSource,
     /function restorePackageQueryWorkspaceFocus\(\) \{\s*const navigationSeq = packageQueryWorkspaceFocusNavigationSeq;[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);
@@ -3764,7 +3770,7 @@ test("type projection completions render only while current and preserve navigat
     ?? "";
   assert.match(
     typeMetadata,
-    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*selectedTypeMetadataLibraryIdentity\(\)\) === signature/);
+    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*selectedTypeMetadataLibraryIdentity\(\)\) === signature/);
   assert.doesNotMatch(typeMetadata, /typeMetadataGeneration|inspectTypeProjection/);
   const typeMetadataCoordinator =
     metadataInspectionSource.match(/async loadTypeMetadata\(request\)[\s\S]*?\n    },/)?.[0]
@@ -4059,7 +4065,7 @@ test("stale dependency graph cleanup preserves a replacement with the same signa
 test("dependency graph binds navigation to generated node identities", () => {
   assert.match(
     graphSource,
-    /const nodeInfoById = new Map<string, DependencyGraphNodeInfo>\(\);[\s\S]*for \(const key of keys\)[\s\S]*if \(id && info\) nodeInfoById\.set\(id, info\)/);
+    /const nodeInfoById = new Map<string, DependencyGraphNodeInfo>\(\);[\s\S]*for \(const key of keys\)[\s\S]*const navigationInfo: DependencyGraphNodeInfo = \{ kind: info\.kind \};[\s\S]*nodeInfoById\.set\(id, navigationInfo\)/);
   assert.match(
     graphInteractionsSource,
     /const dataId = node\.getAttribute\("data-id"\);[\s\S]*return dataId \|\| idMatch\?\.\[1\] \|\| ""/);
@@ -6041,7 +6047,7 @@ test("Dependencies adopts the shared graph viewer without moving the package lis
     /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
   assert.match(
     appSource,
-    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{depList\}/);
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{pruningSection\}\$\{depList\}/);
   assert.match(
     appSource,
     /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);
@@ -7406,7 +7412,9 @@ test("dependency graph rendering contains artifact labels", async () => {
       dependenciesGroupIndex: 0,
       workspaceDependencies: {}
     },
-    () => null);
+    () => null,
+    (inspectedPackageId, packageIds) => packageIds.map(packageId =>
+      packageId === inspectedPackageId ? "inspected" : "external"));
   assert.ok(definition, "the fixture graph must render a mermaid definition");
 
   assert.match(
@@ -7416,5 +7424,5 @@ test("dependency graph rendering contains artifact labels", async () => {
   assert.equal(definition.definition.includes("\uDC00"), false);
   assert.match(
     definition.definition,
-    /classDef self fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
+    /classDef inspected fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
 });

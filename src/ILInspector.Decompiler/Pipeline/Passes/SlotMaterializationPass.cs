@@ -60,6 +60,8 @@ public sealed class SlotMaterializationPass : IIrPass
     {
         var plan = BuildPlan(function);
         var decided = plan.Candidates.Where(static candidate => candidate.Vetoes == SlotMaterializationVeto.None).ToList();
+        var invariant = IrInvariants.Enabled && decided.Count > 0
+            ? SlotMaterializationInvariant.Capture(function) : null;
 
         // Replace every load before moving store values so nested slot loads
         // have already become locals. Reparent each value instead of cloning
@@ -88,6 +90,7 @@ public sealed class SlotMaterializationPass : IIrPass
                     value));
             }
         }
+        invariant?.Check();
     }
 
     static MaterializationPlan BuildPlan(IrFunction function)
@@ -187,10 +190,12 @@ public sealed class SlotMaterializationPass : IIrPass
                 candidate.Vetoes |= SlotMaterializationVeto.BooleanSinkIdentityRecovery;
             }
 
-            bool exactReference = slotType.Kind == TypeRefKind.Definition
-                && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
-                    || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
-                && candidate.Stores.All(store => CoercionDomain.IsAtTarget(store.Value, slotType));
+            bool exactReference = candidate.Stores.All(store => CoercionDomain.IsAtTarget(store.Value, slotType))
+                && (slotType.Kind == TypeRefKind.Definition
+                    && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
+                        || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
+                    || CSharpSpellability.CanSpellSzArrayStorageType(slotType, function)
+                    || CSharpSpellability.CanSpellNamedReferenceStorageType(slotType, function));
             if (exactReference && candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
                 candidate.Vetoes |= SlotMaterializationVeto.PendingReferenceSwap;
             if (!exactReference && !CoercionDomain.InDomain(slotType, function.TypeShapes))

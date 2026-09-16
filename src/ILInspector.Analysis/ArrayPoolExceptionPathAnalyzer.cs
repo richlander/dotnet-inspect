@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -128,6 +129,32 @@ static class ArrayPoolExceptionPathAnalyzer
         return result.ToImmutable();
     }
 
+    internal static ImmutableArray<ArrayPoolExceptionBoundary> UnprotectedThrowingBoundaries(
+        BlockGraph graph,
+        InstructionExceptionFlowFacts exceptionFlow,
+        IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
+        ImmutableArray<int> releases,
+        ImmutableArray<ArrayPoolExceptionBoundary> throwingBoundaries)
+    {
+        var result = ImmutableArray.CreateBuilder<ArrayPoolExceptionBoundary>();
+        var seenOffsets = new HashSet<int>();
+        foreach (var boundary in throwingBoundaries.OrderBy(static boundary => boundary.ILOffset))
+        {
+            if (seenOffsets.Add(boundary.ILOffset)
+                && !ReleasedBeforeUseInSameBlock(graph, releases, boundary.ILOffset)
+                && !HasCleanupReleaseForUse(
+                    exceptionFlow,
+                    catchAllCleanup,
+                    releases,
+                    boundary.ILOffset))
+            {
+                result.Add(boundary);
+            }
+        }
+
+        return result.ToImmutable();
+    }
+
     static bool HasCleanupReleaseForUse(
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
@@ -167,6 +194,98 @@ static class ArrayPoolExceptionPathAnalyzer
 
         return false;
     }
+
+    static bool HasCleanupReleaseForUse(
+        InstructionExceptionFlowFacts exceptionFlow,
+        IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
+        ImmutableArray<int> releases,
+        int useOffset)
+    {
+        ImmutableArray<InstructionExceptionRegion> context =
+            RequireLocation(exceptionFlow, useOffset);
+
+        // Instructions owns validated region nesting. Analysis retains the
+        // resource-policy question: whether every exception that can be
+        // intercepted before an outer cleanup still releases the rented array.
+        bool interceptingCatchSeen = false;
+        foreach (InstructionExceptionRegion protectedRegion in context
+            .Where(static region =>
+                region.Id.Role == InstructionExceptionRegionRole.Protected)
+            .Reverse())
+        {
+            foreach (InstructionExceptionClause clause in exceptionFlow.Clauses
+                .Where(clause =>
+                    clause.ProtectedRegion == protectedRegion.Id)
+                .OrderBy(static clause => clause.Id.Ordinal))
+            {
+                if (clause.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault)
+                {
+                    if (HandlerContainsRelease(
+                            exceptionFlow,
+                            clause.HandlerRegion,
+                            releases))
+                    {
+                        return true;
+                    }
+                    continue;
+                }
+
+                if (clause.Kind is not (ExceptionRegionKind.Catch or ExceptionRegionKind.Filter))
+                    continue;
+
+                if (!interceptingCatchSeen
+                    && catchAllCleanup.Contains(clause.Id)
+                    && HandlerContainsRelease(
+                        exceptionFlow,
+                        clause.HandlerRegion,
+                        releases))
+                {
+                    return true;
+                }
+
+                interceptingCatchSeen = true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool HandlerContainsRelease(
+        InstructionExceptionFlowFacts exceptionFlow,
+        InstructionExceptionRegionId handler,
+        ImmutableArray<int> releases)
+    {
+        foreach (int release in releases)
+        {
+            if (RequireLocation(exceptionFlow, release)
+                .Any(region => region.Id == handler))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static ImmutableArray<InstructionExceptionRegion> RequireLocation(
+        InstructionExceptionFlowFacts exceptionFlow,
+        int offset) =>
+        exceptionFlow.LocationAt(offset) switch
+        {
+            InstructionExceptionFlowResult<
+                ImmutableArray<InstructionExceptionRegion>>.Available available =>
+                available.Value,
+            InstructionExceptionFlowResult<
+                ImmutableArray<InstructionExceptionRegion>>.Unavailable unavailable =>
+                throw new InvalidOperationException(
+                    $"Exception-flow location is unavailable "
+                    + $"({unavailable.Reason}): {unavailable.Detail}"),
+            InstructionExceptionFlowResult<
+                ImmutableArray<InstructionExceptionRegion>>.Ambiguous ambiguous =>
+                throw new InvalidOperationException(
+                    $"Exception-flow location is ambiguous: {ambiguous.Detail}"),
+            _ => throw new InvalidOperationException(
+                "Unknown exception-flow location result."),
+        };
 
     // Try-range/handler identity of catch-all clauses (`catch {}` = `System.Object`, or
     // `catch (Exception)`) - the catch shapes that catch every managed exception (non-CLS throws
@@ -210,8 +329,53 @@ static class ArrayPoolExceptionPathAnalyzer
         return creditable is null ? EmptyCatchCleanup : creditable;
     }
 
+    internal static IReadOnlySet<MethodExceptionClauseId> ComputeCreditableCatchCleanup(
+        MethodExceptionRegionCatalog exceptionCatalog,
+        Func<int, TypeRef?>? resolveCatchType)
+    {
+        ArgumentNullException.ThrowIfNull(exceptionCatalog);
+        if (resolveCatchType is null)
+            return EmptyCorrelatedCatchCleanup;
+
+        HashSet<MethodExceptionClauseId>? creditable = null;
+        foreach (MethodExceptionClause clause in exceptionCatalog.Clauses)
+        {
+            if (clause.Kind is not ExceptionRegionKind.Catch)
+                continue;
+            if (clause.CatchType is not { MetadataToken: not 0 } catchType)
+            {
+                throw new BadImageFormatException(
+                    "Catch type could not be resolved.");
+            }
+            if (catchType.Name is not MetadataTypeNameResult.Resolved)
+            {
+                throw new BadImageFormatException(
+                    "Metadata catch-type evidence is unavailable.");
+            }
+            TypeRef? resolved = resolveCatchType(catchType.MetadataToken);
+            if (resolved is null
+                || resolved.Kind == TypeRefKind.Unsupported)
+            {
+                throw new BadImageFormatException(
+                    "Catch type could not be resolved.");
+            }
+            if (!(FrameworkIdentity.IsCoreLibraryType(resolved, "System", "Object")
+                    || FrameworkIdentity.IsCoreLibraryType(resolved, "System", "Exception")))
+            {
+                continue;
+            }
+            (creditable ??= []).Add(clause.Id);
+        }
+
+        return creditable is null
+            ? EmptyCorrelatedCatchCleanup
+            : creditable;
+    }
+
     static readonly IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> EmptyCatchCleanup =
         ImmutableHashSet<(int, int, int)>.Empty;
+    static readonly IReadOnlySet<MethodExceptionClauseId> EmptyCorrelatedCatchCleanup =
+        ImmutableHashSet<MethodExceptionClauseId>.Empty;
 
     internal static TypeRef? ResolveCatchTypeRef(
         MetadataReader reader,

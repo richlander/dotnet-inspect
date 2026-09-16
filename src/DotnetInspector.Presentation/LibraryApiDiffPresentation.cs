@@ -551,50 +551,57 @@ public sealed record LibraryApiDiffSummary
             : throw new ArgumentOutOfRangeException(nameof(value));
 }
 
-/// <summary>Closed outcome of projecting one query result into portable presentation data.</summary>
-public abstract record LibraryApiDiffPresentationResult
+/// <summary>Complete portable Library API comparison and its interpretation evidence.</summary>
+public sealed record LibraryApiDiffDocument
 {
-    private LibraryApiDiffPresentationResult()
+    public LibraryApiDiffDocument(
+        LibraryApiDiffEndpointSummary Before,
+        LibraryApiDiffEndpointSummary After,
+        LibraryApiDiffSummary Summary,
+        ComparisonDocument<LibraryApiTypeDiff> Comparison)
     {
-    }
-
-    private protected abstract void EnsureKnownResult();
-
-    public sealed record Available : LibraryApiDiffPresentationResult
-    {
-        public Available(
-            LibraryApiDiffEndpointSummary Before,
-            LibraryApiDiffEndpointSummary After,
-            LibraryApiDiffSummary Summary,
-            ComparisonDocument<LibraryApiTypeDiff> Document)
+        this.Before = Before ?? throw new ArgumentNullException(nameof(Before));
+        this.After = After ?? throw new ArgumentNullException(nameof(After));
+        this.Summary = Summary ?? throw new ArgumentNullException(nameof(Summary));
+        this.Comparison = Comparison ?? throw new ArgumentNullException(nameof(Comparison));
+        if (!Before.IsComplete || !After.IsComplete)
         {
-            this.Before = Before ?? throw new ArgumentNullException(nameof(Before));
-            this.After = After ?? throw new ArgumentNullException(nameof(After));
-            this.Summary = Summary ?? throw new ArgumentNullException(nameof(Summary));
-            this.Document = Document ?? throw new ArgumentNullException(nameof(Document));
-            if (!Before.IsComplete || !After.IsComplete)
-            {
-                throw new ArgumentException(
-                    "An available Library API diff requires two complete endpoints.");
-            }
-            if (Summary.ChangedTypeCount != Document.Subjects.Length)
-            {
-                throw new ArgumentException(
-                    "The summary changed-Type count must match the document.");
-            }
+            throw new ArgumentException(
+                "An available Library API diff requires two complete endpoints.");
         }
-
-        public LibraryApiDiffEndpointSummary Before { get; }
-        public LibraryApiDiffEndpointSummary After { get; }
-        public LibraryApiDiffSummary Summary { get; }
-        public ComparisonDocument<LibraryApiTypeDiff> Document { get; }
-
-        private protected override void EnsureKnownResult()
+        if (Summary.ChangedTypeCount != Comparison.Subjects.Length)
         {
+            throw new ArgumentException(
+                "The summary changed-Type count must match the document.");
         }
     }
 
-    public sealed record Unavailable : LibraryApiDiffPresentationResult
+    public LibraryApiDiffEndpointSummary Before { get; }
+    public LibraryApiDiffEndpointSummary After { get; }
+    public LibraryApiDiffSummary Summary { get; }
+    public ComparisonDocument<LibraryApiTypeDiff> Comparison { get; }
+}
+
+/// <summary>Closed outcome of projecting one query into a portable Library API document.</summary>
+public abstract record LibraryApiDiffOutcome
+{
+    private LibraryApiDiffOutcome()
+    {
+    }
+
+    private protected abstract void EnsureKnownOutcome();
+
+    public sealed record Available(LibraryApiDiffDocument Document) : LibraryApiDiffOutcome
+    {
+        public LibraryApiDiffDocument Document { get; } =
+            Document ?? throw new ArgumentNullException(nameof(Document));
+
+        private protected override void EnsureKnownOutcome()
+        {
+        }
+    }
+
+    public sealed record Unavailable : LibraryApiDiffOutcome
     {
         public Unavailable(
             LibraryApiDiffUnavailableKind Kind,
@@ -625,12 +632,12 @@ public abstract record LibraryApiDiffPresentationResult
         public LibraryApiDiffEndpointSummary Before { get; }
         public LibraryApiDiffEndpointSummary After { get; }
 
-        private protected override void EnsureKnownResult()
+        private protected override void EnsureKnownOutcome()
         {
         }
     }
 
-    public sealed record Rejected : LibraryApiDiffPresentationResult
+    public sealed record Rejected : LibraryApiDiffOutcome
     {
         public Rejected(
             LibraryApiDiffRejectionKind Kind,
@@ -651,7 +658,7 @@ public abstract record LibraryApiDiffPresentationResult
         public LibraryApiDiffEndpointSummary Before { get; }
         public LibraryApiDiffEndpointSummary After { get; }
 
-        private protected override void EnsureKnownResult()
+        private protected override void EnsureKnownOutcome()
         {
         }
     }
@@ -665,7 +672,7 @@ public static class LibraryApiDiffPresentationAdapter
     const string LibraryIdentifierPrefix = "library-api.v1";
     const string MemberRelationIdentifierPrefix = "library-api-member-relation.v1";
 
-    public static LibraryApiDiffPresentationResult Create(
+    public static LibraryApiDiffOutcome Create(
         AssemblyContextApiComparisonResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -682,7 +689,7 @@ public static class LibraryApiDiffPresentationAdapter
                     : !before.IsComplete
                         ? LibraryApiDiffUnavailableKind.BeforeIncomplete
                         : LibraryApiDiffUnavailableKind.AfterIncomplete;
-            return new LibraryApiDiffPresentationResult.Unavailable(
+            return new LibraryApiDiffOutcome.Unavailable(
                 kind,
                 before,
                 after);
@@ -909,14 +916,11 @@ public static class LibraryApiDiffPresentationAdapter
             breakingCount,
             additiveCount,
             potentiallyBreakingCount);
-        return new LibraryApiDiffPresentationResult.Available(
-            before,
-            after,
-            summary,
-            document);
+        return new LibraryApiDiffOutcome.Available(
+            new LibraryApiDiffDocument(before, after, summary, document));
     }
 
-    static LibraryApiDiffPresentationResult.Rejected Rejected(
+    static LibraryApiDiffOutcome.Rejected Rejected(
         LibraryApiDiffRejectionKind kind,
         LibraryApiDiffEndpointSummary before,
         LibraryApiDiffEndpointSummary after)

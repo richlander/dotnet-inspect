@@ -238,6 +238,17 @@ public sealed class PackageVersionVector
         return new PackageVersionVector(range.PackageId, range.Start, range.End, addresses);
     }
 
+    internal static bool ContainsVersion(
+        IEnumerable<string> availableVersions,
+        NuGetVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(availableVersions);
+        ArgumentNullException.ThrowIfNull(version);
+        return availableVersions.Any(candidate =>
+            NuGetVersion.TryParse(candidate, out NuGetVersion? parsed)
+            && VersionComparer.Equals(parsed, version));
+    }
+
     /// <summary>
     /// Resolves a range against a listing-aware version set (each version tagged listed/unlisted)
     /// and projects the in-range versions in caller direction, carrying each version's listed

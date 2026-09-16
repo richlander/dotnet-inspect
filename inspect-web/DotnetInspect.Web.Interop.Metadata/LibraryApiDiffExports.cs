@@ -196,7 +196,7 @@ public static partial class MetadataExports
             currentScope.SurfaceParticipant(currentCoordinate, currentAsset);
 
         cancellationToken.ThrowIfCancellationRequested();
-        InspectionEnvelope<LibraryApiDiffPresentationResult> inspection =
+        InspectionEnvelope<LibraryApiDiffOutcome> inspection =
             targetScope.UseSurfaceParticipant(
                 targetParticipant,
                 (targetGroup, target) =>
@@ -214,7 +214,7 @@ public static partial class MetadataExports
 
         return BrowserLibraryApiDiffWireProjection.Project(
             request,
-            inspection.Content,
+            inspection,
             Context(targetParticipant),
             Context(currentParticipant));
     }

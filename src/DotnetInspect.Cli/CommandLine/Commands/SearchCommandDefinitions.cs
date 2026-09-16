@@ -40,6 +40,13 @@ public static class SearchCommandDefinitions
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
+        var ecosystemOption = new Option<string[]>("--ecosystem")
+        {
+            Description =
+                "Register exactly the named canonical ecosystem(s) in caller order. Can repeat.",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false
+        };
         var extensionsOption = new Option<bool>("--extensions")
         {
             Description =
@@ -84,6 +91,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(assemblyOption);
         findCommand.Options.Add(platformOption);
         findCommand.Options.Add(platformLibraryOption);
+        findCommand.Options.Add(ecosystemOption);
         findCommand.Options.Add(extensionsOption);
         findCommand.Options.Add(aspnetcoreOption);
         findCommand.Options.Add(projectOption);
@@ -109,7 +117,7 @@ public static class SearchCommandDefinitions
 
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
-            extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
+            ecosystemOption, extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
             typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
             literalOption);
 
@@ -550,6 +558,12 @@ public static class SearchCommandDefinitions
                 $"Exclusive bounded NuGet Gallery package root set ({DependencyEvidenceAcquisition.PackageProfileDefaultLimit} packages by default)"
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
+        var pruningPlatformFamilyOption =
+            new Option<string?>("--platform-family")
+            {
+                Description =
+                    "Asset-mode Pruning comparison family: runtime or aspnetcore (default: runtime)"
+            };
         var previewOption = new Option<bool>("--preview")
         {
             Description =
@@ -565,7 +579,7 @@ public static class SearchCommandDefinitions
             Description =
                 "Maximum dependency depth; 1 includes direct relationships only"
         };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json or --envelope)" };
         var shareOption = WorkspaceShareOption.Create(
             "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
 
@@ -588,6 +602,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(projectOption);
         dependsCommand.Options.Add(packagePrefixOption);
         dependsCommand.Options.Add(tfmOption);
+        dependsCommand.Options.Add(pruningPlatformFamilyOption);
         dependsCommand.Options.Add(previewOption);
         dependsCommand.Options.Add(maxPackagesOption);
         dependsCommand.Options.Add(depthOption);
@@ -603,6 +618,10 @@ public static class SearchCommandDefinitions
         opts.AddCountOptionTo(dependsCommand);
         opts.AddOutputOptionsTo(dependsCommand);
         opts.AddNuGetOptionsTo(dependsCommand);
+        opts.AddEnvelopeOptionTo(
+            dependsCommand,
+            opts.Discover, opts.Schema, opts.Effective, opts.Select,
+            opts.Verbosity, opts.Count);
 
         dependsCommand.Validators.Add(result =>
         {
@@ -627,6 +646,11 @@ public static class SearchCommandDefinitions
             }
             bool typeMode =
                 !string.IsNullOrEmpty(result.GetValue(targetTypeArg));
+            if (result.GetValue(opts.Envelope) && !typeMode)
+            {
+                result.AddError(
+                    "--envelope currently requires a positional type in depends.");
+            }
             bool effective = result.GetValue(opts.Effective);
             bool discovery =
                 result.GetResult(opts.Discover)
@@ -723,6 +747,9 @@ public static class SearchCommandDefinitions
                 || (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) > 0
                 || parseResult.GetValue(extensionsOption)
                 || parseResult.GetValue(aspnetcoreOption);
+            hasNonPackageShareInput =
+                hasNonPackageShareInput
+                || parseResult.GetValue(pruningPlatformFamilyOption) is not null;
             bool hasValidTypeShareInput =
                 !string.IsNullOrEmpty(targetType)
                 && packages.Length == 1
@@ -784,6 +811,8 @@ public static class SearchCommandDefinitions
                         parseResult.GetValue(maxPackagesOption),
                     Depth = parseResult.GetValue(depthOption),
                     Tfm = parseResult.GetValue(tfmOption),
+                    PruningPlatformFamily =
+                        parseResult.GetValue(pruningPlatformFamilyOption),
                     Verbosity = opts.ParseVerbosity(parseResult),
                     ShareFormat = shareFormat,
                     PackageName = shareFormat is not null
@@ -834,6 +863,12 @@ public static class SearchCommandDefinitions
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
             };
+            if (parseResult.GetValue(pruningPlatformFamilyOption) is not null)
+            {
+                CommandError.Write(
+                    "--platform-family is supported only by asset-mode depends with the Pruning section.");
+                return 1;
+            }
             if (!DependsCommand.ValidateTypeDepthSelectionBeforeAcquisition(
                     typePlanOptions))
             {
@@ -861,6 +896,7 @@ public static class SearchCommandDefinitions
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Format = outputFormat,
                 JsonOutput = outputFormat == OutputFormat.Json,
+                EnvelopeOutput = parseResult.GetValue(opts.Envelope),
                 CompactJson = parseResult.GetValue(compactOption),
                 MermaidOutput = outputFormat == OutputFormat.Mermaid,
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
@@ -890,8 +926,6 @@ public static class SearchCommandDefinitions
 
             if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode)
             {
-                CommandError.Write($"Type '{targetType}' not found in the specified scope.");
-                NamespacePrefixHints.WriteIfLikelyNamespacePrefix(targetType);
                 return outcome.Uncertified
                     ? DependsCommand.UncertifiedScanExitCode
                     : 1;

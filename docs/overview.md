@@ -84,6 +84,17 @@ substrates, and inspection producers that will extend that space.
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. Its
+  proposed [coordinate Library pairing](design/coordinate-library-pairing.md)
+  selects one exact destination API Library within an explicitly designated
+  Package-occurrence pair, using a complete selected population and a
+  versionless structured assembly identity. Scope, acquisition, Metadata
+  declaration correspondence, and Navigation retain their separate authority.
+  The proposed
+  [forwarded API coordinate correspondence](design/forwarded-api-coordinate-correspondence.md)
+  composes the paired destination entry's Metadata forwarding route with
+  strict declaration matching, retaining the actual defining Library and
+  native non-success without changing either Metadata contract.
+  Its
   target [package dependency traversal](design/package-dependency-traversal.md)
   owner composes normalized declarations, exact source-authorized candidates,
   and exact manifest results into one depth-bounded graph with root-relative
@@ -127,6 +138,20 @@ substrates, and inspection producers that will extend that space.
   return the same detached vectors. Metadata, source/publication and resource
   owners retain their contracts; the facade drains through Workspace close.
   The proposed
+  [Population Range Selection](design/population-range-selection.md) pattern
+  owns the explicit-consumer obligation for a population-creating range,
+  distinguishes filtering an already selected population, and admits Count
+  as a consumer without inventing a default operation. Its first adopter,
+  [Diff History inspection](design/diff-history.md), owns target temporal
+  Outcome/Document and scalar population-count Result semantics for CLI and
+  Browser/Wasm. History preserves native temporal evidence; Count alone counts
+  package versions without payload inspection.
+  [Subject-owned Diff](design/command-transition-model.md#subject-owned-diff)
+  owns the Library/Type/Member command placement, Package count binding, and
+  envelope-complete adoption boundary, including public CLI envelope output
+  and no-compat top-level Diff/Timeline retirement. Package, Finding, Workspace,
+  envelope, row-selection, and Browser interaction retain their own contracts.
+  The proposed
   [structural clone search scope](design/structural-clone-search-scope.md)
   owner defines Library, Type, and Member seed populations plus the shared
   `Self`, `SelfAndRegisteredEcosystems`, and `Everything` candidate breadth
@@ -160,6 +185,11 @@ substrates, and inspection producers that will extend that space.
   `MetadataFindings` projects API and portable-PDB build-context observations
   onto the shared Finding spine while retaining compatibility classification
   through `ApiDiff`.
+  The proposed [API declaration correspondence](design/api-declaration-correspondence.md)
+  producer owns the strict point query for a Type/Member coordinate from one
+  explicitly selected acquired Library image in another, returning its
+  destination coordinate or non-success evidence.
+  It does not select Libraries or establish runtime definition equivalence.
 - `src/ILInspector.SourceLink/` sits above Metadata. It owns SourceLink map
   extraction and matching, canonical document paths, URL decoration,
   provenance grammar, high-level type/member/IL-offset resolution,
@@ -220,9 +250,9 @@ substrates, and inspection producers that will extend that space.
   Analysis retains IL interpretation and Finding semantics; Houses compose and
   settle scenarios without issuing adjacent-owner leases. Adoption and
   retirement are tracked by #6544. The non-normative
-  [resource-owner type map](design/resource-owner-type-map.md) records each
-  focused owner's current or approved types, maturity, evidence, and future
-  compiler correspondence without becoming another owner.
+  [resource-owner type map](design/resource-owner-type-map.md) routes each
+  resource boundary's current maturity to its focused owner without becoming
+  another owner.
 - [Artifact Ownership and Borrowing](design/artifact-ownership-and-borrowing.md)
   applies that protocol to Artifact: resource-free content references remain
   separate from current query authority and transferable per-content child
@@ -280,13 +310,14 @@ substrates, and inspection producers that will extend that space.
   owner defines the sole product-facing platform realization and
   reference-processing facade: explicit target/version settlement,
   exact-target source realization,
-  provenance-retaining bare-library handoff, and transparent .NET Standard
-  forwarding through Metadata. Package-reference processing and pruning
-  remain upstream in the package domain. Selected Workspace ecosystem
+  shared Library owner/reference handoff, and transparent .NET Standard
+  forwarding through Metadata. Live Library owners remain separate from
+  resource-free House values and receipts. Package-reference processing and
+  pruning remain upstream in the package domain. Selected Workspace ecosystem
   populations lower through their retained platform-family declarations into
   independent runtime and ASP.NET Core House target demands; package-prefix
-  contributions remain package-domain work. The House also settles
-  target, source, reference, implementation, and forwarding evidence needed by
+  contributions remain package-domain work. The House also settles target,
+  source, reference, implementation, and forwarding evidence needed by
   downstream source and documentation adapters. Documentation settlement,
   Workspace admission, the assembly-reference ladder, and host presentation
   remain with their focused owners.
@@ -352,7 +383,12 @@ substrates, and inspection producers that will extend that space.
   evaluation](design/package-query-assembly-evaluation.md) owner defines
   bounded one-candidate primary-assembly evaluation and resource-free
   package-plus-selected-asset semantic evidence without realizing unrelated
-  package assemblies. Its target
+  package assemblies. Its
+  [Package version-cell Metadata
+  inspection](design/package-version-cell-metadata-inspection.md) owner
+  composes one reporter-bound PackageHouse cell through a bounded ephemeral
+  Workspace and the existing Metadata image query, returning only detached
+  evidence after close. Its target
   [Find assembly-semantic query](design/find-assembly-semantic-query.md) owner
   composes one finite host-authorized exact-package population with that
   evaluator into ordered body-occurrence matches, per-candidate outcomes, and
@@ -412,6 +448,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Sections/` also owns the cross-host completed-inspection
   envelope, portable-share outcome, and contained supplemental diagnostics.
   CLI and Inspect Web consume the same contract without either host owning it.
+  The sibling
+  [host-observable content-kinds](design/host-observable-content-kinds.md)
+  owner classifies the envelope's serialized content as a Result, Document, or
+  owner-specific Outcome without defining any inspection owner's fields or
+  failure semantics.
 - `src/DotnetInspect.Cli/Diagnostics/` owns CLI-only output, duration, network,
   cache, and request-diagram measurement. The completion-order helper used only
   by `PlatformPackService` lives beside that consumer in Services.
@@ -624,6 +665,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   wrapper preserving owner-issued primary content and typed cross-host
   diagnostics while broader clients compose additional results and experience
   state separately.
+- [Host-observable content kinds](design/host-observable-content-kinds.md):
+  semantic Result, Document, and owner-specific Outcome classification plus
+  the serialization-ready schema boundary for completed envelope content.
 - [Library family boundaries](design/library-family-boundaries.md): subject
   families for shared inspection substrate, compiled-program inspection,
   ecosystem composition, independent domains, and product hosts.
@@ -817,6 +861,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   timeout identity, and source-safe post-return stream failures. It consumes
   source-result identity; source eligibility, failover policy, cache behavior,
   and presentation remain with their focused owners.
+- [Inspect Web public-evidence bridge](design/inspect-web-public-evidence-bridge.md):
+  fixed-provider Browser rewrites and same-origin managed-API acquisition for
+  bounded public JSON when providers do not permit browser CORS. Provider
+  operations, source identity, report semantics, Worker delivery, and
+  presentation remain with their focused owners.
 - [NuGet API selection](design/nuget.md#scenario-selection): scenario-to-resource
   decision guidance and evidence, including API combinations and first/last
   requested-result costs. This is not a new runtime selector; source, query,

@@ -15,9 +15,10 @@ field/column projection. `timeline` supports section selection and projection
 but not `-D` discovery. `workspace` supports output formats, `--count`, and
 `--rows`, but not discovery, section selection, or field projection.
 `depends` supports `-D`, `-S`, categories, row windows, count, and field/column
-projection across its dependency graph and evidence sections. Other
-relationship commands may still expose fixed output. Discover the shape first
-where available, then select and project.
+projection across its dependency graph and evidence sections. Positional
+`depends <type>` also has a separate complete-service `--envelope` path
+described below. Other relationship commands may still expose fixed output.
+Discover the shape first where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -40,7 +41,25 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
-On `find`, plain `--json` retains the typed result shape. Adding
+Positional `depends <type>` and single-Library API `diff` support presence-only
+`--envelope`. It
+implies JSON and emits the complete service value with
+`schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
+For dependencies, `content` is semantically identical to the owner-issued camelCase
+`TypeDependencySectionResult` selected by unprojected `depends <type> --json`;
+whitespace and property order may differ. `--compact`, `--depth`, and semantic
+relationship row selection remain available. Presentation formats,
+Discover/schema/effective modes, `-S`, explicit `-v`, Count, field/column or
+scalar projection, decoration, and rendered-line clipping are incompatible.
+For Library API Diff, unprojected `--json` and envelope `content` both serialize
+the complete `LibraryApiDiffOutcome` using result kind `library-api-diff`.
+`--all` and `--compact` remain admitted; Type/classification filters, sections,
+explicit verbosity, row/line controls, and non-API modes are incompatible with
+envelope output. Explicitly projected Diff JSON retains its presentation
+schema. Load `skill compatibility` for outcome and scope details.
+Asset-mode `depends`, other commands, and `--evidence-envelope` remain unadopted.
+
+On `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a
 JSON document containing the same selected rows and snake_case fields as the
 `--tsv` and `--jsonl` formats.
@@ -95,13 +114,16 @@ evidence unless a category is named.
 | ------- | --------------- | ----------------- |
 | `package` | `@Package`, `@Files` | `@Dependencies`, `@Audit`, `@SourceLink` |
 | `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
+| `type` listing | `@Surface` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
 Dependencies`, and the unbounded `Package files` listing. `@Files` groups the
-curated nuspec, README, and skill-file sections. Other commands expose
-categories such as member `@Source`; `Switches` is a section. There are no
-user-facing `@All`, `@Default`, or `@Hidden` categories.
+curated nuspec, README, and skill-file sections. The `type` listing's
+`@Surface` category groups `API Info`, public type-kind and type-forwarder
+inventories, and `Inspection Failures`. Other commands expose categories such
+as member `@Source`; `Switches` is a section. There are no user-facing
+`@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
 owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`

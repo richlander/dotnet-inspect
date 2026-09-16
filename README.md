@@ -156,6 +156,7 @@ stderr rather than mixed into structured output.
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
+| Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
@@ -170,11 +171,12 @@ stderr rather than mixed into structured output.
 | Command | Purpose |
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
+| `package activity --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
-| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet package manifests, or with `--literal TEXT` to find decoded IL string literals in explicitly named packages. |
+| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Use `--package-prefix PREFIX` with a type/member pattern to expand package scope, or omit `X` with `--literal TEXT` to find decoded IL string literals in explicitly named packages. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
@@ -185,7 +187,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
-| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. Add `--changes` to a named ecosystem for bounded recent nuget.org Catalog activity with GitHub-reviewed advisory context. |
+| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
 | `workspace` | Render the committed ordered Package occurrences of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact Package Root a `find --literal` result names. Add `--active-package N` to evaluate the exact one-based occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
@@ -212,21 +214,30 @@ dotnet-inspect ecosystem aspire
 dotnet-inspect ecosystem aspire -S Integrations
 dotnet-inspect ecosystem ai -S "Core Packages"
 dotnet-inspect ecosystem azure -S "Core Packages"
+dotnet-inspect ecosystem blazor -S "Core Packages"
+dotnet-inspect ecosystem maui -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 dotnet-inspect ecosystem platform -S Pruning
 ```
 
-Add `--changes` to report package activity in one named ecosystem's exact
-product-owned package set. This network-backed mode defaults to the interval
+`Core Packages` are inert registered package roots. Catalog inspection performs
+no source work; a later bounded operation that selects the ecosystem may resolve
+those concrete packages and follow their ordinary dependencies. Package-prefix
+matches remain discovery scope and are not substituted for those roots.
+
+Use `package activity --ecosystem` to report package activity in one named
+ecosystem's exact product-owned package set. The ecosystem option selects where
+to look; `ecosystem` itself remains the acquisition-free vocabulary command.
+This network-backed query defaults to the interval
 `(reference time - 42 days, reference time]`, reports the exact UTC bounds and
 source horizon, and overlays current GitHub-reviewed advisory context and
 evidenced security releases:
 
 ```bash
-dotnet-inspect ecosystem aspire --changes
-dotnet-inspect ecosystem aspnetcore --changes --security-only
-dotnet-inspect ecosystem microsoft-extensions --changes -n 25 --json
-dotnet-inspect ecosystem aspire --changes \
+dotnet-inspect package activity --ecosystem aspire
+dotnet-inspect package activity --ecosystem aspnetcore --security-only
+dotnet-inspect package activity --ecosystem microsoft-extensions -n 25 --json
+dotnet-inspect package activity --ecosystem aspire \
   --from 2026-02-01T00:00:00Z \
   --through 2026-03-01T00:00:00Z
 ```
@@ -238,7 +249,7 @@ Unavailable evidence is not treated as a negative. Human output uses the shared
 report view; `--json` emits the lossless schema-versioned report, with
 `--compact` for minified JSON. Use `--verbose` for bounded acquisition progress
 on stderr. Single-table formats and catalog-only section projections are not
-available in change-report mode.
+available with `package activity`.
 
 `ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the
@@ -324,6 +335,12 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Use `-T q` to suppress tips in script-oriented commands.
 
+Positional `depends <type>` and ordinary single-Library API `diff` additionally
+support the presence-only `--envelope` service-output selector. It implies
+JSON; unprojected `--json` emits the same Content without the service frame.
+Asset-mode `depends`, other Diff modes, Discover, Count, and other commands
+have not adopted this transport.
+
 | Goal | Flags |
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
@@ -388,6 +405,17 @@ dotnet-inspect find Serialize --members --type System.Text.Json.JsonSerializer \
   --package-prefix System.Text
 ```
 
+Use `depends=<package-id>` to require a direct dependency declared in any
+package manifest group. Repeat the term to require every named dependency:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends=Microsoft.Extensions.DependencyInjection"
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends=Microsoft.Extensions.DependencyInjection" \
+  --where "depends=Microsoft.Extensions.Configuration" --count
+```
+
 Add `--where "facet=<ID>"` to select a host-neutral Package Query facet, with
 one matched package per row and product-authored evidence. The initial CLI
 facet set identifies .NET tool packages and their CLI v1/v2 format. Discover
@@ -416,6 +444,33 @@ the count exact.
 **Breaking change:** `package search` and patternless
 `find --package-prefix PREFIX` have been removed. Use `package query` with an
 exact package ID or an explicit terminal-star prefix.
+
+### Exact Find handoff
+
+An exact-version Package or explicit Platform Library search with `--tfm`
+uses one short-lived Workspace internally and preserves each declaration's
+exact coordinate and observation context without changing Find's established
+result presentation:
+
+```bash
+dotnet-inspect find System.Text.Json.JsonSerializer \
+  --package System.Text.Json@10.0.0 \
+  --platform System.Text.Json \
+  --tfm net10.0
+```
+
+Default Markdown, tips, table formats, and plain type-search JSON retain their
+existing shapes; plain JSON remains a root result array. When a selected
+Package row feeds Type or Member inspection internally, the handoff preserves
+the selected package-relative implementation asset and compatible TFM rather
+than reopening a same-named reference assembly. Platform implementation-pack
+observations decline exact internal reopening because public Platform syntax
+resolves the reference view.
+
+Repeat `--ecosystem ecosystem.ID` to register exactly those ecosystem packs in
+caller order. Without it, Find registers every shipped ecosystem. Registration
+is inert: it does not execute package-prefix discovery or add package content
+to the search.
 
 ### Assembly-semantic Find over explicit packages
 
@@ -560,6 +615,22 @@ libraries, and local DLL pairs. `--type` narrows the complete comparison;
 `--all` widens its API scope. The endpoints must be versions of the same
 logical Library (assembly name, culture, and public-key token).
 
+On this route, unprojected `--json` serializes the complete
+`LibraryApiDiffOutcome`, replacing the former `{changes: ...}` presentation
+view. Use `--envelope` for that same Content plus Share and diagnostics;
+`--compact` controls whitespace for either complete JSON boundary, not projected
+or other Diff operations. For example:
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --envelope --compact
+```
+
+Envelope output accepts `--all`, but rejects Type/classification filters,
+section selection, explicit verbosity, row/line windows, and non-API modes.
+Explicitly projected JSON, such as `-S Changes --json`, retains its existing
+presentation schema. Share is explicitly non-projectable for comparison
+endpoints; it is not a replay URL.
+
 Changes without a compatibility classification remain visible under
 **Other API Changes**, or as `unclassified` rows in detailed output. They are
 not classified as breaking or additive. An incomplete or rejected comparison
@@ -665,6 +736,14 @@ inspect each side on its own.
 ```bash
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
+dotnet-inspect depends NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --tfm net8.0 \
+  --envelope
+dotnet-inspect depends NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --tfm net8.0 \
+  --json
 dotnet-inspect depends \
   --project ./src/App/App.csproj \
   --depth 2 \
@@ -680,6 +759,10 @@ dotnet-inspect depends \
 dotnet-inspect depends --nuspec ./artifacts/local.nuspec -D --effective
 dotnet-inspect depends --package Newtonsoft.Json --tfm net8.0 \
   -S Dependencies
+dotnet-inspect depends --package System.Text.Json@9.0.0 --tfm net11.0 \
+  -S Pruning
+dotnet-inspect depends --package Microsoft.AspNetCore.Authentication.JwtBearer@10.0.0 \
+  --tfm net11.0 --platform-family aspnetcore -S Pruning
 dotnet-inspect depends \
   --project ./src/DotnetInspect.Cli \
   --nuspec ./artifacts/package.nuspec \
@@ -707,6 +790,44 @@ dotnet-inspect graph libraries \
   -S "Provider API Types" \
   --table
 ```
+
+For positional type dependencies, `--json` writes the complete
+`TypeDependencySectionResult` Content, and `--envelope` writes the identical
+camelCase value under `content` with `schema_version: 1`,
+`result_kind: "type-dependencies"`, `share`, and `diagnostics`. The motivating
+example resolves the full matched type
+`Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension`.
+The Content retains the complete dependency relationships and the separately
+selected `rowSelection.relationships`; internal dependency enums remain
+numeric.
+
+Envelope framing and diagnostic member names use lower snake case. Share keeps
+the owner values `available` and `nonProjectable`; diagnostic severity remains
+`Information`, `Warning`, or `Error`, and absent correspondence is retained as
+`null`. Baseline envelopes have no `evidence` member.
+
+With `--envelope`, `--depth` remains a traversal input and `--rows`,
+`-n`/`--head`/`--tail` remain semantic relationship selection. `--compact` is
+accepted. Competing formats, `--json`, Discover/schema/effective modes, `-S`,
+explicit `-v`, Count, fields/columns, presentation projections or decoration,
+and rendered-line clipping are rejected before acquisition. `--verbose`,
+`--info`, and `--tips` remain on stderr. `--share` retains its existing policy
+and emits its optional URL or packet as the final stderr line. There is no
+`--evidence-envelope` support yet.
+
+Asset-mode output, Discover, Count JSON, and ordinary non-JSON output are
+unchanged. A service-issued empty or non-success Content value is still
+serialized with its existing exit behavior; an acquisition failure that
+produces no result emits no substitute envelope.
+
+`Pruning` is explicit-only and evaluates direct declarations of the named
+roots; it does not prune dependency-graph edges or run transitive traversal.
+The default comparison family is `runtime`; use
+`--platform-family aspnetcore` to select the ASP.NET Core inventory. In its
+output, `Candidate` is the package version resolved from the declaration and
+`Platform Provides` is separate platform-supply evidence. If those columns
+show `4.3.2` and `4.3.1`, respectively, the disposition is
+`PackageRetained`: the command does not select or downgrade to `4.3.1`.
 
 `graph libraries` evaluates both directions in the pair; every row still names
 its directed source and target. Omitting `-S` preserves the exact physical call
@@ -768,6 +889,13 @@ Dependencies URL or packet to stderr. Type sharing is limited to one exact
 NuGet.org package coordinate, a valid target framework, and the requested type;
 local, floating, ranged, private-feed, multi-source, platform, and
 non-projectable requests fail visibly.
+
+The service constructs Share for positional type JSON regardless of whether
+stderr projection was requested. `--json` emits Content only; `--envelope`
+exposes Share alongside that Content. A `nonProjectable` Share does not change
+otherwise successful Content or its exit status. Mixed dependency sources and
+any explicit `--depth` are non-projectable because the published Browser
+cannot preserve those requests.
 
 ## Requirements
 

@@ -7,6 +7,31 @@ namespace DotnetInspector.Packages;
 public sealed partial class DesktopPackageSourceComposition
 {
     /// <summary>
+    /// Settles one typed version selection through PackageHouse without
+    /// acquiring package content.
+    /// </summary>
+    public async Task<PackageHouseResult> SettleVersionAsync(
+        PackageVersionSelectionRequest selection,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        PackageHouseRequest request = CreateHouseRequest(
+            new PackageHouseDemand.Selecting(selection),
+            PackageHouseOperationProfile.Settle);
+        PackageHouseSettlement settlement = await ExecuteHouseAsync(
+            request,
+            selection.PackageId,
+            sourceOptions,
+            payloadAcquisition: null,
+            cancellationToken,
+            requiredProducerKey: null,
+            log).ConfigureAwait(false);
+        return settlement.Result;
+    }
+
+    /// <summary>
     /// Settles one exact coordinate through PackageHouse when the composition
     /// owns the operation lifetime.
     /// </summary>
@@ -188,7 +213,8 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetSourceOptions? sourceOptions,
         PackagePayloadAcquisitionPlan? payloadAcquisition,
         CancellationToken cancellationToken,
-        string? requiredProducerKey)
+        string? requiredProducerKey,
+        Action<string>? log = null)
     {
         PackageSourceOperationLease sourceOperation =
             IssueHouseOperation(cancellationToken);
@@ -198,7 +224,8 @@ public sealed partial class DesktopPackageSourceComposition
             sourceOptions,
             payloadAcquisition,
             sourceOperation,
-            requiredProducerKey);
+            requiredProducerKey,
+            log);
     }
 
     private PackageSourceOperationLease IssueHouseOperation(
@@ -214,7 +241,8 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetSourceOptions? sourceOptions,
         PackagePayloadAcquisitionPlan? payloadAcquisition,
         PackageSourceOperationLease sourceOperation,
-        string? requiredProducerKey)
+        string? requiredProducerKey,
+        Action<string>? log = null)
     {
         PackageSourceOperationLease? unsettledOperation =
             sourceOperation;
@@ -230,15 +258,10 @@ public sealed partial class DesktopPackageSourceComposition
             if (requiredProducerKey is not null)
             {
                 ConfiguredPackageAuthority[] matchingAuthorities =
-                [
-                    .. authorization.Authorities.Where(
-                        authority => GetSourceClient(authority)
-                            .Source.Producer.Key.Equals(
-                                requiredProducerKey,
-                                StringComparison.Ordinal)),
-                ];
-                if (matchingAuthorities.Length == 0)
-                    failures.Add(RequiredProducerUnavailable());
+                    MatchRequiredProducer(
+                        authorization.Authorities,
+                        requiredProducerKey,
+                        failures);
                 authorization =
                     PackageSourceAuthorization.ObserveAuthorities(
                         matchingAuthorities,
@@ -249,7 +272,8 @@ public sealed partial class DesktopPackageSourceComposition
                 new SinglePackageAuthorization(
                     packageId,
                     authorization),
-                payloadAcquisition);
+                payloadAcquisition,
+                log);
             Task<PackageHouseSettlement> execution =
                 house.ExecuteAsync(
                     request,

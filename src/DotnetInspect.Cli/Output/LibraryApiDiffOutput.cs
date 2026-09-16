@@ -13,8 +13,11 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class LibraryApiDiffOutput
 {
+    static readonly InspectionEnvelopeJsonContract<LibraryApiDiffOutcome> JsonContract =
+        new("library-api-diff", 1, LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome);
+
     internal static int Write(
-        InspectionEnvelope<LibraryApiDiffPresentationResult> envelope,
+        InspectionEnvelope<LibraryApiDiffOutcome> envelope,
         string name,
         string beforeVersion,
         string afterVersion,
@@ -23,8 +26,21 @@ internal static class LibraryApiDiffOutput
         foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics)
             CommandError.WriteNote(diagnostic.Summary.ToString());
 
+        if (options.EnvelopeOutput || options.IsContentJson)
+        {
+            if (!InspectionEnvelopeOutput.TryWrite(
+                    envelope,
+                    JsonContract,
+                    options.EnvelopeOutput,
+                    options.CompactJson))
+            {
+                return 1;
+            }
+            return envelope.Content is LibraryApiDiffOutcome.Available ? 0 : 1;
+        }
+
         if (envelope.Content
-            is not LibraryApiDiffPresentationResult.Available available)
+            is not LibraryApiDiffOutcome.Available available)
         {
             string reason = DescribeNonSuccess(envelope.Content);
             List<DiffInspectionFailureRow> failures =
@@ -50,7 +66,7 @@ internal static class LibraryApiDiffOutput
             return 1;
         }
 
-        List<SelectedType> types = Select(available, options);
+        List<SelectedType> types = Select(available.Document, options);
         string summary = Summary(types);
         var detailed = new DiffDetailedChangesView(
             DiffViewText.Field($"API Diff: {name}"),
@@ -171,11 +187,11 @@ internal static class LibraryApiDiffOutput
     }
 
     static List<SelectedType> Select(
-        LibraryApiDiffPresentationResult.Available result,
+        LibraryApiDiffDocument document,
         DiffOptions options)
     {
         IEnumerable<ComparisonSubject<LibraryApiTypeDiff>> subjects =
-            result.Document.Subjects;
+            document.Comparison.Subjects;
         if (options.TypeFilter.Count > 0)
         {
             subjects = subjects.Where(subject =>
@@ -190,7 +206,7 @@ internal static class LibraryApiDiffOutput
                     subject.Comparison.CompatibilityChanges)),
         ];
         if (types.Count == 0
-            && result.Document.Subjects.Length > 0
+            && document.Comparison.Subjects.Length > 0
             && options.TypeFilter.Count > 0)
         {
             CommandError.WriteNote(
@@ -304,9 +320,9 @@ internal static class LibraryApiDiffOutput
     }
 
     static IEnumerable<DiffInspectionFailureRow> InspectionFailures(
-        LibraryApiDiffPresentationResult result)
+        LibraryApiDiffOutcome result)
     {
-        if (result is not LibraryApiDiffPresentationResult.Unavailable unavailable)
+        if (result is not LibraryApiDiffOutcome.Unavailable unavailable)
             yield break;
 
         foreach (var (side, endpoint) in new[]
@@ -334,13 +350,13 @@ internal static class LibraryApiDiffOutput
         }
     }
 
-    static string DescribeNonSuccess(LibraryApiDiffPresentationResult result)
+    static string DescribeNonSuccess(LibraryApiDiffOutcome result)
         => result switch
         {
-            LibraryApiDiffPresentationResult.Unavailable unavailable =>
+            LibraryApiDiffOutcome.Unavailable unavailable =>
                 $"API comparison is incomplete; not compared ({unavailable.Kind}). "
                     + $"Before: {Describe(unavailable.Before)}. After: {Describe(unavailable.After)}.",
-            LibraryApiDiffPresentationResult.Rejected rejected =>
+            LibraryApiDiffOutcome.Rejected rejected =>
                 $"API comparison not compared: {rejected.Kind}.",
             _ => throw new InvalidOperationException("Unknown Library API Diff outcome."),
         };

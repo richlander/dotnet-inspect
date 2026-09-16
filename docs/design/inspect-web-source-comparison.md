@@ -145,7 +145,7 @@ No test-only source-context factory or new corpus lane is needed.
 
 ```bash
 dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release -- \
-  -class '*BrowserSourceComparisonOperationTests'
+  --filter-class '*BrowserSourceComparisonOperationTests'
 eng/test-inspect-web-source-comparison-gate.sh
 ```
 

@@ -172,12 +172,24 @@ type UniqueCompatiblePackage = (
 
 interface MermaidGraphNodeInfo extends DependencyGraphNodeInfo {
   key: string;
+  id: string;
   label: string;
 }
+
+export type DependencyGraphPresentationRole =
+  | "inspected"
+  | "samePrefix"
+  | "external";
+
+type ClassifyDependencyGraphPresentationRoles = (
+  inspectedPackageId: string,
+  packageIds: readonly string[],
+) => readonly string[] | Promise<readonly string[]>;
 
 export async function buildDependencyGraphMermaid(
   model: DependencyGraphModel,
   uniqueCompatiblePackage: UniqueCompatiblePackage,
+  classifyPresentationRoles: ClassifyDependencyGraphPresentationRoles,
 ): Promise<DependencyGraphResult | null> {
   const MAX_DEPTH = 3;
   const MAX_NODES = 80;
@@ -343,25 +355,47 @@ export async function buildDependencyGraphMermaid(
   if (!edges.length) return null;
 
   const keys = [...nodeInfo.keys()];
+  const roleValues = await classifyPresentationRoles(
+    model.package.id,
+    keys.map(key => nodeInfo.get(key)!.id),
+  );
+  if (roleValues.length !== keys.length) {
+    throw new Error(
+      `Package graph classification returned ${roleValues.length} roles for ${keys.length} nodes.`,
+    );
+  }
+  const roles = roleValues.map((role, index): DependencyGraphPresentationRole => {
+    if (role === "inspected" || role === "samePrefix" || role === "external")
+      return role;
+    throw new Error(`Package graph classification returned invalid role '${role}' at index ${index}.`);
+  });
   const idOf = new Map<string, string>();
   keys.forEach((key, index) => idOf.set(key, `d${index}`));
   const lines = ["flowchart TD"];
-  for (const key of keys) {
+  keys.forEach((key, index) => {
     const info = nodeInfo.get(key)!;
     const label = mermaidLabel(info.label);
-    lines.push(`  ${idOf.get(key)}["${label}"]:::${info.kind}`);
-  }
+    lines.push(`  ${idOf.get(key)}["${label}"]:::${roles[index]}`);
+  });
   for (const edge of edges) {
     lines.push(`  ${idOf.get(edge.from)} --> ${idOf.get(edge.to)}`);
   }
-  lines.push("classDef self fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
-  lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
-  lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
+  lines.push("classDef inspected fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
+  lines.push("classDef samePrefix fill:var(--graph-package-same-prefix-fill),stroke:var(--graph-package-same-prefix-stroke),color:var(--graph-package-same-prefix-text);");
+  lines.push("classDef external fill:var(--graph-package-external-fill),stroke:var(--graph-package-external-stroke),color:var(--graph-package-external-text);");
   const nodeInfoById = new Map<string, DependencyGraphNodeInfo>();
   for (const key of keys) {
     const id = idOf.get(key);
     const info = nodeInfo.get(key);
-    if (id && info) nodeInfoById.set(id, info);
+    if (id && info) {
+      const navigationInfo: DependencyGraphNodeInfo = { kind: info.kind };
+      if (info.packageKey !== undefined)
+        navigationInfo.packageKey = info.packageKey;
+      if (info.id !== undefined) navigationInfo.id = info.id;
+      if (info.versionRange !== undefined)
+        navigationInfo.versionRange = info.versionRange;
+      nodeInfoById.set(id, navigationInfo);
+    }
   }
   return {
     definition: lines.join("\n"),

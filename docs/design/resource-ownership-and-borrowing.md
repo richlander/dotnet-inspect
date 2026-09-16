@@ -1027,8 +1027,8 @@ This protocol does not claim:
 - that `ArtifactQueryLease` and `PackageSourceSettlementLease` have equivalent
   semantics;
 - that an artifact reference alone retains content;
-- that the approved `LibraryContentOwner` and `LibraryOperationLease` shapes
-  are already implemented;
+- that the implemented `LibraryContentOwner` and `LibraryOperationLease` have
+  already been adopted by every planned producer and consumer;
 - that all borrowing can be represented by spans;
 - that a borrow may cross `await` or an interop boundary;
 - that snapshot callbacks provide thread safety, locking, generation

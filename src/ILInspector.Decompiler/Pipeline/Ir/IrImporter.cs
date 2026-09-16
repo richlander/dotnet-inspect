@@ -638,18 +638,36 @@ public static class IrImporter
         Exception ex,
         MemorySafetyModeDecision memorySafetyMode)
     {
+        bool bodyEvidenceUnavailable =
+            ex is MethodBodyEvidenceUnavailableException;
         var block = new Block(0);
         var container = new BlockContainer();
         container.Add(block);
         var signature = new MethodSignature(TypeRef.Unsupported("import failed"), [], false, 0);
+        var evidenceFailure =
+            ex as MethodBodyEvidenceUnavailableException;
         var function = new IrFunction(methodName, TypeRef.Definition("", "", typeName), signature, [], container)
         {
             MethodKind = ClassifyMethodKind(methodName),
             MemorySafetyMode = memorySafetyMode,
+            ClassicAsyncRequest = evidenceFailure?.ClassicAsyncRequest,
+            IsMetadataBacked = evidenceFailure is not null,
         };
-        block.Add(new ExpressionStatement(new UnsupportedNode(0, "(importer crash)", $"{ex.GetType().Name}: {ex.Message}")));
+        block.Add(new ExpressionStatement(new UnsupportedNode(
+            0,
+            bodyEvidenceUnavailable
+                ? "(method-body evidence unavailable)"
+                : "(importer crash)",
+            bodyEvidenceUnavailable
+                ? ex.Message
+                : $"{ex.GetType().Name}: {ex.Message}")));
         function.Diagnostics.Add(new DecompilerDiagnostic(
-            DiagnosticIds.InternalError, $"importer crash: {ex.GetType().Name}: {ex.Message}"));
+            bodyEvidenceUnavailable
+                ? DiagnosticIds.ContextUnavailable
+                : DiagnosticIds.InternalError,
+            bodyEvidenceUnavailable
+                ? ex.Message
+                : $"importer crash: {ex.GetType().Name}: {ex.Message}"));
         return function;
     }
 
@@ -697,6 +715,8 @@ public static class IrImporter
             BaseType = source.ResolveBaseType(method.DeclaringType),
             MethodKind = ClassifyMethodKind(method.Name),
             Regions = method.Body.Handlers,
+            ExceptionInstructions = method.Body.ExceptionInstructions,
+            ExceptionClauseImports = method.Body.ExceptionClauseImports,
             LocalNames = method.Body.LocalNames,
             LocalDeclaredInNestedScope = method.Body.LocalDeclaredInNestedScope,
             MemorySafetyMode = source.MemorySafetyMode,

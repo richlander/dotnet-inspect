@@ -70,9 +70,9 @@ internal static class BodySignalAnalysis
 
         int catches = 0;
         int finallys = 0;
-        foreach (var region in context.ExceptionRegions)
+        foreach (var clause in context.RequireExceptionCatalog().Clauses)
         {
-            switch (region.Kind)
+            switch (clause.Kind)
             {
                 case ExceptionRegionKind.Catch
                     or ExceptionRegionKind.Filter:

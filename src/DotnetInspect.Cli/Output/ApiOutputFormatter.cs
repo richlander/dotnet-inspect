@@ -117,17 +117,21 @@ public static class ApiOutputFormatter
                 .ToList();
         }
 
+        if (api.TypeForwarders.Count > 0)
+        {
+            view.TypeForwarders = api.TypeForwarders
+                .GroupBy(f => f.TargetAssembly)
+                .OrderBy(g => g.Key)
+                .Select(g => new ForwarderSummaryRow(g.Key, g.Count().ToString()))
+                .ToList();
+        }
+
         if (totalCount == 0)
         {
             if (api.TypeForwarders.Count > 0)
             {
                 view.DescriptionText = ApiViewText.Field(
                     "This library contains no public types. Type forwarders could not be resolved.");
-                view.TypeForwarders = api.TypeForwarders
-                    .GroupBy(f => f.TargetAssembly)
-                    .OrderBy(g => g.Key)
-                    .Select(g => new ForwarderSummaryRow(g.Key, g.Count().ToString()))
-                    .ToList();
             }
             else
             {
@@ -246,10 +250,16 @@ public static class ApiOutputFormatter
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
+        string[]? explicitSectionOrder =
+            options.IncludeSections is { Count: > 0 }
+            && includeSections is not null
+            ? [.. pipeline.AllSectionNames.Where(includeSections.Contains)]
+            : null;
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
+            SectionOrder = explicitSectionOrder,
             IncludeDescription = effectiveVerbosity != Verbosity.Quiet && !ShouldRenderMemberDetailContext(options),
             Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
             TextDiffContextLines = effectiveVerbosity >= Verbosity.Detailed ? null : 3
@@ -334,6 +344,12 @@ public static class ApiOutputFormatter
     internal static bool ShouldRenderSurfaceFactTableView(ApiOptions options)
         => options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.ApiInfo);
+
+    internal static bool ShouldRenderSurfaceSectionedTableView(
+        ApiOptions options) =>
+        options.IncludeSections is { Count: 1 } sections
+        && (sections.Contains(SectionNames.TypeForwarders)
+            || sections.Contains(SectionNames.InspectionFailures));
 
     internal static bool
         ShouldRenderSurfaceInspectionFailureTableView(

@@ -32,14 +32,14 @@ public sealed partial class WorkspaceContextLoaderTests
                 Members = [WorkspaceMemberCoordinate.Platform(family, assemblyName, RuntimePackVersion)],
             },
             Options(client, store), TestContext.Current.CancellationToken);
-        Assert.Equal(2, Loaded(context.Outcome).AvailablePlatformAssemblies.Length);
+        Assert.Equal(2, ContextLoaded(context).AvailablePlatformAssemblies.Length);
         WorkspaceDeclarationPopulation population = CaptureDeclarations(workspace, context);
         WorkspaceDeclarationMember member = Assert.Single(population.Receipt.Members);
         var coordinate = Assert.IsType<ExactLibrarySourceCoordinate.Platform>(member.Coordinate);
         Assert.Equal(expectedFamily, coordinate.Population.Family);
         Assert.Equal(assemblyName, member.AssemblyIdentity.Name);
         Assert.Equal(Producer(NuGetOrg),
-            Assert.IsType<RealizedMemberCoordinate.Platform>(member.Realized).Producer);
+            Assert.IsType<RealizedMemberCoordinate.Platform>(ContextOrigin(member).Realized).Producer);
         Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(member.Selection);
         Assert.NotEmpty(ReadDeclarations(population, member).Declarations);
     }
@@ -77,7 +77,7 @@ public sealed partial class WorkspaceContextLoaderTests
         WorkspaceDeclarationContext first = await firstLoad;
         WorkspaceDeclarationPopulation population = CaptureDeclarations(workspace, second, first);
         Assert.True(population.Receipt.IsRealizationComplete);
-        Assert.Single(first.Receipt.Request.Members);
+        Assert.Single(ContextRequest(first).Members);
         Assert.Same(first.Receipt, population.Receipt.Contexts[0]);
         Assert.Same(second.Receipt, population.Receipt.Contexts[1]);
     }
@@ -116,12 +116,17 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.Equal(earlier.Coordinate, p2.Receipt.Members[1].Coordinate);
         Assert.NotSame(earlier.Occurrence, p2.Receipt.Members[1].Occurrence);
         Assert.NotEqual(
-            Assert.IsType<RealizedMemberCoordinate.Package>(earlier.Realized).Producer,
-            Assert.IsType<RealizedMemberCoordinate.Package>(p2.Receipt.Members[1].Realized).Producer);
+            Assert.IsType<RealizedMemberCoordinate.Package>(ContextOrigin(earlier).Realized).Producer,
+            Assert.IsType<RealizedMemberCoordinate.Package>(ContextOrigin(p2.Receipt.Members[1]).Realized).Producer);
         Assert.NotSame(p1.Receipt.Identity, p2.Receipt.Identity);
         Assert.True(p1.Receipt.IsRealizationComplete);
-        Assert.Equal(Framework,
-            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(earlier.Selection).Tfm);
+        var selection =
+            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+                earlier.Selection);
+        Assert.Equal(Framework, selection.Tfm);
+        Assert.Equal(
+            $"lib/{Framework}/{Path.GetFileName(TargetPath)}",
+            selection.AssetPath);
         Assert.Equal(WorkspaceDeclarationPopulationFailure.OccurrenceNotSelected,
             Assert.IsType<WorkspaceDeclarationInventoryOutcome.Unavailable>(
                 p1.ReadDeclarations(p2.Receipt.Members[1].Occurrence,
@@ -159,7 +164,7 @@ public sealed partial class WorkspaceContextLoaderTests
         WorkspaceDeclarationPopulation failedOnly = CaptureDeclarations(workspace, failed);
         Assert.False(failedOnly.Receipt.IsRealizationComplete);
         Assert.Empty(failedOnly.Receipt.Members);
-        Assert.Equal(2, failed.Receipt.Request.Members.Count);
+        Assert.Equal(2, ContextRequest(failed).Members.Count);
         Assert.NotEmpty(failed.Receipt.Failures);
         Assert.False(failed.Receipt.IsRealized);
 
@@ -190,7 +195,7 @@ public sealed partial class WorkspaceContextLoaderTests
         WorkspaceDeclarationMember member = Assert.Single(population.Receipt.Members);
         Assert.Equal(WorkspaceDeclarationCoordinateStatus.CoordinateUnavailable, member.CoordinateStatus);
         Assert.Null(member.Coordinate);
-        Assert.IsType<RealizedMemberCoordinate.Embedded>(member.Realized);
+        Assert.IsType<RealizedMemberCoordinate.Embedded>(ContextOrigin(member).Realized);
         AssemblyTypeDeclarationInventory inventory = ReadDeclarations(population, member);
         _ = ReadDeclarations(population, member);
         Assert.Equal(opens, provider.OpenCount);
@@ -228,7 +233,7 @@ public sealed partial class WorkspaceContextLoaderTests
                 workspace.CaptureDeclarationPopulation(default)).Failure);
 
         WorkspaceDeclarationPopulation population = CaptureDeclarations(workspace, context);
-        Loaded(context.Outcome).Group.Dispose();
+        ContextLoaded(context).Group.Dispose();
         Assert.Equal(WorkspaceDeclarationPopulationFailure.ContextUnavailable,
             Assert.IsType<WorkspaceDeclarationPopulationCapture.Rejected>(
                 workspace.CaptureDeclarationPopulation([context])).Failure);
@@ -304,8 +309,8 @@ public sealed partial class WorkspaceContextLoaderTests
                 ],
             },
             options, TestContext.Current.CancellationToken);
-        Assert.IsType<WorkspaceContextLoadOutcome.Loaded>(package.Outcome);
-        Assert.IsType<WorkspaceContextLoadOutcome.Loaded>(platform.Outcome);
+        _ = ContextLoaded(package);
+        _ = ContextLoaded(platform);
         WorkspaceDeclarationPopulation population = CaptureDeclarations(workspace, package, platform);
         Assert.True(population.Receipt.IsRealizationComplete);
         Assert.Equal(2, population.Receipt.Members.Length);
@@ -323,6 +328,15 @@ public sealed partial class WorkspaceContextLoaderTests
         InspectionWorkspace workspace, params WorkspaceDeclarationContext[] contexts) =>
         Assert.IsType<WorkspaceDeclarationPopulationCapture.Captured>(
             workspace.CaptureDeclarationPopulation([.. contexts])).Population;
+
+    static WorkspaceContextLoadOutcome.Loaded ContextLoaded(WorkspaceDeclarationContext context) =>
+        Assert.IsType<WorkspaceContextLoadOutcome.Loaded>(context.ContextLoadOutcome);
+
+    static WorkspaceContextInput ContextRequest(WorkspaceDeclarationContext context) =>
+        Assert.IsType<WorkspaceDeclarationRequest.ContextLoad>(context.Receipt.Request).Input;
+
+    static WorkspaceDeclarationOrigin.ContextLoad ContextOrigin(WorkspaceDeclarationMember member) =>
+        Assert.IsType<WorkspaceDeclarationOrigin.ContextLoad>(member.Origin);
 
     static AssemblyTypeDeclarationInventory ReadDeclarations(
         WorkspaceDeclarationPopulation population, WorkspaceDeclarationMember member) =>

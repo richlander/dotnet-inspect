@@ -199,6 +199,12 @@ public sealed class BrowserEngineLayeringTests
             symbol => symbol.StartsWith(
                 "M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.ExecuteBounded",
                 StringComparison.Ordinal));
+        Assert.Contains(
+            "M:DotnetInspector.Sections.ExactTypeInspectionOperation.ExecuteAsync(DotnetInspector.Queries.ExactTypeInspectionRequest,DotnetInspector.Queries.WorkspaceContextLoadOptions,System.Threading.CancellationToken)",
+            banned);
+        Assert.Contains(
+            "M:DotnetInspector.Sections.ExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceContextLoadOutcome.Loaded,DotnetInspector.Queries.ExactTypeInspectionRequest)",
+            banned);
 
         // #3932's streaming form releases the participant terminally, and this engine reuses one
         // workspace across exports, so a later whole-group query over the same group would find
@@ -506,6 +512,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Services.PdbSourceHouse",
             "DotnetInspector.Services.ProjectAssetsParser",
             "DotnetInspector.Services.SignatureVerifier",
+            "ILInspector.Metadata.AssemblyResolutionProvenance",
             "ILInspector.Metadata.ApiSurface",
             "ILInspector.Metadata.ResolvedAssemblyReference",
             "ILInspector.SourceLink.SourceLinkResolver",
@@ -642,7 +649,7 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void EcosystemCatalogIsFacadeOnly()
+    public void EcosystemCatalogIsLimitedToOwningFacades()
     {
         // The compiled-reference gate is sound only when catalog IDs cannot be inlined.
         Assert.DoesNotContain(
@@ -699,9 +706,14 @@ public sealed class BrowserEngineLayeringTests
                     .Select(item => item.GetProperty("FullPath").GetString())
                     .OfType<string>()
                     .ToArray();
-            if (project.Equals(
-                CatalogProjectPath,
-                StringComparison.OrdinalIgnoreCase))
+            bool ownsEcosystemCapability =
+                project.Equals(
+                    CatalogProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                || project.Equals(
+                    PackageProjectPath,
+                    StringComparison.OrdinalIgnoreCase);
+            if (ownsEcosystemCapability)
             {
                 Assert.Contains(
                     projectReferences,
@@ -920,6 +932,12 @@ public sealed class BrowserEngineLayeringTests
         "inspect-web",
         "DotnetInspect.Web.Interop.Catalog",
         "DotnetInspect.Web.Interop.Catalog.csproj");
+
+    static string PackageProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "inspect-web",
+        "DotnetInspect.Web.Interop.Package",
+        "DotnetInspect.Web.Interop.Package.csproj");
 
     static string BanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,

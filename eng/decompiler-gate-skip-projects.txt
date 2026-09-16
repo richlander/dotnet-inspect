@@ -63,7 +63,6 @@ fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld
 fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures
 fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
-fixtures/metadata/ILInspector.Metadata.StateMachineFixtures
 fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer
 fixtures/metadata/ILInspector.Metadata.TypeDependencyReference
 fixtures/presentation/LibraryApiDiff.V1
@@ -86,10 +85,12 @@ fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures
 src/DotnetInspect.Cli
 src/DotnetInspector.Ecosystems
+src/DotnetInspector.Libraries
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.PlatformHouse
 src/DotnetInspector.PlatformHouse.Installed
+src/DotnetInspector.PlatformHouse.Packages
 src/DotnetInspector.Platforms.Formats
 src/DotnetInspector.Platforms.Installed
 src/DotnetInspector.Presentation
@@ -115,11 +116,13 @@ tests/DotnetInspector.Ecosystems.Consumer.Tests
 tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
 tests/DotnetInspector.ILRoundtrip.Tests
+tests/DotnetInspector.Libraries.Tests
 tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.Networking.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.Packages.Tests
 tests/DotnetInspector.PlatformHouse.Installed.Tests
+tests/DotnetInspector.PlatformHouse.Packages.Tests
 tests/DotnetInspector.PlatformHouse.Tests
 tests/DotnetInspector.Platforms.Formats.Tests
 tests/DotnetInspector.Platforms.Tests

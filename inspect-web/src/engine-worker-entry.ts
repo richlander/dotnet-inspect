@@ -8,6 +8,10 @@ import {
 import { createEngineWorkerBootstrap } from "./engine-worker-epoch-work.ts";
 import { registerEngineWorkerCpuOperation } from "./engine-worker-cpu.ts";
 import {
+  registerEngineWorkerPackageChangesOperation,
+  type EngineWorkerPackageChangesFacade,
+} from "./engine-worker-package-changes.ts";
+import {
   registerEngineWorkerPackageQueryOperation,
   type EngineWorkerPackageQueryFacade,
 } from "./engine-worker-package-query.ts";
@@ -46,8 +50,12 @@ registerEngineWorkerStartupOperations(operations, {
   async listHomeDemos() {
     return (await import("/inspect-web-catalog.js")).listHomeDemos();
   },
-  async listPackageQueryFacets() {
-    return (await import("/inspect-web-package.js")).listPackageQueryFacets();
+  async listPackageActivityPackageSets() {
+    return (await import("/inspect-web-package.js"))
+      .listPackageActivityPackageSets();
+  },
+  async listPackageQueryCatalog() {
+    return (await import("/inspect-web-package.js")).listPackageQueryCatalog();
   },
 });
 let sourceFacade: EngineWorkerTypeSourceFacade | undefined;
@@ -63,6 +71,14 @@ registerEngineWorkerPackageQueryOperation(operations, () => {
       "Package Query facade is unavailable before Worker readiness.");
   }
   return packageQueryFacade;
+});
+let packageChangesFacade: EngineWorkerPackageChangesFacade | undefined;
+registerEngineWorkerPackageChangesOperation(operations, () => {
+  if (packageChangesFacade === undefined) {
+    throw new Error(
+      "Package Activity facade is unavailable before Worker readiness.");
+  }
+  return packageChangesFacade;
 });
 operations.register({
   kind: engineWorkerCanaryKind,
@@ -108,6 +124,7 @@ const bootstrapWorker = async (value: string): Promise<void> => {
   ]);
   sourceFacade = loadedSourceFacade;
   packageQueryFacade = packageFacade;
+  packageChangesFacade = packageFacade;
   ordinaryFacades = {
     package: packageFacade,
     metadata: metadataFacade,

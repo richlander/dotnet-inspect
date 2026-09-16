@@ -9,6 +9,10 @@ namespace DotnetInspector.Queries;
 public sealed partial class InspectionWorkspace
 {
     int _nextDeclarationContextOrder;
+    readonly List<WorkspaceDeclarationContext> _declarationContexts = [];
+    WorkspaceDeclarationPopulation? _declarationPopulation;
+    WorkspaceDeclarationLocator? _declarationLocator;
+    WorkspaceDeclarationLocator? _declarationObserver;
 
     internal int BeginDeclarationContext()
     {
@@ -47,21 +51,40 @@ public sealed partial class InspectionWorkspace
                 };
                 members.Add(new(
                     new(_identity, order, members.Count),
-                    coordinate, assembly.Identity, member.Declared,
-                    member.Realized, assembly.Provenance));
+                    coordinate, assembly.Identity,
+                    new WorkspaceDeclarationOrigin.ContextLoad(member.Declared, member.Realized),
+                    assembly.Provenance));
             }
         }
 
-        return new(
-            new(_identity, order, request,
+        var context = new WorkspaceDeclarationContext(
+            new(_identity, order, new WorkspaceDeclarationRequest.ContextLoad(request),
                 outcome is WorkspaceContextLoadOutcome.Loaded,
                 members.ToImmutable(),
-                outcome is WorkspaceContextLoadOutcome.Failed failed ? failed.Failures : []),
+                outcome is WorkspaceContextLoadOutcome.Failed failed
+                    ? [.. failed.Failures.Select(static failure =>
+                        new WorkspaceDeclarationFailure.ContextLoad(failure))]
+                    : []),
             outcome);
+        return PublishDeclarationContext(context);
+    }
+
+    internal WorkspaceDeclarationContext PublishDeclarationContext(WorkspaceDeclarationContext context)
+    {
+        WorkspaceDeclarationLocator? observer;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_state != InspectionWorkspaceState.Open, this);
+            _declarationContexts.Add(context);
+            _declarationPopulation = null;
+            observer = _declarationObserver;
+        }
+        observer?.PopulationChanged();
+        return context;
     }
 
     /// <summary>
-    /// Captures exactly the supplied loader-issued contexts, including upstream
+    /// Captures exactly the supplied admitted contexts, including upstream
     /// failures. It does not realize registrations or scan declarations.
     /// </summary>
     public WorkspaceDeclarationPopulationCapture CaptureDeclarationPopulation(
@@ -89,31 +112,87 @@ public sealed partial class InspectionWorkspace
                     return new WorkspaceDeclarationPopulationCapture.Rejected(
                         WorkspaceDeclarationPopulationFailure.DuplicateContext);
                 }
-                if (context.Outcome is WorkspaceContextLoadOutcome.Loaded loaded
-                    && !_groups.Contains(loaded.Group))
+                if (context.Group is { } group && !_groups.Contains(group))
                 {
                     return new WorkspaceDeclarationPopulationCapture.Rejected(
                         WorkspaceDeclarationPopulationFailure.ContextUnavailable);
                 }
             }
 
-            var ordered = contexts.OrderBy(static context => context.Receipt.Order).ToArray();
-            var access = new Dictionary<
-                WorkspaceDeclarationOccurrence,
-                (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)>();
-            foreach (WorkspaceDeclarationContext context in ordered)
-            {
-                if (context.Outcome is not WorkspaceContextLoadOutcome.Loaded loaded)
-                    continue;
-                for (int index = 0; index < loaded.Members.Length; index++)
-                {
-                    access.Add(context.Receipt.Members[index].Occurrence,
-                        (loaded.Group, loaded.Members[index].Participant.Assembly));
-                }
-            }
             return new WorkspaceDeclarationPopulationCapture.Captured(
-                new(this, new(_identity, [.. ordered.Select(static context => context.Receipt)]), access));
+                CreateDeclarationPopulation(contexts));
         }
+    }
+
+    /// <summary>
+    /// Gets this Workspace's lazy locator over its admitted declaration contexts.
+    /// The first call fixes its limits; getting it does not activate inspection.
+    /// </summary>
+    public WorkspaceDeclarationLocator GetDeclarationLocator(
+        WorkspaceDeclarationLocatorOptions? options = null) =>
+        GetDeclarationLocator(options, WorkspaceDeclarationLocator.YieldAsync);
+
+    internal WorkspaceDeclarationLocator GetDeclarationLocator(
+        WorkspaceDeclarationLocatorOptions? options,
+        Func<ValueTask> yieldAsync)
+    {
+        options?.Validate();
+        ArgumentNullException.ThrowIfNull(yieldAsync);
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_state != InspectionWorkspaceState.Open, this);
+            if (_declarationLocator is { } existing)
+            {
+                if (options is not null && existing.Options != options)
+                    throw new InvalidOperationException("The Workspace declaration locator's limits are already fixed.");
+                return existing;
+            }
+            return _declarationLocator = new(this, options ?? new(), yieldAsync);
+        }
+    }
+
+    internal WorkspaceDeclarationPopulationCapture ObserveDeclarationPopulation(
+        WorkspaceDeclarationLocator observer)
+    {
+        lock (_gate)
+        {
+            if (DeclarationPopulationAvailability() is { } unavailable)
+                return new WorkspaceDeclarationPopulationCapture.Rejected(unavailable);
+            _declarationObserver = observer;
+            return new WorkspaceDeclarationPopulationCapture.Captured(
+                _declarationPopulation ??= CreateDeclarationPopulation(_declarationContexts));
+        }
+    }
+
+    internal WorkspaceDeclarationPopulationCapture CaptureObservedDeclarationPopulation()
+    {
+        lock (_gate)
+        {
+            if (DeclarationPopulationAvailability() is { } unavailable)
+                return new WorkspaceDeclarationPopulationCapture.Rejected(unavailable);
+            return new WorkspaceDeclarationPopulationCapture.Captured(
+                _declarationPopulation ??= CreateDeclarationPopulation(_declarationContexts));
+        }
+    }
+
+    WorkspaceDeclarationPopulation CreateDeclarationPopulation(
+        IEnumerable<WorkspaceDeclarationContext> contexts)
+    {
+        var ordered = contexts.OrderBy(static context => context.Receipt.Order).ToArray();
+        var access = new Dictionary<
+            WorkspaceDeclarationOccurrence,
+            (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)>();
+        foreach (WorkspaceDeclarationContext context in ordered)
+        {
+            if (context.Group is not { } group)
+                continue;
+            for (int index = 0; index < group.Participants.Length; index++)
+            {
+                access.Add(context.Receipt.Members[index].Occurrence,
+                    (group, group.Participants[index].Assembly));
+            }
+        }
+        return new(this, new(_identity, [.. ordered.Select(static context => context.Receipt)]), access);
     }
 
     internal WorkspaceDeclarationPopulationFailure? DeclarationPopulationAvailability()

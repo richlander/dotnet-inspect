@@ -839,7 +839,7 @@ type generic `arg0` does not force a rename, so the ordinary fallback remains
 
 ```bash
 dotnet run --project tests/ILInspector.CSharp.Tests -c Release --no-build -- \
-  -method '*HostileMetadataSelfNameIsNotRendered*'
+  --filter-method '*HostileMetadataSelfNameIsNotRendered*'
 
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*UnspeakableNameFidelityTests*'

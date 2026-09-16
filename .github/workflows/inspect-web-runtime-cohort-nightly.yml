@@ -1,8 +1,6 @@
 name: Inspect Web controlled runtime cohort
 
 on:
-  schedule:
-    - cron: '47 0 * * *'
   workflow_call:
     outputs:
       evidence_artifact_name:
@@ -268,6 +266,7 @@ jobs:
           source "$pin_env"
           set +a
           cat "$pin_env" >> "$GITHUB_ENV"
+          mv global.json "$RUNNER_TEMP/repository-global.json"
           dotnetup_dir="$RUNNER_TEMP/dotnetup"
           getter_script="$RUNNER_TEMP/get-dotnetup.sh"
           mkdir -p "$dotnetup_dir" "$DOTNET_ROOT" "$DOTNET_DOTNETUP_DATA_DIR"
@@ -280,6 +279,15 @@ jobs:
             --untracked \
             --set-default-install false \
             --interactive false
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$DOTNET_SDK_VERSION",
+              "rollForward": "disable",
+              "allowPrerelease": true
+            }
+          }
+          EOF
           echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
           test "$("$DOTNET_ROOT/dotnet" --version)" = "$DOTNET_SDK_VERSION"
 

@@ -107,6 +107,7 @@ public sealed class DirectCallDefinitionOccurrence
         Catalog = catalog;
         Generation = generation;
         Registration = assembly.Registration;
+        AssemblyReference = assembly;
         Assembly = assembly.Identity;
         ModuleVersionId = moduleVersionId;
         MetadataToken = metadataToken;
@@ -120,6 +121,7 @@ public sealed class DirectCallDefinitionOccurrence
     public AssemblyCatalogId Catalog { get; }
     public AssemblyCatalogGenerationId Generation { get; }
     public AssemblyAcquisitionRegistration Registration { get; }
+    internal ResolvedAssemblyReference AssemblyReference { get; }
     public AssemblyReferenceIdentity Assembly { get; }
     public Guid ModuleVersionId { get; }
     public int MetadataToken { get; }
@@ -239,15 +241,19 @@ public abstract class DirectCallDefinitionResolutionOutcome
         internal Completed(
             AssemblyCatalogId catalog,
             AssemblyCatalogGenerationId generation,
+            ImmutableArray<CatalogCallGraphParticipant> population,
             ImmutableArray<DirectCallDefinitionResolution> results)
         {
             Catalog = catalog;
             Generation = generation;
+            Population = population;
             Results = results;
         }
 
         public AssemblyCatalogId Catalog { get; }
         public AssemblyCatalogGenerationId Generation { get; }
+        public ImmutableArray<CatalogCallGraphParticipant> Population
+            { get; }
         public ImmutableArray<DirectCallDefinitionResolution> Results
             { get; }
     }
@@ -732,6 +738,7 @@ public static class DirectCallDefinitionResolver
         {
             return CompleteWithWorkLimit(
                 context,
+                population,
                 invocationPlans,
                 DirectCallDefinitionWorkDimension.SignatureNodes,
                 limits.MaxSignatureNodes,
@@ -741,6 +748,7 @@ public static class DirectCallDefinitionResolver
         {
             return CompleteWithWorkLimit(
                 context,
+                population,
                 invocationPlans,
                 resolutionLimit.Dimension,
                 resolutionLimit.Limit,
@@ -749,6 +757,7 @@ public static class DirectCallDefinitionResolver
         return new DirectCallDefinitionResolutionOutcome.Completed(
             context.Catalog,
             context.Generation,
+            population,
             results);
     }
 
@@ -773,6 +782,7 @@ public static class DirectCallDefinitionResolver
         return new(
             context.Catalog,
             context.Generation,
+            population,
             [
                 .. pending.Select(item =>
                     CreateFailure(
@@ -791,6 +801,7 @@ public static class DirectCallDefinitionResolver
     static DirectCallDefinitionResolutionOutcome.Completed
         CompleteWithWorkLimit(
             TypeResolutionContext context,
+            ImmutableArray<CatalogCallGraphParticipant> population,
             ImmutableArray<PendingInvocation> pending,
             DirectCallDefinitionWorkDimension dimension,
             long limit,
@@ -798,6 +809,7 @@ public static class DirectCallDefinitionResolver
         new(
             context.Catalog,
             context.Generation,
+            population,
             [
                 .. pending.Select(item =>
                     CreateFailure(
@@ -883,9 +895,19 @@ public static class DirectCallDefinitionResolver
     static bool HasSupportedInvocationHeader(DirectCall call)
     {
         MemberRef member = call.Callee;
-        if (call.Kind is not (CallKind.Call or CallKind.CallVirtual)
-            || member.Kind != MemberKind.Method
-            || call.Kind == CallKind.CallVirtual && !member.HasThis
+        if (call.Kind is not (
+                CallKind.Call
+                or CallKind.CallVirtual
+                or CallKind.NewObject)
+            || member.Kind is not (
+                MemberKind.Method
+                or MemberKind.Constructor)
+            || call.Kind == CallKind.CallVirtual
+                && (member.Kind != MemberKind.Method || !member.HasThis)
+            || call.Kind == CallKind.NewObject
+                && (member.Kind != MemberKind.Constructor
+                    || member.Name != ".ctor"
+                    || !member.HasThis)
             || (member.SignatureHeader & CallingConventionMask) != 0
             || (member.SignatureHeader & ExplicitThis) != 0
             || ((member.SignatureHeader & Generic) != 0)
@@ -2567,8 +2589,7 @@ public static class DirectCallDefinitionResolver
         bool isPropertySetter,
         bool signatureIsValid)
     {
-        if (member.Name is ".ctor" or ".cctor"
-            || isPropertySetter
+        if (isPropertySetter
             || !HasSupportedMethodHeader(member)
             || !signatureIsValid)
         {
@@ -2576,6 +2597,33 @@ public static class DirectCallDefinitionResolver
         }
         bool methodIsStatic =
             (attributes & MethodAttributes.Static) != 0;
+        if (member.Kind == MemberKind.Constructor)
+        {
+            bool hasConstructorFlags =
+                (attributes & MethodAttributes.SpecialName) != 0
+                && (attributes & MethodAttributes.RTSpecialName) != 0;
+            bool isInstanceConstructor =
+                member.Name == ".ctor"
+                && member.HasThis
+                && !methodIsStatic;
+            bool isTypeInitializer =
+                member.Name == ".cctor"
+                && !member.HasThis
+                && methodIsStatic
+                && member.ParameterTypes.IsEmpty;
+            if (!hasConstructorFlags
+                || (!isInstanceConstructor && !isTypeInitializer)
+                || member.GenericArity != 0
+                || genericParameterRows != 0
+                || !FrameworkIdentity.IsCoreLibraryType(
+                    member.ReturnType,
+                    "System",
+                    "Void"))
+            {
+                return CandidateSemantics.Unsupported;
+            }
+            return CandidateSemantics.Method;
+        }
         if (methodIsStatic == member.HasThis
             || member.GenericArity != genericParameterRows)
         {

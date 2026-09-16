@@ -17,7 +17,7 @@ using CoreHttpClientFactory =
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class EcosystemChangesCommandTests
+public sealed class PackageChangesCommandTests
 {
     private const string ServiceIndex =
         "https://api.nuget.org/v3/index.json";
@@ -34,9 +34,10 @@ public sealed class EcosystemChangesCommandTests
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
         [
-            "ecosystem",
+            "package",
+            "activity",
+            "--ecosystem",
             "aspire",
-            "--changes",
             "--security-only",
             "--from",
             "2026-09-01T00:00:00-07:00",
@@ -54,26 +55,26 @@ public sealed class EcosystemChangesCommandTests
 
     [Theory]
     [InlineData(
-        "ecosystem aspire --changes --table",
-        "--table is not supported with --changes")]
+        "package activity --ecosystem aspire --table",
+        "--table is not supported with package activity")]
     [InlineData(
-        "ecosystem aspire --from 2026-09-01T00:00:00Z",
-        "--from is available only with --changes")]
+        "ecosystem aspire --changes",
+        "Unrecognized command or argument '--changes'")]
     [InlineData(
-        "ecosystem --changes",
-        "--changes requires a named ecosystem")]
+        "package activity",
+        "package activity requires --ecosystem")]
     [InlineData(
-        "ecosystem aspire --changes --from 2026-09-01T00:00:00Z",
+        "package activity --ecosystem aspire --from 2026-09-01T00:00:00Z",
         "--from and --through must be specified together")]
     [InlineData(
-        "ecosystem aspire --changes --from 2026-09-01 --through 2026-10-01",
+        "package activity --ecosystem aspire --from 2026-09-01 --through 2026-10-01",
         "must be ISO 8601 timestamps with an explicit UTC offset")]
     [InlineData(
-        "ecosystem aspire --changes -n 1001",
+        "package activity --ecosystem aspire -n 1001",
         "-n must be between 1 and 1000")]
     [InlineData(
-        "ecosystem aspire --changes --compact",
-        "--compact requires --changes --json")]
+        "package activity --ecosystem aspire --compact",
+        "--compact requires package activity --json")]
     public void ParserRejectsUnsupportedOrAmbiguousRequests(
         string command,
         string expected)
@@ -86,6 +87,18 @@ public sealed class EcosystemChangesCommandTests
             error => error.Message.Contains(
                 expected,
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RetiredPackageChangesSpellingReportsReplacement()
+    {
+        Assert.True(CommandLineBuilder.TryGetRemovedCommandError(
+            ["package", "changes", "--ecosystem", "aspire"],
+            out string? error));
+        Assert.Equal(
+            "'package changes' has been removed. Use 'package activity' "
+            + "with the same options.",
+            error);
     }
 
     [Fact]
@@ -107,7 +120,7 @@ public sealed class EcosystemChangesCommandTests
         };
 
         var result = await ConsoleCapture.RunAsync(
-            () => EcosystemChangesCommand.ExecuteAsync(
+            () => PackageChangesCommand.ExecuteAsync(
                 options,
                 source,
                 new GitHubNuGetAdvisoryService(
@@ -168,7 +181,7 @@ public sealed class EcosystemChangesCommandTests
         };
 
         var result = await ConsoleCapture.RunAsync(
-            () => EcosystemChangesCommand.ExecuteAsync(
+            () => PackageChangesCommand.ExecuteAsync(
                 options,
                 source,
                 new GitHubNuGetAdvisoryService(
@@ -204,7 +217,7 @@ public sealed class EcosystemChangesCommandTests
             new SingleResponseHandler(HttpStatusCode.OK, "[]"));
 
         var result = await ConsoleCapture.RunAsync(
-            () => EcosystemChangesCommand.ExecuteAsync(
+            () => PackageChangesCommand.ExecuteAsync(
                 Options(OutputFormat.Json),
                 source,
                 new GitHubNuGetAdvisoryService(
@@ -245,7 +258,7 @@ public sealed class EcosystemChangesCommandTests
             new SingleResponseHandler(HttpStatusCode.Forbidden, "[]"));
 
         var result = await ConsoleCapture.RunAsync(
-            () => EcosystemChangesCommand.ExecuteAsync(
+            () => PackageChangesCommand.ExecuteAsync(
                 Options(OutputFormat.Json),
                 source,
                 new GitHubNuGetAdvisoryService(
@@ -281,7 +294,7 @@ public sealed class EcosystemChangesCommandTests
             new SingleResponseHandler(HttpStatusCode.OK, "[]"));
 
         var result = await ConsoleCapture.RunAsync(
-            () => EcosystemChangesCommand.ExecuteAsync(
+            () => PackageChangesCommand.ExecuteAsync(
                 Options(OutputFormat.Json),
                 source,
                 new GitHubNuGetAdvisoryService(
@@ -319,9 +332,10 @@ public sealed class EcosystemChangesCommandTests
 
             var result = await InvokeAsync(
                 [
-                    "ecosystem",
+                    "package",
+                    "activity",
+                    "--ecosystem",
                     "aspire",
-                    "--changes",
                     "--from",
                     "2026-09-14T17:59:00Z",
                     "--through",
@@ -373,9 +387,10 @@ public sealed class EcosystemChangesCommandTests
 
             var result = await InvokeAsync(
                 [
-                    "ecosystem",
+                    "package",
+                    "activity",
+                    "--ecosystem",
                     "aspire",
-                    "--changes",
                     "--from",
                     "2026-09-14T17:59:00Z",
                     "--through",
@@ -409,7 +424,7 @@ public sealed class EcosystemChangesCommandTests
         using var advisoryClient = new HttpClient(new ThrowingHandler());
 
         var result = await ConsoleCapture.RunAsync(
-            () => EcosystemChangesCommand.ExecuteAsync(
+            () => PackageChangesCommand.ExecuteAsync(
                 Options(OutputFormat.Json) with
                 {
                     Ecosystem = "platform",
@@ -437,7 +452,7 @@ public sealed class EcosystemChangesCommandTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => EcosystemChangesCommand.ExecuteAsync(
+            () => PackageChangesCommand.ExecuteAsync(
                 Options(OutputFormat.Json),
                 source,
                 new GitHubNuGetAdvisoryService(advisoryClient),
@@ -446,7 +461,7 @@ public sealed class EcosystemChangesCommandTests
                 cancellation.Token));
     }
 
-    private static EcosystemChangesOptions Options(OutputFormat format) =>
+    private static PackageChangesOptions Options(OutputFormat format) =>
         new()
         {
             Ecosystem = "aspire",

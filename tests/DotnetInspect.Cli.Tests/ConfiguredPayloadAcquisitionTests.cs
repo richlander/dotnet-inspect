@@ -135,7 +135,19 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 (_, _) => new InMemoryPackageStore(),
                 new NuGetSourceOptions { Sources = [second] },
                 cancellationToken: TestContext.Current.CancellationToken);
-        string producer = AssertPayload(selected, Id).ProducerKey;
+        AcquiredPackageSourcePayload selectedPayload =
+            AssertPayload(selected, Id);
+        PackageProducerIdentity producer =
+            Assert.IsType<PackageProducerIdentity>(
+                selectedPayload.Producer);
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSource(selectedPayload);
+        Assert.Equal(
+            producer.PortableKey,
+            binding.Coordinate.Producer);
+        Assert.Equal(
+            selectedPayload.ProducerKey,
+            binding.Root.ProducerKey);
 
         ConfiguredPackagePayloadResult pinned =
             await composition.AcquirePinnedAsync(
@@ -144,14 +156,50 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 (_, _) => new InMemoryPackageStore(),
                 new NuGetSourceOptions { Sources = [first, second] },
                 cancellationToken: TestContext.Current.CancellationToken,
-                requiredProducerKey: producer);
+                requiredProducerKey: producer.PortableKey);
 
         Assert.Equal(
             second,
             pinned.Authority!.LocalIdentity!.CanonicalPath);
+        AcquiredPackageSourcePayload pinnedPayload =
+            AssertPayload(pinned, Id);
         Assert.Equal(
             "second payload",
-            ReadReadme(AssertPayload(pinned, Id).Content));
+            ReadReadme(pinnedPayload.Content));
+        PackageRootBinding rebound =
+            Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                PackageRootAcquisition.BindReacquired(
+                    binding.CreateReacquisitionRequest(),
+                    pinnedPayload))
+                .Binding;
+        Assert.Equal(
+            binding.CreateReacquisitionRequest(),
+            rebound.CreateReacquisitionRequest());
+        Assert.True(
+            RealizedMemberCoordinate.Package.TryCreate(
+                binding.Coordinate.PackageId,
+                binding.Coordinate.Version,
+                NuGetCache.GetSourceKey(second),
+                binding.Coordinate.Framework,
+                binding.Coordinate.RuntimeIdentifier,
+                out RealizedMemberCoordinate.Package? legacyCoordinate,
+                out string? problem),
+            problem);
+        var legacyRequest = new PackageRootReacquisitionRequest(
+            PackageArtifactRootRequest.Create(
+                legacyCoordinate,
+                binding.CompileTargetFramework,
+                binding.Root.RequestedTargetFramework,
+                binding.Root.RequestedRuntimeIdentifier));
+        PackageRootBinding legacyRebound =
+            Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                PackageRootAcquisition.BindReacquired(
+                    legacyRequest,
+                    pinnedPayload))
+                .Binding;
+        Assert.Equal(
+            legacyRequest,
+            legacyRebound.CreateReacquisitionRequest());
 
         ConfiguredPackagePayloadResult unauthorized =
             await composition.AcquirePinnedAsync(
@@ -175,7 +223,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 (_, _) => new InMemoryPackageStore(),
                 new NuGetSourceOptions { ResolvedSources = [] },
                 cancellationToken: TestContext.Current.CancellationToken,
-                requiredProducerKey: producer);
+                requiredProducerKey: producer.PortableKey);
 
         Assert.Null(denied.Payload);
         Assert.Null(denied.Authority);

@@ -14,7 +14,8 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
             ? [EcosystemPackIds.Platform, EcosystemPackIds.AspNetCore, EcosystemPackIds.MicrosoftExtensions]
             : [EcosystemPackIds.Platform, EcosystemPackIds.AspNetCore,
                 EcosystemPackIds.MicrosoftExtensions, EcosystemPackIds.Aspire,
-                EcosystemPackIds.AI, EcosystemPackIds.Azure];
+                EcosystemPackIds.AI, EcosystemPackIds.Azure,
+                EcosystemPackIds.Blazor, EcosystemPackIds.Maui];
 
         WorkspaceEcosystemRegistrationDeclaration[] declarations =
             [.. plan.Registrations.Select(item => Assert.IsType<WorkspaceRegistration.Ecosystem>(item).Declaration)];
@@ -25,6 +26,117 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
                 EcosystemPackCatalog.SelectWorkspaceRegistration(expected[index]));
             Assert.Same(selected.Declaration, declarations[index]);
         }
+    }
+
+    [Fact]
+    public void PublicSelectedPlanCanRegisterOnlyPlatform()
+    {
+        EcosystemPackId[] expected = [EcosystemPackIds.Platform];
+        WorkspacePlan plan =
+            EcosystemPackCatalog.CreateWorkspacePlan(expected);
+
+        WorkspaceEcosystemRegistrationDeclaration[] declarations =
+        [
+            .. plan.Registrations.Select(item =>
+                Assert.IsType<WorkspaceRegistration.Ecosystem>(item)
+                    .Declaration),
+        ];
+
+        Assert.Equal(
+            expected.Select(id => id.Value),
+            declarations.Select(declaration => declaration.Id.Value));
+        Assert.Single(declarations);
+    }
+
+    [Fact]
+    public void AllKnownAzureRegistrationSeparatesConcreteRootsFromDiscoveryPrefixes()
+    {
+        WorkspaceEcosystemRegistrationDeclaration azure =
+            EcosystemPackCatalog.CreateWorkspacePlan().Registrations
+                .Select(item => Assert.IsType<WorkspaceRegistration.Ecosystem>(item).Declaration)
+                .Single(declaration => declaration.Id.Value == EcosystemPackIds.Azure.Value);
+
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.Azure",
+                "Azure.AI.OpenAI",
+                "Microsoft.Azure.SignalR",
+                "Aspire.Azure.AI.OpenAI",
+                "Aspire.Hosting.Azure.SignalR",
+                "Azure.Identity",
+                "Azure.Security.KeyVault.Secrets",
+                "Azure.Storage.Blobs",
+                "Azure.Messaging.ServiceBus",
+            ],
+            azure.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Azure.",
+                "Microsoft.Azure.",
+                "Microsoft.Extensions.Azure",
+                "Aspire.Azure.",
+                "Aspire.Hosting.Azure.",
+            ],
+            azure.Populations.Select(population =>
+                Assert.IsType<
+                    WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                        population).Prefix.Prefix));
+    }
+
+    [Fact]
+    public void AllKnownBlazorRegistrationSeparatesConcreteRootsFromDiscoveryPrefixes()
+    {
+        WorkspaceEcosystemRegistrationDeclaration blazor =
+            EcosystemPackCatalog.CreateWorkspacePlan().Registrations
+                .Select(item => Assert.IsType<WorkspaceRegistration.Ecosystem>(item).Declaration)
+                .Single(declaration => declaration.Id.Value == EcosystemPackIds.Blazor.Value);
+
+        Assert.Equal(
+            [
+                "Microsoft.AspNetCore.Components.WebAssembly",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter",
+                "Microsoft.Authentication.WebAssembly.Msal",
+            ],
+            blazor.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Microsoft.AspNetCore.Components",
+                "Microsoft.Authentication.WebAssembly",
+            ],
+            blazor.Populations.Select(population =>
+                Assert.IsType<
+                    WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                        population).Prefix.Prefix));
+    }
+
+    [Fact]
+    public void AllKnownMauiRegistrationSeparatesConcreteRootsFromDiscoveryPrefixes()
+    {
+        WorkspaceEcosystemRegistrationDeclaration maui =
+            EcosystemPackCatalog.CreateWorkspacePlan().Registrations
+                .Select(item => Assert.IsType<WorkspaceRegistration.Ecosystem>(item).Declaration)
+                .Single(declaration => declaration.Id.Value == EcosystemPackIds.Maui.Value);
+
+        Assert.Equal(
+            [
+                "Microsoft.Maui.Controls",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "CommunityToolkit.Maui",
+                "Microsoft.Maui.Graphics.Skia",
+                "Microsoft.Maui.Graphics.Text.Markdig",
+            ],
+            maui.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Microsoft.Maui.",
+                "CommunityToolkit.Maui",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+            ],
+            maui.Populations.Select(population =>
+                Assert.IsType<
+                    WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                        population).Prefix.Prefix));
     }
 
     [Theory]

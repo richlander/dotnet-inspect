@@ -82,6 +82,15 @@ jobs:
             --untracked \
             --set-default-install false \
             --interactive false
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$DOTNET_SDK_VERSION",
+              "rollForward": "disable",
+              "allowPrerelease": true
+            }
+          }
+          EOF
           echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
           test "$("$DOTNET_ROOT/dotnet" --version)" = "$DOTNET_SDK_VERSION"
 
@@ -280,7 +289,7 @@ jobs:
             eng/test-inspect-web-package-adoption-gate.sh \
               --grep 'drives the production opening, join, occurrence, and rejection contracts'
 
-      - name: Publish MSDL managed API
+      - name: Publish Inspect Web managed API
         run: >
           dotnet publish
           inspect-web/msdl-proxy/MsdlProxy.csproj

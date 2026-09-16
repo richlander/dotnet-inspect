@@ -12,10 +12,15 @@ remains independent of consumer-specific Analysis and Decompiler policy.
 
 ## Status and decision
 
-This is a target extension of the
+This contract is implemented by
+`MethodInstructions.Decode(MethodBodyData)`,
+`InstructionExceptionFlowFacts`, and
+`InstructionExceptionFlowResult<T>` as step 3 of
+[#6965](https://github.com/richlander/dotnet-inspect/issues/6965). It extends the
 [`ILInspector.Instructions` substrate](instruction-substrate.md), tracked by
-[#6965](https://github.com/richlander/dotnet-inspect/issues/6965). Product
-types, queries, and gates are **unverified on `main`**.
+that issue. Analysis adopts the facts in step 4. Decompiler import and EH
+structuring adopt them in step 5; later Decompiler consumers remain separately
+staged.
 
 Instructions is the right owner because these facts become true only after
 joining decoded opcodes and branch targets with the declared exception
@@ -30,7 +35,8 @@ Instructions.
 
 ## Exact input and identity
 
-Construction consumes one Metadata-issued method-body observation:
+The available shared construction consumes one Metadata-issued method-body
+observation:
 
 - copied IL bytes;
 - the complete clause catalog;
@@ -40,6 +46,22 @@ Construction consumes one Metadata-issued method-body observation:
 Instructions refuses a mismatched or incomplete handoff. It does not accept
 independently acquired clauses and bytes as though they were one body
 observation.
+
+The available association is owner-controlled: `MethodInstructions` exposes a
+get-only fact result and is not record-cloneable. Instruction and block queries
+that accept owner objects require the exact instances from that decoded body,
+so structurally equal values from another observation cannot re-pair the
+evidence.
+
+Legacy `byte[]` / raw `ExceptionRegion` and `MethodBodyBlock` decode overloads
+continue to produce the existing decoded instructions and EH-aware
+`BlockGraph`, but their shared exception-flow result is explicitly unavailable
+because they lack Metadata's evidence currency. Both paths use the same
+topology builder; the legacy path cannot issue correlated public identities.
+An illegal normal transfer makes the correlated fact set unavailable without
+invalidating an otherwise structurally complete Layer 0 block graph, preserving
+inspection and disassembly of arbitrary IL.
+The temporary `MethodBodyData.ExceptionRegions` handoff has been retired.
 
 Clause identities remain Metadata identities. Instructions additionally issues
 body-scoped **exception region identities** for exact typed protected, filter,
@@ -69,16 +91,26 @@ against it. The immutable result preserves:
 - strict outer-to-inner region nesting; and
 - the association among clauses, typed regions, instructions, and blocks.
 
-Construction is transactional. Invalid crossing regions, impossible
-boundaries, malformed IL, or an incomplete owner handoff produce typed
-unavailability. The owner does not discard one clause and publish a smaller
-topology as complete.
+Construction is transactional. Invalid crossing regions, impossible or
+prefix-interior boundaries, malformed IL, invalid nested protected-group
+order, mismatched clause-enclosing context, or an incomplete owner handoff
+produce typed unavailability. Shared protected extents retain catch/filter
+clause order; a shared extent cannot combine a `finally` or `fault` with
+another clause. Their rows need not be globally contiguous when a complete
+clause is nested in one handler. A clause's protected, filter, and handler
+extents share the same external enclosing-region context. The
+inner-before-outer metadata-order requirement applies to nested protected
+groups: every clause in the inner group precedes every clause in the enclosing
+group. A complete clause nested in another clause's handler is not reordered.
+The owner does not discard one clause and publish a smaller topology as complete.
 
 The existing `MethodInstructions` and `BlockGraph` are the implementation
 basis and first same-owner consumer. Adoption replaces their independently
-numbered `ExceptionRegionModel` values and private crossed-`finally`
-calculation with the owner-issued identities and queries; it does not create a
-second EH graph beside them.
+constructed topology and private crossed-`finally` calculation with one
+internal topology builder and owner-issued identities and queries. The
+existing `ExceptionRegionModel` surface is now a compatibility projection of
+that topology for consumers awaiting their focused adoption steps; it is not a
+second EH graph.
 
 ## Location context
 
@@ -99,29 +131,44 @@ topology, or other unavailable evidence.
 
 ## Normal-transfer facts
 
-The initial transfer contract admits branches, leaves, and returns whose
-source and logical destination are known. It separates the post-cleanup
-destination from the exception machinery crossed first:
+The initial transfer contract admits one encoded branch, leave, or return edge
+whose source and logical destination are known and whose EH transfer is valid.
+Conditional branch and switch alternatives are separate edges, not ambiguous
+facts. It separates the post-cleanup destination from the exception machinery
+crossed first:
 
 | Fact | Ordering and meaning |
 | --- | --- |
 | Source context | Outer-to-inner regions containing the transfer. |
-| Logical destination | The canonical imported control point or method exit reached after cleanup. |
+| Logical destination | The canonical imported control point or method exit where execution resumes if every scheduled cleanup completes normally. |
 | Regions left | Innermost-to-outermost. |
 | Cleanup handlers | Exact Metadata clause and Instructions handler identities in runtime execution order. Normal flow includes exited `finally` handlers, not `fault` handlers. |
 | Regions entered | Outermost-to-innermost. |
 | Normal continuation | Owner-issued identity for the logical destination after cleanup. |
 
 A leave to an imported target block names that block's continuation. A direct
-return names the body's method-exit continuation. Distinct imported return
-blocks remain distinct continuations even if both eventually exit the method.
-Two transfers can share a continuation while crossing different cleanup
-sequences; consumers compare both facts when both matter.
+return outside every EH region names the body's method-exit continuation.
+Distinct imported return blocks remain distinct continuations even if both
+eventually exit the method. Two transfers can share a continuation while
+crossing different cleanup sequences; consumers compare both facts when both
+matter.
 
-The owner reports entering a protected region if that is what the encoded
-transfer requests. It does not turn the fact into a legality judgment.
+Availability is opcode-aware. An ordinary branch is available only when its
+encoded edge stays in one EH context; sequential fallthrough may enter one or
+more protected regions at their starts. A direct return is available only
+outside EH regions. A leave whose source and destination are both outside
+every EH region is available with known-empty region and cleanup facts. A
+leave can exit protected regions and catch or filter-associated handlers, but
+cannot originate in a filter, exit a `finally` or `fault` handler, or enter a
+filter or handler. A handler retained by both endpoints is neither exited nor
+entered, so a leave nested within that handler is valid. The ECMA-335
+handler-to-associated-try exception is preserved for catch and
+filter-associated handlers; otherwise a leave cannot enter a new protected
+region. Other encoded cross-boundary transfers make construction of the
+correlated fact set unavailable rather than receive synthetic runtime cleanup
+semantics.
 
-Exceptional search is outside the initial contract. Throw, rethrow,
+Exceptional search is outside the initial contract. `throw`, `rethrow`,
 `endfilter`, `endfinally`, and `fault` completion return typed unavailable
 reasons rather than known-empty normal-transfer facts. A future exceptional
 flow contract must separately define search/filter order, selected handler,
@@ -129,7 +176,8 @@ unwind cleanup, rethrow origin, and handler resumption.
 
 ## Closed result
 
-Construction and every query distinguish:
+Construction and every query use
+`InstructionExceptionFlowResult<T>` to distinguish:
 
 | Result | Meaning |
 | --- | --- |
@@ -156,6 +204,21 @@ Analysis and Decompiler are peers above Instructions:
 
 The owner exposes no `CanRaise`, `IsLeakSafe`, or recipe-specific answer.
 
+The Analysis step-4 adapter uses `LocationAt` to obtain validated inner/outer
+protected-region and handler membership for ArrayPool cleanup policy. It uses
+Metadata clause order only within the owner-issued protected-region identity
+and declines when location or catch-type evidence is unavailable. Exceptional
+search and unwind remain unclaimed; deciding whether an earlier catch can
+intercept a resource path is conservative Analysis policy.
+
+For a body that declares EH, the Decompiler step-5 adapter carries the same
+`MethodInstructions` object through physical import. EH structuring groups
+exact clause adapters by protected-region identity, uses `LocationAt` for
+production protected/filter/handler membership, and uses `NormalTransferAt`
+for supported explicit branch, leave, and return edges. It retains ownership of C#
+raisability, node construction, and fidelity; sequential fallthrough relies on
+successful Instructions construction rather than a transfer query.
+
 ## Analogous implementations
 
 The architecture comparison was performed on 2026-09-10 and transfers
@@ -179,19 +242,42 @@ Both repositories are MIT-licensed. This comparison is architecture-only. A
 later implementation that closely adapts code requires its own provenance
 review and applicable notices.
 
-## Evidence plan
+## Evidence
 
-The contract remains unverified until the Instructions implementation names
-Release gates for:
+`ExceptionFlowFactsTests` provides Release gates for:
 
-- exact Metadata body/clause currency preservation;
-- shared protected extents, nesting, filters, catches, `finally`, and `fault`;
-- malformed IL, invalid boundaries, and crossing-region refusal;
-- known-empty versus unavailable location contexts;
-- normal branch/leave/return ordering and canonical continuations;
+- exact Metadata body/clause currency preservation and explicit unavailability
+  for raw-body decode;
+- shared protected extents, nesting, filters, catches, `finally`, and a real
+  platform `fault`;
+- malformed IL, invalid and prefix-interior boundaries, crossing regions, and
+  invalid protected-group order and mismatched clause-enclosing context;
+- body/fact re-pairing and structurally equal foreign blocks;
+- known-empty location context versus a non-instruction offset;
+- per-edge branch, distinct explicit-target and sequential-fallthrough entry,
+  catch and filter-handler leave to their associated try, retained enclosing
+  handlers, ordinary leave, and return facts, ordered nested cleanup handlers,
+  canonical block/method-exit continuations, typed out-of-range destination
+  failure, and rejection of a branch or direct return that illegally exits an
+  EH context;
 - explicit exceptional-transfer unavailability; and
-- correspondence with the existing EH-aware `BlockGraph` behavior while its
-  duplicate region and crossed-handler logic is retired.
+- the runtime `TextReader.Read(Span<char>)` `finally` transfer, cleanup
+  identity, and continuation witness.
+
+Existing `BlockGraphTests` gate that leave edges still traverse nested
+`finally` handlers in runtime order while the graph consumes the shared
+topology cleanup query.
+
+Analysis `LeakTriageAnalyzerTests` gate preservation of the Metadata body and
+clause identities, explicit refusal of uncorrelated body signals, nested
+protected-context ordering, handler-identity release membership, catch-all
+cleanup, and typed/nested catch near misses through the production
+`LibraryBodyIndex` path.
+
+Decompiler `DecompilerExceptionFactAdoptionTests` gate the correlated
+`MethodInstructions` handoff, exact clause and structured-node identity,
+Metadata catch order, visible refusal of missing or rejected evidence, and the
+runtime `TextReader.Read(Span<char>)` cleanup identity.
 
 The .NET runtime's
 [`TextReader.Read(Span<char>)`](https://github.com/dotnet/runtime/blob/f9b470a5ae7dccd67a1d3fb21aea39c3c8410c7c/src/libraries/System.Private.CoreLib/src/System/IO/TextReader.cs#L96-L114)

@@ -55,8 +55,7 @@ public abstract record BoundedMethodBodyRead
     /// exception regions and local signatures are not materialized. Beyond the session's
     /// retained image, the read needs this array plus constant-size bookkeeping.
     /// A consumer that needs whole-body facts uses
-    /// <see cref="MethodBodySource.TryRead(int, out MethodBodyData?, out string?)"/>, which is
-    /// unbounded by design.
+    /// <see cref="MethodBodySource.Read(int, int)"/>.
     /// </summary>
     public sealed record Available(ImmutableArray<byte> IL) : BoundedMethodBodyRead;
 
@@ -188,7 +187,7 @@ public sealed partial class MethodBodySource
     /// of at most <paramref name="maxILBytes"/> bytes plus constant-size bookkeeping.
     /// An over-limit read does not materialize IL. Exception regions, local signatures, and the
     /// body block itself are not materialized; those whole-body facts remain on
-    /// <see cref="TryRead(int, out MethodBodyData?, out string?)"/>.
+    /// <see cref="Read(int, int)"/>.
     /// </para>
     /// <para>
     /// The limit is enforced before the allocation it governs: the IL code size comes from the
@@ -200,10 +199,9 @@ public sealed partial class MethodBodySource
     /// and a fat body.
     /// </para>
     /// <para>
-    /// Unlike <see cref="TryRead(int, out MethodBodyData?, out string?)"/> — which is unbounded,
-    /// materializes exception regions, and reports every refusal as a message string — each
-    /// outcome here is typed, so "no body", "too large", and "malformed" stay distinguishable. A
-    /// consumer that needs whole-body facts uses that path deliberately.
+    /// Unlike <see cref="Read(int, int)"/>, this path does not materialize
+    /// exception regions. Both paths keep "no body", "too large", and
+    /// "malformed" distinguishable.
     /// </para>
     /// <para>
     /// Gates: <c>BoundedBody_ReturnsExactILWithinTheLimit</c>,
@@ -217,7 +215,11 @@ public sealed partial class MethodBodySource
         _ensureAlive();
         ArgumentOutOfRangeException.ThrowIfNegative(maxILBytes);
 
-        if (!TryGetMethodDefinition(methodToken, out var method, out var tokenFailure))
+        if (!TryGetMethodDefinition(
+                methodToken,
+                out _,
+                out var method,
+                out var tokenFailure))
             return new BoundedMethodBodyRead.Unreadable(tokenFailure);
 
         int rva = method.RelativeVirtualAddress;
@@ -319,9 +321,11 @@ public sealed partial class MethodBodySource
 
     bool TryGetMethodDefinition(
         int methodToken,
+        out MethodDefinitionHandle handle,
         out MethodDefinition method,
         out MethodBodyReadFailure failure)
     {
+        handle = default;
         method = default;
         failure = MethodBodyReadFailure.NotMethodDefinitionToken;
 
@@ -335,10 +339,10 @@ public sealed partial class MethodBodySource
             return false;
         }
 
+        handle = MetadataTokens.MethodDefinitionHandle(rowNumber);
         try
         {
-            method = _reader.GetMethodDefinition(
-                MetadataTokens.MethodDefinitionHandle(rowNumber));
+            method = _reader.GetMethodDefinition(handle);
             return true;
         }
         catch (Exception ex) when (ex is BadImageFormatException

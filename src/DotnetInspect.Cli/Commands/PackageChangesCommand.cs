@@ -1,11 +1,10 @@
-using System.Runtime.CompilerServices;
-
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using Markout;
 using NuGetFetch;
@@ -15,10 +14,12 @@ using NetworkHttpClientFactory =
 
 namespace DotnetInspect.Cli.Commands;
 
-internal static class EcosystemChangesCommand
+internal static class PackageChangesCommand
 {
+    internal const string Name = "activity";
+
     internal static async Task<int> ExecuteAsync(
-        EcosystemChangesOptions options,
+        PackageChangesOptions options,
         CommandContext context,
         CancellationToken cancellationToken)
     {
@@ -76,7 +77,7 @@ internal static class EcosystemChangesCommand
     }
 
     internal static async Task<int> ExecuteAsync(
-        EcosystemChangesOptions options,
+        PackageChangesOptions options,
         INuGetCatalogPackageSourceClient source,
         GitHubNuGetAdvisoryService advisoryService,
         VerboseLogger logger,
@@ -95,7 +96,7 @@ internal static class EcosystemChangesCommand
                 or OutputFormat.Json))
         {
             CommandError.Write(
-                $"Output format '{options.Format}' is not supported with --changes; use Markdown, plain text, or JSON.");
+                $"Output format '{options.Format}' is not supported with package activity; use Markdown, plain text, or JSON.");
             return 1;
         }
 
@@ -145,10 +146,12 @@ internal static class EcosystemChangesCommand
                 plan,
                 cancellationToken,
                 operationContext);
-        EcosystemChangeReportDocument document =
-            await EcosystemChangeReportPresentation.CollectAsync(
-                ObserveProgress(events, logger, cancellationToken),
+        InspectionEnvelope<EcosystemChangeReportDocument> inspection =
+            await EcosystemChangeReportInspection.ExecuteAsync(
+                events,
+                new VerboseProgressSink(logger),
                 cancellationToken).ConfigureAwait(false);
+        EcosystemChangeReportDocument document = inspection.Content;
 
         WriteOutput(document, options);
         return document.Failures.IsEmpty
@@ -160,7 +163,7 @@ internal static class EcosystemChangesCommand
 
     private static void WriteOutput(
         EcosystemChangeReportDocument document,
-        EcosystemChangesOptions options)
+        PackageChangesOptions options)
     {
         switch (options.Format)
         {
@@ -185,34 +188,35 @@ internal static class EcosystemChangesCommand
                 return;
             default:
                 throw new InvalidOperationException(
-                    "Unsupported ecosystem change report output format.");
+                    "Unsupported package activity output format.");
         }
     }
 
-    private static async IAsyncEnumerable<EcosystemChangeReportEvent>
-        ObserveProgress(
-            IAsyncEnumerable<EcosystemChangeReportEvent> events,
-            VerboseLogger logger,
-            [EnumeratorCancellation] CancellationToken cancellationToken)
+    private sealed class VerboseProgressSink(VerboseLogger logger)
+        : IEcosystemChangeReportNonterminalSink
     {
-        EcosystemChangeReportProgressPhase? activePhase = null;
-        int lastCatalogPageReport = 0;
-        await foreach (EcosystemChangeReportEvent item
-            in events.WithCancellation(cancellationToken).ConfigureAwait(false))
+        EcosystemChangeReportProgressPhase? _activePhase;
+        int _lastCatalogPageReport;
+
+        public ValueTask ReportAsync(
+            EcosystemChangeReportNonterminalEvent reportEvent,
+            CancellationToken cancellationToken)
         {
-            if (item is EcosystemChangeReportEvent.Progress progress)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (reportEvent
+                is EcosystemChangeReportNonterminalEvent.Progress progress)
             {
-                if (activePhase != progress.Value.Phase)
+                if (_activePhase != progress.Value.Phase)
                 {
-                    activePhase = progress.Value.Phase;
+                    _activePhase = progress.Value.Phase;
                     logger.Log(ProgressStart(progress.Value));
                 }
                 else if (progress.Value.Phase
                         == EcosystemChangeReportProgressPhase.Catalog
                     && progress.Value.CatalogPagesAcquired
-                        >= lastCatalogPageReport + 50)
+                        >= _lastCatalogPageReport + 50)
                 {
-                    lastCatalogPageReport =
+                    _lastCatalogPageReport =
                         progress.Value.CatalogPagesAcquired;
                     logger.Log(
                         $"Catalog: inspected {progress.Value.Completed:N0} activity events "
@@ -220,12 +224,12 @@ internal static class EcosystemChangesCommand
                 }
             }
 
-            yield return item;
+            return ValueTask.CompletedTask;
         }
     }
 
     private static string ProgressStart(
-        EcosystemChangeReportProgress progress) =>
+        EcosystemChangeReportProgressPresentation progress) =>
         progress.Phase switch
         {
             EcosystemChangeReportProgressPhase.Catalog =>

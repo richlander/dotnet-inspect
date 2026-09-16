@@ -66,6 +66,16 @@ internal static class PromotionWorkflowContract
             ".github",
             "workflows",
             "deploy-inspect-web-coreclr.yml");
+        string runtimeCohortPath = Path.Combine(
+            repository,
+            ".github",
+            "workflows",
+            "inspect-web-runtime-cohort-nightly.yml");
+        string runtimePinProposalPath = Path.Combine(
+            repository,
+            ".github",
+            "workflows",
+            "inspect-web-runtime-pin-proposal.yml");
         string asyncVerifierPath = Path.Combine(
             repository,
             "eng",
@@ -77,16 +87,46 @@ internal static class PromotionWorkflowContract
         string promotionWorkflow = File.ReadAllText(promotionPath);
         string stagingWorkflow = File.ReadAllText(stagingPath);
         string coreClrStagingWorkflow = File.ReadAllText(coreClrStagingPath);
+        string runtimeCohortWorkflow = File.ReadAllText(runtimeCohortPath);
+        string runtimePinProposalWorkflow =
+            File.ReadAllText(runtimePinProposalPath);
         string asyncVerifier = File.ReadAllText(asyncVerifierPath);
         string asyncLoweringReceiptTarget =
             File.ReadAllText(asyncLoweringReceiptTargetPath);
         ValidatePromotion(promotionWorkflow);
         ValidateStaging(stagingWorkflow);
         ValidateCoreClrStaging(coreClrStagingWorkflow);
+        ValidateRuntimeSdkGlobalJsonOverride(
+            runtimeCohortWorkflow,
+            "$DOTNET_SDK_VERSION",
+            "runtime cohort");
+        ValidateRuntimeSdkGlobalJsonOverride(
+            runtimePinProposalWorkflow,
+            "$candidate_sdk",
+            "runtime pin proposal");
         ValidateAsyncDeploymentVerifier(asyncVerifier);
         ValidateAsyncLoweringReceiptTarget(asyncLoweringReceiptTarget);
         InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet(asyncVerifier);
         InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts(asyncVerifier);
+
+        AssertMutationRejected(
+            runtimeCohortWorkflow,
+            "              \"version\": \"$DOTNET_SDK_VERSION\",\n",
+            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            workflow => ValidateRuntimeSdkGlobalJsonOverride(
+                workflow,
+                "$DOTNET_SDK_VERSION",
+                "runtime cohort"),
+            "Runtime cohort contract accepted the repository SDK in the candidate SDK root.");
+        AssertMutationRejected(
+            runtimePinProposalWorkflow,
+            "              \"version\": \"$candidate_sdk\",\n",
+            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            workflow => ValidateRuntimeSdkGlobalJsonOverride(
+                workflow,
+                "$candidate_sdk",
+                "runtime pin proposal"),
+            "Runtime pin proposal contract accepted the repository SDK in the candidate SDK root.");
 
         const string trustedCheckout =
             """
@@ -472,25 +512,6 @@ internal static class PromotionWorkflowContract
             "      cancel-in-progress: true\n",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted cancellation between promotions.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "      - deploy\n",
-            "",
-            ValidatePromotion,
-            "Promotion workflow contract allowed CoreCLR deployment before production.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "      source_sha: ${{ needs.resolve.outputs.sha }}\n",
-            "      source_sha: ${{ github.sha }}\n",
-            ValidatePromotion,
-            "Promotion workflow contract accepted a non-promoted CoreCLR revision.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "      artifact_id: ${{ needs.resolve.outputs.artifact_id }}\n",
-            "      artifact_id: latest\n",
-            ValidatePromotion,
-            "Promotion workflow contract accepted a non-promoted CoreCLR artifact.");
-
         AssertRejected(
             coreClrStagingWorkflow +
             """
@@ -504,6 +525,32 @@ internal static class PromotionWorkflowContract
             """,
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted an extra environment-scoped job.");
+    }
+
+    private static void ValidateRuntimeSdkGlobalJsonOverride(
+        string workflow,
+        string sdkVersionExpression,
+        string context)
+    {
+        string expected =
+            "          cat > global.json <<EOF\n" +
+            "          {\n" +
+            "            \"sdk\": {\n" +
+            "              \"version\": \"__SDK_VERSION__\",\n" +
+            "              \"rollForward\": \"disable\",\n" +
+            "              \"allowPrerelease\": true\n" +
+            "            }\n" +
+            "          }\n" +
+            "          EOF\n";
+        expected = expected.Replace(
+                    "__SDK_VERSION__",
+                    sdkVersionExpression,
+                    StringComparison.Ordinal);
+        if (!workflow.Contains(expected, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"{context} must select its installed SDK through global.json.");
+        }
     }
 
     private static void ValidatePromotion(string workflow)
@@ -544,7 +591,7 @@ internal static class PromotionWorkflowContract
             },
             "promotion workflow.concurrency");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "promotion workflow");
-        RequireExactKeys(jobs, ["resolve", "deploy", "coreclr"], "promotion jobs");
+        RequireExactKeys(jobs, ["resolve", "deploy"], "promotion jobs");
         YamlMappingNode resolve = GetRequiredMapping(jobs, "resolve", "promotion jobs");
         RequireExactKeys(
             resolve,
@@ -726,46 +773,6 @@ internal static class PromotionWorkflowContract
             },
             "production deploy step.with");
 
-        YamlMappingNode coreClr =
-            GetRequiredMapping(jobs, "coreclr", "promotion jobs");
-        RequireExactKeys(
-            coreClr,
-            ["name", "needs", "uses", "with", "secrets"],
-            "jobs.coreclr");
-        RequireScalarValue(
-            coreClr,
-            "name",
-            "Publish matching CoreCLR comparison",
-            "jobs.coreclr");
-        YamlSequenceNode coreClrNeeds =
-            GetRequiredSequence(coreClr, "needs", "jobs.coreclr");
-        string[] actualCoreClrNeeds = coreClrNeeds.Children
-            .Select(node => RequireScalar(node, "jobs.coreclr need"))
-            .ToArray();
-        if (!actualCoreClrNeeds.SequenceEqual(["resolve", "deploy"]))
-        {
-            throw new InvalidOperationException(
-                "jobs.coreclr.needs must require resolution and production deployment.");
-        }
-        RequireScalarValue(
-            coreClr,
-            "uses",
-            "./.github/workflows/deploy-inspect-web-coreclr.yml",
-            "jobs.coreclr");
-        RequireExactScalarValues(
-            GetRequiredMapping(coreClr, "with", "jobs.coreclr"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["staging_run_id"] = "${{ inputs.staging_run_id }}",
-                ["source_sha"] = "${{ needs.resolve.outputs.sha }}",
-                ["artifact_id"] = "${{ needs.resolve.outputs.artifact_id }}",
-            },
-            "jobs.coreclr.with");
-        RequireScalarValue(
-            coreClr,
-            "secrets",
-            "inherit",
-            "jobs.coreclr");
     }
 
     private static void ValidateStaging(string workflow)
@@ -955,7 +962,7 @@ internal static class PromotionWorkflowContract
             RequireStep(
                 buildSteps,
                 7,
-                "Publish MSDL managed API",
+                "Publish Inspect Web managed API",
                 "jobs.build"),
             "artifacts/inspect-web-publish/api",
             "staging managed API publish step");
@@ -1266,6 +1273,15 @@ internal static class PromotionWorkflowContract
               --untracked \
               --set-default-install false \
               --interactive false
+            cat > global.json <<EOF
+            {
+              "sdk": {
+                "version": "$DOTNET_SDK_VERSION",
+                "rollForward": "disable",
+                "allowPrerelease": true
+              }
+            }
+            EOF
             echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
             test "$("$DOTNET_ROOT/dotnet" --version)" = "$DOTNET_SDK_VERSION"
             """;
@@ -1579,7 +1595,7 @@ internal static class PromotionWorkflowContract
             RequireStep(
                 publishSteps,
                 9,
-                "Publish MSDL managed API",
+                "Publish Inspect Web managed API",
                 "CoreCLR jobs.build"),
             "artifacts/inspect-web-coreclr-publish/api",
             "CoreCLR managed API publish step");

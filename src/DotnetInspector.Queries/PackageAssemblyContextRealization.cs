@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries;
 
@@ -60,6 +61,7 @@ public sealed class PackageRootBinding
     PackageRootBinding(
         PackageRootRealization root,
         RealizedMemberCoordinate.Package coordinate,
+        PackageProducerIdentity? sourceProducer,
         PackageContentGenerationIdentity contentGenerationIdentity,
         PackageRootSelectionIdentity selectionIdentity,
         string? compileTargetFramework,
@@ -67,6 +69,7 @@ public sealed class PackageRootBinding
     {
         Root = root;
         Coordinate = coordinate;
+        SourceProducer = sourceProducer;
         ContentGenerationIdentity = contentGenerationIdentity;
         SelectionIdentity = selectionIdentity;
         CompileTargetFramework = compileTargetFramework;
@@ -77,6 +80,8 @@ public sealed class PackageRootBinding
     public PackageRootRealization Root { get; }
 
     public RealizedMemberCoordinate.Package Coordinate { get; }
+
+    internal PackageProducerIdentity? SourceProducer { get; }
 
     public PackageContentGenerationIdentity ContentGenerationIdentity { get; }
 
@@ -135,6 +140,9 @@ public sealed class PackageRootBinding
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
+            SourceCoordinateProducer(payload),
+            payload.Producer,
+            payload.LegacyProducerKey,
             acquisitionFramework,
             selectionTargetFramework,
             runtimeIdentifier);
@@ -158,6 +166,9 @@ public sealed class PackageRootBinding
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
+            SourceCoordinateProducer(payload),
+            payload.Producer,
+            payload.LegacyProducerKey,
             acquisitionFramework,
             receipt.RequestedTargetFramework,
             receipt.RequestedRuntimeIdentifier,
@@ -183,6 +194,9 @@ public sealed class PackageRootBinding
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
+            SourceCoordinateProducer(payload),
+            payload.Producer,
+            payload.LegacyProducerKey,
             acquisitionFramework,
             receipt.RequestedTargetFramework,
             receipt.RequestedRuntimeIdentifier,
@@ -280,6 +294,9 @@ public sealed class PackageRootBinding
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
+            SourceCoordinateProducer(payload),
+            payload.Producer,
+            payload.LegacyProducerKey,
             acquisitionFramework,
             compatibleSelection.TargetFramework,
             runtimeIdentifier: null,
@@ -302,6 +319,9 @@ public sealed class PackageRootBinding
             coordinate.Version,
             payload.Content,
             payload.ProducerKey,
+            coordinate.Producer,
+            payload.Producer,
+            payload.LegacyProducerKey,
             coordinate.Framework,
             request.SelectionTargetFramework,
             coordinate.RuntimeIdentifier,
@@ -312,7 +332,8 @@ public sealed class PackageRootBinding
 
     internal static PackageRootBinding CreateFromReacquiredResolved(
         AcquiredPackagePayload payload,
-        PackageRootReacquisitionRequest request)
+        PackageRootReacquisitionRequest request,
+        PackageProducerIdentity? producer = null)
     {
         RealizedMemberCoordinate.Package coordinate = request.Coordinate;
         PackageCompileAssetSelection? selection =
@@ -324,6 +345,9 @@ public sealed class PackageRootBinding
             coordinate.Version,
             payload.Content,
             payload.ProducerKey,
+            coordinate.Producer,
+            producer,
+            sourceProducerAlias: null,
             coordinate.Framework,
             request.SelectionTargetFramework,
             coordinate.RuntimeIdentifier,
@@ -348,6 +372,34 @@ public sealed class PackageRootBinding
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
+            payload.ProducerKey,
+            sourceProducer: null,
+            sourceProducerAlias: null,
+            payload.Coordinate.Framework,
+            selectionTargetFramework ?? payload.Coordinate.Framework,
+            payload.Coordinate.RuntimeIdentifier);
+    }
+
+    internal static PackageRootBinding CreateFromResolved(
+        AcquiredPackagePayload payload,
+        string? selectionTargetFramework,
+        string? displayPackageId,
+        string coordinateProducer,
+        PackageProducerIdentity producer)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(coordinateProducer);
+        ArgumentNullException.ThrowIfNull(producer);
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            coordinateProducer,
+            producer,
+            sourceProducerAlias: null,
             payload.Coordinate.Framework,
             selectionTargetFramework ?? payload.Coordinate.Framework,
             payload.Coordinate.RuntimeIdentifier);
@@ -393,6 +445,9 @@ public sealed class PackageRootBinding
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
+            payload.ProducerKey,
+            sourceProducer: null,
+            sourceProducerAlias: null,
             payload.Coordinate.Framework,
             compatibleSelection.TargetFramework,
             payload.Coordinate.RuntimeIdentifier,
@@ -497,6 +552,9 @@ public sealed class PackageRootBinding
         string packageVersion,
         IPackageContent content,
         string producerKey,
+        string coordinateProducer,
+        PackageProducerIdentity? sourceProducer,
+        string? sourceProducerAlias,
         string? acquisitionFramework,
         string? targetFramework,
         string? runtimeIdentifier,
@@ -511,6 +569,9 @@ public sealed class PackageRootBinding
                 packageVersion,
                 content,
                 producerKey,
+                coordinateProducer,
+                sourceProducer,
+                sourceProducerAlias,
                 acquisitionFramework,
                 targetFramework,
                 runtimeIdentifier,
@@ -535,6 +596,9 @@ public sealed class PackageRootBinding
         string packageVersion,
         IPackageContent content,
         string producerKey,
+        string coordinateProducer,
+        PackageProducerIdentity? sourceProducer,
+        string? sourceProducerAlias,
         string? acquisitionFramework,
         string? targetFramework,
         string? runtimeIdentifier,
@@ -559,6 +623,20 @@ public sealed class PackageRootBinding
                 "The acquired package payload and retained content name different producers.",
                 nameof(acquiredPayload));
         }
+        if (sourceProducer is null
+                ? !producerKey.Equals(
+                    coordinateProducer,
+                    StringComparison.Ordinal)
+                : !MatchesSourceProducer(
+                    sourceProducer,
+                    producerKey,
+                    coordinateProducer,
+                    sourceProducerAlias))
+        {
+            throw new ArgumentException(
+                "The acquired package payload does not establish the coordinate producer.",
+                nameof(acquiredPayload));
+        }
 
         string? effectiveFramework =
             (string.IsNullOrWhiteSpace(acquisitionFramework)
@@ -570,7 +648,7 @@ public sealed class PackageRootBinding
         if (!RealizedMemberCoordinate.Package.TryCreate(
                 coordinatePackageId,
                 packageVersion,
-                producerKey,
+                coordinateProducer,
                 effectiveFramework,
                 effectiveRuntimeIdentifier,
                 out RealizedMemberCoordinate.Package? coordinate,
@@ -589,12 +667,66 @@ public sealed class PackageRootBinding
         binding = new PackageRootBinding(
             root,
             coordinate,
+            sourceProducer,
             content.GenerationIdentity,
             new PackageRootSelectionIdentity(),
             compileTargetFramework ?? targetFramework,
             usesCompatibleImplementationSelection);
         return true;
     }
+
+    internal bool ReferencesRetainedContent() =>
+        ReferenceEquals(
+            ContentGenerationIdentity,
+            Root.Content.GenerationIdentity)
+        && Root.ProducerKey.Equals(
+            Root.Content.ProducerKey,
+            StringComparison.Ordinal)
+        && (SourceProducer is null
+            ? Coordinate.Producer.Equals(
+                Root.Content.ProducerKey,
+                StringComparison.Ordinal)
+            : true);
+
+    internal static bool MatchesSourceProducer(
+        AcquiredPackageSourcePayload payload,
+        string coordinateProducer)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(coordinateProducer);
+        return payload.Producer is { } producer
+            ? MatchesSourceProducer(
+                producer,
+                payload.ProducerKey,
+                coordinateProducer,
+                payload.LegacyProducerKey)
+            : payload.ProducerKey.Equals(
+                coordinateProducer,
+                StringComparison.Ordinal);
+    }
+
+    static bool MatchesSourceProducer(
+        PackageProducerIdentity producer,
+        string contentProducerKey,
+        string coordinateProducer,
+        string? legacyProducerKey = null) =>
+        producer.PortableKey.Equals(
+            coordinateProducer,
+            StringComparison.Ordinal)
+        || producer.Key.Equals(
+            coordinateProducer,
+            StringComparison.Ordinal)
+        || contentProducerKey.Equals(
+            coordinateProducer,
+            StringComparison.Ordinal)
+        || legacyProducerKey?.Equals(
+            coordinateProducer,
+            StringComparison.Ordinal) is true;
+
+    static string SourceCoordinateProducer(
+        AcquiredPackageSourcePayload payload) =>
+        payload.Producer?.PortableKey
+        ?? payload.ProducerKey;
 
     internal static string? SourceAcquisitionFramework(string? targetFramework) =>
         PackageCoordinateResolver.IsAcquisitionTargetText(targetFramework)
@@ -654,6 +786,10 @@ public sealed class PackageRootRealization
                 packageId,
                 targetFramework,
                 runtimeIdentifier));
+        HasUnselectedTargetFrameworkAssemblyCandidates =
+            HasUnselectedTargetFrameworkAssemblyCandidatesCore(
+                content,
+                AssetSelection);
     }
 
     public string PackageId { get; }
@@ -671,6 +807,12 @@ public sealed class PackageRootRealization
     public bool FromCache => _content.FromCache;
 
     public PackageCompileAssetSelection AssetSelection { get; }
+
+    /// <summary>
+    /// Whether the package contains a DLL candidate for the selected target
+    /// framework outside the implementation universe.
+    /// </summary>
+    public bool HasUnselectedTargetFrameworkAssemblyCandidates { get; }
 
     internal IPackageContent Content => _content;
 
@@ -694,6 +836,28 @@ public sealed class PackageRootRealization
 
     static IReadOnlyList<T> Freeze<T>(IReadOnlyList<T> values) =>
         Array.AsReadOnly([.. values]);
+
+    static bool HasUnselectedTargetFrameworkAssemblyCandidatesCore(
+        IPackageContent content,
+        PackageCompileAssetSelection selection)
+    {
+        if (selection.TargetFramework is not { } targetFramework)
+            return false;
+
+        HashSet<string> selectedPaths =
+            selection.ImplementationAssets
+                .Select(static asset => asset.Path)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return content.EnumerateEntries().Any(
+            entry =>
+                entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                && TfmResolver.ExtractTfmFromPath(entry)
+                    ?.Equals(
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase)
+                    is true
+                && !selectedPaths.Contains(entry));
+    }
 }
 
 /// <summary>Resource admission policy for acquired-package role realization.</summary>
