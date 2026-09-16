@@ -1,15 +1,11 @@
 import type {
   PackageQueryState,
-  QueryAssemblyPatternDescriptor,
   QueryFacetTerm,
   QueryRequest,
   QueryResultRow,
   QuerySourceSelection,
 } from "./package-query.ts";
-import {
-  createAssemblyQueryRequest,
-  createQueryRequest,
-} from "./package-query.ts";
+import { createQueryRequest } from "./package-query.ts";
 import {
   resolvePackageQueryRowWindow,
   type PackageQueryViewportSnapshot,
@@ -23,14 +19,11 @@ import {
 } from "./query-mode.ts";
 
 const PACKAGE_QUERY_PRESSURE_DISTANCE_PX = 600;
-const DEFAULT_ASSEMBLY_QUERY_TARGET_FRAMEWORK = "net10.0";
-const MAX_ASSEMBLY_QUERY_PACKAGES = 5;
 
 export interface PackageQueryBindingActions {
   onBack: () => void;
   onCancel: () => void;
   onModeChange?: (mode: QueryMode) => void;
-  onAssemblyRun?: (request: QueryRequest) => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
   onResultPressure: () => void;
@@ -58,10 +51,6 @@ export type PackageQueryFocusSnapshot =
   | { kind: "run" }
   | { kind: "results" }
   | { kind: "prerelease" }
-  | {
-      kind: "assembly";
-      control: "pattern" | "packages" | "operand" | "tfm" | "run";
-    }
   | { kind: "facet"; facetKey: string }
   | { kind: "row"; packageId: string; version: string }
   | { kind: "cancel"; index: number }
@@ -69,12 +58,6 @@ export type PackageQueryFocusSnapshot =
 
 interface SelectableQueryElement extends HTMLElement {
   setSelectionRange(start: number, end: number): void;
-}
-
-interface AssemblyQueryControl extends HTMLElement {
-  value: string;
-  setCustomValidity(message: string): void;
-  reportValidity(): boolean;
 }
 
 function isFocusableQueryElement(
@@ -117,10 +100,6 @@ export function capturePackageQueryFocus(
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.id === "package-query-results") return { kind: "results" };
   if (active.id === "package-query-prerelease") return { kind: "prerelease" };
-  const assemblyControl = assemblyControlName(active.id);
-  if (assemblyControl) {
-    return { kind: "assembly", control: assemblyControl };
-  }
   if (active.dataset.queryFacet) {
     return { kind: "facet", facetKey: active.dataset.queryFacet };
   }
@@ -164,10 +143,6 @@ export function restorePackageQueryFocus(
       break;
     case "prerelease":
       target = root.querySelector(`#package-query-${snapshot.kind}`);
-      break;
-    case "assembly":
-      target = root.querySelector(
-        `#package-query-assembly-${snapshot.control}`);
       break;
     case "facet":
       target = [...root.querySelectorAll<HTMLElement>("[data-query-facet]")]
@@ -253,7 +228,6 @@ export function bindPackageQueryView(
   prerelease?.addEventListener("change", () => actions.onSourceChange({
     includePrerelease: prerelease.checked,
   }, prefixInput()?.value ?? ""));
-  bindAssemblyQueryControls(root, actions);
   bindPackageQueryStreamControls(root, actions);
   const queryMain = root.querySelector<HTMLElement>(".query-main");
   const reportResultPressure = () => {
@@ -272,149 +246,6 @@ export function bindPackageQueryView(
       queryMain?.removeEventListener("scroll", handleResultScroll);
     },
   };
-}
-
-function assemblyControlName(
-  id: string,
-): "pattern" | "packages" | "operand" | "tfm" | "run" | null {
-  const prefix = "package-query-assembly-";
-  if (!id.startsWith(prefix)) return null;
-  const control = id.slice(prefix.length);
-  switch (control) {
-    case "pattern":
-    case "packages":
-    case "operand":
-    case "tfm":
-    case "run":
-      return control;
-    default:
-      return null;
-  }
-}
-
-function bindAssemblyQueryControls(
-  root: ParentNode,
-  actions: PackageQueryBindingActions,
-): void {
-  const form = root.querySelector<HTMLFormElement>(
-    "#package-query-assembly-form");
-  if (!form) return;
-  const editableControls = [
-    root.querySelector<HTMLSelectElement>(
-      "#package-query-assembly-pattern"),
-    root.querySelector<HTMLTextAreaElement>(
-      "#package-query-assembly-packages"),
-    root.querySelector<HTMLInputElement>(
-      "#package-query-assembly-operand"),
-    root.querySelector<HTMLInputElement>(
-      "#package-query-assembly-tfm"),
-  ];
-  for (const control of editableControls) {
-    if (!control) continue;
-    const clearError = () => control.setCustomValidity("");
-    control.addEventListener("input", clearError);
-    control.addEventListener("change", clearError);
-  }
-  form.addEventListener("submit", event => {
-    event.preventDefault();
-    const pattern = root.querySelector<HTMLSelectElement>(
-      "#package-query-assembly-pattern");
-    const packages = root.querySelector<HTMLTextAreaElement>(
-      "#package-query-assembly-packages");
-    const operand = root.querySelector<HTMLInputElement>(
-      "#package-query-assembly-operand");
-    const targetFramework = root.querySelector<HTMLInputElement>(
-      "#package-query-assembly-tfm");
-    if (!pattern || !packages || !operand || !targetFramework) {
-      throw new Error("Assembly query controls are incomplete.");
-    }
-    clearCustomValidity([
-      pattern,
-      packages,
-      operand,
-      targetFramework,
-    ]);
-    const selectedPattern = pattern.selectedOptions.item(0);
-    const maximumPackages = Number(
-      selectedPattern?.dataset.maximumPackages ?? 0);
-    const maximumOperandLength = Number(
-      selectedPattern?.dataset.maximumOperandLength ?? 0);
-    if (!pattern.value || maximumPackages <= 0 || maximumOperandLength <= 0) {
-      reportControlError(
-        pattern,
-        "Select an available assembly pattern.");
-      return;
-    }
-    const coordinates = parseExactPackageCoordinates(
-      packages.value,
-      maximumPackages);
-    if (typeof coordinates === "string") {
-      reportControlError(packages, coordinates);
-      return;
-    }
-    if (operand.value.length === 0) {
-      reportControlError(operand, "Enter a literal operand.");
-      return;
-    }
-    if (operand.value.length > maximumOperandLength) {
-      reportControlError(
-        operand,
-        `The literal operand must be at most ${maximumOperandLength.toLocaleString()} characters.`);
-      return;
-    }
-    const framework = targetFramework.value.trim();
-    if (!framework) {
-      reportControlError(
-        targetFramework,
-        "Enter a target framework.");
-      return;
-    }
-    if (!actions.onAssemblyRun) {
-      reportControlError(
-        pattern,
-        "Assembly-pattern package queries are unavailable.");
-      return;
-    }
-    actions.onAssemblyRun(createAssemblyQueryRequest(
-      pattern.value,
-      operand.value,
-      coordinates,
-      framework));
-  });
-}
-
-function clearCustomValidity(
-  controls: readonly AssemblyQueryControl[],
-): void {
-  for (const control of controls) control.setCustomValidity("");
-}
-
-function reportControlError(
-  control: AssemblyQueryControl,
-  message: string,
-): void {
-  control.setCustomValidity(message);
-  control.reportValidity();
-}
-
-export function parseExactPackageCoordinates(
-  value: string,
-  maximumPackages: number,
-): readonly string[] | string {
-  const coordinates = value
-    .split(/\r?\n/)
-    .map(coordinate => coordinate.trim())
-    .filter(Boolean);
-  if (coordinates.length === 0) {
-    return "Enter at least one exact package as ID@VERSION.";
-  }
-  if (coordinates.length > maximumPackages) {
-    return `Enter no more than ${maximumPackages.toLocaleString()} packages.`;
-  }
-  if (coordinates.some(coordinate => !/^[^@\s]+@[^@\s]+$/.test(coordinate))) {
-    return "Enter one exact ID@VERSION package per line.";
-  }
-  return coordinates;
 }
 
 function bindPackageQueryStreamControls(
@@ -447,12 +278,8 @@ function renderRow(
     .filter(item => item.scope === "package")
     .map(item => `<li>${escapeHtml(item.text)}</li>`)
     .join("");
-  const rootRequest = row.tier === "assembly" ? row.rootRequest : undefined;
-  const openAction = row.tier === "assembly" && !rootRequest?.trim()
-    ? `<span>Workspace opening request unavailable</span>`
-    : `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}"${rootRequest
-        ? ` data-query-root-request="${escapeHtml(rootRequest)}"`
-        : ""}>Open in workspace</button>`;
+  const openAction =
+    `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}">Open in workspace</button>`;
   return `
     <article class="query-row"
       role="listitem"
@@ -471,68 +298,15 @@ function renderRow(
         : ""}
       ${evidence ? `<ul class="query-evidence">${evidence}</ul>` : ""}
       <div class="query-row-meta">
-        <span>${row.tier === "assembly"
-          ? "Selector-issued primary implementation assembly"
-          : row.totalDownloads === null
-            ? "Lifetime downloads unavailable"
-            : `${row.totalDownloads.toLocaleString()} lifetime downloads`}</span>
+        <span>${row.totalDownloads === null
+          ? "Lifetime downloads unavailable"
+          : `${row.totalDownloads.toLocaleString()} lifetime downloads`}</span>
         ${row.producer
           ? `<span>${escapeHtml(row.producer)}</span>`
           : ""}
         ${openAction}
       </div>
     </article>`;
-}
-
-function renderAssemblyControls(
-  patterns: readonly QueryAssemblyPatternDescriptor[],
-  state: PackageQueryState,
-  escapeHtml: (value: unknown) => string,
-): string {
-  if (patterns.length === 0) return "";
-  const active = state.request?.assemblyPattern;
-  const selected = patterns.find(pattern => pattern.id === active?.patternId)
-    ?? patterns[0]!;
-  const maximumPackages = Math.min(
-    selected.maximumPackages,
-    MAX_ASSEMBLY_QUERY_PACKAGES);
-  const unavailablePattern = active
-    && !patterns.some(pattern => pattern.id === active.patternId)
-    ? `<option value="${escapeHtml(active.patternId)}" selected disabled>Unavailable pattern</option>`
-    : "";
-  const options = patterns.map(pattern => `
-    <option
-      value="${escapeHtml(pattern.id)}"
-      data-maximum-operand-length="${pattern.maximumOperandLength}"
-      data-maximum-packages="${Math.min(
-        pattern.maximumPackages,
-        MAX_ASSEMBLY_QUERY_PACKAGES)}"${pattern.id === selected.id && !unavailablePattern ? " selected" : ""}>
-      ${escapeHtml(pattern.label)}
-    </option>`).join("");
-  return `
-    <details class="query-source-controls query-assembly-controls"${active ? " open" : ""}>
-      <summary>Assembly patterns</summary>
-      <p>Explicit bounded analysis of the selector-issued primary implementation assembly. It does not search every assembly in a package.</p>
-      <form id="package-query-assembly-form">
-        <label for="package-query-assembly-pattern">Pattern
-          <select id="package-query-assembly-pattern" aria-describedby="package-query-assembly-summary">
-            ${unavailablePattern}${options}
-          </select>
-        </label>
-        <p id="package-query-assembly-summary">${escapeHtml(selected.summary)}</p>
-        <label for="package-query-assembly-packages">Exact packages
-          <textarea id="package-query-assembly-packages" rows="${maximumPackages}" required aria-describedby="package-query-assembly-packages-description" placeholder="Package.Id@1.2.3">${escapeHtml(active?.packageCoordinates.join("\n") ?? "")}</textarea>
-        </label>
-        <p id="package-query-assembly-packages-description">One exact ID@VERSION per line, up to ${maximumPackages.toLocaleString()}.</p>
-        <label for="package-query-assembly-operand">Literal operand
-          <input id="package-query-assembly-operand" type="text" required maxlength="${selected.maximumOperandLength}" value="${escapeHtml(active?.operand ?? "")}" autocomplete="off" spellcheck="false" />
-        </label>
-        <label for="package-query-assembly-tfm">Target framework
-          <input id="package-query-assembly-tfm" type="text" required value="${escapeHtml(active?.targetFramework ?? DEFAULT_ASSEMBLY_QUERY_TARGET_FRAMEWORK)}" autocomplete="off" spellcheck="false" />
-        </label>
-        <button id="package-query-assembly-run" type="submit">Run assembly query</button>
-      </form>
-    </details>`;
 }
 
 function renderQueryContext(
@@ -620,9 +394,7 @@ function renderCompletionFooter(
   const cancelButton = completion.kind === "streaming"
     ? `<button type="button" data-query-cancel="1">Cancel</button>`
     : "";
-  const resultLabel = request?.assemblyPattern
-    ? `assembly match${outcome.rows.length === 1 ? "" : "es"}`
-    : `package${outcome.rows.length === 1 ? "" : "s"}`;
+  const resultLabel = `package${outcome.rows.length === 1 ? "" : "s"}`;
   return `
     <div class="query-footer">
       <span>${outcome.rows.length} ${resultLabel} · ${label}</span>
@@ -686,35 +458,6 @@ function renderEmptyState(
   escapeHtml: (value: unknown) => string,
 ): string {
   const completion = state.outcome.completion;
-  if (state.request?.assemblyPattern) {
-    if (completion.kind === "cancelled") {
-      return `
-        <section class="query-empty">
-          <span class="large-glyph">◇</span>
-          <h2>Assembly query cancelled</h2>
-          <p>This was stopped before every selected package was assessed.</p>
-        </section>`;
-    }
-    if (completion.kind === "failed") {
-      return `
-        <section class="query-empty">
-          <span class="large-glyph">◇</span>
-          <h2>Assembly query failed</h2>
-          <p>${escapeHtml(completion.reason)} This is not a semantic no-match result.</p>
-        </section>`;
-    }
-    if (completion.kind !== "streaming") {
-      const completionScope = completion.kind === "bounded"
-        ? ` Scope: ${escapeHtml(completion.reason)}.`
-        : "";
-      return `
-        <section class="query-empty">
-          <span class="large-glyph">◇</span>
-          <h2>No selected assembly matches</h2>
-          <p>Each outcome applies only to the selector-issued primary implementation assembly. It is not a package-wide absence claim.${completionScope}</p>
-        </section>`;
-    }
-  }
   if (!state.request) {
     return `
       <section class="query-empty">
@@ -786,7 +529,6 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   viewport?: PackageQueryViewportSnapshot | null;
   availableFacets: readonly QueryFacetTerm[];
-  availableAssemblyPatterns?: readonly QueryAssemblyPatternDescriptor[];
   navigationError?: string;
   escapeHtml: (value: unknown) => string;
 }
@@ -798,9 +540,7 @@ function renderFailures(
   return state.outcome.failures.length
     ? `
       <section class="query-failures">
-        <strong>${state.request?.assemblyPattern
-          ? "Some selected-assembly work failed"
-          : "Some package source work failed"}</strong>
+        <strong>Some package source work failed</strong>
         <ul>${state.outcome.failures
           .map(failure => `<li>${escapeHtml(failure)}</li>`)
           .join("")}</ul>
@@ -864,7 +604,7 @@ function renderResults(
   return rows
     ? `${renderProgress(state.outcome, escapeHtml)}${assessments}${renderQueryContext(state.outcome.rows, escapeHtml)}${renderedRows}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
     : state.outcome.completion.kind === "streaming" && state.request
-      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>${state.request.assemblyPattern ? "Evaluating selected assemblies" : "Acquiring package input"}</h2><p>${state.request.assemblyPattern ? "Matches, semantic non-matches, and non-applicable selections will appear as the explicit packages are evaluated." : "Matches will appear as package candidates are evaluated."}</p></section>${renderProgress(state.outcome, escapeHtml)}${assessments}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
+      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Acquiring package input</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderProgress(state.outcome, escapeHtml)}${assessments}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
       : `${assessments}${renderEmptyState(state, escapeHtml)}`;
 }
 
@@ -906,7 +646,6 @@ export function renderPackageQueryView(
     state,
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
-    availableAssemblyPatterns = [],
     navigationError = "",
     escapeHtml,
     viewport = null,
@@ -947,10 +686,6 @@ export function renderPackageQueryView(
         <div class="query-layout">
           <aside class="query-facet-rail" aria-label="Package query controls">
             ${renderPackageOptions(request)}
-            ${renderAssemblyControls(
-              availableAssemblyPatterns,
-              state,
-              escapeHtml)}
             <h2>Inspection facets</h2>
             <p>Changes rerun the selected input; blank package input stays idle.</p>
             <div class="query-facets">${facets}</div>
