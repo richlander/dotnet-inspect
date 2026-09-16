@@ -51,6 +51,9 @@ by this adoption.
 
 Related docs:
 
+- [Coordinate child command](coordinate-child-command.md) defines when a
+  required subordinate coordinate earns a child request surface under an
+  already selected subject.
 - [Output Shapes](output-shapes.md) defines the
   Document → Table → Vector → Scalar ladder.
 - [Host-observable content kinds](host-observable-content-kinds.md) defines
@@ -107,6 +110,10 @@ These are two entry points into the same method-body inspection model, not
 different meanings for the coordinate. Sections such as `Context: Instruction`
 choose the observation/projection, while raw `IL` is a representation lens.
 Neither changes coordinate identity.
+
+The target `library coordinate` child gives the Library entry point a closed
+request grammar without promoting the IL point to an independently navigable
+subject or creating another method-body architecture.
 
 This means focus is not a strict parent-child ladder. A complete coordinate may
 refine a broad scope directly and still return the containing type/member
@@ -547,20 +554,22 @@ This contract does not:
 
 ## When a command transition is justified
 
-A command transition is justified when either of these changes:
+A command transition is justified when one of these changes:
 
 1. **Structural focus domain:** the addressed identity family and primary
    workflow change to another independently navigable surface. `type -> member`
    is a valid transition because a member has a different selector, identity,
-   default view, and drill-in surface. A coordinate refinement such as
-   `library --il-offset`, however, remains an option when the selector is
-   complete within the established library scope and does not need an
-   independent command surface.
+   default view, and drill-in surface.
 2. **Operation arity:** the acquisition topology and Outcome content change.
    Unary inspection, pairwise comparison, and N-address correlation have
    different failure semantics, backpressure, and content kinds. An explicit
    subject-owned operation or mode can express that transition without moving
    the operation to the root.
+3. **Required subordinate-coordinate grammar:** the parent subject remains
+   selected, but a required point or bounded coordinate population establishes
+   a coherent family of observations with its own useful default result.
+   [Coordinate child command](coordinate-child-command.md) owns this narrower
+   rule and its initial `library coordinate` adoption.
 
 Keep the current command when only an observation producer, lens, section,
 traversal choice, or output projection changes. A type-presence census and a
@@ -575,6 +584,13 @@ An execution lifecycle is different when at least one of these is true:
 - a different acquisition plan is required;
 - operation outcomes have a structurally incompatible top-level schema;
 - the addressed subject has a different identity model.
+
+A coordinate child need not change the parent subject or top-level acquisition.
+It is justified when the subordinate coordinate is mandatory, resolving it is
+itself useful or several peer observations depend on it, and the bare child has
+a meaningful bounded result. A section-specific predicate, metadata-root
+selector, traversal depth, row selector, or payload projection does not meet
+that rule.
 
 Additional optional work does not by itself justify a command. A selected
 section may authorize another scanner or network request while remaining one
@@ -1074,7 +1090,7 @@ These transitions answer different questions.
 
 ```text
 package -> library -> type -> member
-library + MethodDef/offset -> IL coordinate
+library coordinate + MethodDef/offset -> IL coordinate
 member + body offset       -> IL coordinate
 ```
 
@@ -1124,6 +1140,30 @@ Because the CLI is stateless, source and focus selectors must be repeated when
 changing operations. In the target subject-owned Diff family, `--history`
 makes the mode change explicit without conflating endpoint and temporal
 content contracts. The diagram describes axes, not positional argument grammar.
+
+### Coordinate child
+
+A coordinate child keeps the subject and unary inspection basis while
+establishing a required subordinate address:
+
+```text
+library -> library coordinate <coordinate> --library <source>
+        -> library coordinate --file <coordinate-population> --library <source>
+```
+
+The initial coordinate families are MethodDef token plus IL offset and metadata
+heap plus offset. Instruction, member, callsite, return-address, allocation,
+safety, cost, and heap-value views remain sections over that established
+request. Raw IL remains a representation lens. The child is a CLI grammar
+boundary over the shared owner queries, not another method-body or metadata
+architecture.
+
+The coordinate owns the child's positional slot. Library acquisition remains
+source context and therefore uses named `--library`, `--package`, or
+`--platform` options, with their applicable selectors. This matches Type and
+Member grammar: positional values identify what is sought, while named source
+options identify where it is resolved. The bare `library` command's historical
+positional source does not transfer into the child grammar.
 
 ### Selection / discovery
 
@@ -1491,20 +1531,26 @@ Before adding a command or mode, answer in order:
 3. Is the location-coordinate cardinality one or multiple?
 4. What result identity family and scalar/vector mode does the gesture select?
 5. Is there a point selector, and is its identity complete within that scope?
-6. What observation census runs within that focus?
-7. What is the operation arity and acquisition plan?
-8. Does the change require a new top-level outcome schema?
-9. Is this only another lens over the same focus and operation?
-10. Is this only traversal policy or output projection?
-11. Does every range-consuming path state how many payload cells it may
+6. Is that subordinate coordinate required by a coherent family of peer
+   observations, and does its bare request have a useful bounded result?
+7. What observation census runs within that focus?
+8. What is the operation arity and acquisition plan?
+9. Does the change require a new top-level outcome schema?
+10. Is this only another lens over the same focus and operation?
+11. Is this only traversal policy or output projection?
+12. Does every range-consuming path state how many payload cells it may
     acquire?
-12. Are unevaluated, absent, missing, and failed states kept distinct?
+13. Are unevaluated, absent, missing, and failed states kept distinct?
 
-Question 8 does not discriminate by itself. Pair it with question 1 or 7:
+Question 9 does not discriminate by itself. Pair it with question 1 or 8:
 
 - changed addressed-subject identity plus a changed schema means a focus
   transition;
 - changed arity/acquisition plus a changed schema means an operation transition.
+- a required subordinate coordinate plus peer observations and a useful bare
+  result means a coordinate-child transition;
+- a changed row schema alone may be another observation within the same focus;
+- another format alone is projection.
 
 Otherwise, prefer an option, section, or writer.
 
