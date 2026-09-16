@@ -333,7 +333,8 @@ internal static class CloneCandidatesCommand
                 $"Section '{SectionNames.CloneCandidates}' supports rows, columns, counts, and structured output, not payload extraction.");
             return 1;
         }
-        if (output.Fields is { Length: > 0 })
+        if (output.FieldsExplicitlySet
+            || output.Fields is { Length: > 0 })
         {
             CommandError.Write(
                 $"Section '{SectionNames.CloneCandidates}' is row-oriented and does not support --fields.");
@@ -612,6 +613,7 @@ internal sealed record CloneCandidateOutputOptions(
     bool Count,
     string[]? Columns,
     string[]? Fields,
+    bool FieldsExplicitlySet,
     RowWindow? Rows,
     int SelectedSectionCount,
     bool Tree,
@@ -630,6 +632,7 @@ internal sealed record CloneCandidateOutputOptions(
             options.Count,
             options.Columns,
             options.Fields,
+            options.FieldsExplicitlySet,
             options.Rows,
             options.IncludeSections?.Count ?? 0,
             options.Tree,
@@ -648,6 +651,7 @@ internal sealed record CloneCandidateOutputOptions(
             options.Count,
             options.Columns,
             options.Fields,
+            options.FieldsExplicitlySet,
             options.Rows,
             options.IncludeSections?.Count ?? 0,
             options.Tree,

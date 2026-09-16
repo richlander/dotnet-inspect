@@ -346,6 +346,8 @@ public static class TypeOptionsParser
             SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
+            FieldsExplicitlySet =
+                parseResult.GetResult(opts.Fields) is { Implicit: false },
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),
             PerformanceTriage = performanceTriage,
