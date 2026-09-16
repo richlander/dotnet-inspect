@@ -370,11 +370,28 @@ pointer fallback until cross-assembly mixed-model enforcement has an owner.
 
 `SameImageCalls_UseNormalizedCallerContracts`,
 `SameImageCalls_LegacyPointerContractRemainsImplicit`,
-`SameImageCalls_UnavailableContractRemainsVisible`, and
+`SameImageCalls_UnavailableContractRemainsVisible`,
+`UnsafeEvidencePresence_UsesNormalizedSameImageCallerContract`, and
 `UnsafeEvidence_FindsSignatureOperationsAndUnsafeCalls` gate the contract with
 compiler-produced updated and legacy controls plus a generated conflicting-
-marker image. This slice does not define cross-assembly enforcement, field
-contracts, inner-unsafe or safe-boundary roles, reconstructed operation
+marker image. The constructed-generic control includes same-signature method
+overloads with different generic arity and caller contracts.
+`MethodDefinitionMap_VarArgFallbackMatchesRequiredPrefix` gates vararg
+correspondence. `UnsafeEvidencePresence_ResolvesPointerFreeLocalTypeReferenceAlias`
+and `UnsafeEvidencePresence_DoesNotBindExternalSameNameReference` gate local
+alias provenance, while
+`UnsafeEvidencePresence_RejectsSameImageCorrespondenceAboveBudget` and
+`UnsafeEvidencePresence_RejectsAggregateTypeSpecAndMethodSpecWork` gate the
+public query's bounded failure paths. The presence matcher examines only the
+resolved local declaring type, compares candidate names without materializing
+them, decodes only same-name signatures, charges operand and candidate metadata
+rows plus signature, type-name, and transitive TypeSpec/MethodSpec work, and
+rejects malformed or ambiguous matches.
+`SameImageCalls_ResolveMethodDefinitionParentVarArg` gates the authoritative
+MethodDef-parent form used by same-module vararg call sites, and
+`UnsafeEvidencePresence_MalformedTypeSpecParentFailsVisibly` gates malformed
+local operand failure. This slice does not define cross-assembly enforcement,
+field contracts, inner-unsafe or safe-boundary roles, reconstructed operation
 meaning, function-load enforcement, or #5270 CLI/browser composition.
 
 `LibraryBodyStableReceiverGetterClassifier` owns the

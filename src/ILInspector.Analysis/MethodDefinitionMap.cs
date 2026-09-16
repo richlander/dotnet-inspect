@@ -6,9 +6,6 @@ namespace ILInspector.Analysis;
 internal sealed class MethodDefinitionMap
 {
     readonly HashSet<int> _methodTokens = [];
-    readonly Dictionary<string, int> _tokenByKey = new(StringComparer.Ordinal);
-    readonly Dictionary<string, List<MethodIdentity>> _conversionsByKey =
-        new(StringComparer.Ordinal);
     readonly Dictionary<string, List<MethodIdentity>> _methodsByDeclaringTypeAndName = new(StringComparer.Ordinal);
 
     MethodDefinitionMap(ImmutableArray<MethodIdentity> methods)
@@ -16,22 +13,6 @@ internal sealed class MethodDefinitionMap
         foreach (var method in methods)
         {
             _methodTokens.Add(method.MetadataToken);
-            string key = Key(
-                method.DeclaringType,
-                method.Name,
-                method.ParameterTypes);
-            if (ApiMemberIdentity.IsConversionOperator(method.Name))
-            {
-                if (_conversionsByKey.TryGetValue(key, out var conversions))
-                    conversions.Add(method);
-                else
-                    _conversionsByKey[key] = [method];
-            }
-            else
-            {
-                _tokenByKey.TryAdd(key, method.MetadataToken);
-            }
-
             var groupKey = DeclaringTypeAndNameKey(method.DeclaringType, method.Name);
             if (_methodsByDeclaringTypeAndName.TryGetValue(groupKey, out var list))
                 list.Add(method);
@@ -45,61 +26,58 @@ internal sealed class MethodDefinitionMap
     public bool ContainsToken(int token) => _methodTokens.Contains(token);
 
     public int Resolve(DirectCall call)
+        => Resolve(
+            call.CalleeDefinitionToken,
+            call.Callee);
+
+    public int Resolve(
+        int calleeDefinitionToken,
+        MemberRef callee)
     {
-        if (_methodTokens.Contains(call.CalleeDefinitionToken))
-            return call.CalleeDefinitionToken;
-        if (call.Callee.Kind == MemberKind.Unsupported)
+        if (_methodTokens.Contains(calleeDefinitionToken))
+            return calleeDefinitionToken;
+        if (callee.Kind == MemberKind.Unsupported)
             return 0;
-        string key = Key(
-            call.Callee.DeclaringType,
-            call.Callee.Name,
-            call.Callee.ParameterTypes);
-        if (ApiMemberIdentity.IsConversionOperator(call.Callee.Name))
-        {
-            if (_conversionsByKey.TryGetValue(key, out var conversions))
-            {
-                foreach (MethodIdentity conversion in conversions)
-                {
-                    if (TypeRef.ExactSignatureEquals(
-                            conversion.ReturnType,
-                            call.Callee.OpenSignatureReturn))
-                    {
-                        return conversion.MetadataToken;
-                    }
-                }
-            }
-        }
-        else if (_tokenByKey.TryGetValue(key, out int token))
-        {
-            return token;
-        }
-        return ResolveConstructedGenericDeclaringType(call.Callee);
+        return ResolveBySignature(callee);
     }
 
-    int ResolveConstructedGenericDeclaringType(MemberRef callee)
+    int ResolveBySignature(MemberRef callee)
     {
         var declaring = callee.DeclaringType;
-        if (declaring.Kind != TypeRefKind.GenericInstance || declaring.ElementType is not { } definition)
-            return 0;
+        TypeRef definition =
+            declaring.Kind == TypeRefKind.GenericInstance
+                ? declaring.ElementType!
+                : declaring;
+        ImmutableArray<TypeRef> typeArguments =
+            declaring.Kind == TypeRefKind.GenericInstance
+                ? declaring.TypeArguments
+                : [];
         if (!_methodsByDeclaringTypeAndName.TryGetValue(DeclaringTypeAndNameKey(definition, callee.Name), out var candidates))
             return 0;
 
+        int resolvedToken = 0;
         foreach (var candidate in candidates)
         {
             if (!definition.Equals(candidate.DeclaringType))
                 continue;
             if (SignatureMatches(
                     candidate,
-                    declaring.TypeArguments,
+                    typeArguments,
                     callee.TypeArguments,
                     callee.ParameterTypes,
-                    callee.ReturnType))
+                    callee.ReturnType,
+                    callee.GenericArity,
+                    callee.HasThis,
+                    callee.SignatureHeader,
+                    callee.RequiredParameterCount))
             {
-                return candidate.MetadataToken;
+                if (resolvedToken != 0)
+                    return 0;
+                resolvedToken = candidate.MetadataToken;
             }
         }
 
-        return 0;
+        return resolvedToken;
     }
 
     static bool SignatureMatches(
@@ -107,35 +85,103 @@ internal sealed class MethodDefinitionMap
         ImmutableArray<TypeRef> typeArguments,
         ImmutableArray<TypeRef> methodArguments,
         ImmutableArray<TypeRef> parameterTypes,
-        TypeRef returnType)
+        TypeRef returnType,
+        int genericArity,
+        bool hasThis,
+        byte signatureHeader,
+        int requiredParameterCount)
+        => SignatureMatches(
+            candidate.ParameterTypes,
+            candidate.ReturnType,
+            typeArguments.IsDefaultOrEmpty
+                ? int.MaxValue
+                : typeArguments.Length,
+            candidate.GenericArity,
+            candidate.IsStatic,
+            candidate.SignatureHeader,
+            candidate.RequiredParameterCount,
+            typeArguments,
+            methodArguments,
+            parameterTypes,
+            returnType,
+            genericArity,
+            hasThis,
+            signatureHeader,
+            requiredParameterCount);
+
+    internal static bool SignatureMatches(
+        ImmutableArray<TypeRef> candidateParameterTypes,
+        TypeRef candidateReturnType,
+        int candidateTypeParameterCount,
+        int candidateGenericArity,
+        bool candidateIsStatic,
+        byte candidateSignatureHeader,
+        int candidateRequiredParameterCount,
+        ImmutableArray<TypeRef> typeArguments,
+        ImmutableArray<TypeRef> methodArguments,
+        ImmutableArray<TypeRef> parameterTypes,
+        TypeRef returnType,
+        int genericArity,
+        bool hasThis,
+        byte signatureHeader,
+        int requiredParameterCount)
     {
-        if (candidate.ParameterTypes.Length != parameterTypes.Length)
-            return false;
-        for (int i = 0; i < parameterTypes.Length; i++)
+        if (candidateGenericArity != genericArity
+            || candidateIsStatic == hasThis
+            || (candidateSignatureHeader & 0x4F)
+                != (signatureHeader & 0x4F)
+            || ((signatureHeader & 0x0F) == 0x05
+                && candidateRequiredParameterCount
+                    != requiredParameterCount))
         {
-            if (!candidate.ParameterTypes[i].Instantiate(typeArguments, methodArguments).Equals(parameterTypes[i]))
-                return false;
+            return false;
         }
-        TypeRef candidateReturn = candidate.ReturnType.Instantiate(
+        if (SignatureTypeFacts.IsMalformed(
+                candidateReturnType,
+                candidateTypeParameterCount,
+                candidateGenericArity)
+            || candidateParameterTypes.Any(
+                parameter =>
+                    SignatureTypeFacts.IsMalformed(
+                        parameter,
+                        candidateTypeParameterCount,
+                        candidateGenericArity)))
+        {
+            return false;
+        }
+        bool isVarArg =
+            (signatureHeader & 0x0F) == 0x05;
+        int comparedParameterCount = isVarArg
+            ? requiredParameterCount
+            : parameterTypes.Length;
+        if (comparedParameterCount < 0
+            || candidateParameterTypes.Length
+                != comparedParameterCount
+            || parameterTypes.Length
+                < comparedParameterCount)
+        {
+            return false;
+        }
+        for (int i = 0; i < comparedParameterCount; i++)
+        {
+            if (!TypeRef.ExactSignatureEquals(
+                    candidateParameterTypes[i].Instantiate(
+                        typeArguments,
+                        methodArguments),
+                    parameterTypes[i]))
+            {
+                return false;
+            }
+        }
+        TypeRef candidateReturn = candidateReturnType.Instantiate(
             typeArguments,
             methodArguments);
-        return ApiMemberIdentity.IsConversionOperator(candidate.Name)
-            ? TypeRef.ExactSignatureEquals(
-                candidateReturn,
-                returnType)
-            : candidateReturn.Equals(returnType);
+        return TypeRef.ExactSignatureEquals(
+            candidateReturn,
+            returnType);
     }
 
     static string DeclaringTypeAndNameKey(TypeRef declaringType, string name)
         => $"{declaringType.Assembly}|{declaringType.Namespace}|{declaringType.Name}|{name}";
 
-    static string Key(
-        TypeRef declaringType,
-        string name,
-        ImmutableArray<TypeRef> parameterTypes) =>
-        $"{GenericMemberIdentity.KeyFragment(declaringType)}|{name}|"
-        + string.Join(
-            ",",
-            parameterTypes.Select(
-                GenericMemberIdentity.KeyFragment));
 }

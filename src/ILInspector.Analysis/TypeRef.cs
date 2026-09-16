@@ -193,6 +193,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
                         Rank = Rank,
                         ArraySizes = ArraySizes,
                         ArrayLowerBounds = ArrayLowerBounds,
+                        RawTypeKind = RawTypeKind,
                     };
             }
             case TypeRefKind.GenericInstance:
@@ -207,6 +208,66 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     builder.Add(substituted);
                 }
                 return changed ? GenericInstance(definition, builder.MoveToImmutable()) : this;
+            }
+            case TypeRefKind.Unsupported
+                when UnmodifiedType is { } unmodified
+                    && ModifierType is { } modifier:
+            {
+                TypeRef instantiatedUnmodified =
+                    unmodified.Instantiate(
+                        typeArguments,
+                        methodArguments);
+                TypeRef instantiatedModifier =
+                    modifier.Instantiate(
+                        typeArguments,
+                        methodArguments);
+                return ReferenceEquals(
+                            instantiatedUnmodified,
+                            unmodified)
+                        && ReferenceEquals(
+                            instantiatedModifier,
+                            modifier)
+                    ? this
+                    : UnsupportedModified(
+                        instantiatedModifier,
+                        instantiatedUnmodified,
+                        IsRequiredModifier);
+            }
+            case TypeRefKind.Unsupported
+                when FunctionPointerSignature is { } signature:
+            {
+                TypeRef instantiatedReturn =
+                    signature.ReturnType.Instantiate(
+                        typeArguments,
+                        methodArguments);
+                bool changed =
+                    !ReferenceEquals(
+                        instantiatedReturn,
+                        signature.ReturnType);
+                var parameters =
+                    ImmutableArray.CreateBuilder<TypeRef>(
+                        signature.ParameterTypes.Length);
+                foreach (TypeRef parameter
+                    in signature.ParameterTypes)
+                {
+                    TypeRef instantiated =
+                        parameter.Instantiate(
+                            typeArguments,
+                            methodArguments);
+                    changed |= !ReferenceEquals(
+                        instantiated,
+                        parameter);
+                    parameters.Add(instantiated);
+                }
+                return changed
+                    ? UnsupportedFunctionPointer(
+                        new MethodSignature<TypeRef>(
+                            signature.Header,
+                            instantiatedReturn,
+                            signature.RequiredParameterCount,
+                            signature.GenericParameterCount,
+                            parameters.MoveToImmutable()))
+                    : this;
             }
             default:
                 return this;

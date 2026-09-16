@@ -12172,10 +12172,31 @@ public class LibraryBodyIndexTests
                 call.Caller.DeclaringType.Name
                     == "GenericCallerContractCalls"
                 && call.Caller.Name == "CallConstructedInstance"
-                && call.Callee.Name == "ExplicitInstance");
+                && call.Callee.Name == "ContractChoice");
         Assert.Equal(
             CallerUnsafeMode.Explicit,
             constructedGeneric.TargetCallerUnsafeMode);
+        Assert.Equal(1, constructedGeneric.Callee.GenericArity);
+        Assert.Equal(
+            CallerUnsafeMode.None,
+            Assert.Single(
+                index.DeclaredMethods,
+                method =>
+                    method.DeclaringType.Name
+                        == "GenericCallerContractFixture`1"
+                    && method.Name == "ContractChoice"
+                    && method.GenericArity == 0)
+                .CallerUnsafeMode);
+        Assert.Equal(
+            CallerUnsafeMode.Explicit,
+            Assert.Single(
+                index.DeclaredMethods,
+                method =>
+                    method.DeclaringType.Name
+                        == "GenericCallerContractFixture`1"
+                    && method.Name == "ContractChoice"
+                    && method.GenericArity == 1)
+                .CallerUnsafeMode);
         Assert.Contains(
             index.UnsafeEvidence,
             evidence =>
@@ -12236,6 +12257,114 @@ public class LibraryBodyIndexTests
                 && evidence.Reason == "Unsafe call");
     }
 
+    [Theory]
+    [InlineData(2, true)]
+    [InlineData(1, false)]
+    public void
+        UnsafeEvidencePresence_UsesNormalizedSameImageCallerContract(
+            int secondMarker,
+            bool expected)
+    {
+        byte[] image = BuildMemorySafetyContractImage(
+            [2, secondMarker],
+            includePointerSignature: false,
+            callTarget: MemorySafetyCallTarget.AttributeOnly);
+
+        Assert.Equal(
+            expected,
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "AnalysisMemorySafety.dll",
+                ImmutableArray.Create(image)));
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_ResolvesPointerFreeLocalTypeReferenceAlias()
+    {
+        byte[] image = BuildMemorySafetyContractImage(
+            [2],
+            includePointerSignature: false,
+            callTarget:
+                MemorySafetyCallTarget.LocalTypeReferenceAttributeOnly);
+
+        Assert.True(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "AnalysisMemorySafety.dll",
+                ImmutableArray.Create(image)));
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_DoesNotBindExternalSameNameReference()
+    {
+        byte[] image = BuildMemorySafetyContractImage(
+            [2],
+            includePointerSignature: false,
+            callTarget:
+                MemorySafetyCallTarget.ExternalSameNameAttributeOnly);
+
+        Assert.False(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "AnalysisMemorySafety.dll",
+                ImmutableArray.Create(image)));
+    }
+
+    [Fact]
+    public void
+        SameImageCalls_ResolveMethodDefinitionParentVarArg()
+    {
+        byte[] image = BuildMemorySafetyContractImage(
+            [2],
+            includePointerSignature: false,
+            callTarget:
+                MemorySafetyCallTarget
+                    .MethodDefinitionParentVarArgAttributeOnly);
+        string path = Path.Combine(
+            "artifacts",
+            $"analysis-vararg-{Guid.NewGuid():N}.dll");
+        try
+        {
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+
+            DirectCall call = Assert.Single(
+                index.DirectCalls,
+                candidate =>
+                    candidate.Caller.Name
+                        == "CallsVarArgAttributeOnly");
+            Assert.Equal(
+                CallerUnsafeMode.Explicit,
+                call.TargetCallerUnsafeMode);
+            Assert.Equal(
+                1,
+                call.Callee.RequiredParameterCount);
+            Assert.Equal(
+                2,
+                call.Callee.ParameterTypes.Length);
+            Assert.True(
+                LibraryBodyIndex.HasUnsafeEvidence(
+                    path,
+                    ImmutableArray.Create(image)));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    enum MemorySafetyCallTarget
+    {
+        PointerOnly,
+        AttributeOnly,
+        LocalTypeReferenceAttributeOnly,
+        ExternalSameNameAttributeOnly,
+        MethodDefinitionParentVarArgAttributeOnly,
+    }
+
     static LibraryBodyIndex OpenMemorySafetyContractImage(
         params int?[] moduleMarkers)
     {
@@ -12258,7 +12387,10 @@ public class LibraryBodyIndexTests
     }
 
     static byte[] BuildMemorySafetyContractImage(
-        IReadOnlyList<int?> moduleMarkers)
+        IReadOnlyList<int?> moduleMarkers,
+        bool includePointerSignature = true,
+        MemorySafetyCallTarget callTarget =
+            MemorySafetyCallTarget.PointerOnly)
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -12292,15 +12424,63 @@ public class LibraryBodyIndexTests
             AddMemorySafetyMethodSignature(
                 metadata,
                 isInstance: false,
-                parameterCount: 1,
+                parameterCount: includePointerSignature ? 1 : 0,
                 parameters =>
-                    parameters.AddParameter().Type().Pointer().Int32());
+                {
+                    if (includePointerSignature)
+                    {
+                        parameters
+                            .AddParameter()
+                            .Type()
+                            .Pointer()
+                            .Int32();
+                    }
+                });
         BlobHandle emptyMethodSignature =
             AddMemorySafetyMethodSignature(
                 metadata,
                 isInstance: false,
                 parameterCount: 0,
                 _ => { });
+        var varArgTargetSignature = new BlobBuilder();
+        new BlobEncoder(varArgTargetSignature)
+            .MethodSignature(
+                SignatureCallingConvention.VarArgs,
+                genericParameterCount: 0,
+                isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 1,
+                returnType => returnType.Void(),
+                parameters =>
+                    parameters.AddParameter()
+                        .Type()
+                        .Int32());
+        BlobHandle varArgTargetSignatureHandle =
+            metadata.GetOrAddBlob(
+                varArgTargetSignature);
+        var varArgCallSiteSignature =
+            new BlobBuilder();
+        new BlobEncoder(varArgCallSiteSignature)
+            .MethodSignature(
+                SignatureCallingConvention.VarArgs,
+                genericParameterCount: 0,
+                isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 2,
+                returnType => returnType.Void(),
+                parameters =>
+                {
+                    parameters.AddParameter()
+                        .Type()
+                        .Int32();
+                    parameters.StartVarArgs()
+                        .AddParameter()
+                        .Type()
+                        .Int32();
+                });
+        BlobHandle varArgCallSiteSignatureHandle =
+            metadata.GetOrAddBlob(
+                varArgCallSiteSignature);
 
         var bodies = new BlobBuilder();
         var bodyEncoder = new MethodBodyStreamEncoder(bodies);
@@ -12346,11 +12526,74 @@ public class LibraryBodyIndexTests
                 emptyMethodSignature,
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle varArgAttributeOnly =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    "VarArgAttributeOnly"),
+                varArgTargetSignatureHandle,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        EntityHandle callerTarget = callTarget switch
+        {
+            MemorySafetyCallTarget.PointerOnly => pointerOnly,
+            MemorySafetyCallTarget.AttributeOnly => attributeOnly,
+            MemorySafetyCallTarget.LocalTypeReferenceAttributeOnly =>
+                metadata.AddMemberReference(
+                    metadata.AddTypeReference(
+                        module,
+                        metadata.GetOrAddString("Samples"),
+                        metadata.GetOrAddString("Target")),
+                    metadata.GetOrAddString("AttributeOnly"),
+                    emptyMethodSignature),
+            MemorySafetyCallTarget
+                .MethodDefinitionParentVarArgAttributeOnly =>
+                    metadata.AddMemberReference(
+                        varArgAttributeOnly,
+                        metadata.GetOrAddString(
+                            "VarArgAttributeOnly"),
+                        varArgCallSiteSignatureHandle),
+            MemorySafetyCallTarget.ExternalSameNameAttributeOnly =>
+                metadata.AddMemberReference(
+                    metadata.AddTypeReference(
+                        metadata.AddAssemblyReference(
+                            metadata.GetOrAddString(
+                                "AnalysisMemorySafety"),
+                            new Version(9, 0, 0, 0),
+                            default,
+                            metadata.GetOrAddBlob(
+                                new byte[]
+                                {
+                                    0x01, 0x02, 0x03, 0x04,
+                                    0x05, 0x06, 0x07, 0x08,
+                                }),
+                            default,
+                            default),
+                        metadata.GetOrAddString("Samples"),
+                        metadata.GetOrAddString("Target")),
+                    metadata.GetOrAddString("AttributeOnly"),
+                    emptyMethodSignature),
+            _ => throw new InvalidOperationException(
+                $"Unsupported memory-safety call target: {callTarget}."),
+        };
         var callerBody = new BlobBuilder();
         var callerInstructions =
             new InstructionEncoder(callerBody);
-        callerInstructions.OpCode(ILOpCode.Ldarg_0);
-        callerInstructions.Call(pointerOnly);
+        if (callTarget == MemorySafetyCallTarget.PointerOnly
+            && includePointerSignature)
+        {
+            callerInstructions.OpCode(ILOpCode.Ldarg_0);
+        }
+        else if (callTarget
+            == MemorySafetyCallTarget
+                .MethodDefinitionParentVarArgAttributeOnly)
+        {
+            callerInstructions.LoadConstantI4(1);
+            callerInstructions.LoadConstantI4(2);
+        }
+        callerInstructions.Call(callerTarget);
         callerInstructions.OpCode(ILOpCode.Ret);
         int callerBodyOffset =
             bodyEncoder.AddMethodBody(
@@ -12359,8 +12602,27 @@ public class LibraryBodyIndexTests
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
-            metadata.GetOrAddString("CallsPointerOnly"),
-            pointerMethodSignature,
+            metadata.GetOrAddString(
+                callTarget switch
+                {
+                    MemorySafetyCallTarget.PointerOnly =>
+                        "CallsPointerOnly",
+                    MemorySafetyCallTarget.AttributeOnly =>
+                        "CallsAttributeOnly",
+                    MemorySafetyCallTarget
+                        .LocalTypeReferenceAttributeOnly =>
+                            "CallsLocalAlias",
+                    MemorySafetyCallTarget
+                        .ExternalSameNameAttributeOnly =>
+                            "CallsExternalAlias",
+                    MemorySafetyCallTarget
+                        .MethodDefinitionParentVarArgAttributeOnly =>
+                            "CallsVarArgAttributeOnly",
+                    _ => throw new InvalidOperationException(),
+                }),
+            callTarget == MemorySafetyCallTarget.PointerOnly
+                ? pointerMethodSignature
+                : emptyMethodSignature,
             callerBodyOffset,
             MetadataTokens.ParameterHandle(1));
 
@@ -12409,6 +12671,11 @@ public class LibraryBodyIndexTests
 
         metadata.AddCustomAttribute(
             attributeOnly,
+            requiresUnsafeConstructor,
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        metadata.AddCustomAttribute(
+            varArgAttributeOnly,
             requiresUnsafeConstructor,
             metadata.GetOrAddBlob(
                 new byte[] { 0x01, 0x00, 0x00, 0x00 }));

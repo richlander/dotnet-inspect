@@ -113,6 +113,298 @@ internal sealed class LibraryBodyMethodReferenceResolver
         };
     }
 
+    internal MemberRef ResolvePresenceMethod(
+        EntityHandle handle,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        var decoder = new TypeRefDecoder(
+            workBudget.ReserveCorrespondenceBytes);
+        return ResolvePresenceMethod(
+            handle,
+            scope,
+            workBudget,
+            decoder);
+    }
+
+    MemberRef ResolvePresenceMethod(
+        EntityHandle handle,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget,
+        TypeRefDecoder decoder)
+    {
+        switch (handle.Kind)
+        {
+            case HandleKind.MethodDefinition:
+            {
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)handle);
+                TypeDefinitionHandle declaringHandle =
+                    method.GetDeclaringType();
+                TypeRef declaring =
+                    decoder.GetTypeFromDefinition(
+                        _reader,
+                        declaringHandle,
+                        0);
+                MethodSignature<TypeRef> signature =
+                    DecodePresenceSignature(
+                        method.Signature,
+                        GenericScope.Empty,
+                        decoder,
+                        workBudget);
+                string name = ReadPresenceString(
+                    method.Name,
+                    workBudget);
+                ThrowIfMalformedPresenceSignature(
+                    declaring,
+                    signature,
+                    _reader.GetTypeDefinition(
+                            declaringHandle)
+                        .GetGenericParameters()
+                        .Count);
+                return new(
+                    declaring,
+                    name,
+                    signature.ParameterTypes,
+                    signature.ReturnType,
+                    KindFor(name))
+                {
+                    OpenParameterTypes =
+                        signature.ParameterTypes,
+                    OpenReturnType =
+                        signature.ReturnType,
+                    HasThis = signature.Header.IsInstance,
+                    SignatureHeader =
+                        signature.Header.RawValue,
+                    RequiredParameterCount =
+                        signature.RequiredParameterCount,
+                    GenericArity =
+                        signature.GenericParameterCount,
+                };
+            }
+
+            case HandleKind.MemberReference:
+            {
+                MemberReference member =
+                    _reader.GetMemberReference(
+                        (MemberReferenceHandle)handle);
+                TypeRef declaring =
+                    ResolvePresenceParentType(
+                        member.Parent,
+                        scope,
+                        decoder);
+                MethodSignature<TypeRef> signature =
+                    DecodePresenceSignature(
+                        member.Signature,
+                        GenericScope.Empty,
+                        decoder,
+                        workBudget);
+                string name = ReadPresenceString(
+                    member.Name,
+                    workBudget);
+                ThrowIfMalformedPresenceSignature(
+                    declaring,
+                    signature,
+                    int.MaxValue);
+                ImmutableArray<TypeRef> typeArguments =
+                    declaring.Kind
+                            == TypeRefKind.GenericInstance
+                        ? declaring.TypeArguments
+                        : [];
+                return new(
+                    declaring,
+                    name,
+                    [.. signature.ParameterTypes.Select(
+                        parameter =>
+                            parameter.Instantiate(
+                                typeArguments,
+                                []))],
+                    signature.ReturnType.Instantiate(
+                        typeArguments,
+                        []),
+                    KindFor(name))
+                {
+                    OpenParameterTypes =
+                        signature.ParameterTypes,
+                    OpenReturnType =
+                        signature.ReturnType,
+                    HasThis = signature.Header.IsInstance,
+                    SignatureHeader =
+                        signature.Header.RawValue,
+                    RequiredParameterCount =
+                        signature.RequiredParameterCount,
+                    GenericArity =
+                        signature.GenericParameterCount,
+                };
+            }
+
+            case HandleKind.MethodSpecification:
+            {
+                MethodSpecification specification =
+                    _reader.GetMethodSpecification(
+                        (MethodSpecificationHandle)handle);
+                MemberRef target =
+                    ResolvePresenceMethod(
+                        specification.Method,
+                        scope,
+                        workBudget,
+                        decoder);
+                workBudget.ReserveCorrespondenceBytes(
+                    _reader.GetBlobReader(
+                        specification.Signature)
+                        .Length);
+                if (!SignatureBlobGuard.IsSafeToDecode(
+                        _reader,
+                        specification.Signature,
+                        SignatureBlobGuard.Kind
+                            .MethodSpecification))
+                {
+                    throw new BadImageFormatException(
+                        "The MethodSpec signature exceeds its structural limits.");
+                }
+                ImmutableArray<TypeRef> arguments =
+                    specification.DecodeSignature(
+                        decoder,
+                        scope);
+                if (target.Kind == MemberKind.Unsupported
+                    || target.GenericArity == 0
+                    || arguments.Length
+                        != target.GenericArity
+                    || arguments.Any(argument =>
+                        ContainsMalformedMethodSpecificationType(
+                            argument,
+                            scope)))
+                {
+                    throw new BadImageFormatException(
+                        "The MethodSpec signature is invalid for its target and caller scope.");
+                }
+                return target with
+                {
+                    TypeArguments = arguments,
+                    ReturnType =
+                        target.ReturnType.Instantiate(
+                            [],
+                            arguments),
+                    ParameterTypes =
+                    [
+                        .. target.ParameterTypes.Select(
+                            parameter =>
+                                parameter.Instantiate(
+                                    [],
+                                    arguments)),
+                    ],
+                };
+            }
+
+            default:
+                return MemberRef.Unsupported(
+                    $"callee handle kind {handle.Kind}");
+        }
+    }
+
+    TypeRef ResolvePresenceParentType(
+        EntityHandle parent,
+        GenericScope scope,
+        TypeRefDecoder decoder) =>
+        parent.Kind switch
+        {
+            HandleKind.TypeDefinition =>
+                decoder.GetTypeFromDefinition(
+                    _reader,
+                    (TypeDefinitionHandle)parent,
+                    0),
+            HandleKind.TypeReference =>
+                decoder.GetTypeFromReference(
+                    _reader,
+                    (TypeReferenceHandle)parent,
+                    0),
+            HandleKind.TypeSpecification =>
+                decoder.GetTypeFromSpecification(
+                    _reader,
+                    scope,
+                    (TypeSpecificationHandle)parent,
+                    0),
+            HandleKind.MethodDefinition =>
+                decoder.GetTypeFromDefinition(
+                    _reader,
+                    _reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)parent)
+                        .GetDeclaringType(),
+                    0),
+            _ => TypeRef.Unsupported(
+                $"member parent kind {parent.Kind}"),
+        };
+
+    MethodSignature<TypeRef> DecodePresenceSignature(
+        BlobHandle signatureHandle,
+        GenericScope scope,
+        TypeRefDecoder decoder,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(
+                signatureHandle)
+                .Length);
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                _reader,
+                signatureHandle,
+                SignatureBlobGuard.Kind.Method))
+        {
+            throw new BadImageFormatException(
+                "The method signature exceeds its structural limits.");
+        }
+        BlobReader signatureReader =
+            _reader.GetBlobReader(signatureHandle);
+        return new SignatureDecoder<TypeRef, GenericScope>(
+                decoder,
+                _reader,
+                scope)
+            .DecodeMethodSignature(
+                ref signatureReader);
+    }
+
+    static void ThrowIfMalformedPresenceSignature(
+        TypeRef declaringType,
+        MethodSignature<TypeRef> signature,
+        int typeParameterCount)
+    {
+        if (SignatureTypeFacts.IsMalformed(
+                declaringType,
+                typeParameterCount,
+                signature.GenericParameterCount)
+            || SignatureTypeFacts.IsMalformed(
+                signature.ReturnType,
+                typeParameterCount,
+                signature.GenericParameterCount)
+            || signature.ParameterTypes.Any(
+                parameter =>
+                    SignatureTypeFacts.IsMalformed(
+                        parameter,
+                        typeParameterCount,
+                        signature.GenericParameterCount)))
+        {
+            throw new BadImageFormatException(
+                "The method signature contains an unsupported or malformed type.");
+        }
+    }
+
+    string ReadPresenceString(
+        StringHandle handle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(handle).Length);
+        return MetadataSafetyPolicy.ReadStructuralString(
+            _reader,
+            handle);
+    }
+
+    static MemberKind KindFor(string name) =>
+        name is ".ctor" or ".cctor"
+            ? MemberKind.Constructor
+            : MemberKind.Method;
+
     internal static bool SameMethodReferenceDeclaringType(
         TypeRef left,
         TypeRef right) =>
@@ -534,56 +826,11 @@ internal sealed class LibraryBodyMethodReferenceResolver
         }
     }
 
-    static bool ContainsMalformedMethodSpecificationType(
+    internal static bool ContainsMalformedMethodSpecificationType(
         TypeRef type,
         GenericScope scope)
-    {
-        if (type.Kind == TypeRefKind.GenericParameter
-            && (type.GenericParameterIndex < 0
-                || type.GenericParameterIndex
-                    >= scope.TypeParameters.Length)
-            || type.Kind == TypeRefKind.MethodGenericParameter
-                && (type.GenericParameterIndex < 0
-                    || type.GenericParameterIndex
-                        >= scope.MethodParameters.Length))
-        {
-            return true;
-        }
-        if (type.Kind == TypeRefKind.Unsupported)
-        {
-            if (type.UnmodifiedType is { } unmodified)
-            {
-                return ContainsMalformedMethodSpecificationType(
-                        unmodified,
-                        scope)
-                    || (type.ModifierType is { } modifier
-                        && ContainsMalformedMethodSpecificationType(
-                            modifier,
-                            scope));
-            }
-            if (type.FunctionPointerSignature is { } function)
-            {
-                return ContainsMalformedMethodSpecificationType(
-                        function.ReturnType,
-                        scope)
-                    || function.ParameterTypes.Any(
-                        parameter =>
-                            ContainsMalformedMethodSpecificationType(
-                                parameter,
-                                scope));
-            }
-            return true;
-        }
-        if (type.ElementType is { } element
-            && ContainsMalformedMethodSpecificationType(
-                element,
-                scope))
-        {
-            return true;
-        }
-        return type.TypeArguments.Any(
-            argument => ContainsMalformedMethodSpecificationType(
-                argument,
-                scope));
-    }
+        => SignatureTypeFacts.IsMalformed(
+            type,
+            scope.TypeParameters.Length,
+            scope.MethodParameters.Length);
 }

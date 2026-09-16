@@ -61,7 +61,9 @@ public struct MemorySafetyExplicitLayoutFixture
 
 public sealed class GenericCallerContractFixture<T>
 {
-    public unsafe T ExplicitInstance(T value) => value;
+    public T ContractChoice(T value) => value;
+
+    public unsafe T ContractChoice<TMarker>(T value) => value;
 }
 
 public static class GenericCallerContractCalls
@@ -71,7 +73,7 @@ public static class GenericCallerContractCalls
     {
         unsafe
         {
-            return fixture.ExplicitInstance(42);
+            return fixture.ContractChoice<string>(42);
         }
     }
 }
