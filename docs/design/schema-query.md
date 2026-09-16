@@ -12,11 +12,8 @@ post-render projection paths still use Markout's rendered-string diagnostic;
 that nonconforming path does not own section-scoped rendered truth and its
 removal is tracked by
 [#7138](https://github.com/richlander/dotnet-inspect/issues/7138).
-Clone-candidate discovery, field validation, and summary rendering retain a
-known divergence; the unsupported field-projection affordance is removed under
-[#7141](https://github.com/richlander/dotnet-inspect/issues/7141). The earlier
-[auto-generated schema note](auto-schema.md) records the first generated-schema
-migration but is not a current owner.
+The earlier [auto-generated schema note](auto-schema.md) records the first
+generated-schema migration but is not a current owner.
 
 The production consumer is the CLI `-D`/`--discover` surface and the
 field/column projections that use the same schema. This design does not add a
@@ -109,15 +106,11 @@ product document has structure outside one generated view:
 Current examples include the API document merging type, member-summary,
 member-detail, operator, explicit-implementation, extension-method, event, and
 code schemas; package discovery adding runtime-shaped items; and library
-discovery augmenting generated sections with metadata and clone-candidate
-vocabulary. These are examples of the composition forms, not a normative
-call-site inventory.
-
-The remaining known nonconforming path is:
-
-| Surface | Current defect | Required removal |
-| --- | --- | --- |
-| `Clone Candidates` | `CandidateColumnNames` supplies structural discovery, while `SummaryFieldNames` accepts stale field selectors and `SummaryFields()` emits different names. | #7141 removes `--fields` from this row-oriented section, deletes the stale selectors and manual projected-summary path, and retains columns as its sole addressable item kind. |
+discovery augmenting generated sections with metadata and the generated
+clone-candidate table schema. `Clone Candidates` is row-oriented: its summary
+is presentation context, its candidate columns are the sole addressable
+projection items, and `--fields` is rejected. These are examples of the
+composition forms, not a normative call-site inventory.
 
 An augmentation must have a reason the generated view cannot express. It must
 reuse the renderer's owner-issued names and order rather than creating a
@@ -313,12 +306,10 @@ The current Release CLI suite owns the executable contract:
 | `CommandExecutionTests.Member_DiscoverEffective_ListsCategoriesBeforeSections` | Bare effective discovery presents category doors before regular sections. |
 | `PackageQueryCliTests.DataDiscovery_UsesPackageQuerySchemaWithoutAcquisition` and `LibraryIntegrationQueryTests.StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget` | Structural discovery uses owner-issued schema without triggering domain acquisition or scanner execution. |
 | `InspectionResultTests.PackageInfo_OwnerVocabularyDrivesDiscoverySchema` | The complete package-info discovery vocabulary is derived from the same typed descriptor catalog that drives rendering, with stable order and no duplicate names. |
-| `CloneCandidatesSectionTests.Type_JsonProjectionSupportsFieldsColumnsAndRows` and `Library_JsonProjectionSupportsSummaryFields` | These gates record the field-projection affordance that #7141 removes rather than preserves. |
+| `CloneCandidatesSectionTests.StructuralSchemaUsesGeneratedCandidateColumns`, `FieldsAreRejectedAcrossOutputFormats`, and `SummaryFieldNamesAreRejectedWithoutAliases` | Clone-candidate discovery is generated from the row view, columns remain projectable, and field projection fails visibly without stale-name aliases. |
 
 New schema composition forms require a focused gate that proves their generated,
-merged, augmented, or dynamic vocabulary matches the product document. The
-known clone-candidate field affordance is a required removal; no safety,
-completeness, or compatibility claim rests on its sampled gates. A
+merged, augmented, or dynamic vocabulary matches the product document. A
 documentation-only change to this owner requires Markdown validation and
 verification that every named gate still exists.
 
@@ -340,9 +331,7 @@ filtering, and rendered-manifest effective discovery are current behavior.
 Replacing the remaining rendered-string projection diagnostics with manifest
 or typed identity evidence is required by
 [#7138](https://github.com/richlander/dotnet-inspect/issues/7138); no stronger
-section-scoped claim rests on the string path. Removing clone-candidate field
-projection and its stale vocabulary is required by
-[#7141](https://github.com/richlander/dotnet-inspect/issues/7141). Any new
-cross-host query language, generated accessor model, schema serialization
-contract, or additional pattern semantics requires a focused issue and owner;
-the retired proposal checklist is not standing authorization.
+section-scoped claim rests on the string path. Any new cross-host query
+language, generated accessor model, schema serialization contract, or
+additional pattern semantics requires a focused issue and owner; the retired
+proposal checklist is not standing authorization.

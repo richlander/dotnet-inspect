@@ -621,6 +621,8 @@ public static class InspectionCommandDefinitions
                 SelectExplicitlySet = hasExplicitSelect,
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
+                FieldsExplicitlySet =
+                    parseResult.GetResult(opts.Fields) is { Implicit: false },
                 Count = parseResult.GetValue(opts.Count),
                 Print = parseResult.GetValue(opts.Print),
                 Value = parseResult.GetValue(opts.Value),
