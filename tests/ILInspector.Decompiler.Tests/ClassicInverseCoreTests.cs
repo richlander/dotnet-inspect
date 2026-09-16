@@ -2905,6 +2905,7 @@ public sealed partial class ClassicInverseCoreTests
         MetadataMethodAddress? declaredMethod = null,
         MetadataMethodAddress? executionMethod = null,
         StateMachineRelationship? relationship = null,
+        IrFunction? executionBody = null,
         Action<IrFunction, ImmutableArray<IIrPass>>? runPasses = null)
         => new(
             declaredMethod ?? request.DeclaredMethod,
@@ -2912,7 +2913,7 @@ public sealed partial class ClassicInverseCoreTests
             relationship ?? request.Relationship,
             request.AcquisitionGuard,
             request.KickoffBody,
-            request.ExecutionBody,
+            executionBody ?? request.ExecutionBody,
             stateMachineLocal ?? request.StateMachineLocal,
             request.KickoffSourceOffset,
             executionImportOffsets ?? request.ExecutionImportOffsets,

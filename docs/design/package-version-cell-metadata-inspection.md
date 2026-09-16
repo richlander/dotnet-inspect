@@ -11,12 +11,19 @@ The **Package version-cell Metadata inspection** owner defines one
 > Consume one PackageHouse-issued version-population cell through an exact
 > host-executed compile-realization request, admit its package Root to one
 > bounded ephemeral Workspace, execute the existing assembly-context Metadata
-> image query under Workspace-scoped borrowing, and return only detached
-> resource-free evidence after awaited Workspace close.
+> image query and explicitly requested bounded API evidence under
+> Workspace-scoped borrowing, and return only detached resource-free evidence
+> after awaited Workspace close.
 
 This is a focused package-aware L1 composition owner. It does not redefine
 PackageHouse settlement, package Root construction, Workspace admission,
 Metadata facts, or host source authorization.
+
+The API-evidence extension in
+[#7280](https://github.com/richlander/dotnet-inspect/issues/7280) is a producer
+prerequisite for the shared History contract in
+[#7229](https://github.com/richlander/dotnet-inspect/issues/7229).
+It does not implement History or a second host terminal.
 
 ## Motivation and real asset
 
@@ -42,7 +49,8 @@ failure and cleanup boundaries.
 | Population cell, reporter-bound candidate, exact House request, settlement, and compile receipt | [PackageHouse](package-house.md) | One prepared cell execution and its exact terminal settlement |
 | House-to-Root correspondence | [Package Root realization](artifact-acquisition-and-workspaces.md#package-root-realization) | `PackageHouseRootContributionAdapter` and its typed no-contribution outcome |
 | Root preparation, atomic Scope admission, scoped query borrowing, bounds, and release | [Workspace Scope and Expansion](workspace-scope-and-expansion.md) and [Artifact acquisition and Workspaces](artifact-acquisition-and-workspaces.md) | One fresh Workspace, one package Root, one scoped Root query, and awaited close |
-| Metadata facts and participant outcomes | [Assembly inspection query](assembly-inspection-query.md) | `AssemblyContextMetadataImageQuery` over the admitted surface group |
+| Metadata facts and participant outcomes | [Assembly inspection query](assembly-inspection-query.md) | Existing image and bounded API-surface queries over the admitted surface group |
+| API Type, Member, and Attribute censuses | [Finding adoption](finding-adoption.md) | Native `MetadataFindings` producers over the exact projected participant surface |
 | Temporal selection and correlation | [Diff History](diff-history.md) | Later production consumer; not owned here |
 
 The operation owns only the sequencing, exact cross-owner correspondence, and
@@ -95,6 +103,30 @@ Workspace-owned package Root preparation path. The Workspace remains the
 enforcement owner. The PackageQueries operation does not infer a limit from a
 deadline or reinterpret a Workspace rejection.
 
+### Explicit API evidence
+
+The optional API request supplies one exact Metadata Type full name, an
+existing API-surface visibility scope, and explicit `ApiSurfaceProjectionLimits`.
+Omission preserves image-only work. Requesting API evidence uses the same
+prepared cell execution, Root, and Workspace borrow; it does not reacquire the
+package or open another Workspace.
+
+The bounded API query retains ordered participant outcomes, inspection
+failures, and truncation under its existing contract. For each available
+participant, this operation invokes the native Type, Member, and Attribute
+Finding producers for the requested Type name. Each resulting set retains the
+exact available participant and surface from which its censuses were produced.
+This supplies reusable observation evidence; it does not choose a cross-Library
+focus or correlate versions.
+
+Unavailable or omitted participants do not become empty or absent censuses.
+Their native outcomes and projection bounds remain in the API result.
+Consumers must interpret that evidence rather than treat the shorter Finding
+set array as complete coverage. Within an available participant, native
+`Complete`, `Absent`, and `Failed` meanings are preserved without normalization.
+An explicit empty compile selection retains its existing selection evidence
+and empty participant population, not a fabricated Type evaluation.
+
 ## Composition
 
 For one request, the operation:
@@ -112,7 +144,8 @@ For one request, the operation:
    Workspace-scoped Root query;
 8. executes `AssemblyContextMetadataImageQuery` over the surface group, or
    returns its ordinary empty assembly-context result when the package Root has
-   no selected assembly contexts; and
+   no selected assembly contexts, and produces bounded API evidence only when
+   explicitly requested; and
 9. awaits Workspace close before publishing any result.
 
 The operation never performs version discovery, package acquisition, compile
@@ -131,7 +164,7 @@ The terminal family distinguishes:
 
 - **Available** — the existing ordered
   `AssemblyContextResult<MetadataImageOverview>`, including participant-local
-  rejection or failure;
+  rejection or failure, plus optional detached API evidence when requested;
 - **No contribution** — the exact
   `PackageHouseRootNoContributionReason`;
 - **Workspace failure** — the operation stage plus the owner-issued
@@ -201,14 +234,22 @@ remain ordered beside healthy entries through the existing
 This operation is step 2 of the six-step temporal ownership path:
 
 1. PackageHouse version-population settlement — complete in #7133.
-2. Package version-cell Metadata inspection — this owner.
+2. Package version-cell Metadata and explicit API Finding evidence — this owner.
 3. Analysis Finding and focus-reacquisition inspection.
 4. Shared Diff History and metadata-only version-count terminals.
 5. Subject CLI cutover with top-level `timeline` removal.
 6. Browser Compare and version-count adoption.
 
 The later hosts supply their source authorization and cell executor while
-consuming the same request and outcome.
+consuming the same request and outcome. This lower producer feeds the shared
+`InspectionEnvelope<DiffHistoryOutcome>` terminal in step 4; it does not
+introduce a separate CLI or Browser counting/correlation algorithm. The existing
+standalone Timeline's host-local API acquisition/projection remains until the
+subject-owned cutover retires it in step 5.
+
+API evidence is structured producer content, not rendered output. The later
+History terminal retains it in the shared envelope; CLI Markout lowering and
+Browser presentation remain with their existing owners.
 
 ## Evidence
 
@@ -219,6 +260,9 @@ The Release gate is `PackageVersionCellMetadataInspectionTests`:
 | Exact cell execution | `PreparedExecutionRequiresExactHouseRequest` and `InspectionRejectsSettlementForSubstitutedDemand` |
 | One execution and no rediscovery | `InspectionExecutesOnePreparedCellAndReturnsDetachedMetadata` |
 | Real package motivation | `InspectionExecutesPinnedMarkoutPackage` |
+| Opt-in native API evidence | `ApiInspectionReturnsDetachedNativeMarkoutFindings` |
+| Exact per-participant association | `ApiInspectionKeepsParticipantCensusesSeparate` |
+| Native absent versus unavailable evidence | `ApiInspectionPreservesNativeSubjectAbsence`, `ApiInspectionPreservesTruncationWithoutInventingAbsence`, and `ApiInspectionPreservesEmptyCompileSelection` |
 | Finite realization | `InspectionEnforcesAssemblyEntryAndAggregateBounds` |
 | Atomic malformed-image refusal | `InspectionMalformedNeighborRejectsWholeRootWithoutMetadata` |
 | Typed House, Workspace, and deadline failures | `InspectionPreservesNoContributionWithoutCreatingARoot`, `InspectionPreservesExpiredWorkspaceDeadline`, and the bounded-admission tests |
@@ -234,12 +278,18 @@ in `finally`, typed bounded cleanup evidence, and terminal cancellation
 observation. It does not reuse that evaluator's sparse one-assembly selection
 or semantic producer.
 
+The API gates are targeted, bounded cases over the pinned 233 KB Markout
+assembly, not a corpus or Analysis sweep. They run in the PR-fast query suite;
+the focused Release run and xUnit timing report keep their cost below the
+test-cost threshold.
+
 ## Non-claims
 
 This owner does not:
 
 - choose Diff History evaluation cells or correlate versions;
-- produce Analysis Findings or reacquire Type or Member focus;
+- produce Analysis Findings, select a unique Library/Member focus, or establish
+  cross-version correspondence;
 - define package version Count;
 - bind CLI or Browser commands, rendering, sections, or transport;
 - authorize package sources or offline acquisition;

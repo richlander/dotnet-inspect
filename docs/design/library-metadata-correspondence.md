@@ -3,7 +3,9 @@
 ## Status
 
 This design owns
-[issue #7238](https://github.com/richlander/dotnet-inspect/issues/7238).
+[issue #7238](https://github.com/richlander/dotnet-inspect/issues/7238) and
+the projection-ownership repair in
+[#7270](https://github.com/richlander/dotnet-inspect/issues/7270).
 It is the focused precursor selected during PR #7201 scope recovery.
 
 ## Authority and exact claim
@@ -34,14 +36,15 @@ contracts. It does not redefine either.
 - SRM-only Metadata admission;
 - managed assembly identity and module-version identity;
 - bounded API-surface extraction; and
-- `ArtifactAssemblyProjection` as the existing resource-free
-  artifact-generation, artifact, module, and assembly-identity currency.
+- the rule that `ArtifactAssemblyProjection` is minted only by Metadata during
+  Artifact admission and is not reconstructed by consumers.
 
 Assembly identity alone is not exact correspondence. Two independently
 realized Libraries may legitimately contain assemblies with equivalent name,
 version, culture, and public-key token. Exact correspondence therefore retains
-the Library content reference and Artifact registration that supplied the
-bytes.
+the Library content reference that supplied the bytes, including its existing
+Artifact generation and identity, plus the module-version identity extracted
+during that same borrow.
 
 ## Typed boundary
 
@@ -58,7 +61,7 @@ it. The operation borrows only `LibraryReference.ApiAssembly`.
 A completed result contains one `LibraryApiSurfaceCorrespondence`:
 
 - the exact API `LibraryContentReference`;
-- an `ArtifactAssemblyProjection` for those bytes;
+- the non-empty module-version identity extracted from those bytes;
 - the exact `ApiSurface` instance extracted during the same borrow;
 - the extraction choices; and
 - Metadata-row and retained-text work evidence.
@@ -89,10 +92,10 @@ The caller keeps ownership of the operation lease. Synchronous execution opens
 and closes one Library snapshot; no span, PE reader, Metadata reader, callback,
 stream, or release obligation escapes it.
 
-The request, correspondence, projection, surface, and every terminal outcome
-are resource-free. A completed correspondence may outlive the Library owner.
-It is evidence about the exact content that was inspected, not authority to
-reopen it.
+The request, correspondence, surface, and every terminal outcome are
+resource-free. A completed correspondence may outlive the Library owner. It is
+evidence about the exact content that was inspected, not authority to reopen
+it.
 
 Correspondence uses reference identity for the realized Library, content,
 Artifact generation, Artifact, and surface instance. Managed assembly
@@ -118,7 +121,9 @@ realizes two distinct Libraries with equivalent managed assembly identity.
 Inspection of each Library must issue a different correspondence:
 
 - each names its own exact Library and API content reference;
-- each projection names its own Artifact identity;
+- each API content reference names its own Artifact identity;
+- each retains the non-empty module-version identity extracted during its
+  borrow;
 - neither surface instance is reused; and
 - equivalent assembly identity does not collapse the two realizations.
 

@@ -60,24 +60,8 @@ interface PackageActivityResult {
   kind: "package-activity";
 }
 
-interface RuntimeSuggestionResult {
-  kind: "rtpack-suggest";
-}
-
-interface PlatformSubjectResult {
-  kind: "platform";
-  tfm: string;
-  version: string;
-}
-
-interface RuntimeStatusResult {
-  kind: "rtpack-status";
-  loading?: boolean;
-  error?: string;
-}
-
-interface PlatformLibraryResult {
-  kind: "platform-lib";
+interface FrameworkLibraryResult {
+  kind: "framework-lib";
   assembly: string;
   pack: string;
   publicTypes: number;
@@ -114,10 +98,7 @@ export type SpotlightResult =
   | SpotlightPackageResult
   | PackageQueryResult
   | PackageActivityResult
-  | RuntimeSuggestionResult
-  | PlatformSubjectResult
-  | RuntimeStatusResult
-  | PlatformLibraryResult
+  | FrameworkLibraryResult
   | TypeResult
   | MemberResult;
 
@@ -156,7 +137,6 @@ interface SpotlightOptions {
   packageSearchLoading: () => boolean;
   packageSearchError?: () => string;
   packageCount: () => number;
-  activeFramework: () => string;
   render: () => void;
   focusAfterDismiss?: () => void;
   captureFocusAfterDismiss?: () => () => void;
@@ -172,7 +152,6 @@ const BASE_SCOPES = [
   { id: "packages", label: "Packages" },
   { id: "types", label: "Types" },
   { id: "members", label: "Members" },
-  { id: "runtime", label: "Platform" },
 ] as const;
 
 const COMMAND_SCOPE = { id: "commands", label: "Commands" } as const;
@@ -193,10 +172,7 @@ const GROUP_LABELS: Readonly<Record<SpotlightResult["kind"], string>> = {
   "pkg-nuget": "Packages",
   type: "Types",
   member: "Members",
-  "platform-lib": "Libraries",
-  platform: "Platform",
-  "rtpack-suggest": "Runtime",
-  "rtpack-status": "Runtime",
+  "framework-lib": "Libraries",
 };
 
 export function nextSpotlightSelection(
@@ -254,10 +230,8 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
       return JSON.stringify([result.kind, result.prefix]);
     case "package-activity":
       return JSON.stringify([result.kind]);
-    case "platform-lib":
+    case "framework-lib":
       return JSON.stringify([result.kind, result.tfm ?? "", result.version ?? "", result.pack, result.assembly]);
-    case "platform":
-      return JSON.stringify([result.kind, result.tfm, result.version]);
     case "type":
       return JSON.stringify([
         result.kind,
@@ -276,7 +250,7 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
         result.memberKey,
       ]);
     default:
-      return result.kind;
+      throw new Error("Unknown Spotlight result.");
   }
 }
 
@@ -402,28 +376,11 @@ export function createSpotlight(options: SpotlightOptions) {
         <span class="spotlight-item-ns">Review product package changes over time</span>
       </button>`;
     }
-    if (result.kind === "platform" || result.kind === "rtpack-suggest") {
-      const framework = options.activeFramework() || "runtime";
-      return `<button ${base} data-sl-load-runtime="1">
-        <span class="kind-icon sl-lib">▤</span>
-        <span class="spotlight-item-name">Platform</span>
-        <span class="spotlight-item-ns">Browse .NET libraries · ${escapeHtml(result.kind === "platform" ? `${result.tfm} · ${result.version}` : framework)}</span>
-      </button>`;
-    }
-    if (result.kind === "rtpack-status") {
-      const text = result.loading
-        ? "Loading .NET runtime pack — this can take a while…"
-        : `Runtime pack failed: ${result.error || "unknown error"}`;
-      return `<div id="spotlight-result-${index}" class="spotlight-item spotlight-status ${selectedClass}" role="option" aria-selected="${selected}" aria-disabled="true" data-sl-index="${index}">
-        <span class="kind-icon">${result.loading ? "◔" : "⚠"}</span>
-        <span class="spotlight-item-name">${escapeHtml(text)}</span>
-      </div>`;
-    }
-    if (result.kind === "platform-lib") {
+    if (result.kind === "framework-lib") {
       const label = PLATFORM_PACK_LABEL[result.pack] || result.pack;
       const types = `${result.publicTypes} type${result.publicTypes === 1 ? "" : "s"}`;
-      const meta = `Platform · ${label}${result.tfm ? ` · ${result.tfm}` : ""}${result.version ? ` · ${result.version}` : ""} · ${result.role ?? types}${result.loaded ? " · loaded" : ""}`;
-      return `<button ${base} data-sl-platform-lib="${escapeHtml(result.assembly)}" data-sl-platform-pack="${escapeHtml(result.pack)}">
+      const meta = `${label} library${result.tfm ? ` · ${result.tfm}` : ""}${result.version ? ` · ${result.version}` : ""} · ${result.role ?? types}${result.loaded ? " · loaded" : ""}`;
+      return `<button ${base} data-sl-framework-lib="${escapeHtml(result.assembly)}" data-sl-framework-pack="${escapeHtml(result.pack)}">
         <span class="kind-icon sl-lib">▤</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.assembly, result.ranges)}</span>
         <span class="spotlight-item-ns">${escapeHtml(meta)}</span>
