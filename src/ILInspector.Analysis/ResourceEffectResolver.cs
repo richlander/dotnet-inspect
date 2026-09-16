@@ -10,6 +10,90 @@ namespace ILInspector.Analysis;
 public static class ResourceEffectResolver
 {
     public static ResourceEffectResolutionOutcome Resolve(
+        IAssemblyBindingPolicy bindingPolicy,
+        ResourceEffectAdmissionOutcome admission,
+        IEnumerable<CatalogCallGraphParticipant> participants,
+        DirectCallDefinitionResolutionLimits? directCallLimits = null,
+        ResourceEffectInterfaceApplicationLimits? interfaceLimits = null,
+        ResourceEffectResolutionLimits? limits = null,
+        TypeResolutionContextOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        ArgumentNullException.ThrowIfNull(admission);
+        ArgumentNullException.ThrowIfNull(participants);
+        if (admission is not ResourceEffectAdmissionOutcome.Admitted admitted)
+        {
+            return new ResourceEffectResolutionOutcome.Rejected(
+                ResourceEffectResolutionRejectionKind.AdmissionRejected);
+        }
+        return Resolve(
+            bindingPolicy,
+            admitted.Admission,
+            participants,
+            directCallLimits,
+            interfaceLimits,
+            limits,
+            options,
+            cancellationToken);
+    }
+
+    public static ResourceEffectResolutionOutcome Resolve(
+        IAssemblyBindingPolicy bindingPolicy,
+        ResourceEffectAdmission admission,
+        IEnumerable<CatalogCallGraphParticipant> participants,
+        DirectCallDefinitionResolutionLimits? directCallLimits = null,
+        ResourceEffectInterfaceApplicationLimits? interfaceLimits = null,
+        ResourceEffectResolutionLimits? limits = null,
+        TypeResolutionContextOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        ArgumentNullException.ThrowIfNull(admission);
+        ArgumentNullException.ThrowIfNull(participants);
+        var extension =
+            new ResourceEffectInterfaceApplicationExtension(
+                admission,
+                interfaceLimits
+                    ?? new ResourceEffectInterfaceApplicationLimits());
+        DirectCallDefinitionResolutionOutcome directCalls =
+            DirectCallDefinitionResolver.ResolveWithGenerationExtension(
+                bindingPolicy,
+                participants,
+                extension,
+                directCallLimits,
+                options,
+                cancellationToken);
+        if (directCalls
+            is not DirectCallDefinitionResolutionOutcome.Completed completed)
+        {
+            return new ResourceEffectResolutionOutcome.Rejected(
+                ResourceEffectResolutionRejectionKind
+                    .OccurrencePopulationRejected);
+        }
+        ResourceEffectInterfaceApplicationIndex applications =
+            extension.Index
+            ?? ResourceEffectInterfaceApplicationIndex.Incomplete(
+                admission,
+                completed,
+                new(
+                    ResourceEffectInterfaceApplicationGapKind
+                        .IncompleteMetadata)
+                {
+                    Detail =
+                        "Interface-application planning did not complete "
+                        + "for the direct-call population.",
+                });
+        return Resolve(
+            CreateRequest(
+                admission,
+                completed,
+                applications),
+            limits,
+            cancellationToken);
+    }
+
+    public static ResourceEffectResolutionOutcome Resolve(
         ResourceEffectAdmissionOutcome admission,
         DirectCallDefinitionResolutionOutcome directCalls,
         ResourceEffectResolutionLimits? limits = null,
@@ -53,7 +137,9 @@ public static class ResourceEffectResolver
 
     public static ResourceEffectResolutionRequest CreateRequest(
         ResourceEffectAdmission admission,
-        DirectCallDefinitionResolutionOutcome.Completed directCalls)
+        DirectCallDefinitionResolutionOutcome.Completed directCalls,
+        ResourceEffectInterfaceApplicationIndex? interfaceApplications =
+            null)
     {
         ArgumentNullException.ThrowIfNull(admission);
         ArgumentNullException.ThrowIfNull(directCalls);
@@ -61,7 +147,8 @@ public static class ResourceEffectResolver
             admission,
             admission.Receipt,
             directCalls,
-            CreatePopulationReceipt(directCalls));
+            CreatePopulationReceipt(directCalls),
+            interfaceApplications);
     }
 
     public static ResourceEffectResolutionOutcome Resolve(
@@ -84,6 +171,25 @@ public static class ResourceEffectResolver
             return new ResourceEffectResolutionOutcome.Rejected(
                 ResourceEffectResolutionRejectionKind
                     .OccurrencePopulationReceiptMismatch);
+        }
+        if (request.InterfaceApplications is { } applications
+            && (applications.Catalog != request.DirectCalls.Catalog
+                || !ReferenceEquals(
+                    applications.Generation,
+                    request.DirectCalls.Generation)))
+        {
+            return new ResourceEffectResolutionOutcome.Rejected(
+                ResourceEffectResolutionRejectionKind
+                    .InterfaceApplicationGenerationMismatch);
+        }
+        if (request.InterfaceApplications is { } index)
+        {
+            if (!index.AdmissionReceipt.Equals(request.AdmissionReceipt))
+                return new ResourceEffectResolutionOutcome.Rejected(
+                    ResourceEffectResolutionRejectionKind.InterfaceApplicationAdmissionMismatch);
+            if (!index.PopulationReceipt.Equals(request.PopulationReceipt))
+                return new ResourceEffectResolutionOutcome.Rejected(
+                    ResourceEffectResolutionRejectionKind.InterfaceApplicationPopulationMismatch);
         }
         limits ??= new ResourceEffectResolutionLimits();
 
@@ -145,6 +251,112 @@ public static class ResourceEffectResolver
                     incomplete = true;
                     if (gaps.TryAdd(gap))
                         evaluationGaps.Add(gap);
+                }
+
+                bool BindResolved(
+                    ResourceEffectSelectorBinding.Resolved value,
+                    ResourceEffectInterfaceApplicationEvidence?
+                        interfaceApplication)
+                {
+                    ResourceEffectOccurrenceBindingResult occurrence =
+                        ResourceEffectOccurrenceBinder.Bind(
+                            declaration.Effect,
+                            value);
+                    ResolvedResourceEffectBinding occurrenceBinding;
+                    switch (occurrence)
+                    {
+                        case ResourceEffectOccurrenceBindingResult
+                            .Ambiguous occurrenceAmbiguous:
+                            ambiguous = true;
+                            Retain(
+                                OccurrenceGap(
+                                    ResourceEffectResolutionGapKind
+                                        .OccurrenceAmbiguous,
+                                    value.DirectCall,
+                                    occurrenceAmbiguous.Gap));
+                            return true;
+                        case ResourceEffectOccurrenceBindingResult
+                            .Unsupported occurrenceUnsupported:
+                            unsupported = true;
+                            Retain(
+                                OccurrenceGap(
+                                    ResourceEffectResolutionGapKind
+                                        .OccurrenceUnsupported,
+                                    value.DirectCall,
+                                    occurrenceUnsupported.Gap));
+                            return true;
+                        case ResourceEffectOccurrenceBindingResult
+                            .Incomplete occurrenceIncomplete:
+                            Retain(
+                                OccurrenceGap(
+                                    ResourceEffectResolutionGapKind
+                                        .OccurrenceIncomplete,
+                                    value.DirectCall,
+                                    occurrenceIncomplete.Gap));
+                            return true;
+                        case ResourceEffectOccurrenceBindingResult
+                            .Resolved occurrenceResolved:
+                            occurrenceBinding =
+                                occurrenceResolved.Binding;
+                            break;
+                        default:
+                            throw new InvalidOperationException(
+                                "Unknown occurrence-binding result.");
+                    }
+
+                    boundEffects++;
+                    if (boundEffects > limits.MaxBoundEffects)
+                    {
+                        Retain(
+                            WorkGap(
+                                ResourceEffectResolutionWorkDimension
+                                    .BoundEffects,
+                                limits.MaxBoundEffects,
+                                boundEffects,
+                                value.DirectCall.PhysicalInvocation));
+                        return false;
+                    }
+
+                    long requiredAssociations =
+                        provenanceAssociations
+                        + declaration.Provenances.Length;
+                    if (requiredAssociations
+                        > limits.MaxProvenanceAssociations)
+                    {
+                        Retain(
+                            WorkGap(
+                                ResourceEffectResolutionWorkDimension
+                                    .ProvenanceAssociations,
+                                limits.MaxProvenanceAssociations,
+                                requiredAssociations,
+                                value.DirectCall.PhysicalInvocation));
+                        return false;
+                    }
+                    provenanceAssociations = requiredAssociations;
+
+                    var source = new ResolvedResourceEffectSource(
+                        model.Identity,
+                        model.Receipt,
+                        declaration,
+                        declaration.Provenances,
+                        interfaceApplication is null ? [] : [interfaceApplication]);
+                    string canonicalEffect = CanonicalBoundEffect(
+                        declaration.Effect,
+                        value.GenericBindings,
+                        value.ResourceKinds,
+                        occurrenceBinding);
+                    var effect = new ResolvedResourceEffect(
+                        admission.Receipt,
+                        value.DirectCall,
+                        declaration.Effect,
+                        value.GenericBindings,
+                        value.ResourceKinds,
+                        occurrenceBinding,
+                        [source],
+                        canonicalEffect);
+                    matches.Add(effect);
+                    allEffects.Add(effect);
+                    return true;
                 }
 
                 if (declaration.Target
@@ -215,121 +427,98 @@ public static class ResourceEffectResolver
                                 if (value.DirectCall.Definition
                                     .IsInterfaceDefinition)
                                 {
-                                    Retain(
-                                        new ResourceEffectResolutionGap(
-                                            ResourceEffectResolutionGapKind
-                                                .DeferredInterfaceApplication)
+                                    if (request.InterfaceApplications is null)
+                                    {
+                                        Retain(
+                                            new ResourceEffectResolutionGap(
+                                                ResourceEffectResolutionGapKind
+                                                    .DeferredInterfaceApplication)
+                                            {
+                                                PhysicalInvocation =
+                                                    value.DirectCall
+                                                        .PhysicalInvocation,
+                                            });
+                                    }
+                                }
+                                if (!BindResolved(
+                                        value,
+                                        interfaceApplication: null))
+                                {
+                                    break;
+                                }
+                                break;
+                        }
+                    }
+                    if (request.InterfaceApplications is { } interfaceApplications)
+                                    {
+                        if (interfaceApplications.CoverageGap is
+                            { } coverageGap)
                                         {
-                                            PhysicalInvocation =
-                                                value.DirectCall
-                                                    .PhysicalInvocation,
-                                        });
-                                }
-                                ResourceEffectOccurrenceBindingResult
-                                    occurrence =
-                                        ResourceEffectOccurrenceBinder.Bind(
-                                            declaration.Effect,
-                                            value);
-                                ResolvedResourceEffectBinding
-                                    occurrenceBinding;
-                                switch (occurrence)
+                                            Retain(
+                                new(
+                                                    ResourceEffectResolutionGapKind
+                                        .InterfaceApplicationIncomplete)
                                 {
-                                    case ResourceEffectOccurrenceBindingResult
-                                        .Ambiguous occurrenceAmbiguous:
-                                        ambiguous = true;
-                                        Retain(
-                                            OccurrenceGap(
-                                                ResourceEffectResolutionGapKind
-                                                    .OccurrenceAmbiguous,
-                                                value.DirectCall,
-                                                occurrenceAmbiguous.Gap));
-                                        continue;
-                                    case ResourceEffectOccurrenceBindingResult
-                                        .Unsupported occurrenceUnsupported:
-                                        unsupported = true;
-                                        Retain(
-                                            OccurrenceGap(
-                                                ResourceEffectResolutionGapKind
-                                                    .OccurrenceUnsupported,
-                                                value.DirectCall,
-                                                occurrenceUnsupported.Gap));
-                                        continue;
-                                    case ResourceEffectOccurrenceBindingResult
-                                        .Incomplete occurrenceIncomplete:
-                                        Retain(
-                                            OccurrenceGap(
-                                                ResourceEffectResolutionGapKind
-                                                    .OccurrenceIncomplete,
-                                                value.DirectCall,
-                                                occurrenceIncomplete.Gap));
-                                        continue;
-                                    case ResourceEffectOccurrenceBindingResult
-                                        .Resolved occurrenceResolved:
-                                        occurrenceBinding =
-                                            occurrenceResolved.Binding;
+                                    InterfaceApplicationGap =
+                                        coverageGap,
+                                });
+                                        }
+                        if (interfaceApplications.GlobalGapFor(
+                                declaration)
+                            is { } globalGap)
+                                        {
+                            Retain(
+                                new(
+                                    ResourceEffectResolutionGapKind
+                                        .InterfaceApplicationIncomplete)
+                                {
+                                    InterfaceApplicationGap =
+                                        globalGap,
+                                });
+                        }
+                        foreach (ResourceEffectInterfaceApplication application in
+                            interfaceApplications.For(declaration))
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                                            switch (application)
+                                            {
+                                case ResourceEffectInterfaceApplication.Applied applied:
+                                    if (++selectorEvaluations > limits.MaxSelectorEvaluations)
+                                                {
+                                        Retain(WorkGap(ResourceEffectResolutionWorkDimension.SelectorEvaluations,
+                                            limits.MaxSelectorEvaluations, selectorEvaluations,
+                                            applied.ImplementationCall.PhysicalInvocation));
                                         break;
-                                    default:
-                                        throw new InvalidOperationException(
-                                            "Unknown occurrence-binding result.");
-                                }
-
-                                boundEffects++;
-                                if (boundEffects
-                                    > limits.MaxBoundEffects)
-                                {
-                                    Retain(
-                                        WorkGap(
-                                            ResourceEffectResolutionWorkDimension
-                                                .BoundEffects,
-                                            limits.MaxBoundEffects,
-                                            boundEffects,
-                                            value.DirectCall
-                                                .PhysicalInvocation));
-                                    break;
-                                }
-
-                                long requiredAssociations =
-                                    provenanceAssociations
-                                    + declaration.Provenances.Length;
-                                if (requiredAssociations
-                                    > limits.MaxProvenanceAssociations)
-                                {
-                                    Retain(
-                                        WorkGap(
-                                            ResourceEffectResolutionWorkDimension
-                                                .ProvenanceAssociations,
-                                            limits.MaxProvenanceAssociations,
-                                            requiredAssociations,
-                                            value.DirectCall
-                                                .PhysicalInvocation));
-                                    break;
-                                }
-                                provenanceAssociations =
-                                    requiredAssociations;
-
-                                var source =
-                                    new ResolvedResourceEffectSource(
-                                        model.Identity,
-                                        model.Receipt,
+                                                }
+                                    var binding = ResourceEffectSelectorBinder.Bind(
+                                        declaration, applied.SelectorOccurrence!);
+                                    if (binding is not ResourceEffectSelectorBinding.Resolved selected)
+                                        throw new InvalidOperationException("An applied interface selector lost its binding.");
+                                    var concreteBinding = new ResourceEffectSelectorBinding.Resolved(
                                         declaration,
-                                        declaration.Provenances);
-                                string canonicalEffect =
-                                    CanonicalBoundEffect(
-                                        declaration.Effect,
-                                        value.GenericBindings,
-                                        value.ResourceKinds,
-                                        occurrenceBinding);
-                                var effect = new ResolvedResourceEffect(
-                                    admission.Receipt,
-                                    value.DirectCall,
-                                    declaration.Effect,
-                                    value.GenericBindings,
-                                    value.ResourceKinds,
-                                    occurrenceBinding,
-                                    [source],
-                                    canonicalEffect);
-                                matches.Add(effect);
-                                allEffects.Add(effect);
+                                        applied.OccurrenceBindingCall,
+                                        selected.GenericBindings, selected.ResourceKinds,
+                                        selected.DirectCall.Definition);
+                                    if (!BindResolved(concreteBinding, applied.Evidence))
+                                        break;
+                                    continue;
+                                case ResourceEffectInterfaceApplication.NotApplicable:
+                                                    continue;
+                                case ResourceEffectInterfaceApplication.Ambiguous value:
+                                                    ambiguous = true;
+                                    Retain(InterfaceGap(ResourceEffectResolutionGapKind.InterfaceApplicationAmbiguous,
+                                        value.ImplementationCall, value.Gap));
+                                                    continue;
+                                case ResourceEffectInterfaceApplication.Unsupported value:
+                                                    unsupported = true;
+                                    Retain(InterfaceGap(ResourceEffectResolutionGapKind.InterfaceApplicationUnsupported,
+                                        value.ImplementationCall, value.Gap));
+                                                    continue;
+                                case ResourceEffectInterfaceApplication.Incomplete value:
+                                    Retain(InterfaceGap(ResourceEffectResolutionGapKind.InterfaceApplicationIncomplete,
+                                        value.ImplementationCall, value.Gap));
+                                                    continue;
+                                            }
                                 break;
                         }
                     }
@@ -455,6 +644,16 @@ public static class ResourceEffectResolver
             OccurrenceGap = gap,
         };
 
+    static ResourceEffectResolutionGap InterfaceGap(
+        ResourceEffectResolutionGapKind kind,
+        DirectCallDefinitionResolution directCall,
+        ResourceEffectInterfaceApplicationGap gap) =>
+        new(kind)
+        {
+            PhysicalInvocation = directCall.PhysicalInvocation,
+            InterfaceApplicationGap = gap,
+        };
+
     static ResourceEffectResolutionGap WorkGap(
         ResourceEffectResolutionWorkDimension dimension,
         long limit,
@@ -476,7 +675,7 @@ public static class ResourceEffectResolver
             {
                 var key = new BoundEffectKey(
                     effect.PhysicalInvocation,
-                    effect.CanonicalEffect);
+            effect.CanonicalEffect);
                 if (grouped.TryGetValue(key, out CoalescedEffect? existing))
                 {
                     existing.Sources.AddRange(effect.Sources);
@@ -495,7 +694,13 @@ public static class ResourceEffectResolver
                     [
                         .. value.Sources
                             .Select(CanonicalizeSource)
-                            .Distinct(SourceComparer.Instance)
+                            .GroupBy(CanonicalDeclarationSource, StringComparer.Ordinal)
+                            .Select(group => new ResolvedResourceEffectSource(
+                                group.First().Model, group.First().ModelReceipt,
+                                group.First().Declaration, group.First().Provenances,
+                                [.. group.SelectMany(source => source.InterfaceApplications)
+                                    .DistinctBy(CanonicalInterfaceApplication)
+                                    .OrderBy(CanonicalInterfaceApplication, StringComparer.Ordinal)]))
                             .OrderBy(CanonicalSource, StringComparer.Ordinal),
                     ];
                     ResolvedResourceEffect first = value.First;
@@ -1038,6 +1243,9 @@ public static class ResourceEffectResolver
                         effect => effect.CanonicalEffect,
                         StringComparer.Ordinal)
                     .ThenBy(
+                        CanonicalInterfaceApplications,
+                        StringComparer.Ordinal)
+                    .ThenBy(
                         CanonicalSources,
                         StringComparer.Ordinal),
             ];
@@ -1045,7 +1253,7 @@ public static class ResourceEffectResolver
         static string OccurrenceKey(ResolvedResourceEffect effect) =>
             OccurrenceKey(effect.DirectCall);
 
-        static string OccurrenceKey(
+    internal static string OccurrenceKey(
             DirectCallDefinitionResolution directCall)
         {
             var value = new StringBuilder();
@@ -1450,9 +1658,16 @@ public static class ResourceEffectResolver
                     .. source.Provenances.OrderBy(
                         ResourceEffectCanonicalizer.Provenance,
                         StringComparer.Ordinal),
-                ]);
+        ],
+        [.. source.InterfaceApplications.OrderBy(
+                    CanonicalInterfaceApplication, StringComparer.Ordinal)]);
 
         static string CanonicalSource(
+    ResolvedResourceEffectSource source) =>
+    CanonicalDeclarationSource(source) + "\u001f"
+    + string.Join("\u001e", source.InterfaceApplications.Select(CanonicalInterfaceApplication));
+
+    static string CanonicalDeclarationSource(
             ResolvedResourceEffectSource source) =>
             source.Model.Value
             + "\u001f"
@@ -1475,7 +1690,7 @@ public static class ResourceEffectResolver
                     .OrderBy(CanonicalSource, StringComparer.Ordinal)
                     .Select(CanonicalSource));
 
-        static ResourceEffectOccurrencePopulationReceipt
+    internal static ResourceEffectOccurrencePopulationReceipt
             CreatePopulationReceipt(
                 DirectCallDefinitionResolutionOutcome.Completed directCalls)
         {
@@ -1647,6 +1862,10 @@ public static class ResourceEffectResolver
                 AppendHash(gap.OccurrenceGap is null
                     ? ""
                     : CanonicalOccurrenceGap(gap.OccurrenceGap));
+                AppendHash(gap.InterfaceApplicationGap is null
+                    ? ""
+                    : CanonicalInterfaceApplicationGap(
+                        gap.InterfaceApplicationGap));
                 AppendHash(gap.DeferredKind is null
                     ? ""
                     : ((int)gap.DeferredKind).ToString(
@@ -1688,6 +1907,141 @@ public static class ResourceEffectResolver
         {
             Append(value, kind);
         }
+        Append(
+            value,
+            CanonicalInterfaceApplications(effect));
+        return value.ToString();
+    }
+
+    static string CanonicalInterfaceApplications(ResolvedResourceEffect effect) =>
+        string.Join("\u001e", effect.InterfaceApplications.Select(CanonicalInterfaceApplication)
+            .OrderBy(value => value, StringComparer.Ordinal));
+
+    internal static string CanonicalInterfaceApplication(
+        ResourceEffectInterfaceApplicationEvidence? application)
+    {
+        if (application is null)
+            return "";
+
+        var value = new StringBuilder();
+        Append(
+            value,
+            MetadataReceiptEvidence.For(
+                application.InterfaceDeclaration.Registration));
+        Append(
+            value,
+            application.InterfaceDeclaration.ModuleVersionId);
+        Append(
+            value,
+            application.InterfaceDeclaration.MetadataToken);
+        AppendAssembly(value, application.InterfaceDeclaration.Assembly);
+        Append(value, (int)application.InterfaceDeclaration.Semantics);
+        AppendForwarding(value, application.InterfaceDeclaration.Forwarding);
+        Append(
+            value,
+            MetadataReceiptEvidence.For(
+                application.Implementation.Registration));
+        Append(value, application.Implementation.ModuleVersionId);
+        Append(value, application.Implementation.MetadataToken);
+        Append(
+            value,
+            MetadataReceiptEvidence.For(
+                application.InterfacePath.Registration));
+        Append(value, application.InterfacePath.ModuleVersionId);
+        Append(value, application.InterfacePath.DeclaringTypeToken);
+        Append(
+            value,
+            application.InterfacePath.InterfaceImplementationToken);
+        AppendTypeRef(
+            value,
+            application.InterfacePath.ClosedInterfaceType);
+        Append(value, CanonicalMember(application.ClosedSlot.Member));
+        Append(value, application.ClosedSlot.Member.SignatureHeader);
+        Append(value, application.ClosedSlot.Member.RequiredParameterCount);
+        Append(value, application.ClosedSlot.Member.HasThis ? 1 : 0);
+        Append(value, application.ClosedSlot.Member.ParameterDirections.Length);
+        foreach (ParameterDirection direction in application.ClosedSlot.Member.ParameterDirections)
+            Append(value, (int)direction);
+        AppendCatalogType(value, application.ClosedSlot.DeclaringType);
+        AppendCatalogType(value, application.ClosedSlot.ReturnType);
+        Append(value, application.ClosedSlot.ParameterTypes.Length);
+        foreach (CatalogTypeShape parameter in application.ClosedSlot.ParameterTypes)
+            AppendCatalogType(value, parameter);
+        AppendScopes(application.ClosedSlot.DeclaringGenericScopes);
+        AppendScopes(application.ClosedSlot.ParameterGenericScopes);
+        AppendScopes(application.ClosedSlot.ReturnGenericScopes);
+        Append(
+            value,
+            application.Method.ImplementationMethodToken);
+        if (application.Method
+            is ResourceEffectMethodImplementationEvidence.Explicit
+                explicitMethod)
+        {
+            Append(value, "explicit");
+            Append(
+                value,
+                explicitMethod.MethodImplementationToken);
+        }
+        else
+        {
+            Append(value, "implicit");
+        }
+        return value.ToString();
+
+        void AppendScopes(ImmutableArray<ResolvedResourceEffectGenericScope?> scopes)
+        {
+            Append(value, scopes.Length);
+            foreach (ResolvedResourceEffectGenericScope? scope in scopes)
+            {
+                Append(value, scope is null ? "slot-variable" : "invocation-variable");
+                if (scope is not null)
+                {
+                    Append(value, (int)scope.Kind);
+                    Append(value, CanonicalPhysical(scope.Owner));
+                }
+            }
+        }
+    }
+
+    static void AppendCatalogType(StringBuilder value, CatalogTypeShape type)
+    {
+        Append(value, (int)type.Kind);
+        Append(value, type.Definition is { } definition
+            ? MetadataReceiptEvidence.For(definition) : "");
+        Append(value, type.RawTypeKind);
+        Append(value, type.Rank);
+        Append(value, type.GenericParameterIndex);
+        Append(value, type.IsRequiredModifier ? 1 : 0);
+        Append(value, type.SignatureHeader);
+        Append(value, type.GenericArity);
+        Append(value, type.RequiredParameterCount);
+        Append(value, type.ArraySizes.Length);
+        foreach (int size in type.ArraySizes)
+            Append(value, size);
+        Append(value, type.ArrayLowerBounds.Length);
+        foreach (int bound in type.ArrayLowerBounds)
+            Append(value, bound);
+        Append(value, type.ElementType is not null ? 1 : 0);
+        if (type.ElementType is { } element)
+            AppendCatalogType(value, element);
+        Append(value, type.Components.Length);
+        foreach (CatalogTypeShape component in type.Components)
+            AppendCatalogType(value, component);
+    }
+
+    static string CanonicalInterfaceApplicationGap(
+        ResourceEffectInterfaceApplicationGap gap)
+    {
+        var value = new StringBuilder();
+        Append(value, (int)gap.Kind);
+        Append(value, gap.Detail ?? "");
+        Append(
+            value,
+            gap.WorkDimension is null
+                ? -1
+                : (int)gap.WorkDimension);
+        Append(value, gap.Limit ?? -1);
+        Append(value, gap.RequiredWork ?? -1);
         return value.ToString();
     }
 
@@ -1878,7 +2232,7 @@ public static class ResourceEffectResolver
 
         sealed record BoundEffectKey(
             GraphNodeStorageKey PhysicalInvocation,
-            string CanonicalEffect);
+    string CanonicalEffect);
 
         sealed class CoalescedEffect
         {
