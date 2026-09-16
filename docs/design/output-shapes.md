@@ -284,6 +284,11 @@ Rejected, or other case does not change `result_kind`; its own discriminator
 remains inside `content`. Another operation with a different content contract,
 such as Discover or semantic Count, needs its own registration. Neither the
 command token nor the generic CLR name is a wire discriminator.
+Asset-mode dependency inspection reserves the distinct identity
+`asset-dependencies` at schema version `1` for
+`DependencyInspectionContent`; its enriched form binds
+`DependencyInspectionEvidenceDocument` under the dependency owner's
+[adoption contract](dependency-inspection-command.md#thin-debug-views-and-browser-adoption).
 
 Envelope and diagnostic member names use lower snake case. Share keeps its
 owner-issued `kind` discriminator and values, including `available` and

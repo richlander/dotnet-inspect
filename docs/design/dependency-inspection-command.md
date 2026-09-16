@@ -759,6 +759,23 @@ baseline envelope on stdout equals the attachment's `Inspection` value and
 both derive from the same evidence-enabled execution, as specified by
 [Output Shapes](output-shapes.md#envelope-transport).
 
+Asset-mode dependency inspection registers `result_kind`
+`asset-dependencies` at `schema_version` `1`. The baseline form binds
+`content` to the source-generated `DependencyInspectionJsonContext` metadata
+for `DependencyInspectionContent`; the enriched form retains that exact
+binding and additionally binds `evidence` to the same context's
+`DependencyInspectionEvidenceDocument` metadata. Both forms use the same
+framing pair because Evidence presence is an admitted form of one registered
+contract, not another result kind. A different Content or incompatible
+Content/Evidence schema requires the Output Shapes version transition rather
+than reuse of `asset-dependencies` version `1`.
+
+The same `DependencyInspectionContent` metadata supplies ordinary unprojected
+`--json` for this adopted route. Explicitly lowered or projected JSON remains a
+host presentation that may accompany the evidence sidecar when otherwise
+admitted, but it cannot replace `content` in `--envelope` or shape the
+attachment.
+
 The Debug Browser/Wasm consumer receives the same closed evidence type and
 the same `DependencyInspectionContent`, then renders an owner-selected
 inspection-evidence view. It does not consume `DependsAssetProjection`, CLI
@@ -781,17 +798,21 @@ pathological fixtures. They cover:
   evidence-only producer failure;
 - one execution, detached lifetime, and serialization without acquisition or
   recapture; and
+- exact `asset-dependencies` version `1` framing for baseline and enriched
+  forms, rejection of a missing or mismatched registration, and round-trip of
+  both concrete source-generated serializers; and
 - matching runtime JSON and generated Browser/Wasm types for the complete
   closed enrichment.
 
 The Debug CLI public-entry gates required by Output Shapes additionally cover
 ordinary tree, JSON, and selected diagnostic-section output while the sidecar
 receives the complete closed enrichment; paired `--envelope` baseline
-equality; and ordinary output plus nonzero status when sidecar publication
-fails. Demonstrations use the restored CLI project and each thin diagnostic
-view. A Debug Browser/Wasm demonstration consumes the same evidence value.
-These gates do not verify the already documented Release host-surface absence,
-which remains **unverified** under the generic envelope policy.
+equality including identical framing and Content serialization; and ordinary
+output plus nonzero status when sidecar publication fails. Demonstrations use
+the restored CLI project and each thin diagnostic view. A Debug Browser/Wasm
+demonstration consumes the same evidence value. These gates do not verify the
+already documented Release host-surface absence, which remains **unverified**
+under the generic envelope policy.
 
 ## Graph rendering and row currency
 
