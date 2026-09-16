@@ -1027,10 +1027,9 @@ public static class MemberCommand
 
                 // Supplying a caller scope is an explicit request for the Callers section, so it
                 // renders (with an empty-state note when nothing matches) even at low verbosity.
-                effectiveOptions = effectiveOptions with
+                effectiveOptions = IncludeCallersSection(effectiveOptions) with
                 {
                     CallerScopeAssemblies = callerScopeAssemblySet.Assemblies,
-                    IncludeSections = IncludeCallersSection(effectiveOptions).IncludeSections
                 };
             }
 
@@ -1372,17 +1371,21 @@ public static class MemberCommand
             return false;
         // Bare -S carries no selector value, so it cannot be recognized by inspecting Select.
         if (!options.MemberSectionsPreResolved
+            && options.ImplicitIncludeSections.Count == 0
             && ((options.SelectDefault && options.Select is null)
                 || IsPureSelector(options.Select, SelectResolver.AllSelector)))
             return false;
 
         IReadOnlySet<string>? exactIncludeSections =
             options.ExactIncludeSections;
-        if (exactIncludeSections is null)
+        if (exactIncludeSections is null
+            && options.ImplicitIncludeSections.Count == 0)
             return false;
 
         sections = SingleOverloadSectionNames
-            .Where(exactIncludeSections.Contains)
+            .Where(section =>
+                exactIncludeSections?.Contains(section) == true
+                || options.ImplicitIncludeSections.Contains(section))
             .ToList();
         return sections.Count > 0;
     }
@@ -1407,8 +1410,16 @@ public static class MemberCommand
         var includeSections = options.IncludeSections is { Count: > 0 } existing
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var implicitSections = new HashSet<string>(
+            options.ImplicitIncludeSections,
+            StringComparer.OrdinalIgnoreCase);
         includeSections.Add(SectionNames.Callers);
-        return options with { IncludeSections = includeSections };
+        implicitSections.Add(SectionNames.Callers);
+        return options with
+        {
+            IncludeSections = includeSections,
+            ImplicitIncludeSections = implicitSections,
+        };
     }
 
     private static string[]? GetDetailReplanSelectors(MemberOptions options)

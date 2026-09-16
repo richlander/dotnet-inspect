@@ -612,35 +612,38 @@ public class ApiCommand
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
         }
-        (options, string? findingCensusSelectionError) =
-            NormalizeExactOnlySectionSelection(
-                options,
-                memberPipeline.SelectableSectionNames,
-                SectionNames.FindingCensus);
-        if (findingCensusSelectionError is not null)
+        string[] exactOnlySections =
+            options is MemberOptions
+            && ApiMemberSectionPipelines
+                .UsesOverloadInventoryPipeline(options)
+                ?
+                [
+                    SectionNames.MemberIndex,
+                    SectionNames.FindingCensus,
+                    SectionNames.CloneCandidates,
+                    SectionNames.ImplementationProfiles,
+                    SectionNames.Signature,
+                    SectionNames.CustomAttributes,
+                ]
+                :
+                [
+                    SectionNames.MemberIndex,
+                    SectionNames.FindingCensus,
+                    SectionNames.CloneCandidates,
+                    SectionNames.ImplementationProfiles,
+                ];
+        foreach (string section in exactOnlySections)
         {
-            CommandError.Write(findingCensusSelectionError);
-            return (null!, 1);
-        }
-        (options, string? cloneCandidatesSelectionError) =
-            NormalizeExactOnlySectionSelection(
-                options,
-                memberPipeline.SelectableSectionNames,
-                SectionNames.CloneCandidates);
-        if (cloneCandidatesSelectionError is not null)
-        {
-            CommandError.Write(cloneCandidatesSelectionError);
-            return (null!, 1);
-        }
-        (options, string? implementationProfilesSelectionError) =
-            NormalizeExactOnlySectionSelection(
-                options,
-                memberPipeline.SelectableSectionNames,
-                SectionNames.ImplementationProfiles);
-        if (implementationProfilesSelectionError is not null)
-        {
-            CommandError.Write(implementationProfilesSelectionError);
-            return (null!, 1);
+            (options, string? selectionError) =
+                NormalizeExactOnlySectionSelection(
+                    options,
+                    memberPipeline.SelectableSectionNames,
+                    section);
+            if (selectionError is not null)
+            {
+                CommandError.Write(selectionError);
+                return (null!, 1);
+            }
         }
         if (options is
             {

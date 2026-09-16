@@ -66,6 +66,11 @@ explicit wildcard, and structural schema discovery. It may also be promoted in
 target-aware discovery by a bounded presence probe without joining an automatic
 rendering scope.
 
+A section explicitly declared exact-name-only is a stronger exception:
+category and wildcard expansion remove it, while direct exact selection retains
+it. Sections implied by non-selector command options may narrow the target but
+do not make category- or wildcard-expanded sections exact.
+
 Two category roles exist.
 
 ### Base categories

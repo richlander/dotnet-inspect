@@ -1102,6 +1102,28 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("## Clone Candidates", output);
     }
 
+    [Fact]
+    public async Task Member_BroadGlob_DoesNotSelectExactOnlySections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.String",
+            "Clone",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "*",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Methods", output);
+        Assert.DoesNotContain("## Member Index", output);
+        Assert.DoesNotContain("## Signature", output);
+        Assert.DoesNotContain("## Custom Attributes", output);
+    }
+
     [Theory]
     [InlineData("@Calls")]
     [InlineData("@Source")]
@@ -1428,6 +1450,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectCustomAttributes_RendersCustomAttributes()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
+            OverloadIndex = 1,
+            Select = ["Custom Attributes"]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Custom Attributes", output);
+        Assert.Contains("RequiresUnreferencedCode", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_DiscoverEffective_ListsMemberBaseSections()
     {
         var options = new MemberOptions
@@ -1719,12 +1761,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_CategoryWithCallerScope_AutoSelectsSingleOverload()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", SectionCategoryNames.Member,
+            "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Callers", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+    }
+
+    [Fact]
     public async Task Member_BareNameCallersWithCallerScope_AmbiguousOverloadReportsSelectorHint()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
             nameof(MemberCallsFixture.Overloaded), "-S", "Callers", "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("section 'Callers' requires a single selected overload", error);
+        Assert.Contains("Overloaded~<digest>", error);
+        Assert.Contains("Overloaded:1 through Overloaded:2", error);
+    }
+
+    [Fact]
+    public async Task Member_CategoryWithCallerScope_AmbiguousOverloadReportsSelectorHint()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded), "-S", SectionCategoryNames.Member,
+            "--bin", testDirectory, "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
