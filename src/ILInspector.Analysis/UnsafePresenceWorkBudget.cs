@@ -1,3 +1,6 @@
+using System.Reflection.Metadata;
+using ILInspector.Metadata;
+
 namespace ILInspector.Analysis;
 
 /// <summary>
@@ -19,6 +22,10 @@ internal sealed class UnsafePresenceWorkBudget
     long _ilBytes;
     long _correspondenceBytes;
     long _correspondenceRows;
+    Dictionary<
+        MetadataTypeDefinitionName,
+        TypeDefinitionHandle>?
+        _localTypeDefinitions;
 
     internal void ReserveIlBytes(
         int bytes)
@@ -42,6 +49,14 @@ internal sealed class UnsafePresenceWorkBudget
             1,
             MaxCorrespondenceRows,
             "Unsafe evidence same-image correspondence exceeds the metadata-row budget.");
+
+    internal Dictionary<
+        MetadataTypeDefinitionName,
+        TypeDefinitionHandle> GetOrCreateLocalTypeDefinitions(
+            Func<Dictionary<
+                MetadataTypeDefinitionName,
+                TypeDefinitionHandle>> create)
+        => _localTypeDefinitions ??= create();
 
     static void Reserve(
         ref long work,

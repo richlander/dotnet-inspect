@@ -390,6 +390,12 @@ public class IndexBuildInvariantTests
                         FixtureAssembly,
                         context);
 
+        if (result is DotnetInspector.Queries
+                .UnsafeEvidencePresenceResult.Failed failed)
+        {
+            Assert.Fail(
+                failed.Error.ToString());
+        }
         Assert.IsType<
             DotnetInspector.Queries
                 .UnsafeEvidencePresenceResult.Available>(

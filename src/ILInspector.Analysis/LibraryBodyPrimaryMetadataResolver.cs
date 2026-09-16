@@ -838,7 +838,28 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             return false;
         }
 
-        TypeDefinitionHandle resolved = default;
+        Dictionary<
+            MetadataTypeDefinitionName,
+            TypeDefinitionHandle> definitions =
+                workBudget.GetOrCreateLocalTypeDefinitions(
+                    () => BuildPresenceLocalTypeDefinitions(
+                        decoder,
+                        workBudget));
+        return definitions.TryGetValue(
+                targetName,
+                out typeHandle)
+            && !typeHandle.IsNil;
+    }
+
+    Dictionary<
+        MetadataTypeDefinitionName,
+        TypeDefinitionHandle> BuildPresenceLocalTypeDefinitions(
+            TypeRefDecoder decoder,
+            UnsafePresenceWorkBudget workBudget)
+    {
+        var definitions = new Dictionary<
+            MetadataTypeDefinitionName,
+            TypeDefinitionHandle>();
         foreach (TypeDefinitionHandle candidateHandle
             in _reader.TypeDefinitions)
         {
@@ -848,18 +869,18 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     _reader,
                     candidateHandle,
                     0);
-            if (candidate.Resolution?.Type != targetName)
+            if (candidate.Resolution is not { Type: var candidateName })
                 continue;
-            if (!resolved.IsNil)
+
+            if (!definitions.TryAdd(
+                    candidateName,
+                    candidateHandle))
             {
-                typeHandle = default;
-                return false;
+                definitions[candidateName] = default;
             }
-            resolved = candidateHandle;
         }
 
-        typeHandle = resolved;
-        return !resolved.IsNil;
+        return definitions;
     }
 
     MethodDefinitionHandle ResolveSameImageMethodDefinition(

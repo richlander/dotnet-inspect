@@ -147,12 +147,18 @@ internal sealed class LibraryBodyMethodReferenceResolver
                         _reader,
                         declaringHandle,
                         0);
+                ReservePresenceSignature(
+                    method.Signature,
+                    workBudget);
                 MethodSignature<TypeRef> signature =
-                    DecodePresenceSignature(
+                    GuardedSignatureDecoder.Decode(
+                        _reader,
                         method.Signature,
-                        GenericScope.Empty,
-                        decoder,
-                        workBudget);
+                        SignatureBlobGuard.Kind.Method,
+                        () => method.DecodeSignature(
+                            decoder,
+                            GenericScope.Empty))
+                        .GetValueOrThrow();
                 string name = ReadPresenceString(
                     method.Name,
                     workBudget);
@@ -194,12 +200,18 @@ internal sealed class LibraryBodyMethodReferenceResolver
                         member.Parent,
                         scope,
                         decoder);
+                ReservePresenceSignature(
+                    member.Signature,
+                    workBudget);
                 MethodSignature<TypeRef> signature =
-                    DecodePresenceSignature(
+                    GuardedSignatureDecoder.Decode(
+                        _reader,
                         member.Signature,
-                        GenericScope.Empty,
-                        decoder,
-                        workBudget);
+                        SignatureBlobGuard.Kind.Method,
+                        () => member.DecodeMethodSignature(
+                            decoder,
+                            GenericScope.Empty))
+                        .GetValueOrThrow();
                 string name = ReadPresenceString(
                     member.Name,
                     workBudget);
@@ -336,33 +348,13 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 $"member parent kind {parent.Kind}"),
         };
 
-    MethodSignature<TypeRef> DecodePresenceSignature(
+    void ReservePresenceSignature(
         BlobHandle signatureHandle,
-        GenericScope scope,
-        TypeRefDecoder decoder,
         UnsafePresenceWorkBudget workBudget)
-    {
-        workBudget.ReserveCorrespondenceBytes(
+        => workBudget.ReserveCorrespondenceBytes(
             _reader.GetBlobReader(
                 signatureHandle)
                 .Length);
-        if (!SignatureBlobGuard.IsSafeToDecode(
-                _reader,
-                signatureHandle,
-                SignatureBlobGuard.Kind.Method))
-        {
-            throw new BadImageFormatException(
-                "The method signature exceeds its structural limits.");
-        }
-        BlobReader signatureReader =
-            _reader.GetBlobReader(signatureHandle);
-        return new SignatureDecoder<TypeRef, GenericScope>(
-                decoder,
-                _reader,
-                scope)
-            .DecodeMethodSignature(
-                ref signatureReader);
-    }
 
     static void ThrowIfMalformedPresenceSignature(
         TypeRef declaringType,
