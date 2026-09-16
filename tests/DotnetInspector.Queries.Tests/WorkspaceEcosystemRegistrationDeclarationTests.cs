@@ -205,6 +205,20 @@ public sealed class WorkspaceEcosystemRegistrationDeclarationTests
     }
 
     [Fact]
+    public void ExactLibraryPopulationRejectsProjectAndLocalSources()
+    {
+        ManagedMetadataIdentity.Assembly identity =
+            Assembly("Contoso.Json", new Version(1, 0, 0, 0));
+
+        Assert.Throws<ArgumentException>(
+            () => new WorkspaceEcosystemPopulationDeclaration.ExactLibrary(
+                new ExactLibrarySourceCoordinate.Project(identity)));
+        Assert.Throws<ArgumentException>(
+            () => new WorkspaceEcosystemPopulationDeclaration.ExactLibrary(
+                new ExactLibrarySourceCoordinate.Local(identity)));
+    }
+
+    [Fact]
     public void EmptyDeclarationIsRejectedWhileKnowledgeOrScannerIsSufficient()
     {
         Assert.Throws<ArgumentException>(() => Declaration());

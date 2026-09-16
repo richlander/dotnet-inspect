@@ -22,6 +22,12 @@ owner requires an authority-bearing `PackageAcquisitionCandidate` population;
 bounded package-prefix population selection remains a separately owned source
 and CLI adoption.
 
+The host-observable content-kind adoption is tracked by
+[#7113](https://github.com/richlander/dotnet-inspect/issues/7113). The completed
+aggregate is a `PackageAssemblySemanticFindDocument`; each independently
+meaningful occurrence is a `PackageAssemblySemanticFindResult`. Candidate
+dispositions remain `PackageAssemblySemanticFindCandidateOutcome` values.
+
 This design transfers one responsibility from
 [the package query CLI](package-query-cli.md): multi-candidate
 assembly-semantic Find execution and its Find-facing result meaning. That
@@ -46,9 +52,9 @@ Given:
   bounds;
 
 the Package Assembly-Semantic Find Query evaluates every admitted candidate in
-order and returns:
+order and returns one `PackageAssemblySemanticFindDocument` containing:
 
-- one ordered body-occurrence match sequence;
+- one ordered `PackageAssemblySemanticFindResult` sequence;
 - one typed terminal outcome for every admitted candidate;
 - the supplied source-population completion and failures;
 - query completion over the admitted population; and
@@ -274,7 +280,8 @@ Execution is serial in candidate order. For each candidate, the query:
 3. invokes the one-candidate evaluator;
 4. detaches the typed outcome and occurrence evidence;
 5. completes candidate-scoped cleanup; and
-6. publishes the terminal candidate event before advancing.
+6. reports the terminal candidate outcome through the optional nonterminal
+   sink before advancing.
 
 Serial execution preserves the measured five-candidate memory boundary and
 keeps at most one candidate workspace live. The existing production baseline
@@ -305,13 +312,13 @@ Occurrence order is:
 Hosts must not sort occurrences by package label, rendered method text, or
 literal excerpt and then treat the new order as query meaning.
 
-## Result and completion
+## Document, Results, and completion
 
-The resource-free result contains:
+The resource-free `PackageAssemblySemanticFindDocument` contains:
 
 - the exact admitted candidate population and its source completion;
 - one terminal candidate outcome per attempted coordinate;
-- the ordered occurrence match sequence;
+- the ordered occurrence `Results`;
 - separate aggregate candidate count, matched-candidate count, occurrence
   count, semantic-miss count, not-applicable count, and failure count; and
 - query completion over the admitted population.
@@ -327,11 +334,19 @@ Each candidate outcome is exactly one of:
 The query does not convert `NotApplicable` to `NoMatch`, a failed candidate to
 an empty match sequence, or an absent completion event to success.
 
-Occurrence matches and candidate outcomes remain separate typed sequences. The
-query defines neither host row sets nor default presentation. A Find adapter
-can declare one occurrence per Matches row while a package-oriented Browser
-experience can retain one candidate card with a bounded occurrence preview.
-Both consume the same complete producer evidence and candidate outcome.
+Each `PackageAssemblySemanticFindResult` is one independently meaningful
+decoded-literal occurrence at the Find grain. Results and candidate outcomes
+remain separate typed sequences. The query defines neither host row sets nor
+default presentation. A Find adapter can declare one Result per Matches row
+while a package-oriented Browser experience can retain one candidate card with
+a bounded Result preview. Both consume the same complete producer evidence and
+candidate outcome.
+
+No top-level Outcome wraps the Document. Every admitted invocation that
+completes can construct a valid Document, including a complete zero-Result
+search, an incomplete source population, or candidate-scoped failures.
+Cancellation and unexpected orchestration failure produce no envelope rather
+than a non-available semantic Outcome.
 
 Completion distinguishes:
 
@@ -415,7 +430,18 @@ invalidates success according to the one-candidate evaluator contract.
 
 ## Rendering and production hosts
 
-The query returns typed results and contains no Markout, console, DOM,
+`DotnetInspector.PackageQueries` owns the request, typed Document and Result
+content, progressive candidate-outcome sink, and serial executor. The public
+completed host-neutral boundary is
+`DotnetInspector.Sections.PackageAssemblySemanticFindInspection`, which returns
+`InspectionEnvelope<PackageAssemblySemanticFindDocument>`. `Content` is the
+owner-issued Document, Share remains explicitly non-projectable until a
+canonical Workspace projection exists, and supplemental diagnostics remain
+distinct from candidate outcomes. The optional
+`IPackageAssemblySemanticFindNonterminalSink` reports candidate outcomes while
+work is active; terminal completion exists only in the returned Document.
+
+The query and envelope composition contain no Markout, console, DOM,
 JavaScript, worker, or output-format dependency.
 
 Every production adapter consumes the distinct typed occurrence sequence,
@@ -483,16 +509,20 @@ The counted delivery path under #6769 is:
 3. **Shared extraction — #6794:** refactor the current literal-specific
    `PackageAssemblyQuery` orchestration into this owner without changing the
    one-candidate evaluator or exact-package semantics.
-4. **CLI adoption — #6795:** in a focused CLI-owner change, add Gallery-only
+4. **Content-kind lock — #7113:** name the completed composition as
+   `PackageAssemblySemanticFindDocument`, name each occurrence as
+   `PackageAssemblySemanticFindResult`, and separate the optional nonterminal
+   candidate-outcome sink from the authoritative terminal envelope.
+5. **CLI adoption — #6795:** in a focused CLI-owner change, add Gallery-only
    bounded prefix population, adopt the candidate execution bound, bind
    semantic row selection and Count to occurrences, decide and classify the
    Candidates-first default and single-row-format behavior, and render the
-   result through Sections/Markout.
-5. **Browser/Wasm adoption — #6796:** in a focused Package Query experience
+   Document through Sections/Markout.
+6. **Browser/Wasm adoption — #6796:** in a focused Package Query experience
    change, consume the shared candidate and occurrence counts and typed
    outcomes while retaining package cards and bounded occurrence previews.
-6. **Legacy retirement — #6797:** remove the literal-specific orchestration
-   and DTO shapes made redundant by the shared result. Keep
+7. **Legacy retirement — #6797:** remove the literal-specific orchestration
+   and DTO shapes made redundant by the shared Document. Keep
    `StringLiteralUsePatternAnalysis` and the one-candidate evaluator as their
    respective owner implementations.
 

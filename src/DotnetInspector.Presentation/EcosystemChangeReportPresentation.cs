@@ -442,7 +442,7 @@ public static class EcosystemChangeReportPresentation
             Project(value.Receipt),
             [.. value.Advisories.Select(Project)]);
 
-    static EcosystemChangeReportRowPresentation Project(
+    internal static EcosystemChangeReportRowPresentation Project(
         EcosystemChangeReportRow value) =>
         new(
             ProjectActivity(value),
@@ -491,7 +491,7 @@ public static class EcosystemChangeReportPresentation
                         package.FixedVersionAvailability,
                         package.FixedVersionAdvisories)))]);
 
-    static EcosystemChangeReportProgressPresentation Project(
+    internal static EcosystemChangeReportProgressPresentation Project(
         EcosystemChangeReportProgress value) =>
         new(
             value.Phase,
@@ -502,7 +502,7 @@ public static class EcosystemChangeReportPresentation
             value.CatalogHttpAttempts,
             value.CatalogDecodedBytes);
 
-    static EcosystemChangeReportFailurePresentation Project(
+    internal static EcosystemChangeReportFailurePresentation Project(
         EcosystemChangeReportEvent.Failure value) =>
         value switch
         {

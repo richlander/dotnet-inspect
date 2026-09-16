@@ -58,7 +58,26 @@ public sealed record WorkspaceRealizationSettlement(
     InspectionWorkspaceIdentity Realization,
     WorkspaceRealizationRetirementReason Reason,
     InspectionWorkspaceCloseReport? Report,
-    Exception? Failure);
+    Exception? Failure)
+{
+    public bool Succeeded =>
+        Failure is null
+        && Report is { Succeeded: true };
+}
+
+public sealed class WorkspaceRealizationSettlementException : Exception
+{
+    public WorkspaceRealizationSettlementException(
+        WorkspaceRealizationSettlement settlement)
+        : base(
+            $"Workspace realization cleanup failed after {settlement.Reason}.",
+            settlement.Failure)
+    {
+        Settlement = settlement;
+    }
+
+    public WorkspaceRealizationSettlement Settlement { get; }
+}
 
 /// <summary>
 /// Observable retirement of one realization. It grants no operation access.
@@ -281,8 +300,11 @@ public abstract record WorkspaceRealizationOperationAdmission
 /// </summary>
 public sealed class WorkspaceRealizationOperationLease : IDisposable
 {
+    readonly object _gate = new();
     WorkspaceRealizationCoordinator? _owner;
     readonly WorkspaceRealizationCoordinator.RealizationState _state;
+    int _activeUses;
+    bool _disposed;
 
     internal WorkspaceRealizationOperationLease(
         WorkspaceRealizationCoordinator owner,
@@ -306,18 +328,96 @@ public sealed class WorkspaceRealizationOperationLease : IDisposable
     {
         get
         {
-            ObjectDisposedException.ThrowIf(
-                Volatile.Read(ref _owner) is null,
-                this);
-            return _state.Workspace;
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _state.Workspace;
+            }
+        }
+    }
+
+    internal WorkspaceRealizationOperationUse EnterUse()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _activeUses++;
+            return new WorkspaceRealizationOperationUse(
+                this,
+                _state,
+                Definition,
+                Scope);
         }
     }
 
     public void Dispose()
     {
-        WorkspaceRealizationCoordinator? owner =
-            Interlocked.Exchange(ref _owner, null);
+        WorkspaceRealizationCoordinator? owner = null;
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            if (_activeUses == 0)
+            {
+                owner = _owner;
+                _owner = null;
+            }
+        }
         owner?.ReleaseOperation(_state);
+    }
+
+    internal void ReleaseUse()
+    {
+        WorkspaceRealizationCoordinator? owner = null;
+        lock (_gate)
+        {
+            if (_activeUses <= 0)
+                throw new InvalidOperationException(
+                    "The Workspace realization operation use was not active.");
+
+            _activeUses--;
+            if (_disposed && _activeUses == 0)
+            {
+                owner = _owner;
+                _owner = null;
+            }
+        }
+        owner?.ReleaseOperation(_state);
+    }
+}
+
+internal sealed class WorkspaceRealizationOperationUse : IDisposable
+{
+    WorkspaceRealizationOperationLease? _lease;
+
+    internal WorkspaceRealizationOperationUse(
+        WorkspaceRealizationOperationLease lease,
+        WorkspaceRealizationCoordinator.RealizationState state,
+        WorkspaceDefinitionSnapshot definition,
+        WorkspaceScopeSnapshot scope)
+    {
+        _lease = lease;
+        Realization = state.Identity;
+        Workspace = state.Workspace;
+        Definition = definition;
+        Scope = scope;
+    }
+
+    internal InspectionWorkspaceIdentity Realization { get; }
+
+    internal InspectionWorkspace Workspace { get; }
+
+    internal WorkspaceDefinitionSnapshot Definition { get; }
+
+    internal WorkspaceScopeSnapshot Scope { get; }
+
+    public void Dispose()
+    {
+        WorkspaceRealizationOperationLease? lease =
+            Interlocked.Exchange(ref _lease, null);
+        lease?.ReleaseUse();
     }
 }
 
@@ -349,10 +449,17 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
         }
     }
 
+    public ValueTask<WorkspaceRealizationCandidateStartResult>
+        BeginCandidateAsync(WorkspacePlan plan) =>
+        BeginCandidateAsync(plan, CancellationToken.None);
+
     public async ValueTask<WorkspaceRealizationCandidateStartResult>
-        BeginCandidateAsync(WorkspacePlan plan)
+        BeginCandidateAsync(
+            WorkspacePlan plan,
+            CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        cancellationToken.ThrowIfCancellationRequested();
 
         WorkspaceRealizationReplacementAttemptIdentity attempt = new();
         WorkspaceRealizationRetirement? displaced = null;
@@ -377,7 +484,22 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
 
         if (startClose is not null)
             StartClose(startClose);
-        await barrier.ConfigureAwait(false);
+        try
+        {
+            await barrier
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_currentAttempt, attempt))
+                    _currentAttempt = null;
+            }
+            throw;
+        }
 
         lock (_gate)
         {
@@ -647,7 +769,26 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
     }
 
     public WorkspaceRealizationCandidateRetirementResult AbandonCandidate(
-        WorkspaceRealizationCandidate candidate)
+        WorkspaceRealizationCandidate candidate) =>
+        RetireCandidate(
+            candidate,
+            WorkspaceRealizationRetirementReason.CandidateAbandoned);
+
+    public WorkspaceRealizationCandidateRetirementResult SupersedeCandidate(
+        WorkspaceRealizationCandidate candidate) =>
+        RetireCandidate(
+            candidate,
+            WorkspaceRealizationRetirementReason.CandidateSuperseded);
+
+    public WorkspaceRealizationCandidateRetirementResult CancelCandidate(
+        WorkspaceRealizationCandidate candidate) =>
+        RetireCandidate(
+            candidate,
+            WorkspaceRealizationRetirementReason.CandidateCancelled);
+
+    WorkspaceRealizationCandidateRetirementResult RetireCandidate(
+        WorkspaceRealizationCandidate candidate,
+        WorkspaceRealizationRetirementReason reason)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         WorkspaceRealizationRetirement retirement;
@@ -677,7 +818,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
             _currentAttempt = null;
             (retirement, startClose) = RetireLocked(
                 candidate.State,
-                WorkspaceRealizationRetirementReason.CandidateAbandoned);
+                reason);
             _candidateBarrier = retirement.Completion;
         }
 
@@ -799,8 +940,12 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
         Exception[] failures =
         [
             .. report.Settlements
-                .Where(settlement => settlement.Failure is not null)
-                .Select(settlement => settlement.Failure!),
+                .Where(settlement => !settlement.Succeeded)
+                .Select(
+                    settlement =>
+                        settlement.Failure
+                        ?? new WorkspaceRealizationSettlementException(
+                            settlement)),
         ];
         if (failures.Length > 0)
             throw new AggregateException(failures);
@@ -874,32 +1019,6 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
         completion?.TrySetResult();
         if (startClose)
             StartClose(state);
-    }
-
-    void RetireCandidate(
-        WorkspaceRealizationCandidate candidate,
-        WorkspaceRealizationRetirementReason reason)
-    {
-        RealizationState? startClose = null;
-        lock (_gate)
-        {
-            if (!ReferenceEquals(candidate.Owner, this)
-                || !ReferenceEquals(candidate.State, _candidate?.State))
-            {
-                return;
-            }
-
-            _candidate = null;
-            _currentAttempt = null;
-            WorkspaceRealizationRetirement retirement;
-            (retirement, startClose) = RetireLocked(
-                candidate.State,
-                reason);
-            _candidateBarrier = retirement.Completion;
-        }
-
-        if (startClose is not null)
-            StartClose(startClose);
     }
 
     internal void ReleaseOperation(RealizationState state)

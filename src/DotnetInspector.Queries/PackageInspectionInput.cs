@@ -59,11 +59,7 @@ public sealed class PackageInspectionInput
     public static PackageInspectionInput CreateFromBinding(PackageRootBinding binding)
     {
         ArgumentNullException.ThrowIfNull(binding);
-        if (!ReferenceEquals(
-                binding.ContentGenerationIdentity,
-                binding.Root.Content.GenerationIdentity)
-            || !binding.Coordinate.Producer.Equals(
-                binding.Root.Content.ProducerKey, StringComparison.Ordinal))
+        if (!binding.ReferencesRetainedContent())
         {
             throw new ArgumentException(
                 "The package binding no longer identifies its retained content.",

@@ -103,6 +103,7 @@
     <ProjectReference Include="..\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PortableQueries\DotnetInspector.PortableQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />

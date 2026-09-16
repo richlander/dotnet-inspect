@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 using DotnetInspector.Services;
 
@@ -223,7 +224,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "Type 'No.Such.Type' not found in the specified scope.",
             result.Error,
             StringComparison.Ordinal);
-        Assert.Equal("", result.Output.Trim());
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.False(document.RootElement.GetProperty("queryResult").GetProperty("dependency")
+            .GetProperty("found").GetBoolean());
+        Assert.Empty(document.RootElement.GetProperty("rowSelection").GetProperty("relationships")
+            .EnumerateArray());
     }
 
     [Fact]

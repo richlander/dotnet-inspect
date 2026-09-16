@@ -266,6 +266,7 @@ public sealed class InspectionGraphPackageBoundaryTests
             workspace.CreateAssemblyContextGroup(
                 [first.Participant, second.Participant]);
         var loaded = new WorkspaceContextLoadOutcome.Loaded(
+            workspace.Identity,
             group,
             [first],
             [],

@@ -1,0 +1,272 @@
+using System.Collections.Immutable;
+using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
+
+namespace DotnetInspector.Queries;
+
+/// <summary>Workspace-issued identity and stable order of one observed assembly.</summary>
+public sealed class WorkspaceDeclarationOccurrence
+{
+    internal WorkspaceDeclarationOccurrence(
+        InspectionWorkspaceIdentity workspace, int contextOrder, int memberOrder)
+    {
+        Workspace = workspace;
+        ContextOrder = contextOrder;
+        MemberOrder = memberOrder;
+    }
+
+    public InspectionWorkspaceIdentity Workspace { get; }
+    public int ContextOrder { get; }
+    public int MemberOrder { get; }
+}
+
+public enum WorkspaceDeclarationCoordinateStatus
+{
+    Available,
+    CoordinateUnavailable,
+}
+
+/// <summary>Detached source and selection evidence for one exact occurrence.</summary>
+public sealed class WorkspaceDeclarationMember
+{
+    internal WorkspaceDeclarationMember(
+        WorkspaceDeclarationOccurrence occurrence,
+        ExactLibrarySourceCoordinate? coordinate,
+        AssemblyReferenceIdentity assemblyIdentity,
+        WorkspaceDeclarationOrigin origin,
+        AssemblyResolutionProvenance selection)
+    {
+        Occurrence = occurrence;
+        Coordinate = coordinate;
+        AssemblyIdentity = assemblyIdentity;
+        Origin = origin;
+        Selection = selection;
+    }
+
+    public WorkspaceDeclarationOccurrence Occurrence { get; }
+    public ExactLibrarySourceCoordinate? Coordinate { get; }
+    public WorkspaceDeclarationCoordinateStatus CoordinateStatus =>
+        Coordinate is null
+            ? WorkspaceDeclarationCoordinateStatus.CoordinateUnavailable
+            : WorkspaceDeclarationCoordinateStatus.Available;
+    public AssemblyReferenceIdentity AssemblyIdentity { get; }
+    public WorkspaceDeclarationOrigin Origin { get; }
+    public AssemblyResolutionProvenance Selection { get; }
+}
+
+/// <summary>
+/// Detached request, realization coverage, and roster from one admitted context.
+/// </summary>
+public sealed class WorkspaceDeclarationContextReceipt
+{
+    internal WorkspaceDeclarationContextReceipt(
+        InspectionWorkspaceIdentity workspace,
+        int order,
+        WorkspaceDeclarationRequest request,
+        bool isRealized,
+        ImmutableArray<WorkspaceDeclarationMember> members,
+        ImmutableArray<WorkspaceDeclarationFailure> failures)
+    {
+        Workspace = workspace;
+        Order = order;
+        Request = request;
+        IsRealized = isRealized;
+        Members = members;
+        Failures = failures;
+    }
+
+    public InspectionWorkspaceIdentity Workspace { get; }
+    public int Order { get; }
+    public WorkspaceDeclarationRequest Request { get; }
+    public bool IsRealized { get; }
+    public ImmutableArray<WorkspaceDeclarationMember> Members { get; }
+    public ImmutableArray<WorkspaceDeclarationFailure> Failures { get; }
+}
+
+/// <summary>
+/// An admitted context. Live group access remains separate from its receipt.
+/// </summary>
+public sealed class WorkspaceDeclarationContext
+{
+    internal WorkspaceDeclarationContext(
+        WorkspaceDeclarationContextReceipt receipt,
+        WorkspaceContextLoadOutcome outcome)
+        : this(receipt,
+            outcome is WorkspaceContextLoadOutcome.Loaded loaded ? loaded.Group : null)
+    {
+        ContextLoadOutcome = outcome;
+    }
+
+    internal WorkspaceDeclarationContext(
+        WorkspaceDeclarationContextReceipt receipt,
+        AssemblyContextGroup? group)
+    {
+        Receipt = receipt;
+        Group = group;
+    }
+
+    public WorkspaceDeclarationContextReceipt Receipt { get; }
+    public AssemblyContextGroup? Group { get; }
+
+    /// <summary>The original loader result, when admitted by the context loader.</summary>
+    public WorkspaceContextLoadOutcome? ContextLoadOutcome { get; }
+}
+
+/// <summary>Identity of one captured association, not an arithmetic revision.</summary>
+public sealed class WorkspaceDeclarationPopulationIdentity
+{
+    internal WorkspaceDeclarationPopulationIdentity() { }
+}
+
+/// <summary>Detached evidence for one explicitly selected finite population.</summary>
+public sealed class WorkspaceDeclarationPopulationReceipt
+{
+    internal WorkspaceDeclarationPopulationReceipt(
+        InspectionWorkspaceIdentity workspace,
+        ImmutableArray<WorkspaceDeclarationContextReceipt> contexts)
+    {
+        Workspace = workspace;
+        Contexts = contexts;
+        Members = [.. contexts.SelectMany(static context => context.Members)];
+    }
+
+    public InspectionWorkspaceIdentity Workspace { get; }
+    public WorkspaceDeclarationPopulationIdentity Identity { get; } = new();
+    public ImmutableArray<WorkspaceDeclarationContextReceipt> Contexts { get; }
+    public ImmutableArray<WorkspaceDeclarationMember> Members { get; }
+    /// <summary>
+    /// Whether every selected context realized. Coordinate and inventory coverage
+    /// are separate: this does not certify a complete declaration query.
+    /// </summary>
+    public bool IsRealizationComplete => Contexts.All(static context => context.IsRealized);
+}
+
+public enum WorkspaceDeclarationPopulationFailure
+{
+    MalformedSelection,
+    ForeignWorkspace,
+    DuplicateContext,
+    ContextUnavailable,
+    WorkspaceClosing,
+    WorkspaceClosed,
+    OccurrenceNotSelected,
+}
+
+public abstract class WorkspaceDeclarationPopulationCapture
+{
+    private protected WorkspaceDeclarationPopulationCapture() { }
+
+    public sealed class Captured : WorkspaceDeclarationPopulationCapture
+    {
+        internal Captured(WorkspaceDeclarationPopulation population) => Population = population;
+        public WorkspaceDeclarationPopulation Population { get; }
+    }
+
+    public sealed class Rejected : WorkspaceDeclarationPopulationCapture
+    {
+        internal Rejected(WorkspaceDeclarationPopulationFailure failure) => Failure = failure;
+        public WorkspaceDeclarationPopulationFailure Failure { get; }
+    }
+}
+
+public abstract class WorkspaceDeclarationInventoryOutcome
+{
+    private protected WorkspaceDeclarationInventoryOutcome() { }
+
+    public sealed class Inspected : WorkspaceDeclarationInventoryOutcome
+    {
+        internal Inspected(AssemblyTypeDeclarationInventoryOutcome outcome) => Outcome = outcome;
+        public AssemblyTypeDeclarationInventoryOutcome Outcome { get; }
+    }
+
+    public sealed class AcquisitionRejected : WorkspaceDeclarationInventoryOutcome
+    {
+        internal AcquisitionRejected(CandidateOpenFailure failure) => Failure = failure;
+        public CandidateOpenFailure Failure { get; }
+    }
+
+    public sealed class Unavailable : WorkspaceDeclarationInventoryOutcome
+    {
+        internal Unavailable(WorkspaceDeclarationPopulationFailure failure) => Failure = failure;
+        public WorkspaceDeclarationPopulationFailure Failure { get; }
+    }
+
+    public sealed class NotEvaluated : WorkspaceDeclarationInventoryOutcome
+    {
+        internal NotEvaluated(WorkspaceDeclarationInventoryBound bound) => Bound = bound;
+        public WorkspaceDeclarationInventoryBound Bound { get; }
+    }
+}
+
+public enum WorkspaceDeclarationInventoryBound
+{
+    ReadAttempts,
+    RetainedInventories,
+}
+
+/// <summary>
+/// Live query input over an exact captured roster. This is not a resident index.
+/// </summary>
+public sealed class WorkspaceDeclarationPopulation
+{
+    readonly InspectionWorkspace _workspace;
+    readonly IReadOnlyDictionary<
+        WorkspaceDeclarationOccurrence,
+        (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)> _access;
+
+    internal WorkspaceDeclarationPopulation(
+        InspectionWorkspace workspace,
+        WorkspaceDeclarationPopulationReceipt receipt,
+        IReadOnlyDictionary<
+            WorkspaceDeclarationOccurrence,
+            (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)> access)
+    {
+        _workspace = workspace;
+        Receipt = receipt;
+        _access = access;
+    }
+
+    public WorkspaceDeclarationPopulationReceipt Receipt { get; }
+
+    internal WorkspaceDeclarationPopulationFailure? Availability() =>
+        _workspace.DeclarationPopulationAvailability();
+
+    /// <summary>Inspects one selected occurrence through its existing group owner.</summary>
+    public WorkspaceDeclarationInventoryOutcome ReadDeclarations(
+        WorkspaceDeclarationOccurrence occurrence,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_access.TryGetValue(occurrence, out var access))
+        {
+            return new WorkspaceDeclarationInventoryOutcome.Unavailable(
+                WorkspaceDeclarationPopulationFailure.OccurrenceNotSelected);
+        }
+
+        if (Availability() is { } unavailable)
+            return new WorkspaceDeclarationInventoryOutcome.Unavailable(unavailable);
+
+        try
+        {
+            var result = access.Group.UseAssemblySession(
+                access.Assembly, static session => session.TypeDeclarations());
+            cancellationToken.ThrowIfCancellationRequested();
+            return result switch
+            {
+                AssemblyImageAccessResult<AssemblyTypeDeclarationInventoryOutcome>.Available available =>
+                    new WorkspaceDeclarationInventoryOutcome.Inspected(available.Value),
+                AssemblyImageAccessResult<AssemblyTypeDeclarationInventoryOutcome>.Rejected rejected =>
+                    new WorkspaceDeclarationInventoryOutcome.AcquisitionRejected(rejected.Failure),
+                _ => throw new InvalidOperationException("Unknown assembly-image access result."),
+            };
+        }
+        catch (ObjectDisposedException exception)
+            when (exception.ObjectName == typeof(AssemblyContextGroup).FullName)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new WorkspaceDeclarationInventoryOutcome.Unavailable(
+                WorkspaceDeclarationPopulationFailure.ContextUnavailable);
+        }
+    }
+}

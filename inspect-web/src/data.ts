@@ -38,6 +38,7 @@ export const packageLenses = [
 
 export const libraryLenses = [
   ["overview", "Overview"],
+  ["compare", "Compare"],
   ["references", "References"],
   ["integrations", "Integrations"],
   ["analysis", "Analysis"],

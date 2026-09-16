@@ -758,10 +758,12 @@ internal sealed class LibraryBodyMethodReferenceResolver
         if (target.Kind == MemberKind.Unsupported
             || target.GenericArity == 0
             || arguments.Length != target.GenericArity
-            || arguments.Any(argument =>
-                ContainsMalformedMethodSpecificationType(
-                    argument,
-                    scope)))
+            || !MethodSignatureTypeShape
+                .InspectMethodSpecificationArguments(
+                    arguments,
+                    scope.TypeParameters.Length,
+                    scope.MethodParameters.Length)
+                .IsSupported)
         {
             throw new BadImageFormatException(
                 "The MethodSpec signature is invalid for its target and caller scope.");

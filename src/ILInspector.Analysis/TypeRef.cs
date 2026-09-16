@@ -210,64 +210,75 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 return changed ? GenericInstance(definition, builder.MoveToImmutable()) : this;
             }
             case TypeRefKind.Unsupported
-                when UnmodifiedType is { } unmodified
-                    && ModifierType is { } modifier:
+                when ModifierType is not null
+                    && UnmodifiedType is not null:
             {
-                TypeRef instantiatedUnmodified =
-                    unmodified.Instantiate(
+                TypeRef modifier =
+                    ModifierType.Instantiate(
                         typeArguments,
                         methodArguments);
-                TypeRef instantiatedModifier =
-                    modifier.Instantiate(
+                TypeRef unmodified =
+                    UnmodifiedType.Instantiate(
                         typeArguments,
                         methodArguments);
-                return ReferenceEquals(
-                            instantiatedUnmodified,
-                            unmodified)
-                        && ReferenceEquals(
-                            instantiatedModifier,
-                            modifier)
+                return ReferenceEquals(modifier, ModifierType)
+                        && ReferenceEquals(unmodified, UnmodifiedType)
                     ? this
-                    : UnsupportedModified(
-                        instantiatedModifier,
-                        instantiatedUnmodified,
-                        IsRequiredModifier);
+                    : new TypeRef(TypeRefKind.Unsupported)
+                    {
+                        UnsupportedReason = UnsupportedReason,
+                        ModifierType = modifier,
+                        UnmodifiedType = unmodified,
+                        IsRequiredModifier = IsRequiredModifier,
+                        RawTypeKind = RawTypeKind,
+                    };
             }
             case TypeRefKind.Unsupported
                 when FunctionPointerSignature is { } signature:
             {
-                TypeRef instantiatedReturn =
+                TypeRef returnType =
                     signature.ReturnType.Instantiate(
                         typeArguments,
                         methodArguments);
                 bool changed =
                     !ReferenceEquals(
-                        instantiatedReturn,
+                        returnType,
                         signature.ReturnType);
-                var parameters =
-                    ImmutableArray.CreateBuilder<TypeRef>(
-                        signature.ParameterTypes.Length);
-                foreach (TypeRef parameter
-                    in signature.ParameterTypes)
+                ImmutableArray<TypeRef> parameters =
+                    signature.ParameterTypes;
+                if (!parameters.IsDefault)
                 {
-                    TypeRef instantiated =
-                        parameter.Instantiate(
-                            typeArguments,
-                            methodArguments);
-                    changed |= !ReferenceEquals(
-                        instantiated,
-                        parameter);
-                    parameters.Add(instantiated);
+                    var builder =
+                        ImmutableArray.CreateBuilder<TypeRef>(
+                            parameters.Length);
+                    foreach (TypeRef parameter in parameters)
+                    {
+                        TypeRef substituted =
+                            parameter.Instantiate(
+                                typeArguments,
+                                methodArguments);
+                        changed |= !ReferenceEquals(
+                            substituted,
+                            parameter);
+                        builder.Add(substituted);
+                    }
+                    parameters = builder.MoveToImmutable();
                 }
-                return changed
-                    ? UnsupportedFunctionPointer(
+                if (!changed)
+                    return this;
+
+                return new TypeRef(TypeRefKind.Unsupported)
+                {
+                    UnsupportedReason = UnsupportedReason,
+                    FunctionPointerSignature =
                         new MethodSignature<TypeRef>(
                             signature.Header,
-                            instantiatedReturn,
+                            returnType,
                             signature.RequiredParameterCount,
                             signature.GenericParameterCount,
-                            parameters.MoveToImmutable()))
-                    : this;
+                            parameters),
+                    RawTypeKind = RawTypeKind,
+                };
             }
             default:
                 return this;

@@ -99,9 +99,76 @@ public sealed class WorkspaceRealizationTests
         Assert.Equal(
             WorkspaceRealizationRetirementReason.CandidateAbandoned,
             settlement.Reason);
+        Assert.True(settlement.Succeeded);
         using WorkspaceRealizationOperationLease operation =
             await WorkspaceRealizationConsumer.EnterAsync(coordinator);
         Assert.Same(first.Identity, operation.Realization);
+    }
+
+    [Fact]
+    public async Task SupersedeCandidate_RetiresWithoutStartingReplacement()
+    {
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+
+        var retiring = Assert.IsType<
+            WorkspaceRealizationCandidateRetirementResult.Retiring>(
+                coordinator.SupersedeCandidate(candidate));
+        WorkspaceRealizationSettlement settlement =
+            await retiring.Retirement.Completion;
+
+        Assert.Equal(
+            WorkspaceRealizationRetirementReason.CandidateSuperseded,
+            settlement.Reason);
+        Assert.True(settlement.Succeeded);
+        Assert.Null(coordinator.Current);
+        var admission = Assert.IsType<
+            WorkspaceRealizationOperationAdmission.Unavailable>(
+                await coordinator.EnterOperationAsync(
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            WorkspaceRealizationOperationUnavailableReason.NoActiveRealization,
+            admission.Reason);
+    }
+
+    [Fact]
+    public async Task CancelledCandidateStartWait_DoesNotCreateReplacement()
+    {
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        WorkspaceRealizationConstructionLease construction =
+            candidate.EnterConstruction();
+        using var cancellation = new CancellationTokenSource();
+
+        Task<WorkspaceRealizationCandidateStartResult> replacement =
+            coordinator.BeginCandidateAsync(
+                WorkspacePlan.Empty,
+                cancellation.Token).AsTask();
+        await Task.Yield();
+        Assert.False(replacement.IsCompleted);
+
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await replacement);
+        construction.Dispose();
+        WorkspaceRealizationSettlement settlement =
+            await candidate.Settlement;
+
+        Assert.Equal(
+            WorkspaceRealizationRetirementReason.CandidateSuperseded,
+            settlement.Reason);
+        Assert.True(settlement.Succeeded);
+        WorkspaceRealizationCandidate next =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        Assert.NotSame(candidate.Identity, next.Identity);
     }
 
     [Fact]
@@ -261,7 +328,9 @@ public sealed class WorkspaceRealizationTests
         await Task.Yield();
         Assert.False(completion.IsCompleted);
         Task<WorkspaceRealizationCandidateStartResult> replacement =
-            coordinator.BeginCandidateAsync(WorkspacePlan.Empty).AsTask();
+            coordinator.BeginCandidateAsync(
+                WorkspacePlan.Empty,
+                TestContext.Current.CancellationToken).AsTask();
 
         held.Dispose();
 
@@ -331,7 +400,9 @@ public sealed class WorkspaceRealizationTests
 
         var next = Assert.IsType<
             WorkspaceRealizationCandidateStartResult.Prepared>(
-                await coordinator.BeginCandidateAsync(WorkspacePlan.Empty));
+                await coordinator.BeginCandidateAsync(
+                    WorkspacePlan.Empty,
+                    TestContext.Current.CancellationToken));
 
         Assert.NotNull(next.SupersededCandidate);
         WorkspaceRealizationSettlement settlement =
@@ -359,7 +430,9 @@ public sealed class WorkspaceRealizationTests
             WorkspaceRealizationConsumer.EnterConstruction(prior);
 
         Task<WorkspaceRealizationCandidateStartResult> replacement =
-            coordinator.BeginCandidateAsync(WorkspacePlan.Empty).AsTask();
+            coordinator.BeginCandidateAsync(
+                WorkspacePlan.Empty,
+                TestContext.Current.CancellationToken).AsTask();
         await Task.Yield();
 
         Assert.False(replacement.IsCompleted);
@@ -401,9 +474,13 @@ public sealed class WorkspaceRealizationTests
                 completion.CreateProjection([binding]);
 
         Task<WorkspaceRealizationCandidateStartResult> first =
-                coordinator.BeginCandidateAsync(WorkspacePlan.Empty).AsTask();
+                coordinator.BeginCandidateAsync(
+                    WorkspacePlan.Empty,
+                    TestContext.Current.CancellationToken).AsTask();
         Task<WorkspaceRealizationCandidateStartResult> second =
-                coordinator.BeginCandidateAsync(WorkspacePlan.Empty).AsTask();
+                coordinator.BeginCandidateAsync(
+                    WorkspacePlan.Empty,
+                    TestContext.Current.CancellationToken).AsTask();
         Assert.False(first.IsCompleted);
         Assert.False(second.IsCompleted);
 
@@ -602,7 +679,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task Settlement_PreservesWorkspaceCloseFailure()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        var coordinator = new WorkspaceRealizationCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -633,12 +710,21 @@ public sealed class WorkspaceRealizationTests
         WorkspaceRealizationSettlement settlement = Assert.Single(
             report.Settlements);
         Assert.NotNull(settlement.Report);
+        Assert.False(settlement.Report.Succeeded);
+        Assert.False(settlement.Succeeded);
         var group = Assert.IsType<
             InspectionWorkspaceCoordinatedGroupCloseResult<
                 PackageRoleGroupCleanupRecord>>(
                     Assert.Single(settlement.Report.Groups));
         Assert.IsType<PackageRoleGroupCleanupRecord.Failed>(group.Result);
         Assert.Null(settlement.Failure);
+        AggregateException disposal = await Assert.ThrowsAsync<
+            AggregateException>(
+                async () => await coordinator.DisposeAsync());
+        var failure = Assert.IsType<
+            WorkspaceRealizationSettlementException>(
+                Assert.Single(disposal.InnerExceptions));
+        Assert.Same(settlement, failure.Settlement);
     }
 
     [Fact]
@@ -670,8 +756,37 @@ public sealed class WorkspaceRealizationTests
         Assert.Equal(
             WorkspaceRealizationRetirementReason.CoordinatorClosed,
             settlement.Reason);
+        Assert.True(settlement.Succeeded);
         Assert.Null(settlement.Failure);
         Assert.Null(candidate.State.WorkspaceReference);
+        await coordinator.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Close_WaitsForInFlightUseAfterLeaseDisposal()
+    {
+        var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        _ = await WorkspaceRealizationConsumer.ActivateAsync(
+            coordinator,
+            candidate);
+        WorkspaceRealizationOperationLease operation =
+            await WorkspaceRealizationConsumer.EnterAsync(coordinator);
+        WorkspaceRealizationOperationUse use =
+            operation.EnterUse();
+
+        Task<WorkspaceRealizationCoordinatorCloseReport> close =
+            coordinator.CloseAsync();
+        operation.Dispose();
+
+        Assert.False(close.IsCompleted);
+
+        use.Dispose();
+        WorkspaceRealizationCoordinatorCloseReport report = await close;
+        Assert.True(Assert.Single(report.Settlements).Succeeded);
         await coordinator.DisposeAsync();
     }
 

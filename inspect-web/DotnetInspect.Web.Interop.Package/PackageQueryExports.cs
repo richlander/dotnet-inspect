@@ -110,7 +110,7 @@ namespace DotnetInspect.Web.Interop.Package
                     observer,
                     cancellationToken)
                 .ConfigureAwait(false);
-            return observer.Complete(envelope);
+            return Complete(envelope);
         }
 
         internal static Task<BrowserPackageQueryEvent> PumpAsync(
@@ -317,26 +317,13 @@ namespace DotnetInspect.Web.Interop.Package
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline)
-            : IPackageQueryEventObserver
+            : IPackageQueryNonterminalSink
         {
-            private BrowserPackageQueryEvent? _completed;
-
-            public async ValueTask ObserveAsync(
-                PackageQueryEvent queryEvent,
+            public async ValueTask ReportAsync(
+                PackageQueryEvent.Nonterminal queryEvent,
                 CancellationToken cancellationToken)
             {
                 BrowserPackageQueryEvent projected = Project(queryEvent);
-                if (_completed is not null)
-                {
-                    throw new InvalidOperationException(
-                        "The package-query stream produced an event after completion.");
-                }
-
-                if (projected.Kind == BrowserPackageQueryEventKind.Completed)
-                {
-                    _completed = projected;
-                    return;
-                }
 
                 if (projected.Kind == BrowserPackageQueryEventKind.Match
                     && matchCredit is not null)
@@ -368,33 +355,22 @@ namespace DotnetInspect.Web.Interop.Package
 
                 emit(projected);
             }
+        }
 
-            internal BrowserPackageQueryInspection Complete(
-                InspectionEnvelope<
-                    System.Collections.Immutable.ImmutableArray<
-                        PackageQueryEvent>> envelope)
-            {
-                BrowserPackageQueryEvent[] content =
-                    [.. envelope.Content.Select(Project)];
-                BrowserPackageQueryEvent completed = content
-                    .Single(queryEvent =>
-                        queryEvent.Kind == BrowserPackageQueryEventKind.Completed);
-                if (_completed != completed)
-                {
-                    throw new InvalidOperationException(
-                        "The Package Query envelope does not match the observed completion.");
-                }
+        internal static BrowserPackageQueryInspection Complete(
+            InspectionEnvelope<PackageQueryDocument> envelope)
+        {
+            ArgumentNullException.ThrowIfNull(envelope);
 
-                return new BrowserPackageQueryInspection(
-                    content,
-                    Project(envelope.Share),
-                    [.. envelope.Diagnostics.Select(diagnostic =>
-                        new BrowserInspectionDiagnostic(
-                            diagnostic.Code,
-                            diagnostic.Severity.ToString(),
-                            diagnostic.Summary.ToString(),
-                            diagnostic.Correspondence?.ToString()))]);
-            }
+            return new BrowserPackageQueryInspection(
+                Project(envelope.Content),
+                Project(envelope.Share),
+                [.. envelope.Diagnostics.Select(diagnostic =>
+                    new BrowserInspectionDiagnostic(
+                        diagnostic.Code,
+                        diagnostic.Severity.ToString(),
+                        diagnostic.Summary.ToString(),
+                        diagnostic.Correspondence?.ToString()))]);
         }
 
         static BrowserInspectionShare Project(InspectionShare share) =>
@@ -583,6 +559,23 @@ namespace DotnetInspect.Web.Interop.Package
                     "Unknown package-query event."),
             };
 
+        internal static BrowserPackageQueryDocument Project(
+            PackageQueryDocument document)
+        {
+            ArgumentNullException.ThrowIfNull(document);
+            return new(
+                [
+                    .. document.Results.Select(result =>
+                        Project(new PackageQueryEvent.Match(result)).Row!),
+                ],
+                [
+                    .. document.Failures.Select(failure =>
+                        Project(new PackageQueryEvent.Failure(failure)).Failure!),
+                ],
+                Project(new PackageQueryEvent.Completed(document.Summary))
+                    .Completion!);
+        }
+
         private static BrowserPackageQueryManifest Project(
             PackageManifestFacts manifest) =>
             new(
@@ -679,18 +672,6 @@ namespace DotnetInspect.Web.Interop.Package
 public static partial class PackageExports
 {
     [JSExport]
-    public static string ListPackageAssemblyQueryPatterns() =>
-        JsonSerializer.Serialize(
-            PackageAssemblyPatterns.Descriptors.Select(pattern =>
-                new BrowserPackageAssemblyQueryPattern(
-                    pattern.Id,
-                    pattern.Label,
-                    pattern.Summary,
-                    pattern.MaximumOperandLength,
-                    PackageAssemblyQuery.MaximumPackages)).ToArray(),
-            BrowserPackageJsonContext.Default.BrowserPackageAssemblyQueryPatternArray);
-
-    [JSExport]
     public static string ListPackageQueryFacets()
     {
         string result = JsonSerializer.Serialize(
@@ -729,76 +710,6 @@ public static partial class PackageExports
             result,
             BrowserPackageJsonContext.Default
                 .BrowserPackageQueryMatchCreditResponse);
-    }
-
-    [JSExport]
-    public static async Task<string> RunPackageAssemblyQuery(
-        string operationId,
-        string patternId,
-        string operand,
-        string packageCoordinatesJson,
-        string targetFramework,
-        int initialMatchCredit,
-        JSObject eventSink)
-    {
-        ArgumentNullException.ThrowIfNull(eventSink);
-        string[] coordinates = JsonSerializer.Deserialize(
-            packageCoordinatesJson, BrowserPackageJsonContext.Default.StringArray)
-            ?? throw new ArgumentException("Exact package coordinates are required.", nameof(packageCoordinatesJson));
-        PackageAssemblyQueryPlan plan = PackageAssemblyQuery.Plan(
-            patternId, operand, coordinates, targetFramework);
-        BrowserManagedOperationResult<
-            BrowserPackageQueryEvent,
-            string,
-            string> result =
-            await BrowserPackageQueryOperationCoordinator.RunAsync<
-                BrowserPackageQueryEvent,
-                BrowserPackageQueryEvent>(
-                BrowserManagedOperationId.From(operationId),
-                initialMatchCredit,
-                queryEvent => eventSink.SetProperty(
-                    "event",
-                    BrowserPackageQueryOperations.Serialize(queryEvent)),
-                async (matchCredit, events, token) =>
-                {
-                    await BrowserPackageQueryOperations
-                        .WaitForSerializationPreparationAsync()
-                        .WaitAsync(token)
-                        .ConfigureAwait(false);
-                    return await BrowserPackageWorkspace.RunPackageOperationAsync(
-                        deadline =>
-                            BrowserPackageQueryOperations.ExecuteAssemblyAsync(
-                                plan,
-                                matchCredit,
-                                events.Report,
-                                deadline.Token,
-                                deadline),
-                        BrowserPackageWorkspace.PackageOperationTimeout,
-                        token).ConfigureAwait(false);
-                });
-        return JsonSerializer.Serialize(
-            BrowserPackageQueryResult.From(result),
-            BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
-    }
-
-    [JSExport]
-    public static async Task<string> OpenPackageAssemblyQueryResult(string rootRequest)
-    {
-        if (!PackageRootReacquisitionRequest.TryDecode(rootRequest, out var request))
-            throw new ArgumentException("Invalid package Root reopening request.", nameof(rootRequest));
-
-        BrowserPackageSurface surface = await BrowserPackageWorkspace.RunPackageOperationAsync(
-            async deadline =>
-            {
-                BrowserPackageCoordinate coordinate =
-                    await BrowserPackageWorkspace.ReacquireAsync(request, deadline.Token);
-                await using BrowserScopeLease<BrowserInspectionScope> lease =
-                    await BrowserPackageWorkspace.OpenScopeAsync([coordinate], deadline.Token);
-                return BrowserPackageWireProjection.Project(
-                    BrowserPackageSurfaceProjection.ProjectSurface(lease.Scope, coordinate));
-            },
-            BrowserPackageWorkspace.PackageOperationTimeout);
-        return JsonSerializer.Serialize(surface, BrowserPackageJsonContext.Default.BrowserPackageSurface);
     }
 
     [JSExport]

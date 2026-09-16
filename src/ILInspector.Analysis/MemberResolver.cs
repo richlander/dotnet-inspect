@@ -114,6 +114,26 @@ internal static class MemberResolver
         return names.MoveToImmutable();
     }
 
+    internal static bool HasExactGenericParameters(
+        MetadataReader reader,
+        GenericParameterHandleCollection parameters,
+        int signatureCount)
+    {
+        if (parameters.Count != signatureCount)
+            return false;
+
+        int expectedIndex = 0;
+        foreach (GenericParameterHandle handle in parameters)
+        {
+            if (reader.GetGenericParameter(handle).Index
+                != expectedIndex++)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     internal static ImmutableArray<ParameterDirection>
         ParameterDirections(
             MetadataReader reader,

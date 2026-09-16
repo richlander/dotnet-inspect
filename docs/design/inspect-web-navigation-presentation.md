@@ -437,8 +437,9 @@ subject rather than as permanent row-one tabs.
 Opening a product-issued packet constructs a fresh Workspace, Navigation state,
 and initial view as defined by
 [Workspace Definitions](workspace-definitions.md), then publishes and activates
-it. The home page exposes one **Demos** entry that opens this subject; it does
-not expose one button per demo.
+it. The home page exposes one **Demos** entry that opens the dedicated
+`/demos` page; it does not expose one button per demo. The data bar also links
+to that page. Workspace does not embed the demo catalog.
 
 The `/demos` application route presents every entry exposed by the application
 product demo catalog, in product order. Listing carries its owner-issued stable
@@ -459,7 +460,7 @@ matching coordinates. Categories, filtering, and separate Aspire or
 performance-demo entry points are residual; the first adoption lists every
 current demo.
 
-The same content pane lists the active Workspace's loaded coordinates with:
+The Workspace content pane lists the active Workspace's loaded coordinates with:
 
 - coordinate identity and acquisition kind;
 - optional owner-issued current-subject context;
@@ -489,8 +490,9 @@ Closing an inactive coordinate preserves the active coordinate's inspection
 state and keeps Workspace selected. Closing the active coordinate selects its
 successor while remaining in Workspace, as governed by the current Close owner.
 The `/demos` entry route is an in-session catalog view: it preserves currently
-loaded coordinates while open,
-but a direct visit or refresh starts with an empty Workspace. After an Open demo
+loaded coordinates while open without displaying the Workspace inventory,
+saved definitions, or coordinate controls. A direct visit or refresh starts
+without a loaded Workspace. After an Open demo
 or coordinate action returns to a canonical Workspace URL, Share and refresh
 preserve the Workspace subject, its application-scope presentation, and its
 retained coordinates. The home-demo packet inventory is session-scoped until
@@ -498,12 +500,13 @@ scenario identity is part of the share format; after refresh, the generic
 current Workspace remains viewable without reconstructing a demo identity from
 matching coordinates.
 
-Workspace renders stable focus targets for its heading, every demo entry, and
-every coordinate action. Post-result focus and failure
+Workspace renders stable focus targets for its heading and every coordinate
+action; Demos renders its own heading and every demo action. Post-result focus and failure
 handling are owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#workspace-result-focus).
-Its content panel is labelled by the active Workspace application-scope
-control, including when a cold catalog has no inspection-subject entries.
+The Workspace content panel is labelled by the active Workspace
+application-scope control. Demos has its own page heading, not a selected
+Workspace subject.
 
 Workspace also exposes the same Search and Open actions as the shell. It does
 not infer source identity, package equivalence, local-file correspondence, or

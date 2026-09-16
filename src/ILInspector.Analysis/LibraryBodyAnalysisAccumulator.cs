@@ -48,6 +48,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var fieldLoads = ImmutableArray.CreateBuilder<FieldLoadFact>();
         var returnFlows =
             ImmutableArray.CreateBuilder<MethodReturnFlow>();
+        var localThrows = ImmutableArray.CreateBuilder<MethodLocalThrowEvidence>();
         var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
@@ -95,6 +96,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
         // even the failure path is byte-identical to the sequential build.
         foreach (var r in results)
         {
+            if (r.LocalThrows is { } methodLocalThrows)
+                localThrows.Add(methodLocalThrows);
             if (r.LeakTriage is { } leakTriage)
             {
                 leakFindings.AddRange(leakTriage.Findings);
@@ -279,7 +282,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                         bool>(),
                 NonHeapNewObjOperandTokens:
                     nonHeapNewObjOperandTokens,
-                DeclaredSources: declaredSources),
+                DeclaredSources: declaredSources,
+                LocalThrows: localThrows.ToImmutable()),
             Safety: new(
                 Evidence: unsafeEvidence.ToImmutable(),
                 LeverageMethods: unsafeLeverageMethods.ToImmutable(),
@@ -539,19 +543,27 @@ internal sealed class LibraryBodyAnalysisAccumulator
         if (cache.TryGetValue(typeHandle, out bool cached))
             return cached;
 
-        var baseHandle = _reader.GetTypeDefinition(typeHandle).BaseType;
-        if (baseHandle.IsNil)
+        var path = new List<TypeDefinitionHandle>();
+        bool result = false;
+        while (!cache.TryGetValue(typeHandle, out result))
         {
+            // A cycle must terminate before local-throw qualification runs.
             cache[typeHandle] = false;
-            return false;
+            path.Add(typeHandle);
+            EntityHandle baseHandle = _reader.GetTypeDefinition(typeHandle).BaseType;
+            if (baseHandle.IsNil)
+                break;
+            if (baseHandle.Kind == HandleKind.TypeDefinition)
+            {
+                typeHandle = (TypeDefinitionHandle)baseHandle;
+                continue;
+            }
+            result = baseHandle.Kind == HandleKind.TypeReference
+                && IsExceptionReference((TypeReferenceHandle)baseHandle);
+            break;
         }
-        bool result = baseHandle.Kind switch
-        {
-            HandleKind.TypeReference => IsExceptionReference(MetadataTokens.TypeReferenceHandle(MetadataTokens.GetRowNumber(baseHandle))),
-            HandleKind.TypeDefinition => IsExceptionTypeDefinition(MetadataTokens.TypeDefinitionHandle(MetadataTokens.GetRowNumber(baseHandle)), cache),
-            _ => false,
-        };
-        cache[typeHandle] = result;
+        foreach (TypeDefinitionHandle visited in path)
+            cache[visited] = result;
         return result;
     }
 

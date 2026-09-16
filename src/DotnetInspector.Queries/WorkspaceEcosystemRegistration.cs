@@ -90,6 +90,14 @@ public abstract record WorkspaceEcosystemPopulationDeclaration
         public ExactLibrary(ExactLibrarySourceCoordinate coordinate)
         {
             ArgumentNullException.ThrowIfNull(coordinate);
+            if (coordinate is not ExactLibrarySourceCoordinate.Package
+                and not ExactLibrarySourceCoordinate.Platform)
+            {
+                throw new ArgumentException(
+                    "An ecosystem exact Library must have a package or Platform source.",
+                    nameof(coordinate));
+            }
+
             Coordinate = coordinate;
         }
 
@@ -167,6 +175,10 @@ public sealed class WorkspaceEcosystemRegistrationDeclaration
 
     public ImmutableArray<string> NamespaceRoots { get; }
 
+    /// <summary>
+    /// Gets inert unversioned package roots that a selecting operation may
+    /// resolve and traverse under its own policies.
+    /// </summary>
     public ImmutableArray<PackageCoordinate> CorePackages { get; }
 
     public ImmutableArray<WorkspaceEcosystemPopulationDeclaration>

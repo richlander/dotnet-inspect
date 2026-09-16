@@ -9,6 +9,10 @@ internal static class WorkspaceShareOutput
 {
     internal const string UrlPrefix = "https://dotnet-inspect.net/?w=";
 
+    private static readonly AsyncLocal<DeferredSideOutput?> DeferredOutput = new();
+
+    internal static IDisposable DeferSideOutput() => new DeferredSideOutput();
+
     internal static int Write(
         WorkspaceSharePacket packet,
         WorkspaceShareFormat format)
@@ -28,10 +32,13 @@ internal static class WorkspaceShareOutput
         switch (share)
         {
             case InspectionShare.Available available:
-                CommandError.WriteLine(
-                    format == WorkspaceShareFormat.Url
-                        ? available.FullUrl
-                        : available.Packet);
+                string text = format == WorkspaceShareFormat.Url
+                    ? available.FullUrl
+                    : available.Packet;
+                if (DeferredOutput.Value is { } deferred)
+                    deferred.Text = text;
+                else
+                    CommandError.WriteLine(text);
                 return 0;
             case InspectionShare.NonProjectable nonProjectable:
                 CommandError.Write(
@@ -41,6 +48,22 @@ internal static class WorkspaceShareOutput
             default:
                 throw new InvalidOperationException(
                     "Unknown inspection Share outcome.");
+        }
+    }
+
+    private sealed class DeferredSideOutput : IDisposable
+    {
+        private readonly DeferredSideOutput? _previous = DeferredOutput.Value;
+
+        internal DeferredSideOutput() => DeferredOutput.Value = this;
+
+        internal string? Text { get; set; }
+
+        public void Dispose()
+        {
+            DeferredOutput.Value = _previous;
+            if (Text is not null)
+                CommandError.WriteLine(Text);
         }
     }
 }

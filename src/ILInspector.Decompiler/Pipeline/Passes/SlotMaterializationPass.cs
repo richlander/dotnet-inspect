@@ -16,6 +16,7 @@ public enum SlotMaterializationVeto
     BooleanSinkIdentityRecovery = 1 << 10,
     ElementStoreIdentityRecovery = 1 << 11,
     IncompleteCopyComponent = 1 << 12,
+    PendingReferenceSwap = 1 << 13,
 }
 
 public readonly record struct SlotMaterializationDecision(
@@ -59,6 +60,8 @@ public sealed class SlotMaterializationPass : IIrPass
     {
         var plan = BuildPlan(function);
         var decided = plan.Candidates.Where(static candidate => candidate.Vetoes == SlotMaterializationVeto.None).ToList();
+        var invariant = IrInvariants.Enabled && decided.Count > 0
+            ? SlotMaterializationInvariant.Capture(function) : null;
 
         // Replace every load before moving store values so nested slot loads
         // have already become locals. Reparent each value instead of cloning
@@ -87,6 +90,7 @@ public sealed class SlotMaterializationPass : IIrPass
                     value));
             }
         }
+        invariant?.Check();
     }
 
     static MaterializationPlan BuildPlan(IrFunction function)
@@ -186,7 +190,14 @@ public sealed class SlotMaterializationPass : IIrPass
                 candidate.Vetoes |= SlotMaterializationVeto.BooleanSinkIdentityRecovery;
             }
 
-            if (!CoercionDomain.InDomain(slotType, function.TypeShapes))
+            bool exactReference = candidate.Stores.All(store => CoercionDomain.IsAtTarget(store.Value, slotType))
+                && (slotType.Kind == TypeRefKind.Definition
+                    && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
+                        || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
+                    || CSharpSpellability.CanSpellSzArrayStorageType(slotType, function));
+            if (exactReference && candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
+                candidate.Vetoes |= SlotMaterializationVeto.PendingReferenceSwap;
+            if (!exactReference && !CoercionDomain.InDomain(slotType, function.TypeShapes))
                 candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;
             if (candidate.Stores.Any(store => store.Value.ResultType?.Equals(slotType) != true
                     && !CoercionRendering.CanSpellSlotCoercion(

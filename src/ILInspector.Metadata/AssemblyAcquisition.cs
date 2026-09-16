@@ -2,11 +2,19 @@ using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json.Serialization;
 using Inspector.Artifacts;
 
 namespace ILInspector.Metadata;
 
 /// <summary>Structured evidence describing how an assembly candidate was selected.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.PackageAsset), "package")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.PlatformAsset), "platform")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.ProjectAsset), "project")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.LocalAsset), "local")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.EmbeddedAsset), "embedded")]
+[JsonDerivedType(typeof(AssemblyResolutionProvenance.DesignatedAsset), "designated")]
 public abstract record AssemblyResolutionProvenance
 {
     private protected AssemblyResolutionProvenance()
@@ -180,6 +188,7 @@ public abstract record AssemblyResolutionProvenance
 public sealed class AssemblyAcquisitionRegistration
 {
     readonly object _gate = new();
+    readonly Guid _value = Guid.NewGuid();
     Guid? _moduleVersionId;
 
     internal AssemblyAcquisitionRegistration(
@@ -193,6 +202,7 @@ public sealed class AssemblyAcquisitionRegistration
     /// descriptor, when the descriptor was projected from an artifact.
     /// </summary>
     public ArtifactAcquisitionRegistration? ArtifactRegistration { get; }
+    internal Guid Value => _value;
 
     /// <summary>
     /// Module generation bound to the artifact-backed descriptor.
@@ -1439,9 +1449,13 @@ public readonly record struct AssemblyCatalogId(Guid Value);
 /// <summary>Opaque identity for one frozen generation in a catalog.</summary>
 public sealed class AssemblyCatalogGenerationId
 {
+    readonly Guid _value = Guid.NewGuid();
+
     internal AssemblyCatalogGenerationId()
     {
     }
+
+    internal Guid Value => _value;
 }
 
 internal readonly record struct AssemblyCandidateId(Guid Value);

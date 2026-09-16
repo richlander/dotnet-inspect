@@ -42,6 +42,12 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
             fileUri,
             association,
             host);
+        Assert.Equal(
+            first.Source.Producer.PortableKey,
+            second.Source.Producer.PortableKey);
+        Assert.True(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                first.Source.Producer.PortableKey));
         PackageSourceFailure failure = Failed(
             await first.SearchAsync(
                 string.Empty,

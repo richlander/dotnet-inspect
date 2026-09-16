@@ -802,7 +802,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                             key.HttpEndpoint!,
                             _credentialSource);
                     }
-                    client = PackageSourceClientFactory.Create(
+                    client = PackageSourceClientFactory.CreateWithTransport(
                         source,
                         association,
                         transport,

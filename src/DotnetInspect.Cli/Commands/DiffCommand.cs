@@ -29,6 +29,37 @@ public class DiffCommand
     public const string Name = "diff";
     public static async Task<int> ExecuteAsync(DiffOptions options)
     {
+        string? transportOption = options.EnvelopeOutput ? "--envelope"
+            : options.CompactJson ? "--compact" : null;
+        if (transportOption is not null
+            && (options.HasContentProjection
+                || options.EnvelopeOutput && options.JsonOutput
+                || options.Discover is not null
+                || options.MemberFilter.Count > 0
+                || options.Finding is not null
+                || options.IncludePdbSource
+                || options.SourceRepositories.Length > 0
+                || options.ChangedOnly
+                || options.AllocRegressionsOnly
+                || options.Legend))
+        {
+            CommandError.Write(
+                $"{transportOption} requires an unprojected Library API diff; "
+                + "filters, selected sections, discovery, and other diff operations are not supported.");
+            return 1;
+        }
+        if (options.EnvelopeOutput && options.HasRenderedLineWindow)
+        {
+            CommandError.Write(
+                "--envelope cannot be combined with rendered-line clipping.");
+            return 1;
+        }
+        if (options.CompactJson && !options.JsonOutput && !options.EnvelopeOutput)
+        {
+            CommandError.Write("--compact requires --json or --envelope.");
+            return 1;
+        }
+
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
         SectionCatalog<DiffDiscoveryModel> sectionCatalog = catalog.Sections;
         var pipeline = catalog.Pipeline;
@@ -206,6 +237,33 @@ public class DiffCommand
 
             try
             {
+                if (transportOption is not null && !UsesSharedLibraryApiDiff(inputs, options))
+                {
+                    CommandError.Write(
+                        $"{transportOption} currently requires exactly one Library at each API diff endpoint; "
+                        + $"resolved {inputs.From.AssemblySet.Assemblies.Count} before and "
+                        + $"{inputs.To.AssemblySet.Assemblies.Count} after.");
+                    return 1;
+                }
+                if (UsesSharedLibraryApiDiff(inputs, options))
+                {
+                    if (options.IsContentJson && options.HasRenderedLineWindow)
+                    {
+                        CommandError.Write(
+                            "Unprojected Library API diff --json cannot be combined with rendered-line clipping.");
+                        return 1;
+                    }
+                    var comparison = await LibraryApiDiffRunner.ExecuteAsync(
+                        inputs.From.AssemblySet.Assemblies[0],
+                        inputs.To.AssemblySet.Assemblies[0],
+                        options.IncludeAll);
+                    return LibraryApiDiffOutput.Write(
+                        comparison,
+                        inputs.Name,
+                        inputs.FromVersion,
+                        inputs.ToVersion,
+                        options);
+                }
                 WorkspaceImplementationTarget? workspaceTarget =
                     TryCreateWorkspaceImplementationTarget(
                         inputs,
@@ -566,6 +624,16 @@ public class DiffCommand
         }
     }
 
+    static bool UsesSharedLibraryApiDiff(DiffInputs inputs, DiffOptions options)
+        => inputs.From.AssemblySet.Assemblies.Count == 1
+            && inputs.To.AssemblySet.Assemblies.Count == 1
+            && options.MemberFilter.Count == 0
+            && !SelectsAnalysisDiff(options)
+            && !SelectsImplementationDiff(options)
+            && !SelectsFindingTransitions(options)
+            && (options.IncludeSections is null
+                || options.IncludeSections.SetEquals([DiffSections.Changes.Name]));
+
     private static async Task<(DiffInputs? inputs, string? error)>
         ExecutePackageDiffAsync(DiffOptions options, VerboseLogger logger, HttpClient httpClient)
     {
@@ -744,7 +812,8 @@ public class DiffCommand
             httpClient,
             request,
             includeAll,
-            logger);
+            logger,
+            deferSurfaceProjection: true);
 
     internal static string AsEndpointError(string error)
     {
@@ -1789,7 +1858,7 @@ public class DiffCommand
             ? typeDiffs
             : typeDiffs.Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, typeFilters)).ToList();
 
-    private static bool MatchesAnyDiffTypeFilter(string typeFullName, IEnumerable<string> filters)
+    internal static bool MatchesAnyDiffTypeFilter(string typeFullName, IEnumerable<string> filters)
     {
         foreach (var filter in filters)
         {
@@ -3061,6 +3130,10 @@ public record DiffOptions
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }
     public bool JsonOutput { get; init; }
+    public bool EnvelopeOutput { get; init; }
+    public bool CompactJson { get; init; }
+    public bool VerbosityExplicitlySet { get; init; }
+    public bool HasRenderedLineWindow { get; init; }
     public bool TabularExplicitlySet { get; init; }
     public bool FormatExplicitlySet { get; init; }
     public bool NoHeader { get; init; }
@@ -3097,5 +3170,15 @@ public record DiffOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Tabular || Jsonl || JsonOutput || NoHeader || NameOnly;
+    public bool IsRawOutput => EnvelopeOutput || Tabular || Jsonl || JsonOutput || NoHeader || NameOnly;
+
+    public bool IsContentJson => JsonOutput && !HasContentProjection;
+
+    public bool HasContentProjection =>
+        TypeFilter.Count > 0
+        || Breaking || Additive
+        || Select is not null || SelectDefault || IncludeSections is not null
+        || Columns is not null || Fields is not null || Rows is not null
+        || Tabular || Tsv || Jsonl || NoHeader || NameOnly || Tree
+        || VerbosityExplicitlySet;
 }

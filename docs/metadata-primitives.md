@@ -238,16 +238,16 @@ read `Rejections`, which carries the typed path-to-mechanism pairing. That
 type overrides `Message` so each mechanism is rendered exactly once, beside
 its own path, rather than repeated by the base type's inner-message list.
 
-Acquisition owners call it before exposing metadata sessions. Public or
-reusable `PEReader` entry points that can bypass those owners call it directly.
-That closure includes `AssemblyImage`, `PdbContext`, Decompiler
-`MetadataSource`, `MetadataImageInspector`, every `MetadataTableProjector`
+Adopted acquisition owners call it before exposing metadata sessions. Public
+or reusable `PEReader` entry points within those owners call it directly. The
+current closure includes `AssemblyImage`, `PdbContext`,
+`MetadataImageInspector`, every `MetadataTableProjector`
 table/row/reference/heap operation, and the defensive
 `MethodSemanticsRowReader` leaf check. `MDP017` in
 [member inspection planning and Metadata
 projection](design/member-inspection-planning-and-metadata-projection.md) gates
-the inventory, reader independence, bounded root work, typed failure, and
-no-work-before-reject properties.
+that adopted inventory, reader independence, bounded root work, typed failure,
+and no-work-before-reject properties.
 
 The classifier's primitive-local contract is implemented and gated by
 `MetadataImageFormatClassifierTests` and

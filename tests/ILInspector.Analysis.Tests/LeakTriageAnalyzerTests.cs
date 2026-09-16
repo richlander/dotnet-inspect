@@ -11,6 +11,7 @@ using ILInspector.Analysis;
 using ILInspector.AnalysisHarness;
 using Inspector.Findings;
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -93,6 +94,75 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchAllReturn)));
         Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchExceptionReturn)));
         Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallTypedCatchReturn)));
+    }
+
+    [Fact]
+    public void AnalysisContext_PreservesMetadataExceptionIdentity()
+    {
+        MethodInfo method = typeof(ArrayPoolLeakFixtures).GetMethod(
+            nameof(ArrayPoolLeakFixtures.NestedFinallyLeaveReturn))
+            ?? throw new InvalidOperationException("Fixture method not found.");
+        using var stream = File.OpenRead(method.Module.FullyQualifiedName);
+        using var peReader = new PEReader(stream);
+        MethodBodyData body = Assert.IsType<MethodBodyReadResult.Available>(
+            MethodBodySource.Read(peReader, method.MetadataToken)).Body;
+
+        Assert.Throws<ArgumentException>(
+            () => MethodBodyAnalysisContext.Create(
+                SyntheticMethod(),
+                body,
+                []));
+
+        MethodBodyAnalysisContext context =
+            MethodBodyAnalysisContext.Create(
+                SyntheticMethod() with
+                {
+                    ModuleVersionId =
+                        method.Module.ModuleVersionId,
+                    MetadataToken = method.MetadataToken,
+                },
+                body,
+                []);
+        MethodInstructions instructions = context.Instructions;
+        InstructionExceptionFlowFacts flow =
+            Assert.IsType<InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available>(
+                    instructions.ExceptionFlow).Value;
+
+        Assert.Equal(body.EvidenceId, flow.Body);
+        Assert.Equal(
+            body.ExceptionRegionCatalog.Clauses.Select(
+                static clause => clause.Id),
+            flow.Clauses.Select(static clause => clause.Id));
+
+        BodySignals signals = BodySignalAnalysis.Collect(
+            context,
+            static _ => false);
+        Assert.Equal(0, signals.Catches);
+        Assert.Equal(2, signals.Finallys);
+    }
+
+    [Fact]
+    public void BodySignals_DeclineWithoutMetadataExceptionCatalog()
+    {
+        MethodInstructions instructions =
+            MethodInstructions.Decode([0x2A], 1, []);
+        var context = new MethodBodyAnalysisContext(
+            SyntheticMethod(),
+            instructions,
+            [],
+            []);
+
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(
+                () => BodySignalAnalysis.Collect(
+                    context,
+                    static _ => false));
+
+        Assert.Contains(
+            "Physical exception-region evidence is unavailable",
+            failure.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

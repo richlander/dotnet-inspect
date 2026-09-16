@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using TsJsExport;
 
@@ -58,33 +59,37 @@ public sealed class ProductionFacadeContextTests
         [PackageAssembly] =
         [
             "ActivateWorkspacePackageOccurrence",
+            "CancelPackageChanges",
             "CancelPackageQuery",
+            "ClassifyPackageGraphIdentities",
             "ClearWorkspacePackageOccurrences",
             "GetPackageDocument",
             "GetPlatformCatalog",
             "GetPlatformVersions",
-            "ListPackageAssemblyQueryPatterns",
+            "ListPackageChangesPackageSets",
             "ListPackageQueryFacets",
             "LoadRuntimePack",
             "LoadRuntimePackAssembly",
             "MatchPackageDependencyCoordinate",
-            "OpenPackageAssemblyQueryResult",
             "PackageCacheStats",
             "PrefetchPlatformPacks",
             "QueryMemberDocumentation",
             "QueryPackage",
             "QueryPackageDependencies",
+            "QueryPackagePruning",
             "QueryPackageVersions",
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
-            "RunPackageAssemblyQuery",
+            "RunPackageChanges",
             "RunPackageQuery",
             "SearchTypes",
         ],
         [MetadataAssembly] =
         [
+            "CancelLibraryApiDiff",
             "QueryGraphMemberSurface",
+            "QueryLibraryApiDiff",
             "QueryMemberDeclaration",
             "QueryPlatformMemberDeclaration",
             "QueryPackageHeapEntries",
@@ -178,10 +183,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 69 operations, and no operation name in two modules: a move that forgot to delete its
+        // 73 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(69, everyExport.Length);
+        Assert.Equal(73, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -255,6 +260,9 @@ public sealed class ProductionFacadeContextTests
         var contexts = 0;
         var assemblyLocalWireTypes = 0;
         var sharedContractTypes = new HashSet<Type>();
+        Collect(
+            typeof(InspectionEnvelope<ExactTypeInspectionResult>),
+            sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
         foreach (Type derived in typeof(InspectionShare).Assembly.GetTypes()
                      .Where(type => type.BaseType == typeof(InspectionShare)))

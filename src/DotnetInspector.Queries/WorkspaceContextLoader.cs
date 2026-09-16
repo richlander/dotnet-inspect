@@ -183,6 +183,29 @@ public static class WorkspaceContextLoader
     const string PlatformResolverSource = "NuGet implementation pack";
 
     /// <summary>
+    /// Loads one explicitly selected declaration context and binds its exact
+    /// request to the realization outcome for population capture and lazy
+    /// Workspace locator observation.
+    /// </summary>
+    public static async Task<WorkspaceDeclarationContext> LoadDeclarationContextAsync(
+        InspectionWorkspace workspace,
+        WorkspaceContextInput context,
+        WorkspaceContextLoadOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(context.Members);
+        cancellationToken.ThrowIfCancellationRequested();
+        var request = context with { Members = context.Members.ToImmutableArray() };
+        int order = workspace.BeginDeclarationContext();
+        WorkspaceContextLoadOutcome outcome = await LoadAsync(
+            workspace, request, options, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return workspace.CompleteDeclarationContext(order, request, outcome);
+    }
+
+    /// <summary>
     /// Acquires one package Root without constructing assembly contexts.
     /// Scope publication separately prepares its physical realization.
     /// </summary>
@@ -1043,107 +1066,37 @@ public static class WorkspaceContextLoader
             return new WorkspaceContextLoadOutcome.Failed([collision]);
         }
 
-        long retainedImageBytes = 0;
-        var retainedSnapshots = new Dictionary<
-            AssemblyAcquisitionRegistration,
-            AssemblyImageSnapshot>(
-                ReferenceEqualityComparer.Instance);
-        var retainedReferenceLeases = new Dictionary<
-            AssemblyAcquisitionRegistration,
-            AssemblyImageReferenceLease>(
-                ReferenceEqualityComparer.Instance);
-        var retained = ImmutableArray.CreateBuilder<RealizedMember>(
-            realized.Count);
-        foreach (RealizedMember entry in realized)
+        RetainedAssemblyContextGroup retained = RetainedAssemblyContextGroup.Create(
+            workspace, [.. realized.Select(static entry => entry.Assembly)],
+            new AssemblyContextGroupOptions { MaxRetainedImageBytes = options.MaxRetainedImageBytes });
+        if (retained is RetainedAssemblyContextGroup.Rejected rejected)
         {
-            AssemblyImageSnapshotResult snapshotResult =
-                AssemblyImageSnapshot.Open(
-                    entry.Assembly,
-                    imageBytes =>
-                    {
-                        if (imageBytes
-                            > options.MaxRetainedImageBytes
-                                - retainedImageBytes)
-                        {
-                            return false;
-                        }
-
-                        retainedImageBytes += imageBytes;
-                        return true;
-                    },
-                    imageBytes => retainedImageBytes -= imageBytes);
-            if (snapshotResult
-                is AssemblyImageSnapshotResult.Rejected rejected)
-            {
-                foreach (AssemblyImageReferenceLease lease
-                    in retainedReferenceLeases.Values)
-                {
-                    lease.Dispose();
-                }
-                WorkspaceContextLoadFailure failure =
-                    RetentionFailure(entry, rejected.Failure);
-                return new WorkspaceContextLoadOutcome.Failed([failure]);
-            }
-
-            AssemblyImageSnapshot snapshot =
-                ((AssemblyImageSnapshotResult.Ready)snapshotResult)
-                    .Snapshot;
-            retainedSnapshots.Add(
-                entry.Assembly.Registration,
-                snapshot);
-            AssemblyImageReferenceLease referenceLease =
-                snapshot.LeaseAssemblyReference(entry.Assembly);
-            retainedReferenceLeases.Add(
-                entry.Assembly.Registration,
-                referenceLease);
-            retained.Add(entry with
-            {
-                Assembly = referenceLease.Assembly,
-            });
+            return new WorkspaceContextLoadOutcome.Failed(
+                [RetentionFailure(realized[rejected.AssemblyIndex], rejected.Failure)]);
         }
-
-        IAcquisitionFreeAssemblyBindingPolicy groupPolicy =
-            SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
-                retained.Select(static entry =>
-                    (entry.Assembly,
-                        (IAcquisitionFreeAssemblyBindingPolicy)
-                            NoResolverAssemblyBindingPolicy.Instance)));
-        List<AssemblyContextParticipant> participants =
-        [
-            .. retained.Select(entry =>
-                new AssemblyContextParticipant(entry.Assembly, groupPolicy)),
-        ];
-        AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroupWithRetainedImages(
-                participants,
-                retainedSnapshots,
-                retainedReferenceLeases,
-                new AssemblyContextGroupOptions
-                {
-                    MaxRetainedImageBytes =
-                        options.MaxRetainedImageBytes,
-                });
+        AssemblyContextGroup group = ((RetainedAssemblyContextGroup.Ready)retained).Group;
 
         var members =
             ImmutableArray.CreateBuilder<WorkspaceContextMember>(
-                retained.Count);
-        for (int index = 0; index < retained.Count; index++)
+                realized.Count);
+        for (int index = 0; index < realized.Count; index++)
         {
             members.Add(
                 new WorkspaceContextMember(
-                    retained[index].Declared,
-                    retained[index].Realized,
-                    participants[index]));
+                    realized[index].Declared,
+                    realized[index].Realized,
+                    group.Participants[index]));
         }
 
         ImmutableArray<PackageRootBinding> packageRoots =
         [
-            .. retained
+            .. realized
                 .Select(static entry => entry.PackageRoot)
                 .OfType<PackageRootBinding>()
                 .Distinct(),
         ];
         return new WorkspaceContextLoadOutcome.Loaded(
+            workspace.Identity,
             group,
             members.MoveToImmutable(),
             packageRoots,
@@ -2142,16 +2095,23 @@ public static class WorkspaceContextLoader
         PackageSourceAuthorization authorization =
             options.SourceAuthorization.AuthorizeSourcesFor(pinned.PackageId);
 
-        // The intersection, not a preference: only the source whose producer
-        // key is the recorded one may answer, so a host that authorizes several
+        // The intersection, not a preference: only authorities for the
+        // recorded producer may answer, so a host that authorizes several
         // producers for this id still re-acquires the bytes the coordinate was
         // realized from.
-        PackageSource? producer = authorization.Sources.FirstOrDefault(
-            source => string.Equals(
-                NuGetCache.GetSourceKey(source.Url),
-                pinned.Producer,
-                StringComparison.Ordinal));
-        if (producer is null)
+        PackageRootProducerAuthorization.MatchResult producerMatch =
+            PackageRootProducerAuthorization.Match(
+                authorization.Sources,
+                pinned.Producer);
+        if (producerMatch.Ambiguous)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
+                    declared,
+                    $"The producer recorded for package '{pinned.PackageId}' matches multiple authorized package-source identities."));
+        }
+        if (producerMatch.Candidates.Count == 0)
         {
             return new MemberRealization(
                 Failure(
@@ -2169,7 +2129,8 @@ public static class WorkspaceContextLoader
                     pinned.Version,
                     framework,
                     pinned.RuntimeIdentifier),
-                [producer],
+                [.. producerMatch.Candidates.Select(static candidate =>
+                    candidate.Source)],
                 options.Log,
                 options.IncludePrerelease,
                 options.UseVersionCache,
@@ -2217,14 +2178,13 @@ public static class WorkspaceContextLoader
 
         AcquiredPackagePayload acquired =
             ((PackagePayloadResult.Acquired)payload).Payload;
-        if (!string.Equals(
-                acquired.ProducerKey,
-                pinned.Producer,
-                StringComparison.Ordinal))
+        PackageRootProducerAuthorization.Candidate? acquiredCandidate =
+            producerMatch.Candidates.FirstOrDefault(
+                candidate => acquired.ProducerKey.Equals(
+                    candidate.LegacyProducerKey,
+                    StringComparison.Ordinal));
+        if (acquiredCandidate is null)
         {
-            // Acquisition was given one source, so this cannot normally
-            // happen; it is checked because the alternative to checking is
-            // silently binding another producer's bytes to this coordinate.
             return new MemberRealization(
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
@@ -2238,7 +2198,9 @@ public static class WorkspaceContextLoader
             framework,
             pinned.RuntimeIdentifier,
             options.IncludePackageRootBindings,
-            cancellationToken);
+            cancellationToken,
+            pinned.Producer,
+            acquiredCandidate.Producer);
 
         // A re-acquired member reports the coordinate it was asked for, so a
         // caller can compare the round trip by value.
@@ -2256,7 +2218,9 @@ public static class WorkspaceContextLoader
         string framework,
         string? runtimeIdentifier,
         bool includePackageRootBinding,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? coordinateProducer = null,
+        PackageProducerIdentity? sourceProducer = null)
     {
         ResolvedPackageCoordinate coordinate = acquired.Coordinate;
         IPackageContent content = acquired.Content;
@@ -2374,7 +2338,7 @@ public static class WorkspaceContextLoader
         if (!RealizedMemberCoordinate.Package.TryCreate(
                 coordinate.PackageId,
                 coordinate.Version,
-                acquired.ProducerKey,
+                coordinateProducer ?? acquired.ProducerKey,
                 framework,
                 runtimeIdentifier,
                 out RealizedMemberCoordinate.Package? realizedCoordinate,
@@ -2394,7 +2358,9 @@ public static class WorkspaceContextLoader
                 BindPackageRoot(
                     (WorkspaceMemberCoordinate.PackageMember)member,
                     acquired,
-                    framework);
+                    framework,
+                    coordinateProducer,
+                    sourceProducer);
             if (binding is WorkspacePackageRootAcquisitionOutcome.Failed failed)
             {
                 return new MemberRealization(failed.Failures[0]);
@@ -2420,13 +2386,24 @@ public static class WorkspaceContextLoader
     static WorkspacePackageRootAcquisitionOutcome BindPackageRoot(
         WorkspaceMemberCoordinate.PackageMember member,
         AcquiredPackagePayload acquired,
-        string framework)
+        string framework,
+        string? coordinateProducer = null,
+        PackageProducerIdentity? sourceProducer = null)
     {
         try
         {
             return new WorkspacePackageRootAcquisitionOutcome.Acquired(
-                PackageRootBinding.CreateFromResolved(
-                    acquired, framework, member.PackageId));
+                sourceProducer is null
+                    ? PackageRootBinding.CreateFromResolved(
+                        acquired,
+                        framework,
+                        member.PackageId)
+                    : PackageRootBinding.CreateFromResolved(
+                        acquired,
+                        framework,
+                        member.PackageId,
+                        coordinateProducer ?? acquired.ProducerKey,
+                        sourceProducer));
         }
         catch (Exception ex) when (
             ex is ArgumentException

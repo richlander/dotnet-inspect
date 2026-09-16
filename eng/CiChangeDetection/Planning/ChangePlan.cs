@@ -35,7 +35,7 @@ internal sealed class PlanScopeDescriptor
 {
     /// <summary>
     /// The only record framing this schema version defines: exact path bytes
-    /// followed by one NUL terminator, in plan input order.
+    /// followed by one NUL terminator, in the scope's defined order.
     /// </summary>
     internal const string NulTerminatedFraming = "pathBytesNulTerminated";
 
@@ -163,7 +163,7 @@ internal sealed class ChangePlan
     /// <summary>
     /// The only schema version this repository produces or consumes.
     /// </summary>
-    internal const int CurrentSchemaVersion = 5;
+    internal const int CurrentSchemaVersion = 6;
 
     /// <summary>
     /// The only status valid in a serialized plan.

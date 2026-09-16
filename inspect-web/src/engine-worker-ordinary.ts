@@ -33,9 +33,9 @@ type PackageFacade = typeof PackageFacadeModule;
 type SourceFacade = typeof SourceFacadeModule;
 
 type PackageOperationName =
+  | "classifyPackageGraphIdentities"
   | "getPlatformCatalog"
   | "getPlatformVersions"
-  | "listPackageAssemblyQueryPatterns"
   | "matchPackageDependencyCoordinate"
   | "searchTypes"
   | "activateWorkspacePackageOccurrence"
@@ -43,17 +43,19 @@ type PackageOperationName =
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryPackage"
-  | "openPackageAssemblyQueryResult"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
   | "queryMemberDocumentation"
   | "queryPackageDependencies"
+  | "queryPackagePruning"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion";
 
 type MetadataOperationName =
+  | "cancelLibraryApiDiff"
+  | "queryLibraryApiDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
   | "queryPlatformMemberDeclaration"
@@ -122,9 +124,9 @@ export interface EngineWorkerOrdinaryClient {
   readonly catalog: AsyncFacadeGroup<CatalogFacade, CatalogOperationName>;
 }
 
-export const engineWorkerOrdinaryMaximumJsonCharacters = 8_388_608;
+export const engineWorkerOrdinaryMaximumJsonCharacters = 16_777_216;
 export const engineWorkerOrdinaryMaximumNesting = 64;
-export const engineWorkerOrdinaryMaximumCollectionEntries = 262_144;
+export const engineWorkerOrdinaryMaximumCollectionEntries = 524_288;
 
 type JsonPrimitive = null | boolean | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [name: string]: JsonValue };
@@ -684,6 +686,16 @@ function voidOperation<TArgs extends readonly unknown[]>(
 
 export const engineWorkerOrdinaryOperations = {
   package: {
+    classifyPackageGraphIdentities: valueOperation(
+      "ordinary-package-classify-graph-identities",
+      2,
+      (
+        facades,
+        ...args: Parameters<
+          PackageFacade["classifyPackageGraphIdentities"]
+        >
+      ) => facades.package.classifyPackageGraphIdentities(...args),
+    ),
     getPlatformCatalog: valueOperation(
       "ordinary-package-get-platform-catalog",
       2,
@@ -699,16 +711,6 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["getPlatformVersions"]>
       ) => facades.package.getPlatformVersions(...args),
-    ),
-    listPackageAssemblyQueryPatterns: valueOperation(
-      "ordinary-package-list-assembly-query-patterns",
-      0,
-      (
-        facades,
-        ...args: Parameters<
-          PackageFacade["listPackageAssemblyQueryPatterns"]
-        >
-      ) => facades.package.listPackageAssemblyQueryPatterns(...args),
     ),
     matchPackageDependencyCoordinate: valueOperation(
       "ordinary-package-match-dependency-coordinate",
@@ -772,16 +774,6 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackage"]>
       ) => facades.package.queryPackage(...args),
     ),
-    openPackageAssemblyQueryResult: valueOperation(
-      "ordinary-package-open-assembly-query-result",
-      1,
-      (
-        facades,
-        ...args: Parameters<
-          PackageFacade["openPackageAssemblyQueryResult"]
-        >
-      ) => facades.package.openPackageAssemblyQueryResult(...args),
-    ),
     loadRuntimePack: valueOperation(
       "ordinary-package-load-runtime-pack",
       2,
@@ -822,6 +814,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
     ),
+    queryPackagePruning: valueOperation(
+      "ordinary-package-query-pruning",
+      4,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackagePruning"]>
+      ) => facades.package.queryPackagePruning(...args),
+    ),
     queryPackageVersions: valueOperation(
       "ordinary-package-query-versions",
       2,
@@ -852,6 +852,22 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   metadata: {
+    cancelLibraryApiDiff: valueOperation(
+      "ordinary-metadata-cancel-library-api-diff",
+      2,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["cancelLibraryApiDiff"]>
+      ) => facades.metadata.cancelLibraryApiDiff(...args),
+    ),
+    queryLibraryApiDiff: valueOperation(
+      "ordinary-metadata-query-library-api-diff",
+      2,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["queryLibraryApiDiff"]>
+      ) => facades.metadata.queryLibraryApiDiff(...args),
+    ),
     queryMemberDeclaration: valueOperation(
       "ordinary-metadata-query-member-declaration",
       9,
@@ -872,7 +888,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeProjection: valueOperation(
       "ordinary-metadata-query-type-projection",
-      6,
+      7,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryTypeProjection"]>
@@ -1166,15 +1182,15 @@ export function bindEngineWorkerOrdinaryClient(
 
   return {
     package: {
+      classifyPackageGraphIdentities: bind(
+        engineWorkerOrdinaryOperations.package
+          .classifyPackageGraphIdentities,
+      ),
       getPlatformCatalog: bind(
         engineWorkerOrdinaryOperations.package.getPlatformCatalog,
       ),
       getPlatformVersions: bind(
         engineWorkerOrdinaryOperations.package.getPlatformVersions,
-      ),
-      listPackageAssemblyQueryPatterns: bind(
-        engineWorkerOrdinaryOperations.package
-          .listPackageAssemblyQueryPatterns,
       ),
       matchPackageDependencyCoordinate: bind(
         engineWorkerOrdinaryOperations.package
@@ -1200,10 +1216,6 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackage: bind(
         engineWorkerOrdinaryOperations.package.queryPackage,
       ),
-      openPackageAssemblyQueryResult: bind(
-        engineWorkerOrdinaryOperations.package
-          .openPackageAssemblyQueryResult,
-      ),
       loadRuntimePack: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePack,
       ),
@@ -1219,6 +1231,9 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
       ),
+      queryPackagePruning: bind(
+        engineWorkerOrdinaryOperations.package.queryPackagePruning,
+      ),
       queryPackageVersions: bind(
         engineWorkerOrdinaryOperations.package.queryPackageVersions,
       ),
@@ -1232,6 +1247,12 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     metadata: {
+      cancelLibraryApiDiff: bind(
+        engineWorkerOrdinaryOperations.metadata.cancelLibraryApiDiff,
+      ),
+      queryLibraryApiDiff: bind(
+        engineWorkerOrdinaryOperations.metadata.queryLibraryApiDiff,
+      ),
       queryMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberDeclaration,
       ),

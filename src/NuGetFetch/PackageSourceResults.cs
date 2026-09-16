@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Net;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using InertText;
 
 namespace NuGetFetch;
@@ -90,6 +92,13 @@ public sealed class PackageSourceAssociation
 public sealed class PackageProducerIdentity
     : IEquatable<PackageProducerIdentity>
 {
+    const string PortableKeyPrefix = "nfp-1.";
+    const int PortableKeyLength = 70;
+
+    static readonly UTF8Encoding StrictUtf8 = new(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+
     internal PackageProducerIdentity(
         object ownerCapability,
         string key,
@@ -98,11 +107,22 @@ public sealed class PackageProducerIdentity
         PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         Key = key;
+        PortableKey = CreatePortableKey(key);
         Display = display;
     }
 
     /// <summary>Gets the opaque, versioned producer key.</summary>
     public string Key { get; }
+
+    /// <summary>
+    /// Gets the bounded, credential-free token for portable producer
+    /// correspondence.
+    /// </summary>
+    /// <remarks>
+    /// The token grants no source authority. Consumers compare it only with
+    /// tokens issued from producer identities authorized by the current host.
+    /// </remarks>
+    public string PortableKey { get; }
 
     /// <summary>Gets the inert diagnostic producer display.</summary>
     public InertString Display { get; }
@@ -110,6 +130,16 @@ public sealed class PackageProducerIdentity
     /// <summary>Gets the canonical NuGet.org producer.</summary>
     public static PackageProducerIdentity NuGetOrg =>
         PackageSourceClientFactory.NuGetOrgProducer;
+
+    /// <summary>
+    /// True when <paramref name="value"/> uses the current portable producer
+    /// token grammar.
+    /// </summary>
+    public static bool IsCanonicalPortableKey(string? value) =>
+        value is { Length: PortableKeyLength }
+        && value.StartsWith(PortableKeyPrefix, StringComparison.Ordinal)
+        && value.AsSpan(PortableKeyPrefix.Length).IndexOfAnyExcept(
+            "0123456789abcdef") < 0;
 
     /// <inheritdoc/>
     public bool Equals(PackageProducerIdentity? other) =>
@@ -133,6 +163,12 @@ public sealed class PackageProducerIdentity
         PackageProducerIdentity? left,
         PackageProducerIdentity? right) =>
         !(left == right);
+
+    static string CreatePortableKey(string key)
+    {
+        byte[] digest = SHA256.HashData(StrictUtf8.GetBytes(key));
+        return PortableKeyPrefix + Convert.ToHexStringLower(digest);
+    }
 }
 
 /// <summary>
@@ -141,11 +177,18 @@ public sealed class PackageProducerIdentity
 public sealed class PackageSourceResultIdentity
     : IEquatable<PackageSourceResultIdentity>
 {
+    static readonly UTF8Encoding StrictUtf8 = new(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+
+    private readonly string? _compatibilitySourceKey;
+
     internal PackageSourceResultIdentity(
         object ownerCapability,
         PackageProducerIdentity producer,
         PackageSourceAssociation association,
-        PackageSourceKind transportKind)
+        PackageSourceKind transportKind,
+        string? compatibilitySourceIdentity)
     {
         PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
         ArgumentNullException.ThrowIfNull(producer);
@@ -153,6 +196,9 @@ public sealed class PackageSourceResultIdentity
         Producer = producer;
         Association = association;
         TransportKind = transportKind;
+        _compatibilitySourceKey = compatibilitySourceIdentity is null
+            ? null
+            : CreateCompatibilitySourceKey(compatibilitySourceIdentity);
     }
 
     /// <summary>Gets the package-content producer.</summary>
@@ -163,6 +209,19 @@ public sealed class PackageSourceResultIdentity
 
     /// <summary>Gets the transport family that produced the result.</summary>
     public PackageSourceKind TransportKind { get; }
+
+    /// <summary>
+    /// Reports whether a credential-free legacy HTTP source identity belongs
+    /// to this runtime source's existing content-cache correspondence.
+    /// </summary>
+    public bool MatchesCompatibilitySourceIdentity(string sourceIdentity)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceIdentity);
+        return _compatibilitySourceKey is not null
+            && _compatibilitySourceKey.Equals(
+                CreateCompatibilitySourceKey(sourceIdentity),
+                StringComparison.Ordinal);
+    }
 
     /// <inheritdoc/>
     public bool Equals(PackageSourceResultIdentity? other) =>
@@ -196,6 +255,11 @@ public sealed class PackageSourceResultIdentity
         PackageSourceResultIdentity? left,
         PackageSourceResultIdentity? right) =>
         !(left == right);
+
+    private static string CreateCompatibilitySourceKey(
+        string sourceIdentity) =>
+        Convert.ToHexStringLower(
+            SHA256.HashData(StrictUtf8.GetBytes(sourceIdentity)));
 }
 
 /// <summary>

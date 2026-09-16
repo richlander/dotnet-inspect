@@ -3,17 +3,14 @@ import test from "node:test";
 
 import {
   createBrowserPackageQueryDataSource,
-  packageQueryAssemblyPatterns,
   packageQueryFacets,
   type BrowserPackageQueryEngine,
 } from "../src/package-query-source.ts";
 import {
-  createAssemblyQueryRequest,
   createPackageQueryController,
   createQueryRequest,
   initialQueryState,
   withFacet,
-  type QueryAssemblyAssessment,
   type QueryResultRow,
 } from "../src/package-query.ts";
 import type {
@@ -47,37 +44,19 @@ const completionEvent: BrowserPackageQueryEvent = {
   },
 };
 
-const assemblyCompletionEvent = {
-  kind: "Completed" as const,
-  row: null,
-  failure: null,
-  progress: null,
-  assessment: null,
-  completion: {
-    prefix: "",
-    producer: "package-query.assembly",
-    candidateLimit: 2,
-    matchLimit: 2,
-    candidates: 2,
-    matches: 1,
-    failures: 0,
-    sourceCandidates: null,
-    semanticMisses: 1 as number | null,
-    notApplicable: 0 as number | null,
-    scope: "selector-issued primary implementation assemblies" as string | null,
-    kind: "ExplicitCandidatesComplete" as const,
-  },
-};
-
 function succeeded(
   value: BrowserPackageQueryEvent,
 ): BrowserPackageQueryResult {
   return {
-    version: 2,
+    version: 3,
     kind: "Succeeded",
     value: null,
     inspection: {
-      content: [value],
+      content: {
+        results: [],
+        failures: [],
+        completion: value.completion!,
+      },
       share: {
         kind: "NonProjectable",
         fullUrl: null,
@@ -87,21 +66,6 @@ function succeeded(
       },
       diagnostics: [],
     },
-    failureKind: null,
-    error: null,
-    diagnostic: null,
-    reason: null,
-  };
-}
-
-function assemblySucceeded(
-  value: BrowserPackageQueryEvent,
-): BrowserPackageQueryResult {
-  return {
-    version: 2,
-    kind: "Succeeded",
-    value,
-    inspection: null,
     failureKind: null,
     error: null,
     diagnostic: null,
@@ -239,7 +203,7 @@ test("Browser source retains the Package Query inspection envelope", async () =>
   assert.deepEqual(completion, { kind: "exhausted" });
   assert.equal(inspections.length, 2);
   assert.equal(inspections[0], null);
-  assert.equal(inspections[1]?.content.at(-1)?.kind, "Completed");
+  assert.equal(inspections[1]?.content.completion.kind, "Exhausted");
   assert.deepEqual(inspections[1]?.share, {
     kind: "NonProjectable",
     fullUrl: null,
@@ -602,320 +566,6 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
   ]);
 });
 
-test("packageQueryAssemblyPatterns preserves only engine-issued descriptors", () => {
-  assert.deepEqual(packageQueryAssemblyPatterns([{
-    id: "package.query.assembly.ldstr-contains",
-    label: "Decoded string literal contains",
-    summary: "Ordinal substring over decoded IL ldstr occurrences.",
-    maximumOperandLength: 256,
-    maximumPackages: 5,
-  }]), [{
-    id: "package.query.assembly.ldstr-contains",
-    label: "Decoded string literal contains",
-    summary: "Ordinal substring over decoded IL ldstr occurrences.",
-    maximumOperandLength: 256,
-    maximumPackages: 5,
-  }]);
-});
-
-test("Browser source dispatches assembly requests without package-search parameters", async () => {
-  const operand = "  Literal * value  ";
-  let packageRuns = 0;
-  const engine: BrowserPackageQueryEngine = {
-    ...defaultControls,
-    async run() {
-      packageRuns++;
-      return succeeded(completionEvent);
-    },
-    async runAssembly(...args) {
-      assert.deepEqual(args.slice(1, 6), [
-        "package.query.assembly.ldstr-contains",
-        operand,
-        '["Contoso.One@1.2.3","Contoso.Two@4.5.6"]',
-        "net10.0",
-        20,
-      ]);
-      assert.ok(typeof args[6] === "object" && args[6] !== null);
-      return assemblySucceeded(assemblyCompletionEvent);
-    },
-  };
-  const completion = await createBrowserPackageQueryDataSource(engine).run(
-    createAssemblyQueryRequest(
-      "package.query.assembly.ldstr-contains",
-      operand,
-      ["Contoso.One@1.2.3", "Contoso.Two@4.5.6"],
-      "net10.0"),
-    () => {},
-    () => {},
-    () => {},
-    new AbortController().signal);
-
-  assert.equal(packageRuns, 0);
-  assert.deepEqual(completion, {
-    kind: "bounded",
-    reason:
-      "2 explicit candidates; 1 match; 1 semantic no-match; 0 not applicable; 0 failures; scope: selector-issued primary implementation assemblies",
-  });
-});
-
-test("explicit candidate completion requires finite complete accounting and scope", async () => {
-  const runAssemblyCompletion = async (
-    completion: typeof assemblyCompletionEvent.completion,
-  ) => {
-    const engine: BrowserPackageQueryEngine = {
-      ...defaultControls,
-      async run() {
-        return succeeded(completionEvent);
-      },
-      async runAssembly() {
-        return assemblySucceeded({ ...assemblyCompletionEvent, completion });
-      },
-    };
-    return await createBrowserPackageQueryDataSource(engine).run(
-      createAssemblyQueryRequest(
-        "package.query.assembly.ldstr-contains",
-        "literal",
-        ["Contoso.One@1.2.3", "Contoso.Two@4.5.6"],
-        "net10.0"),
-      () => {},
-      () => {},
-      () => {},
-      new AbortController().signal);
-  };
-
-  await assert.rejects(
-    runAssemblyCompletion({
-      ...assemblyCompletionEvent.completion,
-      semanticMisses: null,
-    }),
-    /omitted its accounting or scope/);
-  await assert.rejects(
-    runAssemblyCompletion({
-      ...assemblyCompletionEvent.completion,
-      scope: " ",
-    }),
-    /omitted its accounting or scope/);
-  await assert.rejects(
-    runAssemblyCompletion({
-      ...assemblyCompletionEvent.completion,
-      failures: 1,
-    }),
-    /did not account for every candidate/);
-});
-
-test("missing Browser assembly export fails visibly instead of falling back to package search", async () => {
-  let packageRuns = 0;
-  const engine: BrowserPackageQueryEngine = {
-    ...defaultControls,
-    async run() {
-      packageRuns++;
-      return succeeded(completionEvent);
-    },
-  };
-
-  await assert.rejects(
-    createBrowserPackageQueryDataSource(engine).run(
-      createAssemblyQueryRequest(
-        "package.query.assembly.ldstr-contains",
-        "literal",
-        ["Contoso.Library@1.2.3"],
-        "net10.0"),
-      () => {},
-      () => {},
-      () => {},
-      new AbortController().signal),
-    /Assembly-pattern package queries are unavailable/);
-  assert.equal(packageRuns, 0);
-});
-
-test("Browser source keeps assembly matches and assessments distinct", async () => {
-  const rootRequest = "{\"kind\":\"package\",\"id\":\"Contoso.Match\"}";
-  const assessmentRoot =
-    "{\"kind\":\"package\",\"id\":\"Contoso.NoMatch\"}";
-  const rows: QueryResultRow[] = [];
-  const assessments: QueryAssemblyAssessment[] = [];
-  const callbackOrder: string[] = [];
-  const engine: BrowserPackageQueryEngine = {
-    ...defaultControls,
-    async run() {
-      return succeeded(completionEvent);
-    },
-    async runAssembly(
-      _operationId,
-      _pattern,
-      _operand,
-      _coordinates,
-      _framework,
-      _credit,
-      sink,
-    ) {
-      assert.ok(typeof sink === "object" && sink !== null);
-      Reflect.set(sink, "event", JSON.stringify({
-        kind: "Progress",
-        row: null,
-        failure: null,
-        completion: null,
-        progress: {
-          phase: "Assembly",
-          completed: 1,
-          limit: 2,
-        },
-        assessment: null,
-      }));
-      Reflect.set(sink, "event", JSON.stringify({
-        kind: "Match",
-        row: {
-          packageId: "Contoso.Match",
-          version: "1.2.3",
-          tier: "Assembly",
-          evidence: [packageEvidence(
-            "package.query.assembly.ldstr-contains",
-            "lib/net10.0/Contoso.Match.dll: M (IL_0001)")],
-          totalDownloads: null,
-          verified: null,
-          producer: "analysis.ldstr",
-          description: null,
-          rootRequest,
-          owners: [],
-          manifest: null,
-        },
-        failure: null,
-        completion: null,
-        progress: null,
-        assessment: null,
-      }));
-      Reflect.set(sink, "event", JSON.stringify({
-        kind: "Assessment",
-        row: null,
-        failure: null,
-        completion: null,
-        progress: null,
-        assessment: {
-          packageId: "Contoso.NoMatch",
-          version: "4.5.6",
-          disposition: "NoMatch",
-          message:
-            "No decoded string literal contained the requested operand in the selected assembly.",
-          assetPath: "lib/net10.0/Contoso.NoMatch.dll",
-          rootRequest: assessmentRoot,
-        },
-      }));
-      return assemblySucceeded(assemblyCompletionEvent);
-    },
-  };
-
-  await createBrowserPackageQueryDataSource(engine).run(
-    createAssemblyQueryRequest(
-      "package.query.assembly.ldstr-contains",
-      "literal",
-      ["Contoso.Match@1.2.3", "Contoso.NoMatch@4.5.6"],
-      "net10.0"),
-    page => {
-      callbackOrder.push(`page:${page[0]?.packageId ?? "empty"}`);
-      rows.push(...page);
-    },
-    () => {},
-    progress => {
-      callbackOrder.push(`progress:${progress.completed}`);
-      assert.deepEqual(progress, {
-        phase: "assembly",
-        completed: 1,
-        limit: 2,
-      });
-    },
-    new AbortController().signal,
-    assessment => {
-      callbackOrder.push(`assessment:${assessment.packageId}`);
-      assessments.push(assessment);
-    });
-  callbackOrder.push("completed");
-
-  assert.deepEqual(rows, [{
-    packageId: "Contoso.Match",
-    version: "1.2.3",
-    tier: "assembly",
-    evidence: [{
-      id: "package.query.assembly.ldstr-contains",
-      text: "lib/net10.0/Contoso.Match.dll: M (IL_0001)",
-      scope: "package",
-      summary: null,
-    }],
-    totalDownloads: null,
-    description: null,
-    producer: "analysis.ldstr",
-    rootRequest,
-  }]);
-  assert.deepEqual(assessments, [{
-    packageId: "Contoso.NoMatch",
-    version: "4.5.6",
-    disposition: "NoMatch",
-    message:
-      "No decoded string literal contained the requested operand in the selected assembly.",
-    assetPath: "lib/net10.0/Contoso.NoMatch.dll",
-    rootRequest: assessmentRoot,
-  }]);
-  assert.deepEqual(callbackOrder, [
-    "progress:1",
-    "page:Contoso.Match",
-    "assessment:Contoso.NoMatch",
-    "completed",
-  ]);
-});
-
-test("assembly match rows require the opaque Root request", async () => {
-  const engine: BrowserPackageQueryEngine = {
-    ...defaultControls,
-    async run() {
-      return succeeded(completionEvent);
-    },
-    async runAssembly(
-      _operationId,
-      _pattern,
-      _operand,
-      _coordinates,
-      _framework,
-      _credit,
-      sink,
-    ) {
-      assert.ok(typeof sink === "object" && sink !== null);
-      Reflect.set(sink, "event", JSON.stringify({
-        kind: "Match",
-        row: {
-          packageId: "Contoso.Match",
-          version: "1.2.3",
-          tier: "Assembly",
-          evidence: [packageEvidence("literal", "Occurrence")],
-          totalDownloads: null,
-          verified: null,
-          producer: "analysis.ldstr",
-          description: null,
-          rootRequest: null,
-          owners: [],
-          manifest: null,
-        },
-        failure: null,
-        completion: null,
-        progress: null,
-        assessment: null,
-      }));
-      return assemblySucceeded(assemblyCompletionEvent);
-    },
-  };
-
-  await assert.rejects(
-    createBrowserPackageQueryDataSource(engine).run(
-      createAssemblyQueryRequest(
-        "package.query.assembly.ldstr-contains",
-        "literal",
-        ["Contoso.Match@1.2.3"],
-        "net10.0"),
-      () => {},
-      () => {},
-      () => {},
-      new AbortController().signal),
-    /assembly package-query row contained no Root request/);
-});
-
 test("Browser data source maps package-content rows and visible failures", async () => {
   const failureEvent: BrowserPackageQueryEvent = {
     kind: "Failure",
@@ -1186,7 +836,7 @@ test("Browser source decodes managed failure and cancellation results", async ()
     ...defaultControls,
     async run() {
       return {
-        version: 2,
+        version: 3,
         kind: "Failed",
         value: null,
         inspection: null,
@@ -1241,7 +891,7 @@ test("Browser source decodes managed failure and cancellation results", async ()
     ...defaultControls,
     async run() {
       return {
-        version: 2,
+        version: 3,
         kind: "Canceled",
         value: null,
         inspection: null,
@@ -1307,7 +957,7 @@ test("Browser source reports unexpected failure after a superseded observer fail
   await Promise.resolve();
   abort.abort("superseded");
   settleManagedResult?.({
-    version: 2,
+    version: 3,
     kind: "Failed",
     value: null,
     inspection: null,

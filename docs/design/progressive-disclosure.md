@@ -199,14 +199,17 @@ metadata and evidence sections in one request. Companion schema discovery
 On `find`, `-S` accepts query companions only; ordinary data-section selection
 remains unsupported.
 
-Performance descriptors consume the same filterable/sortable field catalogs
-and value-domain rules as argument binding. Body Shapes consumes the exact
-product-owned C# body-kind vocabulary; library candidate-filter composition is
-distinct from the narrower type/member contract. Top Leverage and package
-facets are not advertised merely because similarly named data or core
-descriptors exist. Future package-query CLI adoption must register its actual
-bindings, preserving the distinction between Gallery source orders and row
-rankings.
+Performance Triage descriptors project canonical field names, predicate
+comparisons, and field ordering/Top support directly from the executable row
+schema used by argument binding. The CLI projection owns only value-domain
+labels, accepted-value display, copyable examples, and the allow list of named
+orders exposed as CLI bindings; an internal executable named order is not
+advertised automatically. Body Shapes consumes the exact product-owned C# body
+kind vocabulary; library candidate-filter composition is distinct from the
+narrower type/member contract. Top Leverage and package facets are not
+advertised merely because similarly named data or core descriptors exist.
+Future package-query CLI adoption must register its actual bindings, preserving
+the distinction between Gallery source orders and row rankings.
 
 Markout lowers the typed metadata into ordinary section tables. Markdown,
 plain text, table, TSV, and JSONL use the existing projection path.
@@ -221,12 +224,14 @@ for named discovery. Detailed output adds copyable examples; ordinary output
 keeps the compact facet/operator/value table.
 
 `QueryDiscoveryTests` is the Release gate for scoped mode separation,
-acquisition-free requests with missing targets, exact owner-accepted bindings,
-Body Shapes composition, category/alias/glob resolution, companion visibility,
-explicit empty capability state, structured JSON, projection, and metadata
-row windows/counts. The boundary cases include a real-looking missing target
-and a core package facet catalog with no executable CLI binding: neither may
-turn capability discovery into target acquisition or advertise deferred work.
+acquisition-free requests with missing targets, executable-schema-derived
+Performance Triage capabilities, exact owner-accepted bindings, Body Shapes
+composition, category/alias/glob resolution, companion visibility, explicit
+empty capability state, structured JSON, projection, and metadata row
+windows/counts. The boundary cases include a changed executable field
+capability, a real-looking missing target, and a core package facet catalog
+with no executable CLI binding: none may require a parallel capability edit,
+turn discovery into target acquisition, or advertise deferred work.
 
 ## Network and source capabilities
 

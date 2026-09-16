@@ -1433,19 +1433,53 @@ public class PackageCommand
             CommandError.Write($"Version '{requestedVersion}' is not an exact NuGet version.");
             return 1;
         }
+        if (latest
+            && PackageCoordinateResolver.Validate(new PackageCoordinate(packageId)) is { } invalid)
+        {
+            CommandError.Write(
+                $"Package '{packageId}' version discovery failed.",
+                [invalid.Message, "Correct the package command input and retry."]);
+            return 1;
+        }
 
         using var requestScope = RequestTelemetry.Scope($"package {packageId}", "package versions");
         await using DesktopPackageSourceComposition composition = context.CreatePackageSourceComposition();
-        PackageVersionDiscoveryResult discovery = await composition.GetVersionsAsync(
-            packageId,
-            pinned || options.IncludePrerelease || (range?.IncludesPrerelease ?? false),
-            options.VersionRowSelection is not null || isRange || pinned
-                ? null : latest ? 1 : options.Limit,
-            options.SourceOptions,
-            context.Logger.Log,
-            includeUnlisted: !latest && (pinned || options.IncludeUnlisted));
+        PackageVersionDiscoveryResult discovery;
+        string? selectedVersion = null;
+        if (latest)
+        {
+            PackageHouseResult settlement = await composition.SettleVersionAsync(
+                new PackageVersionSelectionRequest.AlwaysLatest(
+                    packageId, options.IncludePrerelease),
+                options.SourceOptions,
+                context.Logger.Log);
+            if (settlement is not PackageHouseResult.Settled)
+            {
+                WriteVersionSettlementFailure(packageId, packageReference, settlement);
+                return 1;
+            }
+            if (settlement.Decision?.VersionResolution
+                is not PackageVersionResolutionReceipt.Resolved resolved)
+            {
+                throw new InvalidOperationException(
+                    "Latest-version settlement did not retain its resolved version receipt.");
+            }
+            discovery = resolved.Discovery;
+            selectedVersion = resolved.Coordinate.Version;
+        }
+        else
+        {
+            discovery = await composition.GetVersionsAsync(
+                packageId,
+                pinned || options.IncludePrerelease || (range?.IncludesPrerelease ?? false),
+                options.VersionRowSelection is not null || isRange || pinned
+                    ? null : options.Limit,
+                options.SourceOptions,
+                context.Logger.Log,
+                includeUnlisted: pinned || options.IncludeUnlisted);
+        }
 
-        bool requiresCompleteEvidence = latest || isRange
+        bool requiresCompleteEvidence = isRange
             || (!pinned && options.SingleVersionQuery);
         if (discovery.State == PackageVersionDiscoveryState.Failed
             || (requiresCompleteEvidence && discovery.State != PackageVersionDiscoveryState.Authoritative))
@@ -1455,8 +1489,8 @@ public class PackageCommand
         }
 
         IReadOnlyList<PackageVersionInfo> listings = discovery.Listings;
-        if (latest)
-            listings = [.. listings.Take(1)];
+        if (selectedVersion is not null)
+            listings = [.. listings.Where(row => PackageVersionsEqual(row.Version, selectedVersion))];
         if (pinned)
         {
             listings = [.. listings.Where(row =>
@@ -1536,6 +1570,42 @@ public class PackageCommand
             WriteVersions(rows, options);
         }
         return 0;
+    }
+
+    private static void WriteVersionSettlementFailure(
+        string packageName,
+        string packageReference,
+        PackageHouseResult result)
+    {
+        if (result is PackageHouseResult.NotFound or PackageHouseResult.NoMatch)
+        {
+            CommandError.Write($"Package '{packageReference}' not found on eligible configured sources.");
+            return;
+        }
+
+        PackageAuthorityFailure[] failures =
+        [
+            .. result.Evidence.Failures
+                .OfType<PackageHouseFailure.Authority>()
+                .Select(failure => failure.Failure),
+        ];
+        if (failures.Length != 0)
+        {
+            WriteVersionDiscoveryFailure(packageName, failures);
+            return;
+        }
+
+        string reason = result switch
+        {
+            PackageHouseResult.Ambiguous ambiguous => ambiguous.Reason.ToString(),
+            PackageHouseResult.Rejected rejected => rejected.Reason.ToString(),
+            PackageHouseResult.Unavailable unavailable => unavailable.Reason.ToString(),
+            PackageHouseResult.Incomplete incomplete => incomplete.Reason.ToString(),
+            PackageHouseResult.Failed failed => failed.Reason.ToString(),
+            _ => throw new InvalidOperationException(
+                "Version settlement returned an unexpected outcome."),
+        };
+        CommandError.Write($"Package '{packageName}' version discovery failed.", [reason]);
     }
 
     private static void WriteVersions(
@@ -3028,7 +3098,10 @@ public class PackageCommand
                 options.Jsonl,
                 options.JsonArray,
                 options.Bare,
-                PackagePayloadDestination(options)));
+                PackagePayloadDestination(options),
+                row => PackagePayloadDestination(
+                    options,
+                    PackageFileFamily.IsSkillDocument(sourceByRow[row]))));
     }
 
     private static List<ShapeProjectionRow> ProjectPackageFiles(IEnumerable<PackageFileRow>? files, string section, ShapeProjectionKind kind, InspectionOptions options)
@@ -4060,13 +4133,42 @@ public class PackageCommand
             && !options.Jsonl
             && !options.JsonArray;
 
-    private static ProjectionDestination PackagePayloadDestination(InspectionOptions options)
+    private static bool MayResolveToSkillPayloadBeforeAcquisition(
+        InspectionOptions options)
+    {
+        if ((options.Print || options.Bare)
+            && options.IncludeSections is { Count: 1 } sections
+            && (sections.Single().Equals(
+                    PackageSections.FilesSkills,
+                    StringComparison.OrdinalIgnoreCase)
+                || sections.Single().Equals(
+                    PackageSections.FilesReadme,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        string[] selectors = PathSelectors(options);
+        return options.ShowContent
+            && selectors.Length > 0
+            && selectors.All(static selector =>
+                selector.Equals("@readme", StringComparison.OrdinalIgnoreCase)
+                || !selector.Contains('*')
+                    && !selector.Contains('?')
+                    && PackageFileFamily.IsSkillDocumentPath(selector));
+    }
+
+    private static ProjectionDestination PackagePayloadDestination(
+        InspectionOptions options,
+        bool? resolvedSkillPayload = null)
         => new(
             options.OutputPath,
             options.Rows,
             ExactTransfer: (options.Print || RequiresUnaryPackageContent(options))
                 && HasUnstructuredOutputPath(options)
-                && options.ContentScope == PackageFileContentScope.Full);
+                && options.ContentScope == PackageFileContentScope.Full
+                && !(resolvedSkillPayload
+                    ?? MayResolveToSkillPayloadBeforeAcquisition(options)));
 
     /// <summary>
     /// Restores the readme role to the document the manifest declares when
@@ -4149,13 +4251,17 @@ public class PackageCommand
                 includeExactContent ? exactContent : null);
         }
 
+        string sourceContent = ReadText(exactContent);
         var content = MarkdownContent.ApplyScope(
-            ReadText(exactContent),
-            scope);
+            sourceContent,
+            scope,
+            out int sourceLineOffset);
         if (PackageFileFamily.IsSkillDocument(file))
         {
             ContainmentSelectedText selected = AgentSkillDocument.PrepareForOutput(
+                file.Path,
                 content,
+                sourceLineOffset,
                 normalizeGithubLinksToRaw);
             return new PackageFileContent(
                 packageName,
@@ -4237,7 +4343,20 @@ public class PackageCommand
         if (LensProjection.TryProject(options, "--content", visibleRows.Count(row => row.Found), out var contentProjectionExit))
             return contentProjectionExit;
 
-        var destination = PackagePayloadDestination(options);
+        List<PackageFileContent> resolvedFiles =
+            visibleRows.Where(row => row.Found).Take(2).ToList();
+        bool? resolvedSkillPayload = resolvedFiles.Count == 1
+            ? resolvedFiles[0].SelectedContent is not null
+            : null;
+        var destination = PackagePayloadDestination(
+            options,
+            resolvedSkillPayload);
+        if (!ProjectionDestinationWriter.ValidateBeforeDestinationMutation(
+                destination))
+        {
+            return 1;
+        }
+
         if (options.Bare)
             return PrintBarePackageFileContentRows(visibleRows, destination);
 
@@ -4253,9 +4372,13 @@ public class PackageCommand
                 return 1;
             }
 
+            ContainmentDiagnosticOutput.Write(found[0].SelectedContent);
             WritePackageFileExport(found[0], destination);
             return 0;
         }
+
+        foreach (PackageFileContent row in visibleRows.Where(row => row.Found))
+            ContainmentDiagnosticOutput.Write(row.SelectedContent);
 
         var textRows = visibleRows
             .Select(PackageFileContentText.Create)
@@ -4282,6 +4405,7 @@ public class PackageCommand
             return 1;
         }
 
+        ContainmentDiagnosticOutput.Write(found[0].SelectedContent);
         if (ProjectionDestinationWriter.IsFile(destination))
         {
             WritePackageFileExport(found[0], destination);
@@ -4573,9 +4697,14 @@ public class PackageCommand
             return 1;
         }
 
-        var destination = PackagePayloadDestination(options);
-        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
+        var destination = PackagePayloadDestination(
+            options,
+            PackageFileFamily.IsSkillDocument(files[0]));
+        if (!ProjectionDestinationWriter.ValidateBeforeDestinationMutation(
+                destination))
+        {
             return 1;
+        }
 
         var content = ReadPackageFileContent(
             extractPath,
@@ -4585,6 +4714,7 @@ public class PackageCommand
             PackageFileContentScope.Full,
             normalizeGithubLinksToRaw: !options.BrowsableUrls,
             includeExactContent: HasUnstructuredOutputPath(options));
+        ContainmentDiagnosticOutput.Write(content.SelectedContent);
         if (ProjectionDestinationWriter.IsFile(destination))
         {
             WritePackageFileExport(content, destination);

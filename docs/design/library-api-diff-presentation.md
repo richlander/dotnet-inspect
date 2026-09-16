@@ -36,9 +36,12 @@ immediate adopter is the separately owned
 the flat changed-Type inventory for Library drill-down rather than rendering
 selected-Type detail in place.
 
-This design is the contract slice. Its implementation and Browser adoption are
-separate successor changes so neither host transport nor page interaction
-becomes part of the shared presentation owner.
+The shared projection and terminal have CLI and Browser consumers. The
+content-kind adoption tracked by
+[#7070](https://github.com/richlander/dotnet-inspect/issues/7070) applies
+[host-observable content kinds](host-observable-content-kinds.md) to this
+owner's existing boundary. Neither host transport nor page interaction becomes
+part of the shared presentation owner.
 
 ## Product question
 
@@ -134,12 +137,11 @@ subject from `ApiChange.Message`, `TypeDiff.TypeFullName`, member names,
 signatures, metadata tokens, collection positions, or object reference
 identity.
 
-## Result cases
+## Outcome cases and complete Document
 
-The projection result is closed:
+The projection returns the closed `LibraryApiDiffOutcome`:
 
-- **Available** carries both portable endpoint summaries, an aggregate summary,
-  and one `ComparisonDocument<LibraryApiTypeDiff>`.
+- **Available** carries one non-null `LibraryApiDiffDocument`.
 - **Unavailable** means the selected-library query did not produce a complete
   comparison. It retains a typed reason and both endpoint summaries; it carries
   no empty or one-sided comparison document.
@@ -164,6 +166,22 @@ missing member anchor, duplicate exact Type identity, unassociated structured
 subject, and contradictory occupied-side topology. These are stable
 presentation reasons, not copies of exception messages.
 
+`LibraryApiDiffDocument` is the complete available semantic composition. It
+owns Before and After portable endpoint summaries, the aggregate Summary, and
+the existing `ComparisonDocument<LibraryApiTypeDiff>` as Comparison. The
+comparison's root, changed-Type population, member correspondence, compatibility
+verdicts, and evidence retain their existing owners and meaning. Both endpoints
+must be complete and the summary's changed-Type count must equal that
+comparison's subject count. A successful empty comparison remains an available
+Document.
+
+The Outcome does not duplicate or flatten the available Document's fields.
+Unavailable and Rejected retain their endpoint evidence without manufacturing
+a Document. Document and Outcome preserve structural value equality and the
+existing settled, resource-free snapshot. Ordered sequences retain array
+semantics across serialization; existing CLR collection choices are not a
+different schema or a requirement imposed on other hosts.
+
 The endpoint summaries retain the requested scope, selected assembly identity,
 projection outcome, completeness, and bounded failure/truncation evidence
 needed to explain non-success. They do not retain a live assembly registration,
@@ -187,13 +205,13 @@ The root:
   identity as `Identifier`;
 - uses the selected assembly name as `Display`;
 - retains the full Before and After assembly identities in the enclosing
-  available result;
+  `LibraryApiDiffDocument`;
 - uses `SubjectCoordinateBasis.RootRelative`; and
 - uses `ComparisonRootComparison.NotApplicable`.
 
-The root payload is not the place to duplicate aggregate counts. The available
-result owns the aggregate summary and the root identifies the Library whose
-changed-Type subjects the document composes.
+The root payload is not the place to duplicate aggregate counts.
+`LibraryApiDiffDocument` owns the aggregate summary and the comparison root
+identifies the Library whose changed-Type subjects it composes.
 
 This presentation owner does not infer an assembly rename, move, package
 relationship, or path correspondence. A future producer that establishes such
@@ -385,8 +403,9 @@ completeness.
 
 ## Relationship to shared diff formats and Markout
 
-`ComparisonDocument<T>` is the outer composition format because the Library is
-the root and changed Types are identified child subjects. The
+`ComparisonDocument<T>` composes the comparison topology within
+`LibraryApiDiffDocument`: the Library is the root and changed Types are
+identified child subjects. The
 `LibraryApiTypeDiff` payload is API-specific presentation information, not a
 text mapping.
 
@@ -442,6 +461,99 @@ producer evidence.
 
 ## Adoption
 
+### Shared terminal and CLI consumer
+
+`LibraryApiDiffInspection.Execute` completes the selected-Library query and
+presentation projection, returning
+`InspectionEnvelope<LibraryApiDiffOutcome>`. Its Content is the owner-specific
+Outcome; Available carries the complete `LibraryApiDiffDocument`, while
+Unavailable and Rejected retain their typed reasons and endpoint evidence.
+Endpoint inspection issues retain contained operation, token, mechanism,
+kind, detail, subject assembly, and dependency assembly evidence, not just a
+failure count.
+
+The terminal reports `Share.NonProjectable` at `comparison/endpoints`:
+Workspace Share does not yet represent the comparison's ordered endpoints and
+API scope. A host must not manufacture a replayable Share from one endpoint.
+
+The selected-Library comparison uses Metadata's existing resolution-aware
+generic-constraint extraction with the bounded projection. It records
+unavailable forwarded dependencies before deciding endpoint completeness;
+constraint failure retention spends the same failure/text budget as other
+extraction failures. Declaration-only API-surface queries retain their existing
+metadata-only behavior. The supplied binding policy, not the CLI or this
+presentation adapter, decides the dependency universe.
+
+The CLI adopts this terminal for ordinary API diffs with exactly one acquired
+Library per endpoint, optionally narrowed by Type or compatibility
+classification. It delays legacy surface extraction so the adopted route does
+not build and compare a second surface. One command-scoped Workspace owns the
+two groups. Markout renders host views derived from the complete document;
+explicitly projected JSON, detailed rows, Type-summary tables, and name-only
+output remain CLI projections. Unprojected `--json` now serializes the
+complete Outcome; `--envelope` serializes the service baseline through the
+[common envelope transport](output-shapes.md#envelope-transport).
+
+This changes three observable outcomes on the adopted route:
+
+- Different logical Libraries are rejected rather than compared by name.
+- Type-definition and member evidence without a compatibility row remains
+  visible as **Other API Changes** or detailed `unclassified` rows. Classification
+  filters never promote that evidence to a breaking or additive verdict.
+- Incomplete endpoints yield no comparison document and return nonzero with
+  **not compared**. Invalid managed-image admission reports on stderr; projected
+  metadata failures remain structured inspection-failure rows in document
+  output.
+
+`System.Text.Json@9.0.0..10.0.0`, `net8.0`, narrowed to
+`JsonSerializerOptions`, is the real-package adoption example: it reports the
+added `Strict` and `AllowDuplicateProperties` properties. The fixture
+version pair additionally demonstrates Type-definition evidence that a
+compatibility-only view previously hid.
+
+This selected-Library route does not complete the Workspace lifecycle or
+subject-owned Diff migration. Existing aggregate-package,
+member-filter, Analysis Diff, Implementation Diff, Finding Transitions, and
+mixed-section routes remain until their own shared terminals cover their
+different populations and outputs. Realization-coordinator/House acquisition
+adoption remains separate; the CLI does not add a second coordinator or
+replacement lifecycle contract here.
+
+### Content-kind adoption in both hosts
+
+The #7070 adoption has three steps in one production slice:
+
+1. Replace `LibraryApiDiffPresentationResult` with `LibraryApiDiffOutcome` and
+   compose its available evidence in `LibraryApiDiffDocument`.
+2. Have the CLI consume the Document while preserving its current output
+   projections, filters, and exit behavior.
+3. Have the Browser's existing bounded wire projection consume the same
+   Document while preserving its schema, ordered inventory, typed non-success,
+   and transport bounds.
+
+Total steps: **3**, delivered together. The old content type and flattened
+Available shape have no compatibility alias or second implementation.
+That content-kind rename left comparison algorithms, evidence, ordinary CLI
+JSON, and the Browser facade schema unchanged.
+
+The subsequent #6719 CLI transport adoption registers `library-api-diff`
+using `LibraryApiDiffJsonContext`. Unprojected JSON and envelope Content use
+that same complete serializer, including all Outcome and endpoint-issue
+cases. Available empty comparisons remain successful; Unavailable and Rejected
+are serialized before the command returns failure. `--compact` changes only
+whitespace. API scope (`--all`) remains admitted; post-service filters,
+presentation controls, and non-API or multi-Library operations are not admitted
+with `--envelope`. Explicitly projected JSON preserves its prior view.
+
+Complete Browser baseline transport and subject-command cutover remain
+explicit adoption work in the
+[subject-owned Diff plan](command-transition-model.md#subject-owned-diff).
+Browser's current selected-inventory projection is unchanged and is not
+relabeled as complete envelope delivery. House acquisition and optional
+Evidence capture remain separate.
+
+### Browser consumer and remaining delivery
+
 The Library API Diff delivery path is:
 
 1. selected-library API comparison query -- implemented by #6128;
@@ -457,7 +569,20 @@ consumer slices. **Open annotated source** invokes the existing member
 source-diff path on demand. Clone uses the same Package target-setting
 experience but requires its own producer and payload adapter.
 
-The implementation gate is a focused Release presentation suite covering the
-pathological cases above and the real selected-library query fixture. Browser
-transport and UI gates belong to their successor owner. Until those land, this
-design is prescriptive and its implementation claims are unverified.
+The Release `LibraryApiDiffPresentationTests` gate covers the presentation's
+pathological cases. `LibraryApiDiffInspectionTests` gates equivalent detached
+envelopes from path and pathless-memory images, successful empty results,
+independent endpoint truncation, logical-Library rejection, forwarded
+constraint failures, and their retention limit. `LibraryApiDiffCommandTests`
+and the existing `DiffCommandTests` gate the production CLI consumer, output
+formats, filters, and neighboring legacy routes. The real-package command
+case is marked Slow; deterministic fixture cases remain PR-fast.
+
+The selected-Library query and Metadata bounds suites retain their own
+extraction gates. The existing Browser adopter calls the shared terminal and
+unwraps the available Document in its bounded wire projection.
+`BrowserLibraryApiDiffOperationTests` gates that consumer's complete changed-Type
+inventory, unchanged serialized shape, empty and typed non-success cases, and
+bound rejection. Browser operation/lifetime and UI navigation remain governed
+and gated by the [Browser owner](inspect-web-library-api-diff.md); this content
+adoption does not redefine them.

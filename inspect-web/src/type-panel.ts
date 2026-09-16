@@ -1,5 +1,6 @@
 import { assertNever, pdbSourceLimitationHtml } from "./data.ts";
 import { renderContentNavigationCloseButton } from "./content-frame.ts";
+import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
 import { typeGraphLegendHtml } from "./graph-legends.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import type { SourceResultState } from "./source-inspection.ts";
@@ -7,6 +8,9 @@ import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
   "base · interfaces · derived — select a highlighted node to open";
+
+const EXACT_TYPE_NOT_FOUND = 1;
+const EXACT_TYPE_AMBIGUOUS = 2;
 
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
 // type heading, metadata working surface, and source sections shown for the "type" scope) as pure,
@@ -58,23 +62,9 @@ export interface TypeParameterSummary {
   constraints?: readonly string[];
 }
 
-export interface CompositionCounts {
-  total: number;
-}
-
 export interface TypeMetadata {
-  modifiers?: readonly string[];
-  kind?: string;
-  accessibility?: string | null;
-  namespace?: string | null;
-  assembly?: string | null;
-  baseType?: string | null;
-  enumUnderlyingType?: string | null;
-  typeParameters?: readonly TypeParameterSummary[];
-  interfaces?: readonly string[];
+  exactTypeInspection?: BrowserTypeMetadata["exactTypeInspection"];
   derivedTypes?: readonly string[];
-  attributes?: readonly string[];
-  composition?: CompositionCounts | null;
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
 }
@@ -99,6 +89,7 @@ export interface TypePanelBindingActions {
   onCopyMemberSource: () => void;
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
+  onExploreSource: () => void;
   onKindSelect: (kind: string) => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
@@ -227,6 +218,9 @@ export function bindTypePanel(
   root.querySelector("#copy-type-source")?.addEventListener(
     "click",
     actions.onCopyTypeSource);
+  root.querySelector("#explore-source")?.addEventListener(
+    "click",
+    actions.onExploreSource);
 
   const namespaceJump =
     root.querySelector<HTMLSelectElement>("#namespace-jump");
@@ -545,12 +539,28 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     workspaceIdentity);
   const fresh = metadataState.typeMetadataKey === current;
   const meta = fresh ? metadataState.typeMetadata : null;
+  const exactEnvelope = meta?.exactTypeInspection;
+  const exact = exactEnvelope?.content.type ?? null;
+  const exactModifiers = [
+    exact?.isStatic ? "static" : "",
+    exact?.isAbstract && !exact?.isStatic ? "abstract" : "",
+    exact?.isSealed && !exact?.isStatic ? "sealed" : "",
+    exact?.isReadOnly ? "readonly" : "",
+    exact?.isByRefLike ? "ref" : "",
+  ].filter(part => part.length > 0);
+  const exactAssembly =
+    exactEnvelope?.content.supplierAssembly?.identity.name;
   const renderSurface = (content: string) => {
+    const exactUnavailable =
+      exactEnvelope && !exactEnvelope.content.isAvailable;
     const kind = [
-      ...(meta?.modifiers || []),
-      meta?.kind || item.kind,
+      ...exactModifiers,
+      exactUnavailable ? "exact Type" : exact?.kind || item.kind,
     ].filter(part => part.length > 0).join(" ");
-    const accessibility = meta?.accessibility || item.accessibility || "public";
+    const accessibility =
+      exactUnavailable
+        ? "unavailable"
+        : exact?.accessibility || item.accessibility || "public";
     const coordinate =
       `${packageContext.activeFramework} · ${item.assembly} · ${packageContext.id}@${packageContext.version}`;
     return `
@@ -577,47 +587,91 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   if (!meta) {
     return renderSurface(`<section class="document-section metadata-surface-state empty-document" data-type-graph-surface><span class="loader"></span><h2>Loading…</h2></section>`);
   }
+  if (!exactEnvelope) {
+    return renderSurface(`
+      <section class="document-section metadata-surface-state empty-document" data-type-graph-surface>
+        <span class="large-glyph">⌁</span>
+        <h2>Type metadata is unavailable</h2>
+        <p>The exact metadata inspection envelope was not returned.</p>
+      </section>`);
+  }
+  const exactResult = exactEnvelope.content;
+  if (!exactResult.isAvailable || !exact) {
+    const outcome = exactResult.outcome === EXACT_TYPE_NOT_FOUND
+      ? "Type not found"
+      : exactResult.outcome === EXACT_TYPE_AMBIGUOUS
+        ? "Type selection is ambiguous"
+        : "Type metadata is unavailable";
+    const diagnostics = exactEnvelope.diagnostics.length
+      ? exactEnvelope.diagnostics
+        .map(diagnostic => `<li><code>${escapeHtml(diagnostic.code)}</code> ${escapeHtml(diagnostic.summary)}</li>`)
+        .join("")
+      : exactResult.failures
+        .map(failure => `<li>${escapeHtml(failure.detail)}</li>`)
+        .join("");
+    return renderSurface(`
+      <section class="document-section metadata-surface-state empty-document" data-type-graph-surface>
+        <span class="large-glyph">⌁</span>
+        <h2>${outcome}</h2>
+        <p>Exact metadata inspection did not produce an available Type.</p>
+        ${diagnostics ? `<ul>${diagnostics}</ul>` : ""}
+      </section>`);
+  }
 
   const shape: (readonly [string, string])[] = [
-    ["Kind", [...(meta.modifiers || []), meta.kind || item.kind].join(" ")],
-    ["Accessibility", meta.accessibility || item.accessibility || "public"],
-    ["Namespace", meta.namespace || item.namespace || "global"],
-    ["Assembly", meta.assembly || item.assembly],
+    ["Kind", [...exactModifiers, exact?.kind || item.kind].join(" ")],
+    ["Accessibility", exact?.accessibility || item.accessibility || "public"],
+    ["Namespace", exact?.namespace || item.namespace || "global"],
+    ["Assembly", exactAssembly || item.assembly],
   ];
-  if (meta.baseType) shape.push(["Base type", meta.baseType]);
-  if (meta.enumUnderlyingType) shape.push(["Enum underlying", meta.enumUnderlyingType]);
-  if (meta.typeParameters?.length) {
-    shape.push(["Type parameters", meta.typeParameters
+  if (exact?.baseType) shape.push(["Base type", exact.baseType]);
+  if (exact?.enumUnderlyingType)
+    shape.push(["Enum underlying", exact.enumUnderlyingType]);
+  if (exact?.typeParameters?.length) {
+    shape.push(["Type parameters", exact.typeParameters
       .map(parameter => `${parameter.variance ? parameter.variance + " " : ""}${parameter.name}${parameter.constraints?.length ? ` : ${parameter.constraints.join(", ")}` : ""}`)
       .join(" · ")]);
   }
 
-  const interfaces = (meta.interfaces || []).length
+  const interfaces = exact.interfaces.length
     ? `<section class="document-section">
-        <div class="section-title"><h2>Implements</h2><span>${meta.interfaces!.length} interface${meta.interfaces!.length === 1 ? "" : "s"}</span></div>
-        <div class="type-chip-list">${meta.interfaces!.map(name => relatedTypeChip(name)).join("")}</div>
+        <div class="section-title"><h2>Implements</h2><span>${exact.interfaces.length} interface${exact.interfaces.length === 1 ? "" : "s"}</span></div>
+        <div class="type-chip-list">${exact.interfaces.map(name => relatedTypeChip(name)).join("")}</div>
       </section>`
     : "";
 
-  const derived = (meta.derivedTypes || []).length
+  const derivedTypes = meta.derivedTypes ?? [];
+  const derived = derivedTypes.length
     ? `<section class="document-section">
-        <div class="section-title"><h2>Known derived types</h2><span>${meta.derivedTypes!.length} in ${escapeHtml(meta.assembly || item.assembly)}</span></div>
-        <div class="type-chip-list">${meta.derivedTypes!.map(name => relatedTypeChip(name)).join("")}</div>
+        <div class="section-title"><h2>Known derived types</h2><span>${derivedTypes.length} in ${escapeHtml(exactAssembly || item.assembly)}</span></div>
+        <div class="type-chip-list">${derivedTypes.map(name => relatedTypeChip(name)).join("")}</div>
       </section>`
     : "";
 
-  const attributes = (meta.attributes || []).length
+  const attributes = exact.attributes.length
     ? `<section class="document-section">
-        <div class="section-title"><h2>Custom attributes</h2><span>${meta.attributes!.length}</span></div>
-        <div class="type-chip-list">${meta.attributes!.map(name => `<code class="attr-chip">[${escapeHtml(name)}]</code>`).join("")}</div>
+        <div class="section-title"><h2>Custom attributes</h2><span>${exact.attributes.length}</span></div>
+        <div class="type-chip-list">${exact.attributes.map(name => `<code class="attr-chip">[${escapeHtml(name)}]</code>`).join("")}</div>
       </section>`
     : "";
 
-  const composition = meta.composition && memberCompositionHtml
+  const composition = exact.members.length && memberCompositionHtml
     ? `<section class="document-section">
         <div class="section-title"><h2>Members</h2><span>click a count to browse the member list</span></div>
         ${memberCompositionHtml}
       </section>`
+    : "";
+
+  const exactDiagnostics = (
+    !exactResult.isComplete
+    || exactEnvelope.diagnostics.length > 0)
+    ? `<section class="document-section metadata-warning"><strong>⚠ Exact type inspection may be incomplete</strong><ul>${
+      exactEnvelope.diagnostics.length
+        ? exactEnvelope.diagnostics
+          .map(diagnostic => `<li><code>${escapeHtml(diagnostic.code)}</code> ${escapeHtml(diagnostic.summary)}</li>`)
+          .join("")
+        : "<li>Exact type inspection reported incomplete content.</li>"
+    }</ul></section>`
     : "";
 
   const failures = (meta.inspectionFailures || []).length
@@ -640,6 +694,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
       ${factRows(shape)}
     </section>
+    ${exactDiagnostics}
     ${composition}
     ${interfaces}
     ${derived}
@@ -700,7 +755,9 @@ export function renderSourcePageActions(
     <button id="${copyButtonId}" type="button"${source ? "" : " disabled"}>Copy</button>
     ${source?.url
       ? `<a class="shell-action-link" href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Open</a>`
-      : ""}`;
+      : ""}
+    <button id="explore-source" class="primary-action" type="button"
+      title="Explore source options">Explore</button>`;
 }
 
 export function renderTypeSource(options: RenderTypeSourceOptions): string {

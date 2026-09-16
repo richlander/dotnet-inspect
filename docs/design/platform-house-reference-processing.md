@@ -17,6 +17,8 @@ The design depends on:
   and ASP.NET Core family targets;
 - [Platform Library Population Declaration](platform-library-population-declaration.md)
   for target-independent Workspace relevance;
+- [Exact Library Source Coordinate](exact-library-source-coordinate.md) for the
+  resource-free Platform Library identity retained through realization;
 - [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
   for curated-Workspace construction, ecosystem projections, and their lower
   population declarations;
@@ -36,6 +38,9 @@ The design depends on:
   manifests;
 - [Platform composition and overlays](platform-composition-and-overlays.md)
   for source-specific coherent implementation realization;
+- [Library ownership and borrowing](library-ownership-and-borrowing.md) for the
+  shared realized-Library reference, content roles, aggregate owner, operation
+  authority, and synchronous content snapshots;
 - the
   [Assembly Reference Resolution Ladder](assembly-reference-resolution-ladder.md)
   for the ordering and lifetime of an applicable-platform rung; and
@@ -50,8 +55,8 @@ The approved scope is:
   [PackageHouse](package-house.md), which alone applies the
   pruning service when deciding whether to continue package processing or
   issue a typed platform delegation;
-- package, platform, and direct-library flows converge only after their owning
-  source has produced a provenance-retaining bare-library value;
+- package, platform, and direct-library flows converge at the shared Library
+  contract after their independently owned realization paths;
 - selected Workspace ecosystem populations lower to family-preserving target
   demands before `PlatformHouse` performs target settlement or realization;
 - platform adapters may project settled reference and implementation evidence
@@ -82,6 +87,11 @@ source contributions, source-to-target correspondence, target selection, or
 documentation attempts. The completion identity remains because it binds a
 detached completion receipt to its separately live operation value.
 
+Shared Library construction, owning realization results, internal Library
+operation leases, and the `Failed` House terminal arm remain design-only and
+unverified. Their PlatformHouse adoption is tracked by #6984 and #6621 slice 5
+after the concrete Library owner lands.
+
 This is one owner claim. The design specifies the House request, settlement,
 result, evidence-retention, and encapsulation contracts. It consumes the
 owner-issued inputs listed above without redefining their identities,
@@ -107,10 +117,13 @@ result must preserve at the shared Library inspection handoff.
 > Given one typed platform target demand, one host-authorized platform source
 > plan, one closed platform operation, and finite operation work, settle the
 > demand to one exact `PlatformFamilyTarget`, then compose
-> source candidates and owner-issued platform facts into one typed settlement
-> that preserves the request, any selected exact target, selected discovery
-> contributions, source, reference-contract, implementation-supplier, forwarding,
-> completion, and failure evidence.
+> source candidates and owner-issued platform facts into one typed settlement.
+> When that operation returns realized Libraries, transfer each shared
+> `LibraryContentOwner` beside its resource-free `LibraryReference` and exact
+> content references. Preserve the request, any selected exact target, selected
+> discovery contributions, source, reference-contract,
+> implementation-supplier, forwarding, completion, and failure evidence
+> without retaining live authority in House evidence.
 
 It owns:
 
@@ -125,14 +138,20 @@ It owns:
 - the distinction between reference and implementation demand;
 - reference-to-implementation correspondence between settled platform views;
 - platform-specific invocation of Metadata forwarding;
-- provenance-retaining bare-library results for one-library demand;
+- validation and transfer of selected live source content into one shared
+  Library owner per realized Library;
+- provenance-retaining `LibraryReference` and `LibraryContentReference` results
+  for one-library and population demand;
+- separation of caller-owned Library owners from resource-free House values
+  and receipts;
 - acceptance of ordinary platform requests issued from orchestration-owned
   typed delegations without interpreting the package reference that caused
   them;
 - validation and retention of Workspace population-declaration correspondence
   carried by an operation-issued platform request;
 - the House result envelope and settlement receipt;
-- visible unavailable, ambiguous, rejected, and incomplete outcomes; and
+- visible unavailable, ambiguous, rejected, failed, and incomplete outcomes;
+  and
 - the rule that product reference processing does not compose lower platform
   mechanisms outside the House.
 
@@ -155,6 +174,8 @@ It does not own:
 - installed-hive discovery, manifest-defined implementation closure,
   reference-pack layout, package-pack acquisition, Browser catalog generation,
   or source-specific cache policy;
+- Library reference, content-role, construction, borrowing, operation-lease,
+  or retirement semantics;
 - assembly-reference rung ordering or package-route reachability;
 - Workspace admission, revisions, replacement, leases, or participant
   lifetime;
@@ -208,14 +229,15 @@ algorithm. It is a clearing house over focused owners, not a renamed
 | **Source capability** | A bounded adapter entry point for one source-specific operation. It is not source authority by display name. |
 | **Source contribution** | One source's typed candidate, non-match, failure, or incomplete evidence, retaining exact target correspondence. |
 | **Platform delegation** | An orchestration handoff produced from an upstream package-processing result. It authorizes one ordinary platform request for an exact family target while retaining the original package and pruning evidence outside this House. It does not identify a platform assembly. |
-| **Bare library** | One logical library inspection subject, backed by one or more acquired assembly views, detached from package or platform container semantics while retaining content lifetime, physical identity, origin provenance, exact platform target when applicable, and each view's reference or implementation role. |
+| **Platform Library realization** | One selected platform Library whose exact `LibraryReference` and assembly `LibraryContentReference` values retain physical identity, Platform provenance, exact target, source, and API/implementation role correspondence. Its separately returned `LibraryContentOwner` is the sole live content authority. |
+| **Library ownership handoff** | The owning realization result that transfers one `LibraryContentOwner` to the caller beside its resource-free `LibraryReference`. The House value and receipt retain the reference and correspondence, never the owner or an operation lease. |
 | **View demand** | Whether the consumer requires reference contracts, implementation bodies, or both. |
 | **Population demand** | Whether the consumer requires one exact library or one complete family population. |
 | **Reference contract** | A reference assembly or facade used to describe an API contract. It does not prove an implementation supplier. |
 | **Implementation supplier** | The exact physical assembly candidate containing the implementation definition or body. |
 | **View correspondence** | House-owned evidence connecting one resolved reference definition to one authorized implementation-resolution start without pretending that the transition is a Metadata forwarding hop. |
 | **Settlement** | The House decision that selects, composes, or declines source contributions under the request's policy. |
-| **Settlement receipt** | Resource-free evidence binding the request, target, source-plan generation, selected contributions, owner results, completion, and work. |
+| **Settlement receipt** | Resource-free evidence binding the request, target, source-plan generation, selected contributions, owner-issued resource-free results, completion, and work. |
 
 The vocabulary deliberately does not call `.NET Standard` a platform family.
 Its reference contract may participate in one operation while the House target
@@ -237,7 +259,7 @@ PlatformHouse
   4. retain every owner-issued contribution
   5. compose Metadata only when the operation requires it
   6. settle the requested view and population demand
-  7. unwrap one-library success to a provenance-retaining bare library
+  7. construct and transfer shared Library owners for selected Libraries
         |
         v
 one closed House outcome
@@ -245,6 +267,7 @@ one closed House outcome
   - unavailable
   - ambiguous
   - rejected
+  - failed
   - incomplete
 ```
 
@@ -307,7 +330,7 @@ collapsed into strings, optional parameters, or nullable tuples.
 
 | Operation | Input unique to the operation | Completed value |
 | --- | --- | --- |
-| **Realize** | One library identity or complete population demand | One bare library or one platform population whose library members retain source and view correspondence |
+| **Realize** | One library identity or complete population demand | One owning Library realization or one platform population of owning Library realizations, each with resource-free source and view correspondence |
 | **Resolve assembly reference** | One exact Metadata `AssemblyBindingRequest` and platform-route prerequisites | Metadata-owned binding decision plus the platform contribution used by the ladder |
 | **Resolve type definition** | One exact Metadata `TypeResolutionRequest`, starting reference candidate, and required view | Metadata-owned `TypeResolutionOutcome` plus reference/implementation correspondence |
 
@@ -380,13 +403,18 @@ Every contribution retains:
 - the source-specific coordinate and exact target;
 - supported view and population demand;
 - source generation or freshness evidence;
-- candidate identities or realized owner result;
+- candidate identities or resource-free realized-source evidence;
 - authoritative, partial, or unavailable completion; and
 - typed rejection or failure when the operation did not succeed.
 
 Those retained values and the contribution object itself establish
 correspondence. A source adapter does not mint an additional House-local
 source-evidence or source-to-target occurrence identity.
+
+Live source content obligations remain separately owned beside the
+contribution until PlatformHouse either leaves them with their source
+integration or transfers them into atomic Library construction. They never
+enter a contribution or House receipt.
 
 Target-discovery results are separate from realization contributions. After
 the House freezes one exact target, a realization source that discovers
@@ -559,7 +587,7 @@ own explicit source policy and bounds. A missing, unauthorized, ambiguous,
 failed, or incomplete contribution remains visible; the planner cannot
 silently omit it and claim a complete ecosystem or graph population.
 
-## Typed ingress and bare-library convergence
+## Typed ingress and shared Library convergence
 
 Package, platform, and library are distinct entry domains. Textual equality
 between their coordinates does not transfer identity or authority across those
@@ -567,9 +595,9 @@ domains.
 
 Package and platform are peer container/source domains with analogous
 opportunity: each keeps its own typed identity, version settlement,
-acquisition, provenance, container inspection, and library unwrapping. Neither
-is modeled as a wrapper around the other or as a specialized form of a bare
-library.
+acquisition, provenance, container inspection, and Library realization.
+Neither is modeled as a wrapper around the other or as a specialized form of
+the shared Library owner.
 
 The owning command or asset-reference parser classifies ingress before any
 House runs:
@@ -603,56 +631,97 @@ PackageRef
      -> otherwise:
           resolve package version when required
           re-evaluate pruning for the exact coordinate when required
-          acquire -> unwrap -> bare library
+          acquire -> select -> shared Library realization
 
 Platform request or orchestration-issued delegation
   -> PlatformHouse
   -> target and version resolution
   -> acquire authorized realization
   -> select reference and/or implementation view
-  -> unwrap
-  -> bare library
+  -> construct shared Library owner and reference
 
 Direct library
-  -> bare library
+  -> separately owned realization under #6621 slice 6
+  -> shared Library contract
 ```
 
 The analogous CLI subject scenarios are:
 
 | Subject | Entry domain | Native inspection | Library-focused handoff |
 | --- | --- | --- | --- |
-| `library` | Direct library coordinate | Library-shaped from entry | The entry already is a bare library. |
-| `package` | Typed package coordinate through PackageHouse | Package-shaped metadata, dependencies, and assets | Each explicitly selected library unwraps with package provenance. |
-| `platform` | Typed target demand through PlatformHouse | Platform-shaped target, population, and view evidence | Each explicitly selected platform library unwraps with platform provenance. |
+| `library` | Direct library coordinate | Library-shaped from entry | The separately owned #6621 slice 6 adopts the shared Library contract without entering PlatformHouse. |
+| `package` | Typed package coordinate through PackageHouse | Package-shaped metadata, dependencies, and assets | Each explicitly selected library becomes a shared Library realization with package provenance. |
+| `platform` | Typed target demand through PlatformHouse | Platform-shaped target, population, and view evidence | Each explicitly selected platform library becomes a shared Library realization with Platform provenance. |
 
-These paths converge on shared Library inspection, not on another House. A
-bare library is container-independent but not provenance-free. It retains:
+These paths converge on the shared Library owner, not on another House or a
+consumer-specific ready wrapper. Each realized Library separates:
 
-- physical artifact and assembly identity for every retained view;
-- direct, package, or platform origin;
-- source capability and generation evidence;
+- one caller-owned `LibraryContentOwner`, which is the only live content
+  authority;
+- one resource-free `LibraryReference`;
+- exact assembly `LibraryContentReference` values carrying `ApiAssembly`,
+  `ImplementationAssembly`, or both roles;
+- physical Artifact and assembly identity for every retained view;
+- direct, package, or Platform origin and source evidence;
 - exact target context when one exists;
-- reference or implementation role;
-- reference-to-implementation correspondence when both views exist;
-- the content lease or lifetime required to keep bytes readable; and
-- visible acquisition failure, rejection, ambiguity, or incompleteness.
+- reference-to-implementation correspondence when both views exist; and
+- visible acquisition, construction, rejection, ambiguity, failure, or
+  incompleteness evidence.
 
-The bare-library contract does not imply one library per package or one library
-per platform. A package or platform may produce zero, one, or many selected
-libraries, and retains its own non-library assets and container-shaped
-inspection. Unwrapping occurs only when a consumer explicitly requests a
-library-focused result.
+The shared contract does not imply one Library per package or one Library per
+platform. A package or platform may produce zero, one, or many selected
+Libraries and retains its own non-Library assets and container-shaped
+inspection. Library construction occurs only when a consumer explicitly
+requests a Library-focused result.
 
 `PlatformHouse` owns the platform half of this convergence: it turns one
-settled platform library demand into a bare library without discarding
-platform target, source, or view correspondence. Shared Library inspection owns
-assembly-level metadata, API, dependency, source, analysis, and decompilation
-behavior after that handoff.
+settled platform Library demand into the shared Library shape without
+discarding platform target, source, or view correspondence. For every selected
+Library, the House validates that the resource-free source contribution and
+live source content obligations describe the same exact target, source, and
+views. The resulting `LibraryReference` retains the exact Platform arm of
+`ExactLibrarySourceCoordinate`; an opaque House operation identity or assembly
+display name cannot replace it.
 
-The exact shared type name and project placement belong to the artifact and
-Library inspection owner, not this document. Its focused design must preserve
-the evidence above before any PackageHouse, PlatformHouse, or direct-library
-adoption ships.
+View demand closes the required Library roles before construction:
+
+- **Reference** maps the selected reference content to `ApiAssembly`.
+- **ReferenceAndImplementation** maps the selected reference content to
+  `ApiAssembly`, the selected runtime content to `ImplementationAssembly`, and
+  preserves their Platform-owned correspondence. One physical content may
+  carry both roles only when that correspondence explicitly establishes both.
+- **Implementation** maps the selected runtime content to
+  `ImplementationAssembly` and requires Platform-owned evidence selecting the
+  same content as that implementation-only Library's declaration surface
+  before also assigning `ApiAssembly`. Without that evidence, PlatformHouse
+  returns typed `Unavailable` evidence for the required API role before
+  Library construction.
+
+The House never infers both roles merely because one content item is
+available. After closing the roles, it invokes the Library owner's atomic
+construction once.
+
+Before Library construction accepts those obligations, their source integration
+retains ownership. After acceptance, `LibraryContentOwner` owns them. The House
+does not wrap a source handle, retain an obligation in a receipt, or create a
+Platform-named lease. Library construction rejection follows the Library
+owner's transfer contract; PlatformHouse preserves the rejection and its exact
+source and target correspondence.
+
+The owning realization result returns each `LibraryContentOwner` separately
+from the resource-free House value and receipt. That value and receipt retain
+the exact `LibraryReference`, content references, roles, Platform provenance,
+source evidence, target, and view correspondence. Shared Library inspection
+owns assembly-level metadata, API, dependency, source, analysis, and
+decompilation behavior after that handoff.
+
+Any PlatformHouse Metadata work that reads a newly constructed Library first
+obtains a fresh `LibraryOperationLease` from its owner. The House reads exact
+content references only through synchronous snapshots, materializes detached
+or independently owned values before awaiting, and settles every internal
+lease before completing the operation. A caller never receives an internal
+lease. The Library owner design, not PlatformHouse, defines construction,
+issuance, borrowing, and retirement mechanics.
 
 ### Platform asset handling map
 
@@ -664,8 +733,8 @@ not as Package participants or assembly identities.
 | Asset | Platform treatment | Other explicit treatment |
 | --- | --- | --- |
 | Installed `Microsoft.NETCore.App` or `Microsoft.AspNetCore.App` shared framework | An implementation supplier for the selected platform target and family. There may be no corresponding package artifact on the machine. | An assembly path obtained independently enters direct Library inspection. |
-| `Microsoft.NETCore.App.Ref` or `Microsoft.AspNetCore.App.Ref` targeting pack | A reference-view source. `PlatformHouse` selects and unwraps the authorized DLLs without publishing the acquired pack as a Package participant. | An exact package coordinate or local `.nupkg` may be inspected separately as a package. That package inspection does not establish a Platform target or transfer package identity to its DLLs. |
-| Runtime implementation pack such as `Microsoft.NETCore.App.Runtime.<rid>` | An implementation-view source. Public implementations, facades, and private implementation libraries retain their platform roles and provenance after unwrapping. | Explicit package inspection may describe the distribution container; an extracted DLL enters direct Library inspection. Neither route implies Platform membership. |
+| `Microsoft.NETCore.App.Ref` or `Microsoft.AspNetCore.App.Ref` targeting pack | A reference-view source. `PlatformHouse` selects the authorized DLLs and constructs shared Library realizations without publishing the acquired pack as a Package participant. | An exact package coordinate or local `.nupkg` may be inspected separately as a package. That package inspection does not establish a Platform target or transfer package identity to its DLLs. |
+| Runtime implementation pack such as `Microsoft.NETCore.App.Runtime.<rid>` | An implementation-view source. Public implementations, facades, and private implementation Libraries retain their Platform roles and provenance after shared Library construction. | Explicit package inspection may describe the distribution container; an extracted DLL enters direct Library inspection. Neither route implies Platform membership. |
 | `NETStandard.Library.Ref` or `NETStandard.Library` reference assets | A .NET Standard reference-contract contribution used during transparent forwarding; never a platform family or implementation population. | Explicit package inspection may describe the package. An extracted `netstandard.dll` is an ordinary direct library whose forwarding evidence remains visible. |
 | Any manually downloaded or extracted DLL | No Platform inference from its path, parent pack name, file name, or assembly name. | Direct Library inspection reads that one file with direct provenance. A caller must issue a separately typed Platform request to obtain platform target or view correspondence. |
 
@@ -696,7 +765,7 @@ inability to inspect the file.
 
 ### Workspace admission and platform skew
 
-Workspace admission and bare-library construction do not require compatibility
+Workspace admission and shared Library construction do not require compatibility
 with the Workspace platform. A package-selected or direct library may be
 retained when its target is newer than the loaded platform. Its own metadata,
 API, IL, source, decompilation, comparison, and other same-participant
@@ -895,13 +964,20 @@ facts that a separately owned documentation adapter may bind into a
 - Metadata forwarding evidence when a facade led to that terminal supplier;
 - the exact implementation supplier and view correspondence when authored
   source is requested;
-- artifact, source, and content generation evidence; and
-- the provenance-retaining library handoff and its owner-issued lifetime.
+- the exact shared `LibraryReference` and request-selected API assembly content;
+- the exact implementation content reference when authored source is
+  requested; and
+- resource-free platform, Artifact-registration, and provenance evidence.
 
-The platform documentation adapter, not PlatformHouse, associates an XML
-companion with that terminal supplier evidence. A separate source integration
-adapter may bind a pre-authorized deferred SourceHouse `AuthoredOnly` provider
-to the exact implementation supplier and view correspondence.
+The platform documentation adapter, not PlatformHouse, binds an exact compiled
+XML `LibraryContentReference` and its owner-issued companion correspondence to
+that terminal supplier evidence. It carries no live content authority. A
+separate source integration adapter may bind a pre-authorized deferred
+SourceHouse `AuthoredOnly` provider to the exact implementation supplier and
+view correspondence. Live operation authority and downstream settlement follow
+the separately owned Library, DocumentationHouse, and SourceHouse contracts;
+PlatformHouse and its documentation adapter neither issue, retain, nor settle
+that authority.
 DocumentationHouse owns channel demand, compiled-XML and authored-source
 attempts, field provenance, conflict preservation, and terminal documentation
 outcomes.
@@ -923,29 +999,41 @@ outcome envelope:
 - **Ambiguous** — owner evidence permits several active candidates without an
   authorized precedence;
 - **Rejected** — the request, source plan, target correspondence, candidate,
-  owner result, budget, or retained evidence is invalid; or
+  owner result, budget, or retained evidence is invalid;
+- **Failed** — required source or Metadata work cannot settle because of a
+  fault, or Library construction, borrowing, lease settlement, retirement, or
+  child release fails; and
 - **Incomplete** — bounded work, partial source evidence, route association,
   catalog coverage, or generation replacement prevents a conclusive result.
 
 Cancellation remains `OperationCanceledException`.
+
+An explicitly superseded fallback-source failure may remain resource-free
+evidence in a later `Completed`, `Unavailable`, or `Incomplete` outcome; its
+presence alone does not force `Failed`. Cleanup failure is different:
+`OperationCanceledException` propagates only after every internal Library
+lease settles and every non-transferred owner retires successfully. If that
+cleanup fails during cancellation, `Failed` takes terminal precedence and
+retains cancellation as causal evidence.
 
 `Completed` does not mean every possible facet succeeded. It means every facet
 required by the exact operation settled. For example:
 
 - a reference-only `Realize` operation may complete without implementation
   evidence;
-- a one-library `Realize` operation may complete with one bare-library value
-  retaining its platform provenance;
+- a one-library `Realize` operation may complete with one caller-owned
+  `LibraryContentOwner` beside a resource-free `LibraryReference` retaining its
+  Platform provenance;
 - an assembly-reference operation may complete with Metadata
-  `NoNameOwner`;   and
+  `NoNameOwner`; and
 - a type-resolution operation may complete with Metadata `NotFound` only when
   the selected readable image authoritatively returned that result.
 
 The settlement receipt binds:
 
 - the exact request, target demand, and settled House target when available;
-- target-selection policy, candidates, and owner result when selection was
-  required;
+- target-selection policy, candidates, and owner-issued resource-free
+  selection result when selection was required;
 - source-plan identity and policy generation;
 - typed request origin and any orchestration-owned delegation association;
 - the owner-issued Workspace revision identity and
@@ -953,8 +1041,9 @@ The settlement receipt binds:
   the request;
 - every selected or outcome-relevant source contribution;
 - reference and implementation view correspondence;
-- the physical identity, role, origin, and owner-issued content-lifetime
-  association of every returned bare library;
+- the exact `LibraryReference`, content references, physical identities, roles,
+  origins, Platform targets, source evidence, and correspondence of every
+  returned Library;
 - Metadata binding or forwarding outcomes when invoked;
 - source, Workspace, and catalog generations;
 - completeness; and
@@ -962,8 +1051,21 @@ The settlement receipt binds:
 
 The receipt does not expose credentials, mutable buffers, live streams,
 filesystem paths as identity, or a capability that can repeat source work.
-Bound source handles and leases remain owned by their source or Workspace
-contract.
+It retains no source handle, content obligation, `LibraryContentOwner`,
+`LibraryOperationLease`, callback, opener, or disposal delegate. Source,
+Artifact, and Workspace generations remain owner-issued evidence; PlatformHouse
+does not add a Library generation.
+
+The ownership-carrying realization envelope pairs each resource-free completed
+Library value with exactly one caller-owned `LibraryContentOwner`. A completed
+owning `Realize` operation transfers every owner present in that result once.
+Every terminal path first settles every internal operation lease. PlatformHouse
+then asynchronously retires every constructed owner not transferred in that
+completed owning result, including owners used by a successful assembly-
+reference or type-resolution operation. A non-completed operation transfers no
+owner. Retirement or child-release failure remains visible as `Failed`; it
+cannot become a resource-free success or be hidden by another source
+contribution.
 
 ## Lifetime and Workspace boundary
 
@@ -987,15 +1089,20 @@ compatibility traversal occurs. A replacement that adds such a participant is
 a membership change, not a compatibility receipt; target skew neither blocks
 publication nor changes the meaning of the Workspace revision identity.
 
-For standalone platform inspection, the caller owns the operation lifetime and
-disposes every returned source lease. The same House request and settlement
-semantics apply; standalone use does not create Workspace authority.
+For standalone platform inspection, the caller owns every transferred
+`LibraryContentOwner` and asynchronously retires each owner after its Library
+operations settle. A Workspace-bound caller instead transfers accepted owners
+under the Workspace owner's admission contract. Neither caller disposes a
+source lease returned by PlatformHouse, because no such lease enters the House
+result.
 
 House caches key successes and failures by target demand, settled exact target,
 target-selection policy generation, operation shape, source-plan generation,
 source generation, view, and population demand. A replacement or policy
 change cannot reuse a prior binding decision merely because the paths or
-display labels are equal.
+display labels are equal. Cache entries contain only resource-free references,
+correspondence, and evidence; they cannot keep a Library owner or operation
+lease alive.
 
 ## Encapsulation boundary
 
@@ -1051,7 +1158,7 @@ PlatformHouse contract and composition
              |
              | one-library Realize
              v
-provenance-retaining bare library
+LibraryContentOwner + resource-free LibraryReference
              |
              v
 shared Library inspection
@@ -1119,10 +1226,10 @@ delegation with one exact platform target.
 
 ### A direct library bypasses both container Houses
 
-A CLI path or project `HintPath` already identifies a physical library. The
-orchestration owner creates the provenance-retaining bare-library value and
-enters shared Library inspection directly. It does not wrap the file as a
-package or platform request merely to obtain command symmetry.
+A direct-library request does not enter PlatformHouse merely to obtain command
+symmetry. Its separately owned #6621 slice 6 adopts the shared Library
+contract. This PlatformHouse design neither assigns its acquisition and
+construction steps nor defines its operation-lease use.
 
 ### A newer-target package remains inspectable
 
@@ -1207,9 +1314,10 @@ There are ten counted production steps:
    evidence while preserving the package-free installed boundary.
 5. Adapt package-backed target discovery plus reference and implementation
    packs to contribute source-authorized selection and exact-target evidence.
-6. Define the shared provenance-retaining bare-library handoff, adapt
-   PlatformHouse one-library realization to produce it, and route direct
-   libraries to the same Library inspection entry.
+6. Adopt shared Library ownership in PlatformHouse: construct one
+   `LibraryContentOwner` and resource-free `LibraryReference` per selected
+   Library, transfer returned owners separately from resource-free House
+   receipts, and route Platform Library inspection through that shared entry.
 7. Move target-bound type indexing behind the House and integrate transparent
    .NET Standard resolution through Metadata's structured forwarding contract.
 8. Adopt the House platform contribution in the assembly-reference ladder,
@@ -1239,11 +1347,18 @@ installed implementation closure owned by
 and its installed PlatformHouse contribution. Both sub-slices are implemented;
 step 5 is staged by
 [Package-backed Platform realization](package-backed-platform-realization.md).
-Step 5a adds package-backed target discovery, reference-pack realization, and
-the package PlatformHouse adapter. Step 5b adds RID-specific runtime-pack
+Step 5a implements package-backed target discovery, reference-pack realization,
+and the package PlatformHouse adapter. It supplies source contributions, not
+completed House receipts or a target-selection executor. Step 5b adds RID-specific runtime-pack
 acquisition and manifest-defined implementation closure through the same
-adapter. The two sub-slices preserve the ten-step count; step 6 follows
-after both are implemented.
+adapter. The two sub-slices preserve the ten-step count. Step 6 follows after
+both and the concrete Library owner in #6621 slice 3 are implemented.
+
+The step-6 ownership correction is tracked by
+[#6984](https://github.com/richlander/dotnet-inspect/issues/6984). It adopts
+the shared Library contract without changing the ten-step PlatformHouse count.
+Workspace and direct-library construction remain the separate #6621 slice 6
+and do not enter this PlatformHouse adoption.
 
 No CLI flag is retained solely for compatibility. User-facing platform
 coordinates project to the shared target and House request, and unsupported
@@ -1322,11 +1437,12 @@ PlatformHouse
 
 completed
   platform receipt retains exact target, source, views, and work
-  each selected library unwraps with platform provenance
+  each selected Library has a caller-owned owner and resource-free reference
+  with Platform provenance
   package receipt remains associated but separate
 ```
 
-### Direct platform library becomes a bare library
+### Direct platform realization constructs the shared Library
 
 ```text
 request
@@ -1345,16 +1461,28 @@ House composition
     owner-issued candidate and policy evidence retained
   realizes reference and implementation contributions
   verifies view correspondence
-  unwraps the selected contributions
+  constructs one shared Library owner and reference
 
 completed
-  bare library:
-    physical assembly identities
-    Platform origin
-    exact target and source generations
-    reference/implementation roles and correspondence
-    readable-content leases
+  owning realization:
+    caller-owned LibraryContentOwner
+    resource-free LibraryReference
+    ApiAssembly content: reference-pack System.Text.Json.dll
+    ImplementationAssembly content: runtime-pack System.Text.Json.dll
+    Platform origin, exact target, and source evidence
+    reference/implementation correspondence
+  resource-free receipt:
+    exact Library and content references
+    no owner, lease, callback, stream, opener, or disposal delegate
 ```
+
+What to notice: the owner and the receipt answer different questions. The
+caller-owned `LibraryContentOwner` keeps the selected Platform contents alive
+and can issue later operation authority. The `LibraryReference`, content
+references, and House receipt explain exactly which Platform target, source,
+and views were selected without keeping those contents alive. A NuGet
+`System.Text.Json` assembly with equal Metadata identity has a different exact
+Library source coordinate and cannot replace either Platform content.
 
 ### Direct library bypasses container resolution
 
@@ -1362,12 +1490,8 @@ completed
 CLI or asset-reference ingress
   path, HintPath, or built project output
 
-orchestration
-  validates and acquires the direct artifact
-  constructs the same bare-library contract with Direct origin
-
-Library inspection
-  consumes the bare library directly
+separately owned direct-library path
+  adopts the shared Library contract under #6621 slice 6
   no PackageHouse or PlatformHouse request is manufactured
 ```
 
@@ -1415,11 +1539,16 @@ The implementation and adoption slices own these Release gates:
 | Explicit source authorization | No source capability, cache, installed root, or network route is used unless present in the captured source plan. |
 | Demand-bounded work | One-library demand does not become whole-population work unless the selected source reports an atomic larger realization unit. |
 | Reference and implementation separation | Reference-only success cannot satisfy implementation-body demand; a combined result retains explicit correspondence. |
+| Implementation-only role closure | Implementation-only realization succeeds only when Platform-owned declaration-surface evidence assigns the selected runtime content both mandatory roles; without that evidence it returns typed `Unavailable` before Library construction and constructs no owner. |
 | Reference-definition bridge | A reference `TypeDef` reaches implementation only through House-owned view correspondence and a separate Metadata request; no forwarding hop is invented. |
 | Typed ingress separation | A raw `PackageRef` cannot enter PlatformHouse, and a bare CLI selector cannot become an `AssemblyRef` or `PackageRef` without command-owned classification. |
 | Delegation preserves identity boundaries | An upstream platform delegation retains its package decision receipt outside PlatformHouse and cannot establish a platform-library or assembly identity from package spelling. |
-| Bare-library provenance | Every one-library realization retains physical identity, platform origin, exact target, source generation, view role, correspondence, and content lifetime after unwrapping. |
-| Direct-library convergence | A direct path or project library enters the same Library inspection contract without PackageHouse or PlatformHouse mediation. |
+| Shared Library construction | The .NET 11 Platform `System.Text.Json` realization constructs one source-distinct `LibraryReference` with reference-pack `ApiAssembly` and runtime-pack `ImplementationAssembly` content, exact Platform target/source/provenance, and view correspondence; an equal-identity NuGet Library cannot substitute. |
+| Owning realization handoff | Every completed one-Library and population realization transfers each `LibraryContentOwner` exactly once beside its matching resource-free reference; the House value, receipt, contribution, request, and cache retain no owner or Library lease. |
+| Resource-free House boundary | Focused contract tests over contributions, completed House values, receipts, requests, and cache entries prove that they retain no live source handle or content obligation, Artifact owner or lease, Library owner or lease, callback, opener, stream, or disposal delegate. |
+| Internal Library access | PlatformHouse Metadata work reads exact content only through a fresh internal `LibraryOperationLease`; every borrow ends before `await`, and the lease settles before completion. |
+| Terminal owner disposition | Completed non-owning operations, unavailability, ambiguity, rejection, failure, incomplete completion, and cancellation retire every constructed owner the House does not return, including partially constructed multi-Library population work; only a completed owning `Realize` result transfers owners, and retirement failure remains visible. |
+| Failure precedence | A superseded source fault may remain evidence in another terminal outcome; construction, borrow, lease-settlement, retirement, or child-release failure produces `Failed`, including when cleanup fails after cancellation. |
 | Permissive Workspace admission | A participant targeting a newer platform remains admissible and usable for same-participant inspection without realizing a matching complete platform. |
 | Exact traversal compatibility | Under an owner-classified unsupported downgrade, an exact Metadata member-signature match succeeds with downgrade context; a missing or changed signature returns the attributed compatibility failure without blocking unrelated work. Supported upward compatibility does not warn merely because targets differ. |
 | Metadata ownership | Platform type resolution invokes the structured Metadata API and preserves its exact outcome and forwarding hops. |

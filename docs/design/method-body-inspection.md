@@ -259,6 +259,12 @@ generic scope. The producer appends to caller-owned call and safety-evidence
 builders so results emitted before a later recoverable metadata failure survive,
 and delegates unsafe-call/opcode classification to `MethodSafetyAnalysis`
 without a second body scan.
+[`MethodThrowAnalysis`](analysis-local-throw-evidence.md) owns opt-in physical
+local-throw evidence. It consumes the shared value provenance and
+acquisition-scoped exception-type qualification, retaining unresolved sites,
+unavailable bodies, and the qualified TypeDef address. It does not reinterpret
+throw counts, construction signals, or declared-source attribution as typed
+throw evidence.
 `MethodAllocationFacts` owns the allocation topic for one decoded body:
 allocation occurrence discovery, allocation-shape classification, escape
 classification, and the private path-context, path-confidence, and

@@ -160,12 +160,31 @@ public sealed class AssemblyInspectionSession :
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll,
         bool typesOnly) =>
+        ApiSurface(
+            source,
+            catalog,
+            bindingPolicy,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly);
+
+    /// <summary>
+    /// Projects one explicit API scope with resolution-aware generic
+    /// constraints.
+    /// </summary>
+    public ApiSurface ApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false) =>
         ApiSurfaceExtractor.Extract(
             _image.PEReader,
             source,
             catalog,
             bindingPolicy,
-            includeAll,
+            scope,
             typesOnly);
 
     /// <summary>
@@ -208,6 +227,16 @@ public sealed class AssemblyInspectionSession :
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false)
         => ApiSurfaceExtractor.ExtractBounded(_image.PEReader, scope, bounds, typesOnly);
+
+    /// <summary>Projects bounded API facts with resolution-aware generic constraints.</summary>
+    public ApiSurfaceExtractionResult BoundedApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds)
+        => ApiSurfaceExtractor.ExtractBounded(
+            _image.PEReader, source, catalog, bindingPolicy, scope, bounds);
 
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()

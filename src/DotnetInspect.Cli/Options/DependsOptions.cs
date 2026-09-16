@@ -81,9 +81,16 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     public string? Tfm { get; init; }
 
     /// <summary>
+    /// Platform family used by the asset-mode Pruning projection.
+    /// </summary>
+    public string? PruningPlatformFamily { get; init; }
+
+    /// <summary>
     /// Output as JSON.
     /// </summary>
     public bool JsonOutput { get; init; }
+
+    public bool EnvelopeOutput { get; init; }
 
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
@@ -189,7 +196,8 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// True when output is raw text (not rendered markdown).
     /// </summary>
     public bool IsRawOutput =>
-        JsonOutput
+        EnvelopeOutput
+        || JsonOutput
         || ShareFormat is not null
         || Tree
         || Format is OutputFormat.PlainText

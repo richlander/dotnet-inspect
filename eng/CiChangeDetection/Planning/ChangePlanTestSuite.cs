@@ -38,6 +38,7 @@ internal static class ChangePlanTestSuite
             AssertSerialization(repository, policy);
             AssertStrictDeserialization(repository, policy);
             AssertTlaScope(repository, policy);
+            AssertTlaManifestFixtures(scratch);
             AssertGitFixtures(scratch, repository);
             AssertRenameProvenanceFixtures(scratch);
             AssertCommandBoundary(scratch);
@@ -212,6 +213,8 @@ internal static class ChangePlanTestSuite
             (".github/workflows/deploy-inspect-web.yml",
                 "web"),
             (".github/workflows/deploy-inspect-web-coreclr.yml",
+                "web"),
+            (".github/workflows/deploy-inspect-web-runtime-sites.yml",
                 "web"),
             (".github/workflows/promote-inspect-web.yml",
                 "web"),
@@ -639,7 +642,7 @@ internal static class ChangePlanTestSuite
             policy);
 
         const string Golden =
-            "{\"schemaVersion\":5,\"status\":\"planned\",\"provenance\":"
+            "{\"schemaVersion\":6,\"status\":\"planned\",\"provenance\":"
             + "{\"kind\":\"pullRequestSyntheticCandidate\",\"baseObjectId\":"
             + "\"1111111111111111111111111111111111111111\","
             + "\"candidateObjectId\":"
@@ -749,12 +752,12 @@ internal static class ChangePlanTestSuite
                     "\"status\": \"planned\"")),
             ("non-canonical property order",
                 text.Replace(
-                    "{\"schemaVersion\":5,\"status\":\"planned\"",
-                    "{\"status\":\"planned\",\"schemaVersion\":5")),
+                    "{\"schemaVersion\":6,\"status\":\"planned\"",
+                    "{\"status\":\"planned\",\"schemaVersion\":6")),
             ("escaped member name",
                 text.Replace("schemaVersion", "schema\\u0056ersion")),
             ("non-canonical number",
-                text.Replace("\"schemaVersion\":5", "\"schemaVersion\":5e0")),
+                text.Replace("\"schemaVersion\":6", "\"schemaVersion\":6e0")),
             ("control character", $"\n{text}"),
             ("truncated document", text[..^1]),
             ("unknown member",
@@ -762,13 +765,13 @@ internal static class ChangePlanTestSuite
             ("missing member", text.Replace(",\"diagnostics\":[]", "")),
             ("duplicate member",
                 text.Replace(
-                    "\"schemaVersion\":5",
-                    "\"schemaVersion\":5,\"schemaVersion\":5")),
+                    "\"schemaVersion\":6",
+                    "\"schemaVersion\":6,\"schemaVersion\":6")),
             ("mistyped boolean", text.Replace("\"test\":false", "\"test\":0")),
             ("mistyped count",
                 text.Replace("\"recordCount\":1", "\"recordCount\":\"1\"")),
             ("unsupported version",
-                text.Replace("\"schemaVersion\":5", "\"schemaVersion\":6")),
+                text.Replace("\"schemaVersion\":6", "\"schemaVersion\":5")),
             ("unsupported status",
                 text.Replace("\"planned\"", "\"refused\"")),
             ("invalid digest",
@@ -842,12 +845,12 @@ internal static class ChangePlanTestSuite
                 + "valid zero-record scope.");
         }
 
-        // The exact-outcome manifest is consumer input: a changed manifest
-        // makes the runner select every model directory it names.
+        // The manifest remains validation input even with no mapping changes.
         PlanningResult manifest = ChangePlanner.Compose(
             Provenance(PlanEventKind.PullRequestSyntheticCandidate),
             Evidence("eng/tla-expected-exit-codes.txt"),
-            policy);
+            policy,
+            changedOutcomePaths: []);
         if (!manifest.HasTlaScope
             || Encoding.UTF8.GetString(manifest.TlaScopeBytes)
                 != "eng/tla-expected-exit-codes.txt\0"
@@ -867,7 +870,8 @@ internal static class ChangePlanTestSuite
                 "eng/tla-expected-exit-codes.txt",
                 "docs/design/models/a/First.TLA",
                 "README.md"),
-            policy);
+            policy,
+            changedOutcomePaths: []);
         if (!mixed.HasTlaScope
             || Encoding.UTF8.GetString(mixed.TlaScopeBytes)
                 != "docs/models/b/Second.cfg\0"
@@ -937,6 +941,171 @@ internal static class ChangePlanTestSuite
                     new ChangeRecord(ChangeStatus.Modified, oversizedPath),
                 ]),
                 policy));
+    }
+
+    private static void AssertTlaManifestFixtures(string scratch)
+    {
+        // PR-fast reproduction of #6919: new retained-workspace mappings must
+        // not select unchanged research-workspace mappings.
+        const string Retained =
+            "docs/design/models/inspect-web-retained-workspace-realization/Safety.cfg";
+        const string Research =
+            "docs/design/models/research-workspace-target-composition/BrokenUnavailableInvocation.cfg";
+        const string Other = "docs/models/other/Other.cfg";
+        const string Unchanged = $"{Research}=12\n";
+        (string Name, string? Before, string? After, string[] Affected)[] cases =
+        [
+            ("addition", Unchanged,
+                $"{Retained}=0\n{Unchanged}", [Retained]),
+            ("last mapping removal", $"{Retained}=0\n{Unchanged}",
+                Unchanged, [Retained]),
+            ("value change", $"{Retained}=0\n{Unchanged}",
+                $"{Retained}=13\n{Unchanged}", [Retained]),
+            ("multiple directories", $"{Retained}=0\n{Unchanged}",
+                $"{Other}=0\n{Retained}=13\n{Unchanged}", [Retained, Other]),
+            ("mapping rename", $"{Retained}=0\n{Unchanged}",
+                $"{Other}=0\n{Unchanged}", [Retained, Other]),
+            ("comments only", $"{Retained}=0\n{Unchanged}",
+                $"# Updated explanation\n\n{Retained}=0\n{Unchanged}", []),
+            ("ordering only", $"{Retained}=0\n{Unchanged}",
+                $"{Unchanged}{Retained}=0\n", []),
+            ("final newline only", $"{Retained}=0\n{Unchanged}",
+                $"{Retained}=0\n{Unchanged.TrimEnd('\n')}", []),
+            ("remove every mapping", $"{Retained}=0\n{Unchanged}",
+                "# No exact outcomes\n", [Retained, Research]),
+            ("add manifest", null, $"{Retained}=0\n", [Retained]),
+            ("delete manifest", $"{Retained}=0\n", null, [Retained]),
+        ];
+
+        foreach (var test in cases)
+        {
+            using GitFixtureRepository fixture =
+                GitFixtureRepository.Create(scratch);
+            foreach (string path in new[] { Retained, Research, Other })
+            {
+                fixture.Write(path, "SPECIFICATION Spec\n");
+            }
+
+            if (test.Before is not null)
+            {
+                fixture.Write(TlaManifestChanges.ManifestPath, test.Before);
+            }
+
+            string baseCommit = fixture.CommitAll("base");
+            if (test.After is null)
+            {
+                fixture.Remove(TlaManifestChanges.ManifestPath);
+            }
+            else
+            {
+                fixture.Write(TlaManifestChanges.ManifestPath, test.After);
+            }
+
+            string candidate = fixture.CommitAll(test.Name);
+            string expected = TlaManifestChanges.ManifestPath + "\0"
+                + string.Concat(test.Affected.Select(path => path + "\0"));
+            foreach (PlanEventKind kind in new[]
+            {
+                PlanEventKind.PullRequestSyntheticCandidate,
+                PlanEventKind.Push,
+                PlanEventKind.MergeGroup,
+            })
+            {
+                PlanningResult result = ChangePlanner.Plan(
+                    fixture.Root, kind, baseCommit, candidate);
+                AssertManifestScope(result, expected, test.Name);
+                if (result.Plan.Input.RecordCount != 1)
+                {
+                    throw new InvalidOperationException(
+                        "Derived mapping paths changed the Git input count.");
+                }
+            }
+        }
+
+        using (GitFixtureRepository fixture =
+            GitFixtureRepository.Create(scratch))
+        {
+            fixture.Write(Retained, "SPECIFICATION Spec\n");
+            fixture.Write(Research, "SPECIFICATION Spec\n");
+            fixture.Write(TlaManifestChanges.ManifestPath,
+                $"{Retained}=0\n{Research}=0\n");
+            _ = fixture.CommitAll("ancestor");
+            fixture.Write(TlaManifestChanges.ManifestPath,
+                $"{Retained}=0\n{Unchanged}");
+            string baseCommit = fixture.CommitAll("moved base");
+            fixture.Write(TlaManifestChanges.ManifestPath,
+                $"{Retained}=13\n{Unchanged}");
+            string immediateParent = fixture.CommitAll("mapping changed");
+            fixture.Write(Retained, "SPECIFICATION UpdatedSpec\n");
+            fixture.Write("docs/models/direct/Direct.tla", "module\n");
+            string candidate = fixture.CommitAll("model changed");
+
+            // Push/merge-group base is not necessarily the immediate parent.
+            string expected = Retained + "\0docs/models/direct/Direct.tla\0"
+                + TlaManifestChanges.ManifestPath + "\0";
+            foreach (PlanEventKind kind in new[]
+            {
+                PlanEventKind.Push, PlanEventKind.MergeGroup,
+            })
+            {
+                AssertManifestScope(
+                    ChangePlanner.Plan(
+                        fixture.Root, kind, baseCommit, candidate),
+                    expected, "exact endpoints and direct-path deduplication");
+            }
+
+            AssertManifestScope(
+                ChangePlanner.Plan(
+                    fixture.Root, PlanEventKind.PullRequestSyntheticCandidate,
+                    immediateParent, candidate),
+                Retained + "\0docs/models/direct/Direct.tla\0",
+                "unchanged manifest at the current PR base");
+        }
+
+        foreach (string invalid in new[]
+        {
+            $"{Retained}\n",
+            $"{Retained}=\n",
+            $"{Retained}=0\n{Retained}=13\n",
+            "docs/models/../other/Other.cfg=0\n",
+            "docs/models/other/nested/Other.cfg=0\n",
+            "docs/models/other/Other.tla=0\n",
+        })
+        {
+            AssertRefusal(null,
+                () => TlaManifestChanges.Compare([], Utf8(invalid)),
+                "unusable mapping evidence");
+        }
+
+        byte[] rawPath = [.. Utf8("docs/models/raw/"), 0xFF, .. Utf8(".cfg")];
+        IReadOnlyList<byte[]> rawChanges = TlaManifestChanges.Compare(
+            [.. rawPath, .. Utf8("=0\n")],
+            [.. rawPath, .. Utf8("=13\n")]);
+        if (rawChanges.Count != 1
+            || !rawChanges[0].AsSpan().SequenceEqual(rawPath))
+        {
+            throw new InvalidOperationException(
+                "Manifest mapping comparison reinterpreted path bytes.");
+        }
+    }
+
+    private static void AssertManifestScope(
+        PlanningResult result,
+        string expected,
+        string description)
+    {
+        if (!result.Plan.Validations.Tla
+            || !result.HasTlaScope
+            || Encoding.UTF8.GetString(result.TlaScopeBytes) != expected
+            || result.Plan.TlaScope?.RecordCount
+                != expected.Count(character => character == '\0')
+            || result.Plan.TlaScope.Sha256
+                != Digest.LowercaseSha256(result.TlaScopeBytes))
+        {
+            throw new InvalidOperationException(
+                $"Incorrect TLA manifest scope for {description}: "
+                + Encoding.UTF8.GetString(result.TlaScopeBytes));
+        }
     }
 
     private static void AssertGitFixtures(string scratch, string repository)

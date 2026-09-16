@@ -170,9 +170,9 @@ The standing adjustments and their exact evidence requirements live in
 
 ## Task-specific guidance
 
-Read the relevant entry before working in that area. This table covers the
-highest-value entry points; the full index — every design doc, contributor
-workflow doc, and PR template — lives in [`docs/README.md`](docs/README.md).
+Documentation entry points have distinct roles: root `README.md` owns the full product guide; `docs/README.md` immediate acquisition and curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` current code composition.
+Update one only when its owned claim changes; adding or editing a focused document does not require parallel entrypoint updates.
+Read the relevant entry below; [`docs/README.md`](docs/README.md) owns the detailed boundary and curated routes.
 
 | Area | Read first |
 | --- | --- |
@@ -340,6 +340,7 @@ PR CI only when daily Deep Inspect or a focused pre-merge gate owns them. See
 | --- | --- |
 | CLI and product output | `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release` |
 | Artifact contracts | `dotnet run --project tests/Inspector.Artifacts.Tests -c Release` |
+| Portable query codec | `dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release` |
 | Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
 | Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
 | Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |

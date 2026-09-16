@@ -37,6 +37,8 @@ test("data bar renders the approved product information in order", () => {
   assert.match(html, /Package source: Corporate &quot;&lt;mirror&gt;/);
   assert.match(html, new RegExp(`href="${CLI_TOOL_URL}"[^>]*>CLI tool</a>`));
   assert.match(html, new RegExp(`href="${AGENT_SKILL_URL}"[^>]*>Agent skill</a>`));
+  assert.match(html, /href="\/diagnostics">Diagnostics<\/a>/);
+  assert.match(html, /href="\/demos">Demos<\/a>/);
   assert.match(html, /href="\/credits">Credits<\/a>/);
 
   const productIndex = html.indexOf("dotnet-inspect");
@@ -45,6 +47,8 @@ test("data bar renders the approved product information in order", () => {
   const producerIndex = html.indexOf("Package source:");
   const cliIndex = html.indexOf("CLI tool");
   const skillIndex = html.indexOf("Agent skill");
+  const diagnosticsIndex = html.indexOf("Diagnostics");
+  const demosIndex = html.indexOf("Demos");
   const creditsIndex = html.indexOf("Credits");
   assert.ok(
     productIndex < commitIndex
@@ -52,7 +56,9 @@ test("data bar renders the approved product information in order", () => {
       && dateIndex < producerIndex
       && producerIndex < cliIndex
       && cliIndex < skillIndex
-      && skillIndex < creditsIndex,
+      && skillIndex < demosIndex
+      && demosIndex < diagnosticsIndex
+      && diagnosticsIndex < creditsIndex,
   );
 });
 
@@ -62,6 +68,8 @@ test("data bar remains product information when optional provenance is absent", 
   assert.match(html, /dotnet-inspect/);
   assert.match(html, />CLI tool<\/a>/);
   assert.match(html, />Agent skill<\/a>/);
+  assert.match(html, />Demos<\/a>/);
+  assert.match(html, />Diagnostics<\/a>/);
   assert.match(html, />Credits<\/a>/);
   assert.doesNotMatch(html, /built|ready|loading|download|startup|precompute|cache/i);
   assert.doesNotMatch(html, /button|aria-expanded|data-status-bar-toggle/);

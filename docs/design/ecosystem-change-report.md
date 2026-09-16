@@ -11,9 +11,16 @@ presentation is implemented in `DotnetInspector.Presentation`. The executable
 Release gates are in
 `tests/DotnetInspector.Queries.Tests/EcosystemChangeReportQueryTests.cs` and
 `tests/DotnetInspector.Presentation.Tests/EcosystemChangeReportPresentationTests.cs`.
-CLI and browser/Wasm adoption remain later delivery steps. Historical security
-changes remain unsupported because no owner supplies the required before/after
-evidence.
+The CLI production host adopts those contracts through
+`package changes --ecosystem <name>`; its focused Release gates are in
+`tests/DotnetInspect.Cli.Tests/PackageChangesCommandTests.cs`. Browser/Wasm
+adopts the shared inspection boundary and progressive Worker transport through
+[#7068](https://github.com/richlander/dotnet-inspect/issues/7068), and the
+[Package Changes experience](package-changes-experience.md) owns `/query`
+state and rendering. Historical security changes remain unsupported because no
+owner supplies the required before/after
+evidence. The CLI placement correction is tracked by
+[#7009](https://github.com/richlander/dotnet-inspect/issues/7009).
 
 The **Ecosystem Change Report query** in `DotnetInspector.Queries` is the
 single normative owner. Its claim is:
@@ -172,6 +179,14 @@ rather than manufacturing a document. The document retains the complete
 resolved request, progress observations, selected activity rows, typed failure
 events, and terminal coverage/work summary. Its schema version is explicit.
 
+`EcosystemChangeReportInspection` is the sole host-facing enumerator. It admits
+every query event unchanged to the collector before projecting `Progress`,
+`Row`, or typed `Failure` to an optional nonterminal sink; `Completed` is
+terminal-only. The resulting
+`InspectionEnvelope<EcosystemChangeReportDocument>` is authoritative. Sink
+projection, Browser progress coalescing, or the absence of a sink cannot change
+the terminal Document, and cancellation produces no synthetic Document.
+
 One report has one source-result identity. Before lowering that identity to its
 portable producer key, inert display, and transport kind, Presentation verifies
 that every returned row carries the terminal summary's exact source identity.
@@ -208,6 +223,47 @@ horizon, and advisory observation time. Work rows expose the configured
 candidate, receipt, and result bounds beside their reached states. Human labels
 are presentation only; hosts consume the typed document when category or
 completion meaning affects behavior.
+
+The CLI host exposes the report only through the explicit network-backed
+`package changes --ecosystem <name>` gesture. This is the Package Changes peer
+query defined by the command boundary in
+[#6972](https://github.com/richlander/dotnet-inspect/issues/6972): Package Query
+returns matched package rows for current-state predicates, while Package
+Changes returns timestamped package-activity rows with coverage and security
+evidence. Catalog is the acquisition mechanism, not the command identity.
+`ecosystem` remains the acquisition-free product vocabulary.
+
+`--ecosystem` is a population control: the host resolves the named ecosystem's
+exact product-owned `PackageSetId`; a pack without one fails rather than falling
+back to a namespace guess or all-NuGet scan. It does not assert that every
+selected package has a semantic Integration association with that ecosystem.
+The host defaults to the query-owned 42-day interval, accepts paired
+`--from`/`--through` timestamps for the same exclusive/inclusive bounds, maps
+`--security-only` to `SecurityRelevant`, and maps `-n` to the semantic result
+limit before execution. Markdown and plain text lower the shared Markout view;
+`--json` uses the shared lossless serializer. Catalog-only projections and
+single-table formats fail explicitly. `--verbose` reports bounded acquisition
+progress on stderr without contaminating stdout.
+
+The Browser host exposes a dedicated `package-changes` Worker operation. Its
+input carries a registered product-owned `PackageSetId`, an optional paired
+interval, security selection, and the bounded row limit; it does not accept
+caller-authored package members or provider URLs. The managed callback carries
+the shared nonterminal sequence without `Completed`. The Worker publishes
+progress through operation authority and publishes rows and failures as durable
+events in producer order before settling with the projected
+`InspectionEnvelope<EcosystemChangeReportDocument>`. Partial or semantically
+failed report completion remains a physically successful operation containing
+the typed Document; caller cancellation and unexpected operation failure remain
+operation settlements outside the envelope.
+
+Browser acquisition uses the full NuGet V3 Catalog source and GitHub reviewed
+advisories only through the fixed same-origin public-evidence bridge. The
+operation has a 120-second Browser deadline, a 115-second source/advisory
+deadline, and a 25-second per-request timeout, leaving terminal classification
+to the existing managed-operation and Browser deadline owners. Query-state
+adoption and `/query` presentation belong to the focused
+[Package Changes experience](package-changes-experience.md).
 
 Illustrative rendering, using synthetic package/evidence records:
 
@@ -249,8 +305,17 @@ association, repeated activity, current context versus security-release
 evidence, `created` and `published` fallback receipt bases, out-of-window
 security facts, unavailable versus checked-empty data, take after predicates,
 ordering barriers and candidate bounds, provider failures, and cancellation
-after rows. CLI and browser adoption must still demonstrate equivalent
-semantic results and disclose their own publication timing.
+after rows. CLI adoption demonstrates the `package changes` placement, the
+retirement of `ecosystem --changes`, default and explicit intervals, exact
+package-set scope, security selection, structured and human output, ordinary
+source-horizon lag, unsupported option combinations, and a pack without
+executable scope. Browser transport adoption demonstrates package-set lookup,
+paired interval validation, strict bounded wire decoding, ordered progressive
+publication before terminal settlement, semantic partial completion inside a
+physically successful envelope, managed cancellation, and the fixed Catalog
+source/deadline composition. The focused Package Changes experience gates
+query state, terminal reconciliation, typed rendering, bounded DOM, and
+real-Wasm publication.
 
 The shared-presentation Release gates run the real query over controlled NuGet
 Catalog and GitHub-reviewed-advisory responses, including

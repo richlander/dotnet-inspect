@@ -128,7 +128,7 @@ public static class WorkspaceSharePacketTransposer
         }
 
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceId,
             contexts);
 
@@ -152,13 +152,13 @@ public static class WorkspaceSharePacketTransposer
         }
 
         var navigation = new NavigationDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             NavigationId,
             navigationTabs,
             $"t{canonical.ActiveTabIndex}");
 
         var view = new ViewDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             ViewId,
             lens: canonical.Lens,
             type: canonical.Type,
@@ -168,7 +168,7 @@ public static class WorkspaceSharePacketTransposer
             libraries: canonical.Libraries);
 
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             ScenarioId,
             workspace: WorkspaceId,
             context: $"g{canonical.SelectedContextIndex}",
@@ -581,6 +581,17 @@ public static class WorkspaceSharePacketTransposer
     }
 
     public static WorkspaceSharePacketProjectionResult ToPacket(
+        CommittedScenarioDefinitionSet definitions,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(definitions);
+        cancellationToken.ThrowIfCancellationRequested();
+        return NonProjectable(
+            "schemaVersion",
+            "Schema-version-2 definitions cannot project to WorkspaceSharePacket format 1.");
+    }
+
+    public static WorkspaceSharePacketProjectionResult ToPacket(
         ShareProjectionPlan plan,
         CancellationToken cancellationToken = default)
     {
@@ -623,7 +634,7 @@ public static class WorkspaceSharePacketTransposer
                 package.PackageVersion,
                 plan.Basis.Source.Framework);
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceId,
             [
                 new WorkspaceContextDefinition(
@@ -632,7 +643,7 @@ public static class WorkspaceSharePacketTransposer
                     members: [coordinate]),
             ]);
         var navigation = new NavigationDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             NavigationId,
             [
                 new NavigationTabDefinition(
@@ -641,14 +652,14 @@ public static class WorkspaceSharePacketTransposer
             ],
             "t0");
         var view = new ViewDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             ViewId,
             lens: "api",
             type: type.ToEscapedFullName(),
             memberAnchor: plan.Basis.Target.Member.Fingerprint,
             libraries: [plan.Basis.Source.LibraryKey]);
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             ScenarioId,
             workspace: workspace.Id,
             context: "g0",
@@ -678,6 +689,13 @@ public static class WorkspaceSharePacketTransposer
         foreach ((InspectionDefinitionRecord record, string path) in records)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (record.SchemaVersion
+                != InspectionDefinitionSchema.Version1)
+            {
+                return InvalidDefinition(
+                    path + ".schemaVersion",
+                    "WorkspaceSharePacket format 1 requires a schema-version-1 definition set.");
+            }
             try
             {
                 _ = InspectionDefinitionJson.Serialize(record);
