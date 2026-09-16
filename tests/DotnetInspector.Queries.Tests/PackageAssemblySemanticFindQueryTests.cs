@@ -59,21 +59,21 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await fixture.ResolvePopulationAsync(
                 operation,
                 packageIds);
-        var sink = new RecordingSink();
+        var sink = new RecordingQuerySink();
 
-        InspectionEnvelope<PackageAssemblySemanticFindDocument> envelope =
-            await PackageAssemblySemanticFindInspection.ExecuteAsync(
+        InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope =
+            await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                 Request(population),
                 operation,
                 fixture.PayloadAcquisition,
                 sink,
                 TestContext.Current.CancellationToken);
 
-        PackageAssemblySemanticFindDocument document = envelope.Content;
+        PackageAssemblySemanticQueryDocument document = envelope.Content;
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
         Assert.Equal(5, document.CandidateCount);
-        Assert.Equal(1, document.MatchedCandidateCount);
+        Assert.Equal(1, document.MatchedPackageCount);
         Assert.Equal(2, document.OccurrenceCount);
         Assert.Equal(4, document.SemanticMissCount);
         Assert.Equal(0, document.NotApplicableCount);
@@ -88,30 +88,47 @@ public sealed class PackageAssemblySemanticFindQueryTests
         Assert.Equal(
             document.CandidateOutcomes,
             sink.Outcomes);
-        Assert.All(
-            document.Results,
-            result =>
-            {
-                Assert.Equal(1, result.CandidateOrdinal);
-                Assert.Equal(
-                    population.Candidates[0].Correspondence,
-                    result.Correspondence);
-                Assert.Equal(
-                    "lib/net11.0/Contoso.Match.dll",
-                    result.SelectedAsset.Asset.Path.ToString());
-            });
+        PackageAssemblySemanticQueryResult result =
+            Assert.Single(document.Results);
+        Assert.Equal(1, result.CandidateOrdinal);
+        Assert.Equal(
+            population.Candidates[0].Correspondence,
+            result.Correspondence);
+        Assert.Equal(
+            "lib/net11.0/Contoso.Match.dll",
+            result.SelectedAsset.Asset.Path.ToString());
         Assert.Equal(
             Assert.IsType<
-                PackageAssemblySemanticFindCandidateOutcome.Matched>(
+                PackageAssemblySemanticQueryCandidateOutcome.Matched>(
                 document.CandidateOutcomes[0])
-            .Evaluation.Evidence.Occurrences,
-            document.Results.Select(result => result.Evidence));
+            .Result.Occurrences,
+            result.Occurrences);
         Assert.All(
             document.CandidateOutcomes,
             outcome =>
             {
                 PackageAssemblyEvaluationSubject subject =
-                    Evaluation(outcome).Subject;
+                    outcome switch
+                    {
+                        PackageAssemblySemanticQueryCandidateOutcome.Matched
+                            matched =>
+                            matched.Result.SelectedAsset.Subject,
+                        PackageAssemblySemanticQueryCandidateOutcome.NoMatch
+                            noMatch =>
+                            noMatch.Evaluation.Subject,
+                        PackageAssemblySemanticQueryCandidateOutcome
+                            .NotApplicable notApplicable =>
+                            notApplicable.Evaluation.Subject,
+                        PackageAssemblySemanticQueryCandidateOutcome.Failure
+                            {
+                                Reason:
+                                    PackageAssemblySemanticQueryFailureReason
+                                        .Evaluation evaluation,
+                            } =>
+                            evaluation.Evidence.Subject,
+                        _ => throw new InvalidOperationException(
+                            "The query outcome has no evaluation subject."),
+                    };
                 Assert.True(
                     PackageRootReacquisitionRequest.TryDecode(
                         subject.RootRequest.Encode(),
@@ -921,6 +938,22 @@ public sealed class PackageAssemblySemanticFindQueryTests
             cancellationToken.ThrowIfCancellationRequested();
             Outcomes.Add(outcome);
             observed?.Invoke(outcome);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingQuerySink
+        : IPackageAssemblySemanticQueryNonterminalSink
+    {
+        internal List<PackageAssemblySemanticQueryCandidateOutcome> Outcomes
+            { get; } = [];
+
+        public ValueTask ReportAsync(
+            PackageAssemblySemanticQueryCandidateOutcome outcome,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Outcomes.Add(outcome);
             return ValueTask.CompletedTask;
         }
     }

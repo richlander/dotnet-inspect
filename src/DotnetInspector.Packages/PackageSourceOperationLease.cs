@@ -107,6 +107,30 @@ public sealed class PackageSourceOperationLease : IDisposable
     }
 
     internal Task<PackageAcquisitionPopulation>
+        ResolveGalleryExactPopulationAsync(
+        string packageId,
+        bool includePrerelease,
+        PackageSourceAuthorization authorization)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(authorization);
+        if (authorization.Authorities.Count != 1
+            || !authorization.Authorities[0].Key.IsNuGetOrg
+            || authorization.Authorities[0].Source.Credential is not null)
+        {
+            throw new ArgumentException(
+                "Exact package population selection requires the credential-free NuGet Gallery authority.",
+                nameof(authorization));
+        }
+
+        return ResolveGalleryExactPopulationCoreAsync(
+            StartWork(),
+            packageId,
+            includePrerelease,
+            authorization);
+    }
+
+    internal Task<PackageAcquisitionPopulation>
         ResolveGalleryPrefixPopulationAsync(
         string prefix,
         int maximumCandidates,
@@ -293,6 +317,23 @@ public sealed class PackageSourceOperationLease : IDisposable
             return await work.Generation.ResolvePinnedPopulationAsync(
                 authorization,
                 coordinates,
+                work.Context).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<PackageAcquisitionPopulation>
+        ResolveGalleryExactPopulationCoreAsync(
+        ActiveWorkRegistration work,
+        string packageId,
+        bool includePrerelease,
+        PackageSourceAuthorization authorization)
+    {
+        using (work)
+        {
+            return await work.Generation.ResolveGalleryExactPopulationAsync(
+                packageId,
+                includePrerelease,
+                authorization,
                 work.Context).ConfigureAwait(false);
         }
     }

@@ -1,9 +1,11 @@
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using Markout;
@@ -41,6 +43,14 @@ internal static class PackageQueryCommand
                 semanticSelectionName: "Package Query");
         }
 
+        if (options.LibraryLiteralPlan is not null)
+        {
+            return await ExecuteLibraryLiteralAsync(
+                options,
+                context,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         NuGetFetchOptions fetchOptions =
             NuGetFetchOptions.FromRequestTimeout(context.HttpClient.Timeout);
         using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
@@ -65,6 +75,140 @@ internal static class PackageQueryCommand
             CommandError.Write("Package Query exceeded its operation deadline; results are incomplete.");
             return 1;
         }
+    }
+
+    private static async Task<int> ExecuteLibraryLiteralAsync(
+        PackageQueryOptions options,
+        CommandContext context,
+        CancellationToken cancellationToken)
+    {
+        PackageAssemblySemanticQueryCliPlan plan =
+            options.LibraryLiteralPlan
+            ?? throw new InvalidOperationException(
+                "A library-literal query requires its semantic plan.");
+        PackageAssemblySemanticFindBudget budget =
+            PackageAssemblySemanticFindBudget.Default;
+        NuGetFetchOptions fetchOptions =
+            NuGetFetchOptions.FromRequestTimeout(
+                context.HttpClient.Timeout);
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                [PackageSource.NuGetOrg]);
+        ConfiguredPackageAuthority galleryAuthority =
+            authorization.Authorities[0];
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                galleryAuthority.Association,
+                DotnetInspector.Networking.HttpClientFactory
+                    .CreateCredentialFreeHandler(),
+                fetchOptions);
+        await using PackageSourceSettlementLease settlement =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(authority, galleryAuthority)
+                        ? source
+                        : throw new InvalidOperationException(
+                            "Library-literal Package Query requested an unauthorized package source."));
+        using var stores = new AssemblySemanticQueryStores();
+        PackageSourceOperationLease? operation =
+            settlement.IssueOperationLease(
+                cancellationToken,
+                fetchOptions.RequestTimeout,
+                budget.MaximumDuration);
+
+        PackageAssemblySemanticQueryDocument document;
+        try
+        {
+            PackageAcquisitionPopulation population =
+                plan.Population switch
+                {
+                    PackageAssemblySemanticQueryPopulationPlan.Exact exact =>
+                        await PackageAcquisitionPopulationResolver
+                            .ResolveGalleryExactAsync(
+                                operation,
+                                exact.PackageId,
+                                authorization,
+                                plan.IncludePrerelease).ConfigureAwait(false),
+                    PackageAssemblySemanticQueryPopulationPlan.Prefix prefix =>
+                        await PackageAcquisitionPopulationResolver
+                            .ResolveGalleryPrefixAsync(
+                                operation,
+                                prefix.Declaration,
+                                prefix.MaximumCandidates,
+                                authorization,
+                                plan.IncludePrerelease).ConfigureAwait(false),
+                    _ => throw new InvalidOperationException(
+                        "Unknown library-literal Package Query population plan."),
+                };
+            var request = new PackageAssemblySemanticFindRequest(
+                population,
+                plan.Target,
+                plan.Pattern,
+                budget);
+            PackageSourceOperationLease transferredOperation =
+                operation;
+            operation = null;
+            InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope =
+                await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                    request,
+                    transferredOperation,
+                    new PackagePayloadAcquisitionPlan(
+                        stores.GetStore,
+                        log: context.Logger.Log),
+                    new AssemblySemanticQueryProgressSink(
+                        context.Logger,
+                        population.Candidates.Length),
+                    cancellationToken).ConfigureAwait(false);
+            document = envelope.Content;
+        }
+        finally
+        {
+            operation?.Dispose();
+        }
+
+        if (!CliSemanticRowSelection.TrySelect(
+                options.RowSelection,
+                document.Results,
+                "package",
+                failure =>
+                    $"Package Query row selection stage "
+                    + $"{failure.Failure.StageNumber} requires package row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} package rows are available.",
+                out IReadOnlyList<PackageAssemblySemanticQueryResult>
+                    displayResults))
+        {
+            WriteLibraryLiteralDiagnostics(document);
+            return 1;
+        }
+
+        bool complete =
+            document.Completion.IsRequestedPopulationComplete
+            && document.Completion.IsSemanticEvaluationComplete;
+        if (options.Count
+            && (!complete
+                || !CliSemanticRowSelection.ProvidesExactCount(
+                    options.RowSelection,
+                    document.Results.Length,
+                    sourceComplete: complete)))
+        {
+            WriteLibraryLiteralDiagnostics(document);
+            CommandError.Write(
+                "Cannot count Package Query rows because package population "
+                + "formation or candidate evaluation is incomplete; omit "
+                + "--count to inspect package outcomes.");
+            return 1;
+        }
+
+        PackageAssemblySemanticQueryView view =
+            PackageAssemblySemanticQuerySections.CreateDocument(
+                plan.Pattern.Operand.DisplayText.ToString(),
+                plan.Target.RequestedFramework!,
+                displayResults,
+                document);
+        WriteLibraryLiteralOutput(view, options);
+        WriteLibraryLiteralDiagnostics(document);
+        return complete ? 0 : 1;
     }
 
     internal static async Task<int> ExecuteAsync(
@@ -232,6 +376,142 @@ internal static class PackageQueryCommand
         }
     }
 
+    internal static void WriteLibraryLiteralOutput(
+        PackageAssemblySemanticQueryView view,
+        PackageQueryOptions options)
+    {
+        HashSet<string> includeSections =
+            PackageAssemblySemanticQuerySections.Catalog.Pipeline
+                .GetCandidateSections(
+                    Verbosity.Normal,
+                    [PackageProfileSections.Packages]);
+
+        if (options.Count)
+        {
+            CountOutput.WriteCount(view.Results.Count);
+        }
+        else if (options.JsonOutput)
+        {
+            OutputFormatter.WriteProjectedJson(
+                Console.Out,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                {
+                    writerOptions.IncludeSections = includeSections;
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        SearchViewContext.Default,
+                        writerOptions);
+                },
+                !options.CompactJson,
+                maxRows: null);
+        }
+        else if (options.Tabular)
+        {
+            OutputFormatter.WriteProjectedTable(
+                Console.Out,
+                !options.NoHeader,
+                options.Tsv,
+                options.Jsonl,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                {
+                    writerOptions.IncludeSections = includeSections;
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        SearchViewContext.Default,
+                        writerOptions);
+                },
+                maxRows: null);
+        }
+        else
+        {
+            OutputFormatter.WriteWindowedMarkdown(
+                Console.Out,
+                rows: null,
+                writerOptions =>
+                {
+                    writerOptions.IncludeSections = includeSections;
+                    return MarkoutSerializer.Serialize(
+                        view,
+                        SearchViewContext.Default,
+                        writerOptions);
+                },
+                options.Columns,
+                options.Fields);
+        }
+    }
+
+    private static void WriteLibraryLiteralDiagnostics(
+        PackageAssemblySemanticQueryDocument document)
+    {
+        foreach (PackageAcquisitionPopulationFailure failure
+            in document.Population.Failures)
+        {
+            string subject = failure.Coordinate is { } coordinate
+                ? $"{coordinate.PackageId}@{coordinate.Version}"
+                : failure.PackageId ?? "Package population";
+            CommandError.WriteWarning(
+                $"{subject}: {failure.Failure.Authority} "
+                + $"({failure.Failure.Kind}): "
+                + failure.Failure.Message);
+        }
+
+        foreach (PackageAssemblySemanticQueryCandidateOutcome.Failure failure
+            in document.CandidateOutcomes
+                .OfType<
+                    PackageAssemblySemanticQueryCandidateOutcome.Failure>())
+        {
+            string subject =
+                $"{failure.Coordinate.PackageId}@{failure.Coordinate.Version}";
+            switch (failure.Reason)
+            {
+                case PackageAssemblySemanticQueryFailureReason.Acquisition
+                    acquisition:
+                    foreach (PackageAuthorityFailure item
+                        in acquisition.Evidence.Failures)
+                    {
+                        CommandError.WriteWarning(
+                            $"{subject}: {item.Authority} ({item.Kind}): "
+                            + item.Message);
+                    }
+                    foreach (var authority
+                        in acquisition.Evidence.NotFoundAuthorities)
+                    {
+                        CommandError.WriteWarning(
+                            $"{subject}: package payload was not found at "
+                            + authority.ToString());
+                    }
+                    break;
+                case PackageAssemblySemanticQueryFailureReason.Evaluation
+                    evaluation:
+                    CommandError.WriteWarning(
+                        $"{subject}: "
+                        + PackageAssemblySemanticQuerySections.Describe(
+                            evaluation.Evidence));
+                    break;
+            }
+        }
+
+        if (document.Population.Completion is not (
+                PackageAcquisitionPopulationCompletionKind.ExactPackageComplete
+                or PackageAcquisitionPopulationCompletionKind.PrefixExhausted))
+        {
+            CommandError.WriteWarning(
+                $"Package Query population completion: "
+                + $"{document.Population.Completion}; evaluated "
+                + $"{document.CandidateCount}/"
+                + $"{document.Population.RequestedCandidates} candidates. "
+                + "These results do not exhaust the requested package-ID scope.");
+        }
+    }
+
     internal static int ExitCode(PackageQuerySummary summary) =>
         summary.Failures == 0 && summary.Completion is
             PackageQueryCompletionKind.Exhausted
@@ -291,6 +571,54 @@ internal static class PackageQueryCommand
             {
                 DotnetInspector.Packages.PackageExtractor.Cleanup(_temporaryRoot);
             }
+        }
+    }
+
+    private sealed class AssemblySemanticQueryStores : IDisposable
+    {
+        private readonly Dictionary<
+            ConfiguredPackageAuthority,
+            IPackageStore> _stores =
+            new(ReferenceEqualityComparer.Instance);
+        private string? _temporaryRoot;
+
+        internal IPackageStore GetStore(
+            ConfiguredPackageAuthority authority,
+            PackageProducerIdentity producer)
+        {
+            if (!_stores.TryGetValue(authority, out IPackageStore? store))
+            {
+                store = new AuthorityScopedFileSystemPackageStore(
+                    authority,
+                    producer,
+                    () =>
+                        _temporaryRoot ??=
+                            Directory.CreateTempSubdirectory(
+                                "inspect-query").FullName);
+                _stores.Add(authority, store);
+            }
+            return store;
+        }
+
+        public void Dispose() =>
+            DotnetInspector.Packages.PackageExtractor.Cleanup(
+                _temporaryRoot);
+    }
+
+    private sealed class AssemblySemanticQueryProgressSink(
+        VerboseLogger logger,
+        int candidateCount)
+        : IPackageAssemblySemanticQueryNonterminalSink
+    {
+        public ValueTask ReportAsync(
+            PackageAssemblySemanticQueryCandidateOutcome outcome,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            logger.Log(
+                $"Evaluated {outcome.CandidateOrdinal} of "
+                + $"{candidateCount} package candidates");
+            return ValueTask.CompletedTask;
         }
     }
 }
