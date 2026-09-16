@@ -6,7 +6,10 @@ This is the target design for
 [#7219](https://github.com/richlander/dotnet-inspect/issues/7219), the focused
 Workspace adoption of the
 [location and result cardinality pattern](command-transition-model.md#location-and-result-cardinality).
-It is **unimplemented and unverified**.
+The host-neutral content, snapshot query, selection receipt, Share basis, and
+admitted L2 operation are implemented. CLI and Inspect Web adoption remain
+unimplemented, so the overall target is partially implemented and verified at
+the shared-operation boundary.
 
 The operator approved one host-neutral inventory with direct CLI and Inspect
 Web adoption, and required the command experience to work from both an
@@ -512,9 +515,10 @@ committed Scope content.
 
 Implementation proceeds as independently reviewable slices:
 
-1. **Host-neutral content and operation.** Add the outcome, document, typed
-   entry family, entry key, selection receipt, kind filter, pure snapshot
-   query, and admitted L2 operation.
+1. **Host-neutral content and operation (implemented).** The outcome, document,
+   typed entry family, entry key, selection receipt, kind filter, pure snapshot
+   query, Share basis, and admitted L2 operation are implemented in
+   `DotnetInspector.Queries` and `DotnetInspector.Sections`.
 2. **CLI adoption.** Construct one ephemeral realization through
    `WorkspaceRealizationCoordinator` from either explicit construction inputs
    or one Workspace packet restoration recipe, keeping explicit Package
@@ -551,6 +555,11 @@ owner adopts any missing state, the operation returns the non-projectable
 result rather than inventing a parallel share format. A packet-sourced
 unfiltered result therefore retains its exact canonical input packet, while a
 filtered result remains fully usable even when it is not yet shareable.
+
+The current Workspace Definition packet does not project inventory kind-filter
+state. The implemented operation therefore returns
+`InspectionShare.NonProjectable` for every present inventory kind filter while
+preserving available filtered content.
 
 Required gates use Release configuration and include:
 
