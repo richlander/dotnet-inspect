@@ -113,6 +113,8 @@ public sealed class TypeDeclarationLocatorView
                                 $"{source.Outcome}: {source.Code}",
                             TypeDeclarationLocatorContextFailure.ReferenceImage image =>
                                 image.Failure.Kind.ToString(),
+                            TypeDeclarationLocatorContextFailure.PackageScopeSelection package =>
+                                package.Status.ToString(),
                             _ => throw new InvalidOperationException("Unknown declaration context failure."),
                         },
                         Safe(failure.Message)));

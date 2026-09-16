@@ -1415,7 +1415,8 @@ public sealed partial class InspectionWorkspace :
                 plan = new WorkspaceClosePlan(
                     admissions,
                     [.. _artifactSessions],
-                    _declarationLocator);
+                    _declarationLocator,
+                    DetachPackageDeclarationLeases());
                 _state = InspectionWorkspaceState.Closing;
                 _declarationObserver = null;
                 _declarationPopulation = null;
@@ -1600,6 +1601,19 @@ public sealed partial class InspectionWorkspace :
         }
         ImmutableArray<Exception>.Builder artifactCleanupFailures =
             ImmutableArray.CreateBuilder<Exception>();
+        Exception? locatorFailure = await locatorClose.ConfigureAwait(false);
+        foreach (ArtifactRootQueryLease lease
+            in plan.PackageDeclarationLeases)
+        {
+            try
+            {
+                lease.Dispose();
+            }
+            catch (Exception exception)
+            {
+                artifactCleanupFailures.Add(exception);
+            }
+        }
         artifactCleanupFailures.AddRange(await rootClose.ConfigureAwait(false));
         foreach (WorkspaceArtifactSessionRegistration registration
             in plan.ArtifactSessions)
@@ -1616,7 +1630,6 @@ public sealed partial class InspectionWorkspace :
                 reportGroups.Add(result);
         }
 
-        Exception? locatorFailure = await locatorClose.ConfigureAwait(false);
         if (locatorFailure is not null)
         {
             groupCloseFailure = groupCloseFailure is null
@@ -1710,7 +1723,9 @@ public sealed partial class InspectionWorkspace :
         ImmutableArray<WorkspaceGroupAdmission> GroupAdmissions,
         ImmutableArray<WorkspaceArtifactSessionRegistration>
             ArtifactSessions,
-        WorkspaceDeclarationLocator? DeclarationLocator);
+        WorkspaceDeclarationLocator? DeclarationLocator,
+        ImmutableArray<ArtifactRootQueryLease>
+            PackageDeclarationLeases);
 
     internal sealed class WorkspaceCoordinatedGroupAdmission
     {
