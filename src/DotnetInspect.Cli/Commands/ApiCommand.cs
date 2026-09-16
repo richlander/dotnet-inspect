@@ -275,7 +275,7 @@ public class ApiCommand
         {
             CommandError.Write(
                 "this view publishes no bare -S overview sections.",
-                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+                "Use -S <Section> to select one, -D to discover what is available, or -S @Surface for the type-list surface.");
             return null;
         }
 
@@ -1752,10 +1752,11 @@ public class ApiCommand
         else if (options.Tabular)
         {
             if (ApiOutputFormatter
-                .ShouldRenderSurfaceInspectionFailureTableView(
+                .ShouldRenderSurfaceSectionedTableView(
                     options))
             {
-                var failureRows =
+                string section = options.IncludeSections!.Single();
+                var sectionRows =
                     OutputFormatter.RenderProjectedTable(
                         !options.NoHeader,
                         options.Tsv,
@@ -1765,7 +1766,7 @@ public class ApiCommand
                         (writer, formatter, writerOptions) =>
                         {
                             writerOptions.IncludeSections =
-                                [SectionNames.InspectionFailures];
+                                [section];
                             MarkoutSerializer.Serialize(
                                 view,
                                 writer,
@@ -1775,16 +1776,16 @@ public class ApiCommand
                         });
                 ProjectionDiagnostics.DiagnoseRendered(
                     options.Fields ?? options.Columns,
-                    failureRows);
+                    sectionRows);
                 if (!TryReportEmptyProjection(
-                        failureRows,
+                        sectionRows,
                         options))
                 {
                     return 1;
                 }
                 Console.Out.Write(
                     OutputFormatter.LimitRenderedTableRows(
-                        failureRows,
+                        sectionRows,
                         options.Rows,
                         !options.NoHeader));
                 return successExitCode;
