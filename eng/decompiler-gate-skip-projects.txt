@@ -87,7 +87,6 @@ fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures
 src/DotnetInspect.Cli
 src/DotnetInspector.Ecosystems
-src/DotnetInspector.Libraries
 src/DotnetInspector.LibraryMetadata
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
