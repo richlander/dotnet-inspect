@@ -32005,7 +32005,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("Verified", output.Trim());
+        Assert.Equal("Yes", output.Trim());
     }
 
     [Fact]
