@@ -140,6 +140,19 @@ public enum PlatformHouseSettlementKind
     Ambiguous,
     Rejected,
     Incomplete,
+    Failed,
+}
+
+/// <summary>Which required House stage could not settle.</summary>
+public enum PlatformHouseFailureKind
+{
+    Source,
+    Metadata,
+    LibraryConstruction,
+    LibraryBorrow,
+    LibraryLeaseSettlement,
+    LibraryRetirement,
+    LibraryChildRelease,
 }
 
 /// <summary>The terminal status of one requested documentation channel.</summary>
@@ -697,6 +710,44 @@ public abstract class PlatformHouseTermination
 
         public PlatformHouseTerminalEvidenceIdentity Evidence { get; }
     }
+
+    public sealed class Failed : PlatformHouseTermination
+    {
+        public Failed(
+            PlatformHouseTerminalEvidenceIdentity evidence,
+            IEnumerable<PlatformHouseFailureKind> failures,
+            bool cancellationObserved = false)
+            : base(PlatformHouseSettlementKind.Failed)
+        {
+            ArgumentNullException.ThrowIfNull(evidence);
+            ArgumentNullException.ThrowIfNull(failures);
+            PlatformHouseFailureKind[] snapshot = [.. failures];
+            if (snapshot.Length == 0)
+            {
+                throw new ArgumentException(
+                    "Failed termination requires at least one failure stage.",
+                    nameof(failures));
+            }
+            if (snapshot.Any(static failure => !Enum.IsDefined(failure)))
+            {
+                throw new ArgumentOutOfRangeException(nameof(failures));
+            }
+            if (snapshot.Distinct().Count() != snapshot.Length)
+            {
+                throw new ArgumentException(
+                    "Failed termination cannot repeat one failure stage.",
+                    nameof(failures));
+            }
+
+            Evidence = evidence;
+            Failures = Array.AsReadOnly(snapshot);
+            CancellationObserved = cancellationObserved;
+        }
+
+        public PlatformHouseTerminalEvidenceIdentity Evidence { get; }
+        public IReadOnlyList<PlatformHouseFailureKind> Failures { get; }
+        public bool CancellationObserved { get; }
+    }
 }
 
 sealed class PlatformHouseCompletedValue<TValue>
@@ -907,7 +958,8 @@ public sealed class PlatformHouseReceipt
                 || consumed.TargetComparisons
                     > selecting.Work.MaxComparisons);
 
-        if (settlementKind != PlatformHouseSettlementKind.Incomplete
+        if (settlementKind is not PlatformHouseSettlementKind.Incomplete
+                and not PlatformHouseSettlementKind.Failed
             && (exceedsOperationBudget || exceedsTargetBudget))
         {
             throw new ArgumentException(
@@ -1122,10 +1174,10 @@ public sealed class PlatformHouseReceipt
             == PlatformSourceSettlementDisposition.Selected
         && settlement.Contribution
             is PlatformSourceContribution.Realization
-            {
-                RealizationCompleteness:
+        {
+            RealizationCompleteness:
                     PlatformSourceContributionCompleteness.Authoritative,
-            };
+        };
 
     static bool IsAuthoritativeAbsence(
         PlatformSourceSettlement settlement) =>
@@ -1133,9 +1185,9 @@ public sealed class PlatformHouseReceipt
             == PlatformSourceSettlementDisposition.OutcomeRelevant
         && settlement.Contribution
             is PlatformSourceContribution.Unavailable
-            {
-                Reason: PlatformSourceUnavailabilityKind.Absent,
-            };
+        {
+            Reason: PlatformSourceUnavailabilityKind.Absent,
+        };
 
     static void ValidateSuccessfulFacetPolicy(
         PlatformSourceFacet facet,
@@ -1160,11 +1212,11 @@ public sealed class PlatformHouseReceipt
             if (selected.Any(
                     settlement => settlement.Contribution
                         is PlatformSourceContribution.Realization
-                        {
-                            RealizationCompleteness:
+                    {
+                        RealizationCompleteness:
                                 not PlatformSourceContributionCompleteness
                                     .Authoritative,
-                        }))
+                    }))
             {
                 throw new ArgumentException(
                     $"A successful aggregation settlement requires authoritative selected {facet} realizations.",
@@ -1433,9 +1485,9 @@ public sealed class PlatformHouseReceipt
             settlement =>
                 settlement.Contribution
                     is PlatformSourceContribution.Unavailable
-                    {
-                        Reason: PlatformSourceUnavailabilityKind.Absent,
-                    })
+                {
+                    Reason: PlatformSourceUnavailabilityKind.Absent,
+                })
             ? PlatformDocumentationAttemptKind.Absent
             : PlatformDocumentationAttemptKind.Unavailable;
     }
