@@ -23,9 +23,10 @@ section pipeline.
 The query-free schema-version-2 records, strict JSON, and most same-version
 composition and schema-dispatch substrate are implemented by
 [#7075](https://github.com/richlander/dotnet-inspect/pull/7075).
-[#7047](https://github.com/richlander/dotnet-inspect/issues/7047) remains open
-to require the view/navigation pair and explicit leading Workspace subject and
-to remove the pre-construction version-1 compatibility handoff.
+[#7159](https://github.com/richlander/dotnet-inspect/pull/7159) requires the
+view/navigation pair and explicit leading Workspace subject, preserves
+version-1 source records for complete restoration, and removes the
+pre-construction compatibility handoff.
 Runtime subject/context selector resolution against one fresh Workspace,
 including inactive direct-Package state, is mostly implemented by
 [#7094](https://github.com/richlander/dotnet-inspect/pull/7094).
@@ -33,8 +34,9 @@ including inactive direct-Package state, is mostly implemented by
 omitted direct-Package context as exact Package-only Navigation context. The
 host-neutral portable query intent and canonical payload codec are implemented by
 [#7093](https://github.com/richlander/dotnet-inspect/pull/7093); vocabulary
-resolution, Definitions query adoption, complete view binding, and the
-restoration coordinator defined here are not yet implemented.
+resolution, Definitions query adoption, and complete view binding are not yet
+implemented. The complete restoration coordinator defined here is implemented
+by [#7125](https://github.com/richlander/dotnet-inspect/pull/7125).
 [#7087](https://github.com/richlander/dotnet-inspect/issues/7087) owns
 query-free packet-format-2 transposition. Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
