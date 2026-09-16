@@ -756,14 +756,14 @@ type $ManagedExports = {
         readonly "Package": {
           readonly "PackageExports": {
             readonly "ActivateWorkspacePackageOccurrence.976702342": (action: string) => Promise<string>;
-            readonly "CancelPackageChanges.271973316": (operationId: string, reason: string) => string;
+            readonly "CancelPackageActivity.271973316": (operationId: string, reason: string) => string;
             readonly "CancelPackageQuery.271973316": (operationId: string, reason: string) => string;
             readonly "ClassifyPackageGraphIdentities.271973316": (inspectedPackageId: string, packageIdsJson: string) => string;
             readonly "ClearWorkspacePackageOccurrences.1731052262": () => Promise<void>;
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
-            readonly "ListPackageChangesPackageSets.1310674786": () => string;
+            readonly "ListPackageActivityPackageSets.1310674786": () => string;
             readonly "ListPackageQueryCatalog.1310674786": () => string;
             readonly "LoadRuntimePack.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "LoadRuntimePackAssembly.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string) => Promise<string>;
@@ -778,7 +778,7 @@ type $ManagedExports = {
             readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
             readonly "RequestPackageQueryMatches.146925470": (operationId: string, additionalMatchCredit: number) => string;
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
-            readonly "RunPackageChanges.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
+            readonly "RunPackageActivity.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
             readonly "RunPackageQuery.1685943924": (operationId: string, prefix: string, facetIdsJson: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
             readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
           };
@@ -849,9 +849,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "CancelPackageChanges.271973316");
+    value = $ownDataProperty(value, "CancelPackageActivity.271973316");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageChanges.271973316\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageActivity.271973316\u0027 is not callable.");
     }
   }
   {
@@ -933,9 +933,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "ListPackageChangesPackageSets.1310674786");
+    value = $ownDataProperty(value, "ListPackageActivityPackageSets.1310674786");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageChangesPackageSets.1310674786\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageActivityPackageSets.1310674786\u0027 is not callable.");
     }
   }
   {
@@ -1113,9 +1113,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "RunPackageChanges.1791926993");
+    value = $ownDataProperty(value, "RunPackageActivity.1791926993");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageChanges.1791926993\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageActivity.1791926993\u0027 is not callable.");
     }
   }
   {
@@ -1185,8 +1185,8 @@ export async function activateWorkspacePackageOccurrence(action: string): Promis
   return $parsed as BrowserWorkspacePackageOccurrenceActivation;
 }
 
-export function cancelPackageChanges(operationId: string, reason: string): BrowserPackageChangesCancellation {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageChanges.271973316"](operationId, reason);
+export function cancelPackageActivity(operationId: string, reason: string): BrowserPackageChangesCancellation {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageActivity.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageChangesCancellation;
 }
@@ -1225,8 +1225,8 @@ export async function getPlatformVersions(targetFramework: string): Promise<Read
   return $parsed as ReadonlyArray<string>;
 }
 
-export function listPackageChangesPackageSets(): BrowserPackageChangesPackageSetCatalog {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageChangesPackageSets.1310674786"]();
+export function listPackageActivityPackageSets(): BrowserPackageChangesPackageSetCatalog {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageActivityPackageSets.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageChangesPackageSetCatalog;
 }
@@ -1307,8 +1307,8 @@ export async function resolvePackageDependencyVersion(packageId: string, declare
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
 }
 
-export async function runPackageChanges(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageChanges.1791926993"](operationId, requestJson, eventSink);
+export async function runPackageActivity(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageActivity.1791926993"](operationId, requestJson, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageChangesResult;
 }

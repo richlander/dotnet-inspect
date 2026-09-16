@@ -496,7 +496,7 @@ async function installFacades(
           maxWorkspaceRetainedImageBytes: 67108864,
         };
       }
-      export function listPackageChangesPackageSets() {
+      export function listPackageActivityPackageSets() {
         return {
           version: 1,
           packageSets: [{

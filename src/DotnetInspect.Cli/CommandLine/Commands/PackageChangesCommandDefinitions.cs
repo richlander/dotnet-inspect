@@ -81,8 +81,8 @@ public static class PackageChangesCommandDefinitions
             if (string.IsNullOrWhiteSpace(result.GetValue(ecosystemOption)))
             {
                 result.AddError(
-                    "package changes requires --ecosystem <name>, for example "
-                    + "'package changes --ecosystem aspire'.");
+                    "package activity requires --ecosystem <name>, for example "
+                    + "'package activity --ecosystem aspire'.");
             }
 
             bool fromExplicit = IsExplicit(result, fromOption);
@@ -125,13 +125,13 @@ public static class PackageChangesCommandDefinitions
                 result.AddError(
                     $"-n must be between 1 and "
                     + $"{EcosystemChangeReportRequest.DefaultMaximumCandidateEvents} "
-                    + "for package changes.");
+                    + "for package activity.");
             }
             if (IsExplicit(result, compactOption)
                 && !result.GetValue(opts.Json))
             {
                 result.AddError(
-                    "--compact requires package changes --json.");
+                    "--compact requires package activity --json.");
             }
 
             foreach (Option option in new Option[]
@@ -158,7 +158,7 @@ public static class PackageChangesCommandDefinitions
                 if (IsExplicit(result, option))
                 {
                     result.AddError(
-                        $"{option.Name} is not supported with package changes.");
+                        $"{option.Name} is not supported with package activity.");
                 }
             }
 
@@ -177,14 +177,14 @@ public static class PackageChangesCommandDefinitions
             if (unsupportedParentOption is not null)
             {
                 result.AddError(
-                    $"{unsupportedParentOption.Name} is not available with package changes.");
+                    $"{unsupportedParentOption.Name} is not available with package activity.");
             }
 
             if (result.GetValue(inheritedPackageArgument) is { Length: > 0 })
             {
                 result.AddError(
-                    "A package inspection target is not available with package changes; "
-                    + "place 'changes' immediately after 'package'.");
+                    "A package inspection target is not available with package activity; "
+                    + "place 'activity' immediately after 'package'.");
             }
         });
 

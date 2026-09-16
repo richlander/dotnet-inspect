@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Breaking:** Renames `package changes` to `package activity` and removes the
+  old spelling with direct replacement guidance. Inspect Web now presents the
+  same report as **Package Activity** while retaining the existing
+  `package-changes` Worker operation, bridge route, wire contracts, and report
+  semantics (#7175).
 - **Breaking:** Corrects Type `find` match vocabulary so direct non-glob
   discoveries emit `Direct` in typed JSON and `direct` in rendered output
   instead of the misleading `Exact`. Matching remains lenient and one-to-many;

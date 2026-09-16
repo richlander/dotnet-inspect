@@ -578,7 +578,7 @@ type ProductionEngineWorkerModule =
 
 let startEngine: (origin: string) => Promise<void>;
 let engineClient: EngineClient;
-let cancelPackageChanges: EngineClient["package"]["cancelPackageChanges"];
+let cancelPackageActivity: EngineClient["package"]["cancelPackageActivity"];
 let cancelPackageQuery: EngineClient["package"]["cancelPackageQuery"];
 let inspectPackageDocument: EngineClient["package"]["getPackageDocument"];
 let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
@@ -602,7 +602,7 @@ let resolveDependencyVersion:
 let inspectRequestPackageQueryMatches:
   EngineClient["package"]["requestPackageQueryMatches"];
 let inspectRunPackageQuery: EngineClient["package"]["runPackageQuery"];
-let inspectRunPackageChanges: EngineClient["package"]["runPackageChanges"];
+let inspectRunPackageActivity: EngineClient["package"]["runPackageActivity"];
 let inspectSearchTypes: EngineClient["package"]["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
   EngineClient["package"]["queryWorkspacePackageOccurrences"];
@@ -706,8 +706,8 @@ async function loadEngineModule() {
     );
     cancelPackageQuery = (...args) =>
       engineClient.package.cancelPackageQuery(...args);
-    cancelPackageChanges = (...args) =>
-      engineClient.package.cancelPackageChanges(...args);
+    cancelPackageActivity = (...args) =>
+      engineClient.package.cancelPackageActivity(...args);
     inspectRequestPackageQueryMatches = (...args) =>
       engineClient.package.requestPackageQueryMatches(...args);
     cancelTypeSourceInspection = (...args) =>
@@ -726,7 +726,7 @@ async function loadEngineModule() {
       queryPackagePruning: inspectPackagePruning,
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
-      runPackageChanges: inspectRunPackageChanges,
+      runPackageActivity: inspectRunPackageActivity,
       runPackageQuery: inspectRunPackageQuery,
       searchTypes: inspectSearchTypes,
       queryWorkspacePackageOccurrences:
@@ -1977,9 +1977,9 @@ const packageChangesController = createPackageChangesController(
   state.packageChangesState,
   createBrowserPackageChangesDataSource({
     cancel: (operationId, reason) =>
-      cancelPackageChanges(operationId, reason),
+      cancelPackageActivity(operationId, reason),
     run: (operationId, requestJson, eventSink) =>
-      inspectRunPackageChanges(operationId, requestJson, eventSink),
+      inspectRunPackageActivity(operationId, requestJson, eventSink),
   }),
   () => {
     if (!state.packageQueryOpen || state.packageQueryMode !== "changes") return;
@@ -12155,7 +12155,7 @@ function renderPackageQueryPage() {
     const viewport =
       capturePackageChangesViewport(document, packageChangesViewport)
       ?? packageChangesViewport;
-    document.title = "Package changes · dotnet-inspect";
+    document.title = "Package Activity · dotnet-inspect";
     app.innerHTML = renderPackageChangesView({
       state: state.packageChangesState,
       packageSets: state.packageChangesPackageSets,
@@ -15999,12 +15999,12 @@ async function bootstrap() {
     }
     try {
       state.packageChangesPackageSets = packageChangesPackageSets(
-        await engineClient.package.listPackageChangesPackageSets());
+        await engineClient.package.listPackageActivityPackageSets());
       state.packageChangesCatalogError = "";
     } catch (error) {
       state.packageChangesPackageSets = [];
       state.packageChangesCatalogError =
-        `Package Changes package sets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package Activity package sets are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
       const catalog =
