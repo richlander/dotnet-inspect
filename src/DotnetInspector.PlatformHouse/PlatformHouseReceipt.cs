@@ -147,6 +147,8 @@ public enum PlatformHouseSettlementKind
 public enum PlatformHouseFailureKind
 {
     Source,
+    ArtifactPublication,
+    ArtifactRetirement,
     Metadata,
     LibraryConstruction,
     LibraryBorrow,

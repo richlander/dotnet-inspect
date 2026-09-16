@@ -15,6 +15,7 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <Using Include="Xunit" />
+    <ProjectReference Include="../../src/DotnetInspector.PlatformHouse.Execution.Installed/DotnetInspector.PlatformHouse.Execution.Installed.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.PlatformHouse.Installed/DotnetInspector.PlatformHouse.Installed.csproj" />
   </ItemGroup>
 
