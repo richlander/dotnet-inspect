@@ -3147,12 +3147,15 @@ public class PackageCommand
         if (kind != ShapeProjectionKind.Value)
             return [];
 
-        var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
-        if (string.IsNullOrWhiteSpace(field))
+        var selector = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
+        if (string.IsNullOrWhiteSpace(selector))
         {
             CommandError.Write("--value for Package Info requires --fields <name>.");
             return [];
         }
+
+        if (ResolvePackageInfoFields([selector]) is not [var field])
+            return [];
 
         string? value =
             new InspectionResultView(result).ResolvePackageInfoField(field);

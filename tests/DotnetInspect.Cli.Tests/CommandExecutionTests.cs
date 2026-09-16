@@ -31589,6 +31589,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("Version", "1.0.0")]
     [InlineData("Authors", "tests")]
+    [InlineData("Auth*", "tests")]
     public async Task Package_Value_PrintsPackageInfoField(
         string field,
         string expected)
@@ -31602,6 +31603,34 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Equal(expected, output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ValuePattern_UsesCanonicalPackageInfoFieldName()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Value.PackageInfo.Pattern",
+            "README.md",
+            "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package Info",
+                "--fields", "Auth*",
+                "--value",
+                "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal("Authors", document.RootElement.GetProperty("label").GetString());
+            Assert.Equal("tests", document.RootElement.GetProperty("value").GetString());
         }
         finally
         {
