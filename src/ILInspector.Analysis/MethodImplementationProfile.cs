@@ -220,9 +220,7 @@ internal static class MethodImplementationProfileAnalysis
                         body.FaultCount,
                         body.LocalCount,
                         calls.Length,
-                        calls.Select(static call => call.Callee)
-                            .Distinct()
-                            .Count(),
+                        CountDistinctCallees(calls),
                         signal.Allocations,
                         signal.Throws,
                         body.IsAsync,
@@ -245,6 +243,31 @@ internal static class MethodImplementationProfileAnalysis
                 .ThenBy(static profile => profile.Method.MetadataToken),
         ];
     }
+
+    static int CountDistinctCallees(
+        IEnumerable<DirectCall> calls)
+    {
+        var definitions = new HashSet<int>();
+        var unresolved = new HashSet<MemberRef>();
+        foreach (DirectCall call in calls)
+        {
+            if (IsMethodDefinitionToken(
+                    call.CalleeDefinitionToken))
+            {
+                definitions.Add(call.CalleeDefinitionToken);
+            }
+            else
+            {
+                unresolved.Add(call.Callee);
+            }
+        }
+        return definitions.Count + unresolved.Count;
+    }
+
+    static bool IsMethodDefinitionToken(int token)
+        => unchecked((uint)token & 0xFF000000)
+                == 0x06000000
+            && ((uint)token & 0x00FFFFFF) != 0;
 
     internal static ImmutableArray<OverloadCallRelationship>
         CollectOverloadRelationships(

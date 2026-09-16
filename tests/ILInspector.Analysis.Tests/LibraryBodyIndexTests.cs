@@ -12154,7 +12154,56 @@ public class LibraryBodyIndexTests
         Assert.True(caller.IsComplete);
     }
 
-    static ImmutableArray<byte> EmitVarargOverloadAssembly()
+    [Fact]
+    public void
+        OverloadRelationships_LocalVarargMethodDefinitionParentUsesExactTarget()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "VarargMethodDefinitionParent.dll",
+                EmitVarargOverloadAssembly(
+                    methodDefinitionParent: true),
+                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+        Assert.Collection(
+            index.DirectCalls,
+            call => Assert.Equal(
+                0x06000001,
+                call.CalleeDefinitionToken),
+            call => Assert.Equal(
+                0x06000001,
+                call.CalleeDefinitionToken));
+        Assert.All(
+            index.OverloadRelationships(),
+            relationship =>
+            {
+                Assert.Equal(
+                    0x06000002,
+                    relationship.Caller.MetadataToken);
+                Assert.Equal(
+                    0x06000001,
+                    relationship.Callee.MetadataToken);
+            });
+        Assert.Equal(2, index.OverloadRelationships().Length);
+
+        MethodImplementationProfile target =
+            Assert.Single(
+                index.ImplementationProfiles(),
+                profile =>
+                    profile.Method.MetadataToken == 0x06000001);
+        MethodImplementationProfile caller =
+            Assert.Single(
+                index.ImplementationProfiles(),
+                profile =>
+                    profile.Method.MetadataToken == 0x06000002);
+        Assert.Equal(1, target.IncomingOverloadCallerCount);
+        Assert.Equal(1, caller.OutgoingOverloadTargetCount);
+        Assert.Equal(2, caller.DirectCallCount);
+        Assert.Equal(1, caller.DistinctCalleeCount);
+    }
+
+    static ImmutableArray<byte> EmitVarargOverloadAssembly(
+        bool methodDefinitionParent = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -12204,11 +12253,28 @@ public class LibraryBodyIndexTests
                 0x08,
                 0x41,
                 0x08);
+        BlobHandle secondCallSiteSignature =
+            AddSignature(
+                0x05,
+                parameterCount: 2,
+                0x01,
+                0x08,
+                0x41,
+                0x0e);
+        EntityHandle targetParent =
+            methodDefinitionParent
+                ? MetadataTokens.MethodDefinitionHandle(1)
+                : type;
         MemberReferenceHandle targetReference =
             metadata.AddMemberReference(
-                type,
+                targetParent,
                 metadata.GetOrAddString("Route"),
                 callSiteSignature);
+        MemberReferenceHandle secondTargetReference =
+            metadata.AddMemberReference(
+                targetParent,
+                metadata.GetOrAddString("Route"),
+                secondCallSiteSignature);
 
         var bodies = new BlobBuilder();
         var bodyEncoder = new MethodBodyStreamEncoder(bodies);
@@ -12219,6 +12285,15 @@ public class LibraryBodyIndexTests
         callerIl.WriteByte(0x28);
         callerIl.WriteInt32(
             MetadataTokens.GetToken(targetReference));
+        if (methodDefinitionParent)
+        {
+            callerIl.WriteByte(0x16);
+            callerIl.WriteByte(0x14);
+            callerIl.WriteByte(0x28);
+            callerIl.WriteInt32(
+                MetadataTokens.GetToken(
+                    secondTargetReference));
+        }
         callerIl.WriteByte(0x2a);
         int callerBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(callerIl),
