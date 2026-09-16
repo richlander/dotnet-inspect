@@ -6700,7 +6700,8 @@ function maybeAutoLoadLibraryApi() {
   if (!pkg || pkg.isRuntimePack || !library) return;
   const key = libraryApiSignature(pkg, library);
   if (state.libraryApiInspections.has(key)
-    || state.libraryApiLoads.has(key)) return;
+    || state.libraryApiLoads.has(key)
+    || state.libraryApiErrors.has(key)) return;
   observeAsync(
     loadLibraryApi(pkg, library),
     `Loading ${library.name} public API`);
@@ -6833,6 +6834,7 @@ function renderLibraryOverview() {
       <span class="large-glyph">${error ? "!" : "◇"}</span>
       <h2>${error ? "Public API unavailable" : "Loading public API"}</h2>
       <p>${escapeHtml(error || `Inspecting ${library.name} through the shared exact-Library operation…`)}</p>
+      ${error ? '<button type="button" data-library-api-retry>Retry</button>' : ""}
     </section>`;
   }
   const api = inspection.content;
@@ -6873,6 +6875,15 @@ function renderLibraryOverview() {
     namespacesHtml,
     typeKindsHtml,
   });
+  const incompleteHtml = api.isComplete
+    ? ""
+    : `<section class="document-section metadata-warning" role="status">
+        <strong>&#x26A0; This library could not be inspected completely</strong>
+        ${api.failures.length > 0
+          ? `<ul>${api.failures.map(failure =>
+              `<li><code>${escapeHtml(failure.detail)}</code></li>`).join("")}</ul>`
+          : ""}
+      </section>`;
 
   return renderOverviewSurface({
     subject: "library",
@@ -6885,7 +6896,7 @@ function renderLibraryOverview() {
     activeFramework: pkg.activeFramework,
     totalTypes: inventory.publicTypeCount,
     totalMembers: inventory.publicMemberCount,
-    contentHtml,
+    contentHtml: `${incompleteHtml}${contentHtml}`,
     escapeHtml,
   });
 }
@@ -7460,6 +7471,17 @@ const libraryControlActions: LibraryControlBindingActions = {
   onAccessibilityChipSelect: accessibility => {
     toggleAccessibilityChip(accessibility);
     afterLibraryScopeChange();
+  },
+  onLibraryApiRetry: () => {
+    const pkg = state.package;
+    const library = selectedLibrary();
+    if (!pkg || !library) return;
+    const key = libraryApiSignature(pkg, library);
+    state.libraryApiErrors.delete(key);
+    observeAsync(
+      loadLibraryApi(pkg, library),
+      `Retrying ${library.name} public API`);
+    renderPreservingContentFrameFocus();
   },
   onLibraryChipSelect: library => {
     if (library && selectLibrarySubject(library)) render();
