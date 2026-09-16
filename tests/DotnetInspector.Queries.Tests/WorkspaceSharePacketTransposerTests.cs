@@ -175,6 +175,47 @@ public sealed class WorkspaceSharePacketTransposerTests
     }
 
     [Fact]
+    public void RealizationPlan_AcceptsCurrentFormatAndRetainsPackageMembership()
+    {
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            """
+            {
+              "f": 2,
+              "t": [["System.Text.Json", "10.0.0", "net10.0", null]],
+              "g": [[0]],
+              "a": 0,
+              "x": 0,
+              "v": [
+                {"t": null, "u": {"k": "workspace"}},
+                {
+                  "t": 0,
+                  "u": {"k": "workspace"},
+                  "f": "workspace.overview"
+                }
+              ]
+            }
+            """,
+            TestContext.Current.CancellationToken);
+
+        WorkspaceSharePacketRealizationPlan realization =
+            WorkspaceSharePacketRealization.Prepare(
+                WorkspaceSharePacketCodec.Encode(packet),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            WorkspaceSharePacketCodec.CurrentFormatVersion,
+            packet.FormatVersion);
+        Assert.Same(
+            Assert.Single(realization.Plan.Contexts),
+            realization.SelectedContext);
+        var package = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
+            Assert.Single(realization.SelectedContext.Members));
+        Assert.Equal("System.Text.Json", package.PackageId);
+        Assert.Equal("10.0.0", package.Version);
+        Assert.Equal("net10.0", package.Framework);
+    }
+
+    [Fact]
     public void Transpose_CanonicalPacket_RoundTripsByteForByte()
     {
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(

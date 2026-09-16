@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using DotnetInspector.Packages;
 using NuGet.Versioning;
 
@@ -185,24 +186,44 @@ public static class WorkspaceSharePacketRealization
 
         WorkspaceSharePacket packet =
             WorkspaceSharePacketCodec.Decode(encoded, cancellationToken);
-        WorkspaceSharePacketDefinitionSet definitions =
-            WorkspaceSharePacketTransposer.ToDefinitions(
-                packet,
-                cancellationToken);
-        var registry = new InspectionDefinitionRegistry();
-        registry.Add(definitions.Workspace);
-        registry.Add(definitions.Navigation);
-        registry.Add(definitions.View);
-        registry.Add(definitions.Scenario);
-        ResolvedScenario scenario =
-            registry.ResolveScenario(definitions.Scenario.Id);
-        WorkspacePlan plan = scenario.WorkspacePlan
-            ?? throw new InspectionDefinitionException(
-                "A Workspace packet must resolve one Workspace plan.");
+        WorkspaceDefinition workspace = packet.FormatVersion switch
+        {
+            WorkspaceSharePacketCodec.LegacyFormatVersion =>
+                WorkspaceSharePacketTransposer.ToDefinitions(
+                    packet,
+                    cancellationToken).Workspace,
+            WorkspaceSharePacketCodec.CurrentFormatVersion =>
+                WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                    packet,
+                    cancellationToken).Workspace
+                ?? throw new InspectionDefinitionException(
+                    "A Workspace packet must resolve one Workspace definition."),
+            _ => throw new UnreachableException(),
+        };
+        var plan = new WorkspacePlan(
+            [],
+            [
+                .. workspace.Contexts.Select(static context =>
+                    new WorkspaceContextInput
+                    {
+                        Framework = context.Framework,
+                        RuntimeIdentifier = context.RuntimeIdentifier,
+                        Members =
+                        [
+                            .. context.Members
+                                .OfType<DefinitionMemberCoordinate
+                                    .PackageCoordinate>()
+                                .Select(static package =>
+                                    WorkspaceMemberCoordinate.Package(
+                                        package.Id,
+                                        package.Version,
+                                        package.Framework,
+                                        package.RuntimeIdentifier)),
+                        ],
+                    }),
+            ]);
         WorkspaceContextInput selectedContext =
-            scenario.SelectedContext?.Input
-            ?? throw new InspectionDefinitionException(
-                "A Workspace packet must resolve one selected context.");
+            plan.Contexts[packet.SelectedContextIndex];
         return new(packet, plan, selectedContext);
     }
 }
