@@ -19,9 +19,17 @@ publication evidence. This owner introduces no replacement architecture.
 **Normative claim.** The `/activity` surface preserves the product-issued
 package scope, requested interval, progressive event sequence, and typed
 terminal completion without deriving report semantics from display strings.
-The managed and frontend Package Activity suites, generated-facade inventory,
-Worker startup tests, and package-adoption Browser scenario are the enforcing
-gates.
+
+**Status: the route and the name are target behavior, not enforced behavior.**
+At the time of writing the CLI command is still `package changes`, the browser
+still presents the retired peer mode, and the suites still carry the Changes
+name. Those are pre-migration evidence for everything this document says about
+scope, interval, progressive sequence, and completion, all of which survive the
+move unchanged. They are not evidence for the route or the name. The managed
+and frontend suites, generated-facade inventory, Worker startup tests, and
+package-adoption Browser scenario become the enforcing gates for `/activity`
+when the rename and route land; until then this section is **unverified** for
+those two properties.
 
 ## Placement and lifetime
 
@@ -32,8 +40,9 @@ per activity event within a window, so five releases in six weeks is one row
 there and five rows here. What they share is the request model — a population
 selection, terms, and execution bounds, owned by
 [portable query intent](portable-query-intent.md) — and sharing a model is a
-reason to share code rather than a surface. The CLI already places them as
-siblings, `package query` and `package activity`, and this follows it.
+reason to share code rather than a surface. The CLI places them as siblings —
+`package query` beside what becomes `package activity` — and the browser
+follows it.
 
 An earlier revision of this document made Activity a peer **mode** on `/query`,
 switched by a toggle. That is reversed. A toggle put a periodic digest behind a
@@ -66,8 +75,8 @@ never crosses into TypeScript.
 
 Startup validates catalog version, non-empty descriptors, unique IDs, and
 strict product order. The selector submits only a discovered ID. Missing or
-invalid catalog data leaves Changes visibly unavailable; the host does not
-reconstruct known IDs or package members.
+invalid catalog data leaves Package Activity visibly unavailable; the host does
+not reconstruct known IDs or package members.
 
 ## Request controls
 
@@ -137,8 +146,11 @@ DOM mounts at most 30 row cards. A measured row window with overscan and spacer
 height preserves native page scrolling and exposes `aria-posinset` and
 `aria-setsize` for total accounting.
 
-The mode selector is a tablist with arrow, Home, and End navigation. Status and
-failure changes use live regions. The form uses native labels, limits, and
+This surface has no mode selector. The retired `Packages | Changes` tablist
+went with the peer mode, and nothing here reintroduces a control that selects
+between this surface and Package Query: they are sibling routes, and ordinary
+navigation moves between them. The package-set control is an ordinary form
+control, not a tablist. Status and failure changes use live regions. The form uses native labels, limits, and
 validity reporting. Full renders preserve focus when possible; stream patches
 leave controls in place.
 

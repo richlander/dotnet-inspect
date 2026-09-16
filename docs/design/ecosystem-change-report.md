@@ -313,8 +313,8 @@ executable scope. Browser transport adoption demonstrates package-set lookup,
 paired interval validation, strict bounded wire decoding, ordered progressive
 publication before terminal settlement, semantic partial completion inside a
 physically successful envelope, managed cancellation, and the fixed Catalog
-source/deadline composition. The focused Package Changes experience gates
-query state, terminal reconciliation, typed rendering, bounded DOM, and
+source/deadline composition. The focused Package Activity experience gates
+browser state, terminal reconciliation, typed rendering, bounded DOM, and
 real-Wasm publication.
 
 The shared-presentation Release gates run the real query over controlled NuGet
