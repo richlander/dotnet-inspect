@@ -164,6 +164,25 @@ public sealed class ArtifactAssemblyInspectionTests
         }
     }
 
+    [Fact]
+    public void AdmissionProjection_CanOnlyBeIssuedByMetadata()
+    {
+        AssertOwnerIssued(typeof(ArtifactAssemblyProjection));
+        AssertOwnerIssued(typeof(AssemblyProjectionRegistration));
+
+        static void AssertOwnerIssued(Type type)
+        {
+            Assert.Empty(
+                type.GetConstructors(
+                    BindingFlags.Public | BindingFlags.Instance));
+            Assert.All(
+                type.GetProperties(
+                    BindingFlags.Public | BindingFlags.Instance),
+                property => Assert.False(
+                    property.SetMethod?.IsPublic ?? false));
+        }
+    }
+
     [Theory]
     [InlineData("WindowsRuntime 1.4")]
     [InlineData("WindowsRuntime 1.4;CLR v4.0.30319")]
