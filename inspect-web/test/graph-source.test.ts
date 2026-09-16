@@ -5,6 +5,7 @@ import {
   renderGraphSource,
 } from "../src/graph-source.ts";
 import { fakeDom } from "./fake-dom.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 class FakeElement {
   private readonly listeners = new Map<string, EventListener[]>();
@@ -99,7 +100,7 @@ test("loaded PDB source renders provenance, an open-source link, and highlighted
       title: "Widget.Render()",
       source: {
         provider: "pdb",
-        provenance: "github.com/example/widget",
+        provenance: inertStringFixture("github.com/example/widget"),
         url: "https://github.com/example/widget/blob/main/Widget.cs",
         pdbSourceLimitation: null,
         text: "void Render() {}",
@@ -123,7 +124,7 @@ test("loaded decompiled source labels the provenance as decompiled and omits the
       title: "Widget.Render()",
       source: {
         provider: "decompiled",
-        provenance: "decompiled from IL",
+        provenance: inertStringFixture("decompiled from IL"),
         url: null,
         pdbSourceLimitation: "<checksum mismatch>",
         text: "void Render() {}",
@@ -183,18 +184,20 @@ test("cancelled state preserves a visible fallback while awaiting auto-load", ()
 });
 
 test("provenance and url are escaped", () => {
+  const unbrandedSource = {
+    provider: "original",
+    provenance: '<b>"evil"</b>',
+    url: 'https://example.com/"><script>alert(1)</script>',
+    pdbSourceLimitation: null,
+    text: "void Render() {}",
+  };
   const html = renderGraphSource({
     state: {
       status: "ready",
       request,
       title: "Widget.Render()",
-      source: {
-        provider: "pdb",
-        provenance: '<b>"evil"</b>',
-        url: 'https://example.com/"><script>alert(1)</script>',
-        pdbSourceLimitation: null,
-        text: "void Render() {}",
-      },
+      // @ts-expect-error Plain strings cannot cross the branded provenance boundary.
+      source: unbrandedSource,
     },
     escapeHtml,
     highlightCSharp,

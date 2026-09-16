@@ -153,7 +153,7 @@ function inspection(): BrowserPackageChangesInspection {
       fullUrl: null,
       packet: null,
       path: "package-changes/share",
-      reason: "Package Changes is not yet share-projectable.",
+      reason: "Package Activity is not yet share-projectable.",
     },
     diagnostics: [],
   };
@@ -171,7 +171,7 @@ function succeeded(): BrowserPackageChangesResult {
   };
 }
 
-test("Package Changes input is closed, paired, and bounded", () => {
+test("Package Activity input is closed, paired, and bounded", () => {
   assert.equal(engineWorkerPackageChangesInput.decode(request).kind, "decoded");
   assert.equal(engineWorkerPackageChangesInput.decode({
     ...request,
@@ -194,7 +194,7 @@ test("Package Changes input is closed, paired, and bounded", () => {
     assert.equal(oversized.reason, "oversized");
 });
 
-test("Package Changes terminal envelope remains physically successful when partial", () => {
+test("Package Activity terminal envelope remains physically successful when partial", () => {
   const decoded =
     engineWorkerPackageChangesInspection.decode(inspection());
   assert.equal(decoded.kind, "decoded");
@@ -217,7 +217,7 @@ test("Package Changes terminal envelope remains physically successful when parti
   );
 });
 
-test("Package Changes admits multiplicative advisory evidence at maximum rows", () => {
+test("Package Activity admits multiplicative advisory evidence at maximum rows", () => {
   const advisories = Array.from({ length: 30 }, (_, index) => ({
     ghsaId: `GHSA-0000-0000-${String(index).padStart(4, "0")}`,
     cveId: null,
@@ -295,7 +295,7 @@ test("Package Changes admits multiplicative advisory evidence at maximum rows", 
   );
 });
 
-test("Package Changes cancellation preserves the first managed reason", () => {
+test("Package Activity cancellation preserves the first managed reason", () => {
   assert.equal(
     engineWorkerPackageChangesCancellationIsRunning(
       { kind: "Requested", reason: "superseded" },
@@ -318,10 +318,10 @@ test("Package Changes cancellation preserves the first managed reason", () => {
   );
 });
 
-test("Package Changes publishes progress, rows, and failures before settlement", async () => {
+test("Package Activity publishes progress, rows, and failures before settlement", async () => {
   const published: unknown[] = [];
   const facade: EngineWorkerPackageChangesFacade = {
-    async runPackageChanges(_operationId, requestJson, eventSink) {
+    async runPackageActivity(_operationId, requestJson, eventSink) {
       assert.deepEqual(JSON.parse(requestJson), request);
       if ((typeof eventSink !== "object" && typeof eventSink !== "function")
         || eventSink === null) {
@@ -347,7 +347,7 @@ test("Package Changes publishes progress, rows, and failures before settlement",
       })), true);
       return succeeded();
     },
-    cancelPackageChanges() {
+    cancelPackageActivity() {
       return { kind: "NotActive", reason: null };
     },
   };
@@ -407,7 +407,7 @@ test("Package Changes publishes progress, rows, and failures before settlement",
     },
   });
 
-  const pending = binding.runPackageChanges(
+  const pending = binding.runPackageActivity(
     "package-changes-1",
     JSON.stringify(request),
     eventSink,

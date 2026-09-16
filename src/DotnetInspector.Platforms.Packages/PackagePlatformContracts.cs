@@ -95,16 +95,31 @@ public sealed record PackagePlatformSourceLimits
         int maxObservedEntries = 32768,
         int maxAssemblies = 4096,
         long maxEntryBytes = 64L * 1024 * 1024,
-        long maxBytes = 512L * 1024 * 1024)
+        long maxBytes = 512L * 1024 * 1024,
+        int maxFrameworks = 16,
+        int maxResolutionSteps = 256,
+        int maxManifestLibraries = 4096,
+        int maxManifestAssets = 8192,
+        int maxManifestBytes = 4 * 1024 * 1024)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxCandidates);
         ArgumentOutOfRangeException.ThrowIfNegative(maxObservedEntries);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxFrameworks);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxResolutionSteps);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxManifestLibraries);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxManifestAssets);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxManifestBytes);
         ArgumentOutOfRangeException.ThrowIfNegative(maxAssemblies);
         ArgumentOutOfRangeException.ThrowIfNegative(maxEntryBytes);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(maxEntryBytes, Array.MaxLength);
         ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
         MaxCandidates = maxCandidates;
         MaxObservedEntries = maxObservedEntries;
+        MaxFrameworks = maxFrameworks;
+        MaxResolutionSteps = maxResolutionSteps;
+        MaxManifestLibraries = maxManifestLibraries;
+        MaxManifestAssets = maxManifestAssets;
+        MaxManifestBytes = maxManifestBytes;
         MaxAssemblies = maxAssemblies;
         MaxEntryBytes = maxEntryBytes;
         MaxBytes = maxBytes;
@@ -112,6 +127,11 @@ public sealed record PackagePlatformSourceLimits
 
     public int MaxCandidates { get; }
     public int MaxObservedEntries { get; }
+    public int MaxFrameworks { get; }
+    public int MaxResolutionSteps { get; }
+    public int MaxManifestLibraries { get; }
+    public int MaxManifestAssets { get; }
+    public int MaxManifestBytes { get; }
     public int MaxAssemblies { get; }
     public long MaxEntryBytes { get; }
     public long MaxBytes { get; }
@@ -232,6 +252,10 @@ public enum PackagePlatformSourceDiagnosticKind
     Timeout,
     PackageFailure,
     ContentReadFailure,
+    InvalidManifest,
+    InvalidFrameworkGraph,
+    InvalidMember,
+    DuplicateLogicalCoordinate,
 }
 
 public sealed record PackagePlatformSourceDiagnostic(

@@ -6,7 +6,7 @@ export function renderQueryModeSelector(mode: QueryMode): string {
   return `
     <div class="query-mode-selector" role="tablist" aria-label="Query mode">
       ${tab("packages", "Packages")}
-      ${tab("changes", "Changes")}
+      ${tab("changes", "Activity")}
     </div>`;
 }
 

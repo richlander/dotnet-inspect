@@ -1,3 +1,7 @@
+declare const inertStringBrand: unique symbol;
+export type InertString = string & {
+    readonly [inertStringBrand]: "InertString";
+};
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
@@ -469,8 +473,8 @@ export interface ExactTypeParameter {
 export interface InspectionDiagnostic {
     readonly code: string;
     readonly severity: InspectionDiagnosticSeverity;
-    readonly summary: string;
-    readonly correspondence: string | null;
+    readonly summary: InertString;
+    readonly correspondence: InertString | null;
 }
 export interface InspectionEnvelope<T0> {
     readonly content: T0;
@@ -545,3 +549,4 @@ export declare function queryPlatformMemberDeclaration(targetFramework: string, 
 export declare function queryPlatformMetadata(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageMetadata>;
 export declare function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
 export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, workspaceJson: string): Promise<BrowserTypeMetadata>;
+export {};

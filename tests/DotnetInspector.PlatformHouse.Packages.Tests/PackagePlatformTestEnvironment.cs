@@ -47,12 +47,38 @@ internal sealed record TestSourceBehavior(
             beforeVersions,
             beforePayload);
     }
+
+    internal static TestSourceBehavior CreatePackages(
+        params (
+            string PackageId,
+            string Version,
+            IReadOnlyList<KeyValuePair<string, byte[]>> Entries)[] packages) =>
+        new(
+            packages
+                .GroupBy(
+                    static package => package.PackageId,
+                    StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group =>
+                        (IReadOnlyList<string>)[.. group.Select(
+                            static package => package.Version)],
+                StringComparer.OrdinalIgnoreCase),
+            packages.ToDictionary(
+                static package => PackageSourceCoordinate.Create(
+                    package.PackageId,
+                    package.Version),
+                static package => package.Entries));
 }
 
 internal sealed class PackagePlatformTestEnvironment : IAsyncDisposable
 {
     internal const string RuntimePackageId = "microsoft.netcore.app.ref";
     internal const string AspNetPackageId = "microsoft.aspnetcore.app.ref";
+    internal const string RuntimeImplementationPackageId =
+        "microsoft.netcore.app.runtime.linux-x64";
+    internal const string AspNetImplementationPackageId =
+        "microsoft.aspnetcore.app.runtime.linux-x64";
     internal const string Version = "11.0.0-rc.1.26425.128";
     private readonly IReadOnlyList<IPackageSourceClient> _ownedClients;
     private bool _settled;
@@ -450,6 +476,105 @@ internal static class PackagePlatformTestData
         using var output = new MemoryStream();
         await stream.CopyToAsync(output, TestContext.Current.CancellationToken);
         return output.ToArray();
+    }
+
+    internal static async Task<byte[]> ReadAllAsync(
+        PackageImplementationLibrary library)
+    {
+        await using Stream stream = library.OpenRead();
+        using var output = new MemoryStream();
+        await stream.CopyToAsync(
+            output,
+            TestContext.Current.CancellationToken);
+        return output.ToArray();
+    }
+
+    internal static IReadOnlyList<KeyValuePair<string, byte[]>>
+        RuntimePackEntries(
+            string frameworkName,
+            byte[] runtimeConfiguration,
+            byte[] dependencyManifest,
+            params (string FileName, byte[] Content)[] members)
+    {
+        const string prefix = "runtimes/linux-x64/lib/net11.0/";
+        return
+        [
+            Entry(
+                prefix + frameworkName + ".runtimeconfig.json",
+                runtimeConfiguration),
+            Entry(
+                prefix + frameworkName + ".deps.json",
+                dependencyManifest),
+            .. members.Select(
+                static member => Entry(
+                    prefix + member.FileName,
+                    member.Content)),
+        ];
+    }
+
+    internal static byte[] RuntimeConfiguration(
+        params (
+            string Name,
+            string Version,
+            string RollForward)[] frameworks)
+    {
+        object runtimeOptions = frameworks.Length switch
+        {
+            0 => new { },
+            1 => new
+            {
+                framework = new
+                {
+                    name = frameworks[0].Name,
+                    version = frameworks[0].Version,
+                    rollForward = frameworks[0].RollForward,
+                },
+            },
+            _ => new
+            {
+                frameworks = frameworks.Select(
+                    static framework => new
+                    {
+                        name = framework.Name,
+                        version = framework.Version,
+                        rollForward = framework.RollForward,
+                    }),
+            },
+        };
+        return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new { runtimeOptions });
+    }
+
+    internal static byte[] DependencyManifest(params string[] assets) =>
+        DependencyManifestForTarget(
+            ".NETCoreApp,Version=v11.0/linux-x64",
+            assets);
+
+    internal static byte[] DependencyManifestForTarget(
+        string runtimeTargetName,
+        params string[] assets)
+    {
+        var runtime = assets.ToDictionary(
+            static asset => asset,
+            static _ => new { },
+            StringComparer.Ordinal);
+        var library = new Dictionary<string, object>
+        {
+            ["Fixture/1.0.0"] = new { runtime },
+        };
+        var targets = new Dictionary<string, object>
+        {
+            [runtimeTargetName] = library,
+        };
+        return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new
+            {
+                runtimeTarget = new
+                {
+                    name = runtimeTargetName,
+                },
+                targets,
+            });
     }
 
     private static byte[] Serialize(MetadataBuilder metadata, string metadataVersion)

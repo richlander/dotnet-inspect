@@ -177,7 +177,7 @@ export const engineStartupOperations = {
       };
     }),
   },
-  listPackageChangesPackageSets: {
+  listPackageActivityPackageSets: {
     kind: "package-list-changes-package-sets",
     value: json<BrowserPackageChangesPackageSetCatalog>(value => {
       const data = record(value);

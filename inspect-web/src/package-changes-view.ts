@@ -151,7 +151,7 @@ export function renderPackageChangesView(
         ${renderQueryModeSelector("changes")}
         <div class="query-heading">
           <p class="query-kicker">Product package sets · NuGet catalog and advisory evidence</p>
-          <h1 id="package-changes-heading" tabindex="-1">Package changes</h1>
+          <h1 id="package-changes-heading" tabindex="-1">Package Activity</h1>
           <p>Inspect a bounded package-set interval. Results preserve producer order, evidence availability, source coverage, and typed completion.</p>
         </div>
         ${catalogError
@@ -186,7 +186,7 @@ export function renderPackageChangesView(
           </div>
           <p class="query-facet-disclosure">The default interval is the product-owned previous 42 days. Custom endpoints must be paired, increasing UTC values no more than 42 days apart.</p>
         </form>
-        <section id="package-changes-results" class="query-results package-changes-results" aria-label="Package Changes results" tabindex="-1">
+        <section id="package-changes-results" class="query-results package-changes-results" aria-label="Package Activity results" tabindex="-1">
           ${renderPackageChangesStream(state, escapeHtml, viewport)}
         </section>
       </main>
@@ -303,7 +303,7 @@ function renderPackageChangesStream(
       renderRow(row, rowWindow.start + relativeIndex, state.rows.length, escapeHtml))
     .join("");
   const list = state.rows.length
-    ? `<div id="package-changes-row-window" class="query-list package-changes-list" role="list" aria-label="Changes ${rowWindow.start + 1} through ${rowWindow.end} of ${state.rows.length}" data-changes-row-count="${state.rows.length}" data-changes-row-extent="${rowWindow.rowExtent}">
+    ? `<div id="package-changes-row-window" class="query-list package-changes-list" role="list" aria-label="Activity events ${rowWindow.start + 1} through ${rowWindow.end} of ${state.rows.length}" data-changes-row-count="${state.rows.length}" data-changes-row-extent="${rowWindow.rowExtent}">
         ${rowWindow.beforeHeight
           ? `<div class="query-row-spacer" aria-hidden="true" style="height:${rowWindow.beforeHeight.toFixed(2)}px"></div>`
           : ""}
@@ -329,11 +329,11 @@ function renderStatus(
       detail = "Choose a product package set and run a report.";
       break;
     case "running":
-      text = `${state.rows.length.toLocaleString()} changes · streaming…`;
+      text = `${state.rows.length.toLocaleString()} activity events · streaming…`;
       detail = "Progressive rows remain visible if the operation is canceled.";
       break;
     case "canceling":
-      text = `${state.rows.length.toLocaleString()} changes · canceling…`;
+      text = `${state.rows.length.toLocaleString()} activity events · canceling…`;
       detail = settlement.reason === "user"
         ? "Cancellation requested; waiting for the Worker to settle."
         : settlement.reason === "superseded"
@@ -341,20 +341,20 @@ function renderStatus(
           : "The report was left; waiting for the Worker operation to settle.";
       break;
     case "canceled":
-      text = `${state.rows.length.toLocaleString()} changes · canceled`;
+      text = `${state.rows.length.toLocaleString()} activity events · canceled`;
       detail = settlement.reason === "superseded"
         ? "A newer operation or mode replaced this report."
         : settlement.reason === "disposed"
-          ? "The report was canceled after leaving Changes mode; admitted rows are retained."
+          ? "The report was canceled after leaving Activity mode; admitted rows are retained."
           : "The operation was canceled explicitly; admitted rows are retained.";
       break;
     case "failed":
-      text = `${state.rows.length.toLocaleString()} changes · operation failed`;
+      text = `${state.rows.length.toLocaleString()} activity events · operation failed`;
       detail = settlement.error;
       if (settlement.diagnostic) detail += ` Diagnostic: ${settlement.diagnostic}`;
       break;
     case "succeeded":
-      text = `${state.rows.length.toLocaleString()} changes · ${completionLabel(settlement.inspection.content.summary.completion)}`;
+      text = `${state.rows.length.toLocaleString()} activity events · ${completionLabel(settlement.inspection.content.summary.completion)}`;
       detail = completionDescription(
         settlement.inspection.content.summary.completion);
       break;
@@ -493,9 +493,9 @@ function renderAdvisories(
 
 function renderEmpty(state: PackageChangesState): string {
   if (state.settlement.kind === "succeeded") {
-    return `<section class="query-empty"><span class="large-glyph">◇</span><h2>No returned changes</h2><p>The completion and coverage evidence above describes whether this is a complete, bounded, partial, or failed semantic result.</p></section>`;
+    return `<section class="query-empty"><span class="large-glyph">◇</span><h2>No returned activity</h2><p>The completion and coverage evidence above describes whether this is a complete, bounded, partial, or failed semantic result.</p></section>`;
   }
-  return `<section class="query-empty"><span class="large-glyph">◇</span><h2>No changes yet</h2><p>Run a report to stream Package Changes evidence.</p></section>`;
+  return `<section class="query-empty"><span class="large-glyph">◇</span><h2>No activity yet</h2><p>Run a report to stream Package Activity evidence.</p></section>`;
 }
 
 function packageUrl(packageId: string, version: string): string {

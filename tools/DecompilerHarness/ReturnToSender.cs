@@ -114,6 +114,8 @@ static class ReturnToSender
         // Supplemental RTS evidence, separate from FidelityDiff and any CompileBack floor.
         [JsonIgnore]
         public LocalComparisonQueryResult? MemberComparison { get; init; }
+        [JsonIgnore]
+        public MetadataMethodAddress? TargetAddress { get; init; }
         public RoundTripCompilationProvenance? Compilation { get; init; }
         [JsonIgnore]
         public byte[]? DonorPe { get; init; }
@@ -121,7 +123,12 @@ static class ReturnToSender
         internal RebuildCompilationAttempt? CompilationAttempt { get; init; }
     }
 
-    public sealed record RequestedTarget(string Type, string Method, int Overload, string? Signature = null);
+    public sealed record RequestedTarget(
+        string Type,
+        string Method,
+        int Overload,
+        string? Signature = null,
+        MetadataMethodAddress? Address = null);
 
     public sealed record ScopePairResult(
         Result Cluster,
@@ -186,7 +193,7 @@ static class ReturnToSender
 
     public static async Task<int> Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
-        int total = 0, exact = 0, opcodeDiff = 0, operandDiff = 0;
+        int total = 0, exact = 0, opcodeDiff = 0, operandDiff = 0, notFull = 0;
         int fidelityUnavailable = 0, recompileFail = 0, contextFail = 0;
         int closureRoots = 0, closureMembers = 0, compileBackFloor = 0;
         var planningDiagnostics = new SortedDictionary<string, int>(StringComparer.Ordinal);
@@ -247,6 +254,9 @@ static class ReturnToSender
                     case FidelityCheck.CompileBackStatus.FidelityUnavailable:
                         fidelityUnavailable++;
                         break;
+                    case FidelityCheck.CompileBackStatus.NotFull:
+                        notFull++;
+                        break;
                     case FidelityCheck.CompileBackStatus.RecompileFail:
                         recompileFail++;
                         break;
@@ -274,6 +284,7 @@ static class ReturnToSender
         Console.WriteLine($"  OpcodeDiff    : {opcodeDiff}");
         Console.WriteLine($"  OperandDiff   : {operandDiff}");
         Console.WriteLine($"  FidelityUnavailable: {fidelityUnavailable}");
+        Console.WriteLine($"  NotFull       : {notFull}");
         Console.WriteLine($"  RecompileFail : {recompileFail}");
         Console.WriteLine($"  ContextFail   : {contextFail}");
         Console.WriteLine();
@@ -856,9 +867,12 @@ static class ReturnToSender
                     continue;
                 }
 
-                if (TryFindPropertyGetter(reader, typeDef, target) is { } propertyTarget)
+                if (ResolveRequestedMethod(reader, typeHandle, typeDef, target) is not { } methodHandle)
+                    continue;
+
+                if (TryFindPropertyGetter(reader, typeDef, methodHandle) is { } propertyTarget)
                 {
-                    results.Add(await CompileBackPropertyGetterOrContextFail(
+                    var result = await CompileBackPropertyGetterOrContextFail(
                         assemblyPath,
                         compilationClosure,
                         pe,
@@ -870,13 +884,14 @@ static class ReturnToSender
                         MemberAnchorFor(memberAnchors, propertyTarget.Getter),
                         sourceIndex,
                         scope,
-                        bodyPolicy));
+                        bodyPolicy);
+                    results.Add(result with { TargetAddress = target.Address });
                     continue;
                 }
 
-                if (TryFindPropertySetter(reader, typeDef, target) is { } setterTarget)
+                if (TryFindPropertySetter(reader, typeDef, methodHandle) is { } setterTarget)
                 {
-                    results.Add(await CompileBackPropertySetterOrContextFail(
+                    var result = await CompileBackPropertySetterOrContextFail(
                         assemblyPath,
                         compilationClosure,
                         pe,
@@ -888,13 +903,14 @@ static class ReturnToSender
                         MemberAnchorFor(memberAnchors, setterTarget.Setter),
                         sourceIndex,
                         scope,
-                        bodyPolicy));
+                        bodyPolicy);
+                    results.Add(result with { TargetAddress = target.Address });
                     continue;
                 }
 
-                if (TryFindEventAccessor(reader, typeDef, target, bodyPolicy == RoundTripBodyPolicy.Full) is { } eventTarget)
+                if (TryFindEventAccessor(reader, typeDef, methodHandle, bodyPolicy == RoundTripBodyPolicy.Full) is { } eventTarget)
                 {
-                    results.Add(await CompileBackEventAccessorOrContextFail(
+                    var result = await CompileBackEventAccessorOrContextFail(
                         assemblyPath,
                         compilationClosure,
                         pe,
@@ -906,25 +922,24 @@ static class ReturnToSender
                         MemberAnchorFor(memberAnchors, eventTarget.Accessor),
                         sourceIndex,
                         scope,
-                        bodyPolicy));
+                        bodyPolicy);
+                    results.Add(result with { TargetAddress = target.Address });
                     continue;
                 }
 
-                if (TryFindMethod(reader, typeDef, target) is { } methodHandle)
-                {
-                    results.Add(await CompileBackMethodOrContextFail(
-                        assemblyPath,
-                        compilationClosure,
-                        pe,
-                        reader,
-                        source,
-                        typeHandle,
-                        methodHandle,
-                        MemberAnchorFor(memberAnchors, methodHandle),
-                        sourceIndex,
-                        scope,
-                        bodyPolicy));
-                }
+                var methodResult = await CompileBackMethodOrContextFail(
+                    assemblyPath,
+                    compilationClosure,
+                    pe,
+                    reader,
+                    source,
+                    typeHandle,
+                    methodHandle,
+                    MemberAnchorFor(memberAnchors, methodHandle),
+                    sourceIndex,
+                    scope,
+                    bodyPolicy);
+                results.Add(methodResult with { TargetAddress = target.Address });
             }
 
             var unsupportedDeclarations = scope == RoundTripScope.All
@@ -1088,7 +1103,7 @@ static class ReturnToSender
     static (PropertyDefinitionHandle Property, MethodDefinitionHandle Getter)? TryFindPropertyGetter(
         MetadataReader reader,
         TypeDefinition typeDef,
-        RequestedTarget target)
+        MethodDefinitionHandle methodHandle)
     {
         var getterToProperty = new Dictionary<MethodDefinitionHandle, PropertyDefinitionHandle>();
         foreach (var propertyHandle in typeDef.GetProperties())
@@ -1099,10 +1114,9 @@ static class ReturnToSender
                 getterToProperty[accessors.Getter] = propertyHandle;
         }
 
-        if (TryFindMethod(reader, typeDef, target) is { } getterHandle
-            && getterToProperty.TryGetValue(getterHandle, out var foundPropertyHandle))
+        if (getterToProperty.TryGetValue(methodHandle, out var foundPropertyHandle))
         {
-            return (foundPropertyHandle, getterHandle);
+            return (foundPropertyHandle, methodHandle);
         }
 
         return null;
@@ -1111,7 +1125,7 @@ static class ReturnToSender
     static (PropertyDefinitionHandle Property, MethodDefinitionHandle Setter)? TryFindPropertySetter(
         MetadataReader reader,
         TypeDefinition typeDef,
-        RequestedTarget target)
+        MethodDefinitionHandle methodHandle)
     {
         var setterToProperty = new Dictionary<MethodDefinitionHandle, PropertyDefinitionHandle>();
         foreach (var propertyHandle in typeDef.GetProperties())
@@ -1122,10 +1136,9 @@ static class ReturnToSender
                 setterToProperty[accessors.Setter] = propertyHandle;
         }
 
-        if (TryFindMethod(reader, typeDef, target) is { } setterHandle
-            && setterToProperty.TryGetValue(setterHandle, out var foundPropertyHandle))
+        if (setterToProperty.TryGetValue(methodHandle, out var foundPropertyHandle))
         {
-            return (foundPropertyHandle, setterHandle);
+            return (foundPropertyHandle, methodHandle);
         }
 
         return null;
@@ -1134,7 +1147,7 @@ static class ReturnToSender
     static (EventDefinitionHandle Event, MethodDefinitionHandle Accessor)? TryFindEventAccessor(
         MetadataReader reader,
         TypeDefinition typeDef,
-        RequestedTarget target,
+        MethodDefinitionHandle methodHandle,
         bool includePlainEventAccessors)
     {
         var accessorToEvent = new Dictionary<MethodDefinitionHandle, EventDefinitionHandle>();
@@ -1160,12 +1173,11 @@ static class ReturnToSender
         // event (CS0102/CS0229). Coherent field-like reconstruction is out of #3007's scope, so
         // these stay method-routed exactly as before (an honest compile-back floor, not a
         // double-declaration false success).
-        if (TryFindMethod(reader, typeDef, target) is { } accessorHandle
-            && accessorToEvent.TryGetValue(accessorHandle, out var foundEventHandle)
-            && (IsExplicitInterfaceEventAccessor(reader, typeDef, accessorHandle)
+        if (accessorToEvent.TryGetValue(methodHandle, out var foundEventHandle)
+            && (IsExplicitInterfaceEventAccessor(reader, typeDef, methodHandle)
                 || (includePlainEventAccessors && !IsFieldLikeEvent(reader, typeDef, foundEventHandle))))
         {
-            return (foundEventHandle, accessorHandle);
+            return (foundEventHandle, methodHandle);
         }
 
         return null;
@@ -1237,6 +1249,32 @@ static class ReturnToSender
         }
 
         return TryFindMethod(reader, typeDef, target.Method, target.Overload);
+    }
+
+    static MethodDefinitionHandle? ResolveRequestedMethod(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDef,
+        RequestedTarget target)
+    {
+        if (target.Address is not { } address)
+            return TryFindMethod(reader, typeDef, target);
+        if (!address.BelongsTo(reader))
+            return null;
+
+        int row = MetadataTokens.GetRowNumber(address.Handle);
+        if (row <= 0 || row > reader.GetTableRowCount(TableIndex.MethodDef))
+            return null;
+
+        var method = reader.GetMethodDefinition(address.Handle);
+        if (method.GetDeclaringType() != typeHandle
+            || !string.Equals(reader.GetString(method.Name), target.Method, StringComparison.Ordinal)
+            || method.RelativeVirtualAddress == 0)
+        {
+            return null;
+        }
+
+        return address.Handle;
     }
 
     static MethodDefinitionHandle? TryFindMethodBySignature(
@@ -2008,7 +2046,7 @@ static class ReturnToSender
             : null;
 
         var status = FidelityCheck.ClassifyStatus(
-            isFull: true,
+            isFull: targetBody.Fidelity == DecompilationFidelity.Full,
             opcodesExact: originalOps.SequenceEqual(recompiledOps),
             fidelityDiff: fidelityDiff);
         string? detail = status == FidelityCheck.CompileBackStatus.FidelityUnavailable

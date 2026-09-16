@@ -139,6 +139,14 @@ The terminal family distinguishes:
 - **Cleanup failure** — bounded cleanup-stage counts after a provisional
   success.
 
+A valid House compile realization may retain an owner-default runtime
+identifier without an acquisition framework. That evidence cannot form the
+complete package Root coordinate, so the Root try-adapter returns false and
+the operation preserves
+`PackageHouseRootNoContributionReason.CoordinateNotRepresentable` rather than
+throwing after acquisition. Malformed House or selection correspondence remains
+exceptional.
+
 The returned closure retains no cell, payload, package Root binding, package
 content, Workspace, group, session, lease, stream, callback, source
 composition, or close exception. House results and Metadata participant
@@ -214,6 +222,7 @@ The Release gate is `PackageVersionCellMetadataInspectionTests`:
 | Finite realization | `InspectionEnforcesAssemblyEntryAndAggregateBounds` |
 | Atomic malformed-image refusal | `InspectionMalformedNeighborRejectsWholeRootWithoutMetadata` |
 | Typed House, Workspace, and deadline failures | `InspectionPreservesNoContributionWithoutCreatingARoot`, `InspectionPreservesExpiredWorkspaceDeadline`, and the bounded-admission tests |
+| Unrepresentable Root coordinate | `InspectionPreservesOwnerDefaultRuntimeIdentifierAsNoContribution` |
 | Scoped borrowing and empty package shape | `InspectionPreservesExplicitEmptyCompileSelection` |
 | Terminal cancellation | `InspectionCancellationAfterQueryWaitsForCloseAndPublishesNoOutcome` |
 | Cleanup precedence | `CleanupFailureSupersedesSuccessAndRemainsSecondaryToFailure` |

@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.IO;
-using System.Security.Cryptography;
 using System.Text;
 
 using CSharpText;
@@ -10,15 +9,6 @@ using ILInspector.Metadata;
 using Inspector.Text;
 
 namespace DotnetInspector.Services;
-
-public enum SourceChecksumVerification
-{
-    Exact,
-    LineEndingNormalized,
-    Unavailable,
-    Unsupported,
-    Mismatch,
-}
 
 public enum PdbMemberSourceOutcome
 {
@@ -64,14 +54,6 @@ public sealed record PdbTypeSourceInspection(
 {
     public bool IsComplete =>
         Lines.Value is FindingInspection<string>.Complete;
-}
-
-public sealed record VerifiedSourceTextResult(
-    string? Text,
-    string? Failure,
-    SourceChecksumVerification ChecksumVerification = SourceChecksumVerification.Unavailable)
-{
-    public bool IsVerified => Text is not null;
 }
 
 /// <summary>
@@ -238,7 +220,7 @@ public static class PdbSourceHouse
         SourceFetchBytesResult fetch =
             await fetcher.FetchVerifiedSourceBytesResultAsync(
                 url,
-                content => VerifyChecksum(document, content.Span)
+                content => SourceLinkService.VerifyChecksum(document, content.Span)
                     is SourceChecksumVerification.Exact
                         or SourceChecksumVerification
                             .LineEndingNormalized,
@@ -430,7 +412,7 @@ public static class PdbSourceHouse
 
         var fetch = await fetcher.FetchVerifiedSourceBytesResultAsync(
             url,
-            content => VerifyChecksum(document, content.Span)
+            content => SourceLinkService.VerifyChecksum(document, content.Span)
                 is SourceChecksumVerification.Exact
                     or SourceChecksumVerification.LineEndingNormalized,
             cancellationToken).ConfigureAwait(false);
@@ -541,7 +523,7 @@ public static class PdbSourceHouse
 
         var fetch = await fetcher.FetchVerifiedSourceBytesResultAsync(
             url,
-            content => VerifyChecksum(checksumAlgorithm, checksum, content.Span)
+            content => SourceLinkService.VerifyChecksum(checksumAlgorithm, checksum, content.Span)
                 is SourceChecksumVerification.Exact
                     or SourceChecksumVerification.LineEndingNormalized,
             cancellationToken).ConfigureAwait(false);
@@ -561,21 +543,8 @@ public static class PdbSourceHouse
                 });
         }
 
-        var verification = VerifyChecksum(checksumAlgorithm, checksum, fetch.Bytes);
-        if (verification is not (SourceChecksumVerification.Exact
-            or SourceChecksumVerification.LineEndingNormalized))
-        {
-            return new VerifiedSourceTextResult(
-                null,
-                verification == SourceChecksumVerification.Unsupported
-                    ? "The portable-PDB source checksum algorithm is unsupported."
-                    : "Fetched source does not match the portable-PDB checksum.");
-        }
-
-        return new VerifiedSourceTextResult(
-            DecodeSourceText(fetch.Bytes),
-            null,
-            verification);
+        return SourceLinkService.VerifySourceContent(
+            checksumAlgorithm, checksum, fetch.Bytes);
     }
 
     public static async Task<VerifiedSourceTextResult> AcquireVerifiedSourceTextAsync(
@@ -601,14 +570,8 @@ public static class PdbSourceHouse
             repositoryPaths ?? []);
         if (content is not null)
         {
-            var verification = VerifyChecksum(
-                checksumAlgorithm,
-                checksum,
-                content);
-            return new VerifiedSourceTextResult(
-                DecodeSourceText(content),
-                null,
-                verification);
+            return SourceLinkService.VerifySourceContent(
+                checksumAlgorithm, checksum, content);
         }
 
         return await FetchVerifiedSourceTextAsync(
@@ -632,7 +595,7 @@ public static class PdbSourceHouse
         ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
         ArgumentNullException.ThrowIfNull(subject);
 
-        var verification = VerifyChecksum(document, content);
+        var verification = SourceLinkService.VerifyChecksum(document, content);
         if (verification == SourceChecksumVerification.Unavailable)
         {
             return Absent(
@@ -663,7 +626,7 @@ public static class PdbSourceHouse
 
         try
         {
-            string sourceText = DecodeSourceText(content);
+            string sourceText = SourceLinkService.DecodeSourceText(content);
             string? memberText = MemberTextSlicer.ExtractMemberText(
                 sourceText,
                 mapping.StartLine,
@@ -741,7 +704,7 @@ public static class PdbSourceHouse
         ArgumentNullException.ThrowIfNull(subject);
 
         SourceChecksumVerification verification =
-            VerifyChecksum(document, content);
+            SourceLinkService.VerifyChecksum(document, content);
         if (verification == SourceChecksumVerification.Unavailable)
         {
             return TypeAbsent(
@@ -765,7 +728,7 @@ public static class PdbSourceHouse
 
         try
         {
-            string text = DecodeSourceText(content);
+            string text = SourceLinkService.DecodeSourceText(content);
             return new PdbTypeSourceInspection(
                 new FindingInspection<string>.Complete(
                     TextFindings.Inspect(
@@ -788,53 +751,6 @@ public static class PdbSourceHouse
                 document,
                 verification);
         }
-    }
-
-    public static SourceChecksumVerification VerifyChecksum(
-        SourceDocumentObservation document,
-        ReadOnlySpan<byte> content)
-    {
-        ArgumentNullException.ThrowIfNull(document);
-        if (document.ChecksumAlgorithm is not { Length: > 0 }
-            || document.Checksum is not { Length: > 0 })
-        {
-            return SourceChecksumVerification.Unavailable;
-        }
-
-        byte[] expected;
-        try
-        {
-            expected = Convert.FromHexString(document.Checksum);
-        }
-        catch (FormatException)
-        {
-            return SourceChecksumVerification.Unsupported;
-        }
-
-        return VerifyChecksum(document.ChecksumAlgorithm, expected, content);
-    }
-
-    /// <summary>
-    /// Verifies fetched or on-disk source <paramref name="content"/> against a portable-PDB
-    /// document hash. Accepts an exact match or one recovered after CR/LF normalization. Returns
-    /// <see cref="SourceChecksumVerification.Unavailable"/> when no usable checksum is supplied.
-    /// </summary>
-    public static SourceChecksumVerification VerifyChecksum(
-        string? algorithm,
-        byte[]? expectedChecksum,
-        ReadOnlySpan<byte> content)
-    {
-        if (algorithm is not { Length: > 0 } || expectedChecksum is not { Length: > 0 })
-            return SourceChecksumVerification.Unavailable;
-
-        if (HashMatches(algorithm, content, expectedChecksum))
-            return SourceChecksumVerification.Exact;
-        if (HashMatchesAfterLineEndingNormalization(algorithm, content, expectedChecksum))
-            return SourceChecksumVerification.LineEndingNormalized;
-
-        return IsSupportedAlgorithm(algorithm)
-            ? SourceChecksumVerification.Mismatch
-            : SourceChecksumVerification.Unsupported;
     }
 
     /// <summary>
@@ -883,7 +799,7 @@ public static class PdbSourceHouse
             return null;
         }
 
-        return VerifyChecksum(checksumAlgorithm, checksum, content)
+        return SourceLinkService.VerifyChecksum(checksumAlgorithm, checksum, content)
             is SourceChecksumVerification.Exact
                 or SourceChecksumVerification.LineEndingNormalized
             ? content
@@ -973,20 +889,6 @@ public static class PdbSourceHouse
         }
 
         return true;
-    }
-
-    /// <summary>
-    /// Decodes source bytes to text using the byte-order mark to select the encoding
-    /// (UTF-8/UTF-16/UTF-32), defaulting to UTF-8 when no BOM is present, and strips the BOM.
-    /// This mirrors the remote path's <see cref="System.Net.Http.HttpContent.ReadAsStringAsync()"/>
-    /// decoding so a checksum-verified local file in any of those encodings renders identically.
-    /// </summary>
-    public static string DecodeSourceText(byte[] content)
-    {
-        ArgumentNullException.ThrowIfNull(content);
-        using var stream = new MemoryStream(content, writable: false);
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        return reader.ReadToEnd();
     }
 
     static PdbMemberSourceInspection Absent(
@@ -1099,70 +1001,4 @@ public static class PdbSourceHouse
             or InvalidOperationException
             or ArgumentOutOfRangeException
             or DecoderFallbackException;
-
-    static bool HashMatches(
-        string algorithm,
-        ReadOnlySpan<byte> content,
-        ReadOnlySpan<byte> expected)
-        => ComputeHash(algorithm, content).AsSpan().SequenceEqual(expected);
-
-    static bool HashMatchesAfterLineEndingNormalization(
-        string algorithm,
-        ReadOnlySpan<byte> content,
-        ReadOnlySpan<byte> expected)
-    {
-        if (!content.Contains((byte)'\n') && !content.Contains((byte)'\r'))
-            return false;
-
-        return HashMatches(algorithm, NormalizeLineEndings(content, crlf: false), expected)
-            || HashMatches(algorithm, NormalizeLineEndings(content, crlf: true), expected);
-    }
-
-    static byte[] NormalizeLineEndings(ReadOnlySpan<byte> content, bool crlf)
-    {
-        List<byte> lf = new(content.Length);
-        for (int i = 0; i < content.Length; i++)
-        {
-            if (content[i] == '\r')
-            {
-                if (i + 1 < content.Length && content[i + 1] == '\n')
-                    continue;
-
-                lf.Add((byte)'\n');
-                continue;
-            }
-
-            lf.Add(content[i]);
-        }
-
-        if (!crlf)
-            return [.. lf];
-
-        List<byte> result = new(lf.Count);
-        foreach (byte value in lf)
-        {
-            if (value == '\n')
-            {
-                result.Add((byte)'\r');
-                result.Add((byte)'\n');
-            }
-            else
-            {
-                result.Add(value);
-            }
-        }
-
-        return [.. result];
-    }
-
-    static byte[] ComputeHash(string algorithm, ReadOnlySpan<byte> content)
-        => algorithm switch
-        {
-            "SHA256" => SHA256.HashData(content),
-            "SHA1" => SHA1.HashData(content),
-            _ => [],
-        };
-
-    static bool IsSupportedAlgorithm(string algorithm)
-        => algorithm is "SHA256" or "SHA1";
 }
