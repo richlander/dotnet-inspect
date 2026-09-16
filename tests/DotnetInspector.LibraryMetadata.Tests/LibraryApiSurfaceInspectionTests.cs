@@ -46,17 +46,9 @@ public sealed class LibraryApiSurfaceInspectionTests
         Assert.Same(
             library.Reference.ApiAssembly,
             correspondence.ApiContent);
-        Assert.Same(
-            library.Reference.ApiAssembly.Generation,
-            correspondence.Assembly.Registration.Generation);
-        Assert.Same(
-            library.Reference.ApiAssembly.Artifact,
-            correspondence.Assembly.Registration.Artifact);
-        Assert.NotEqual(
-            Guid.Empty,
-            correspondence.Assembly.Registration.ModuleVersionId);
+        Assert.NotEqual(Guid.Empty, correspondence.ModuleVersionId);
         Assert.True(
-            correspondence.Assembly.Identity.IsEquivalentTo(
+            correspondence.ApiContent.AssemblyIdentity!.Identity.IsEquivalentTo(
                 library.Reference.ApiAssembly.AssemblyIdentity!.Identity));
         Assert.Contains(
             correspondence.Surface.Types,
@@ -100,8 +92,10 @@ public sealed class LibraryApiSurfaceInspectionTests
                     TestContext.Current.CancellationToken));
 
         Assert.True(
-            firstCorrespondence.Assembly.Identity.IsEquivalentTo(
-                secondCorrespondence.Assembly.Identity));
+            firstCorrespondence.ApiContent.AssemblyIdentity!.Identity
+                .IsEquivalentTo(
+                    secondCorrespondence.ApiContent.AssemblyIdentity!
+                        .Identity));
         Assert.NotSame(first.Reference, second.Reference);
         Assert.NotSame(
             first.Reference.ApiAssembly,
@@ -113,8 +107,11 @@ public sealed class LibraryApiSurfaceInspectionTests
             second.Reference.ApiAssembly,
             secondCorrespondence.ApiContent);
         Assert.NotSame(
-            firstCorrespondence.Assembly.Registration.Artifact,
-            secondCorrespondence.Assembly.Registration.Artifact);
+            firstCorrespondence.ApiContent.Artifact,
+            secondCorrespondence.ApiContent.Artifact);
+        Assert.Equal(
+            firstCorrespondence.ModuleVersionId,
+            secondCorrespondence.ModuleVersionId);
         Assert.NotSame(
             firstCorrespondence.Surface,
             secondCorrespondence.Surface);

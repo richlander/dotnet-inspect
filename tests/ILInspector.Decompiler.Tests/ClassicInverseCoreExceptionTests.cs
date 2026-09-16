@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using InstructionExceptionClause =
     ILInspector.Instructions.InstructionExceptionClause;
 using InstructionExceptionFlowFacts =
@@ -17,6 +19,108 @@ namespace ILInspector.Decompiler.Tests;
 
 public sealed partial class ClassicInverseCoreTests
 {
+    [Fact]
+    public void
+        ClassicInverseProductRequestJoinsRelationshipMoveNextToExceptionFacts()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        StateMachineRelationship relationship =
+            Assert.IsType<StateMachineRelationship>(scope.Request.Relationship);
+        Assert.True(
+            relationship.TryGetMethod(
+                StateMachineMethodRole.MoveNext,
+                out MetadataMethodAddress moveNext));
+
+        InstructionExceptionFlowFacts facts =
+            AvailableFacts(scope.Request.ExecutionBody);
+
+        Assert.Equal(moveNext, facts.Body.Method);
+        Reconstruct(scope.Request);
+    }
+
+    [Fact]
+    public void
+        ClassicInverseProductRequestRejectsForeignExceptionFlowMethod()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        using RequestScope foreign = OpenRequest("AwaitValue");
+        IrFunction execution = (IrFunction)scope.Request.ExecutionBody.Clone();
+        execution.ExceptionInstructions =
+            foreign.Request.ExecutionBody.ExceptionInstructions;
+        execution.ExceptionClauseImports =
+            foreign.Request.ExecutionBody.ExceptionClauseImports;
+        Assert.NotEqual(
+            AvailableFacts(scope.Request.ExecutionBody).Body.Method,
+            AvailableFacts(execution).Body.Method);
+
+        ClassicInverseRequest mismatched = CopyRequest(
+            scope.Request,
+            executionBody: execution);
+        var failed = Assert.IsType<ClassicInverseDecision.Failed>(
+            ClassicInverseCore.Decide(mismatched));
+
+        Assert.Equal(
+            ClassicInverseFailureKind.InvalidCorrelation,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "exception-flow body is not the relationship's MoveNext MethodDef",
+            failed.Failure.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ClassicInverseProductRequestWithUserFinallyStillReconstructs()
+    {
+        using RequestScope scope = OpenRequest("AwaitInTryFinally");
+
+        Reconstruct(scope.Request);
+    }
+
+    [Fact]
+    public void
+        ClassicInverseCanonicalizesRematerializedSameObservationClauses()
+    {
+        using MetadataSource source = OpenClassicFixture();
+        using RequestScope scope = OpenRequest(
+            source,
+            "TwoSequentialAwaits");
+        int executionToken =
+            Assert.IsType<MetadataMethodAddress>(
+                scope.Request.ExecutionMethod).Token;
+        MethodBodyData body = Assert.IsType<MethodBodyReadResult.Available>(
+            MethodBodySource.Read(source.Pe, executionToken)).Body;
+        MethodInstructions receiving = MethodInstructions.Decode(body);
+        MethodInstructions rematerialized = MethodInstructions.Decode(body);
+        InstructionExceptionFlowFacts receivingFacts =
+            AvailableFacts(receiving);
+        InstructionExceptionFlowFacts rematerializedFacts =
+            AvailableFacts(rematerialized);
+        Assert.Equal(
+            receivingFacts.Clauses.Select(static clause => clause.Id),
+            rematerializedFacts.Clauses.Select(static clause => clause.Id));
+        Assert.NotSame(
+            receivingFacts.Clauses[0],
+            rematerializedFacts.Clauses[0]);
+
+        IrFunction execution = (IrFunction)scope.Request.ExecutionBody.Clone();
+        execution.ExceptionInstructions = receiving;
+        execution.ExceptionClauseImports =
+        [
+            .. execution.ExceptionClauseImports.Select(
+                (imported, index) =>
+                    new DecompilerExceptionClauseImport(
+                        imported.Region,
+                        rematerializedFacts.Clauses[index])),
+        ];
+
+        ClassicInverseRequest rematerializedRequest = CopyRequest(
+            scope.Request,
+            executionBody: execution);
+
+        Reconstruct(rematerializedRequest);
+    }
+
     [Fact]
     public void
         ClassicInverseCompletionCatchUsesSharedFactsInsteadOfCompatibilityRanges()
@@ -512,6 +616,13 @@ public sealed partial class ClassicInverseCoreTests
         => Assert.IsType<ILInspector.Instructions.InstructionExceptionFlowResult<
             InstructionExceptionFlowFacts>.Available>(
                 function.ExceptionFlow).Value;
+
+    static InstructionExceptionFlowFacts AvailableFacts(
+        MethodInstructions instructions)
+        => Assert.IsType<
+            ILInspector.Instructions.InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available>(
+                instructions.ExceptionFlow).Value;
 
     static InstructionExceptionRegion Region(
         InstructionExceptionFlowFacts facts,

@@ -12,6 +12,9 @@ experience state around it without changing the baseline.
 The optional [service-evidence enrichment](#service-evidence-enrichment)
 composes that baseline with a second owner-issued type. It is a proposed
 extension of this envelope pattern, not another primary-content model.
+Host-visible evidence capture and complete evidence-envelope delivery are
+available only in Debug builds until a separately approved retail adoption
+demonstrates a user need.
 
 The
 [host-observable content kinds](host-observable-content-kinds.md)
@@ -223,6 +226,8 @@ Status: **proposed**, tracked by
 [#7116](https://github.com/richlander/dotnet-inspect/issues/7116).
 This section owns the generic enrichment contract. It does not define each
 service's evidence schema or capture algorithm.
+The Debug-only availability policy is tracked by
+[#7271](https://github.com/richlander/dotnet-inspect/issues/7271).
 
 **Service evidence** records additional inputs, selections, intermediate
 facts, and decisions involved in producing an inspection. It need not form an
@@ -298,11 +303,25 @@ represented honestly or rejected at admission, not replaced by a bare
 baseline, `null`, or an unexplained empty success. Cancellation and unexpected
 exceptions retain their existing operation-failure meaning.
 
-Availability is a separate host/service capability policy. An adopter may
-initially expose capture only in Debug builds, but that choice does not rename
-the type, change its meaning, or make required diagnostics optional.
-Correctness gates for the model and its serialization still run in Release.
-This contract does not itself enable capture in production builds.
+Availability is a separate host capability policy. Hosts expose
+evidence-enabled capture and complete evidence-envelope delivery only in Debug
+builds. The service-owned types, capture contract, and serializers remain
+configuration-neutral so their correctness gates run in Release. Debug
+availability does not rename the type, change its meaning, or make required
+diagnostics optional. It also does not turn complete delivery into an ad-hoc
+dump: an exposed Debug transport remains a typed, versioned, supported
+contract.
+
+Release builds retain the ordinary envelope and no host gesture or export that
+reaches evidence capture or complete evidence-envelope delivery. That
+composition absence is **unverified** by explicit user choice; the policy does
+not add a source scan or host-registration absence gate.
+
+Retail promotion is a separate focused adoption decision. It must name one
+user scenario and production host, explain why baseline Content and Diagnostics
+are insufficient, and define the public gesture, acquisition and cost policy,
+and compatibility surface. The existence of the shared type, a Debug consumer,
+or host parity does not by itself establish that need.
 
 ### Equality, lifetime, and delivery
 
@@ -334,9 +353,10 @@ closed type. Serializing only `Inspection` is a baseline projection, not
 delivery of the enrichment. Both hosts must preserve the same service-issued
 values; they may choose different views over them.
 
-The user-selected planned CLI spelling is `--evidence-envelope`, paired with
-ordinary `--envelope`. It selects the evidence-enabled service form and its
-complete JSON delivery. The CLI output owner's
+The user-selected planned Debug CLI spelling is `--evidence-envelope`, paired
+with ordinary `--envelope`. It selects the evidence-enabled service form and
+its complete JSON delivery. Release CLI builds do not register it. The CLI
+output owner's
 [transport contract](output-shapes.md#envelope-transport) in #6719 binds capture
 before execution and specifies option interactions and framing; this generic
 pattern does not define that parser or transport. Unprojected content JSON still
@@ -353,33 +373,39 @@ would not establish service-owned capture. This repository's restored
 `src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` is a real input exhibiting those
 facts; the dependency adopter owns its reproducible fixture and expected data.
 
-The production path has four steps:
+The approved host path has four steps:
 
 1. Lock this envelope-pattern extension in #7116.
 2. In [dependency adoption #7117](https://github.com/richlander/dotnet-inspect/issues/7117),
    classify required versus supplemental facts and define the service-owned
    evidence type and capture request. Scope any prerequisite shared-service
    extraction there, not inside this generic pattern.
-3. Implement the shared enrichment and that service adoption with its CLI
-   consumer through #6719, including the complete closed serialization type.
-4. Deliver the same enrichment through Browser/Wasm and an owner-selected
+3. Implement the shared enrichment and that service adoption with its Debug
+   CLI consumer through #6719, including the complete closed serialization
+   type.
+4. Deliver the same enrichment through Debug Browser/Wasm and an owner-selected
    inspection-evidence view.
 
-Steps 3 and 4 may land together; adoption is not complete until both hosts
-consume the service-issued enrichment. Each adopter owns its focused contract
-and gates. Existing diagnostic sections remain supported under their current
-owner until replacement coverage exists. Retire duplicated production after
+Steps 3 and 4 may land together; Debug adoption is not complete until both
+hosts consume the service-issued enrichment. This Debug-only scope is an
+explicitly approved exception to retail adoption; later retail work follows
+the promotion boundary above. Each adopter owns its focused contract and
+gates. Existing diagnostic sections remain supported under their current owner
+until replacement coverage exists. Retire duplicated production after
 adoption; useful sections may remain thin views of shared evidence.
 The broader Compare path remains tracked by #5083.
 
-Planned production-host Release gates must cover baseline preservation,
+Planned Release correctness gates must cover baseline preservation,
 same-invocation correspondence, complete/empty and bounded/non-available
 evidence, retained failure disclosure, detached lifetime, and serialization
 without recapture. They must verify the logical flat wire projection,
 owner-specific Outcome cases, and agreement between runtime JSON and generated
-Browser types. These implementation properties are **unverified** until the
-adoption gates exist. This specification adds no executable type, flag, or
-section migration and is not a general logging or tracing design.
+Browser types. Adopters demonstrate their Debug host gestures and views against
+that product-owned construction; those demonstrations do not replace the
+Release correctness gates or verify the Release host-surface absence. These
+implementation properties are **unverified** until the adoption gates exist.
+This specification adds no executable type, flag, or section migration and is
+not a general logging or tracing design.
 
 ## Same baseline, broader clients
 
