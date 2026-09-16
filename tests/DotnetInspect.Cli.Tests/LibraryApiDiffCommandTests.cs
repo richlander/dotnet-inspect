@@ -4,6 +4,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -91,9 +92,11 @@ public sealed class LibraryApiDiffCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.Empty(error);
-        Assert.Contains("LogicalLibraryMismatch", output);
         Assert.DoesNotContain("No API changes", output);
         using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal("rejected", document.RootElement.GetProperty("outcome").GetString());
+        Assert.Equal((int)LibraryApiDiffRejectionKind.LogicalLibraryMismatch,
+            document.RootElement.GetProperty("kind").GetInt32());
         Assert.False(document.RootElement.TryGetProperty("changes", out _));
     }
 
