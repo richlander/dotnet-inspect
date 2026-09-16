@@ -249,6 +249,19 @@ public abstract class PortableQueryVocabulary<TPredicate, TPlan>
     public virtual bool CollapsesDuplicateBindings => false;
 
     /// <summary>
+    /// Whether two bound terms may occur together when their relationship is
+    /// not expressed by one family.
+    /// </summary>
+    /// <remarks>
+    /// The relation must be symmetric. Accepted terms still compose only by
+    /// their declared families; this hook can refuse a pair, not introduce a
+    /// new composition rule.
+    /// </remarks>
+    public virtual bool AreTermsCompatible(
+        PortableQueryResolvedTerm<TPredicate> first,
+        PortableQueryResolvedTerm<TPredicate> second) => true;
+
+    /// <summary>
     /// Builds this owner's executable plan from an intent that resolved.
     /// </summary>
     /// <remarks>

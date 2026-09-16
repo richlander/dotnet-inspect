@@ -46,9 +46,9 @@ public sealed class PortableQueryResolution<TPlan>
 /// then bounds in theirs; then the baseline order operation; then the stages in
 /// declaration sequence, each ranking stage resolving its own ranking as it is
 /// reached. Within one element the checks run existence, then admissibility,
-/// then binding, then collision — and within collision, exclusivity before
-/// duplication, because a contradiction is never collapsible while a duplicate
-/// may be.
+/// then binding, then collision — and within collision, vocabulary compatibility
+/// and family exclusivity before duplication, because a contradiction is never
+/// collapsible while a duplicate may be.
 /// </para>
 /// <para>
 /// Resolution starts no work. A rejected intent issues no acquisition, no source
@@ -145,6 +145,7 @@ public static class PortableQueryResolver
         private PortableQueryFailure? ResolveTerms(CancellationToken cancellationToken)
         {
             var families = new Dictionary<string, PortableQueryFamilyKind>(StringComparer.Ordinal);
+            var boundOccurrences = new List<PortableQueryResolvedTerm<TPredicate>>();
 
             var predicates = new HashSet<string>(StringComparer.Ordinal);
             var compositionOccurrences =
@@ -171,8 +172,25 @@ public static class PortableQueryResolver
                 if (!binding.IsBound)
                     return Failure(PortableQueryFailureReason.ValueRejected, at, term.Key);
 
-                // Exclusivity before duplication: a contradiction is never
-                // collapsible, while a duplicate may be.
+                var resolved = new PortableQueryResolvedTerm<TPredicate>(
+                    term,
+                    binding.PredicateIdentity,
+                    binding.Predicate);
+
+                // Compatibility and family exclusivity precede duplication: a
+                // contradiction is never collapsible, while a duplicate may be.
+                foreach (PortableQueryResolvedTerm<TPredicate> previous in boundOccurrences)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!vocabulary.AreTermsCompatible(previous, resolved))
+                    {
+                        return Failure(
+                            PortableQueryFailureReason.TermsIncompatible,
+                            at,
+                            term.Key);
+                    }
+                }
+
                 if (key.Family is { } family
                     && key.FamilyKind is PortableQueryFamilyKind.Exclusive
                     && families.ContainsKey(family))
@@ -180,12 +198,12 @@ public static class PortableQueryResolver
                     return Failure(PortableQueryFailureReason.TermsIncompatible, at, term.Key);
                 }
 
-                // The term bound, so its family membership stands whatever
-                // happens to its predicate next. Recording it after the
-                // duplicate check would lose it exactly when a collapse hides
-                // one member of an exclusive family behind an alias, and the
-                // contradiction that member contradicts would then resolve.
+                // The term bound, so its family membership and compatibility
+                // occurrence stand whatever happens to its predicate next.
+                // Recording either after duplicate handling would let a
+                // collapse hide a later contradiction.
                 if (key.Family is { } declared) families[declared] = key.FamilyKind;
+                boundOccurrences.Add(resolved);
 
                 bool collided = !predicates.Add(binding.PredicateIdentity);
                 if (collided && !vocabulary.CollapsesDuplicateBindings)
@@ -202,10 +220,7 @@ public static class PortableQueryResolver
                     continue;
                 }
 
-                _terms.Add(new PortableQueryResolvedTerm<TPredicate>(
-                    term,
-                    binding.PredicateIdentity,
-                    binding.Predicate));
+                _terms.Add(resolved);
             }
 
             foreach (string family in vocabulary.RequiredTermFamilies
