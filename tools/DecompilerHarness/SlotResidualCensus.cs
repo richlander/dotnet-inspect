@@ -302,7 +302,7 @@ static class SlotResidualCensus
         SlotMaterializationVeto.BooleanSinkIdentityRecovery => "boolean sink identity recovery",
         SlotMaterializationVeto.ElementStoreIdentityRecovery => "element-store identity recovery",
         SlotMaterializationVeto.IncompleteCopyComponent => "incomplete direct-copy component",
-        SlotMaterializationVeto.PendingReferenceSwap => "pending reference swap",
+        SlotMaterializationVeto.PendingStorageSwap => "pending storage swap",
         _ => veto.ToString(),
     };
 
