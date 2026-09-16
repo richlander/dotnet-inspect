@@ -2,43 +2,29 @@ using Markout;
 
 namespace DotnetInspect.Cli.Views;
 
-[MarkoutSerializable(
-    TitleProperty = nameof(Title),
-    DescriptionProperty = nameof(Description))]
-public sealed class WorkspacePackageOccurrenceView
+[
+    MarkoutSerializable(
+        TitleProperty = nameof(Title),
+        DescriptionProperty = nameof(Description))
+]
+public sealed class WorkspaceTopLevelInventoryView
 {
     [MarkoutIgnore]
     public string Title => "Workspace";
 
     [MarkoutIgnore]
-    public string? Description =>
-        Packages.Count == 0
-            ? "No package occurrences."
-            : null;
+    public string? Description { get; init; }
 
     [MarkoutSection(Headless = true)]
-    public List<WorkspacePackageOccurrenceRow> Packages { get; init; } = [];
+    public List<WorkspaceTopLevelInventoryRow> Entries { get; init; } = [];
 }
 
 [MarkoutSerializable]
-public sealed record WorkspacePackageOccurrenceRow
-{
-    public WorkspacePackageOccurrenceRow(
-        string package,
-        string version,
-        string framework)
-    {
-        Package = LibraryViewText.Contain(package) ?? "";
-        Version = LibraryViewText.Contain(version) ?? "";
-        Framework = LibraryViewText.Contain(framework) ?? "";
-    }
+public sealed record WorkspaceTopLevelInventoryRow(
+    string Kind,
+    string Location,
+    string State);
 
-    public string Package { get; }
-
-    public string Version { get; }
-
-    public string Framework { get; }
-}
-
-[MarkoutContext(typeof(WorkspacePackageOccurrenceView))]
+[MarkoutContext(typeof(WorkspaceTopLevelInventoryView))]
+[MarkoutContext(typeof(WorkspaceTopLevelInventoryRow))]
 public partial class WorkspaceViewContext : MarkoutSerializerContext;

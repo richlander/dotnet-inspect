@@ -3,6 +3,7 @@ using System.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -32,6 +33,46 @@ public static class WorkspaceCommandDefinitions
                 "Allow prerelease versions when an unversioned package floats",
         };
         prereleaseOption.Aliases.Add("--prerelease");
+        var packetOption = new Option<string?>("--packet")
+        {
+            Description =
+                "Restore one canonical Workspace packet",
+            Arity = ArgumentArity.ExactlyOne,
+        };
+        var registerLibraryOption =
+            new Option<string[]>("--register-library")
+            {
+                Description =
+                    "Register an exact Package Library as package@version/assembly@assembly-version",
+                AllowMultipleArgumentsPerToken = false,
+            };
+        var registerPackagePrefixOption =
+            new Option<string[]>("--register-package-prefix")
+            {
+                Description =
+                    "Register an inert literal Package ID prefix",
+                AllowMultipleArgumentsPerToken = false,
+            };
+        var registerEcosystemOption =
+            new Option<string[]>("--register-ecosystem")
+            {
+                Description =
+                    "Register a shipped ecosystem by short or canonical ID",
+                AllowMultipleArgumentsPerToken = false,
+            };
+        var kindOption = new Option<string[]>("--kind")
+        {
+            Description =
+                "Select inventory kinds: package, exact-library, package-prefix, or ecosystem",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        CliOptionValueValidation.AcceptOnlyFromAmong(
+            kindOption,
+            StringComparer.OrdinalIgnoreCase,
+            "package",
+            "exact-library",
+            "package-prefix",
+            "ecosystem");
         var rootRequestOption = new Option<string?>("--root-request")
         {
             Description =
@@ -68,10 +109,17 @@ public static class WorkspaceCommandDefinitions
             Description =
                 "Exact destination view-facet id, such as type.compare or member.compare",
         };
+        var shareOption = WorkspaceShareOption.Create(
+            "Emit the Workspace inventory's canonical packet or complete URL");
 
         command.Options.Add(packageOption);
         command.Options.Add(tfmOption);
         command.Options.Add(prereleaseOption);
+        command.Options.Add(packetOption);
+        command.Options.Add(registerLibraryOption);
+        command.Options.Add(registerPackagePrefixOption);
+        command.Options.Add(registerEcosystemOption);
+        command.Options.Add(kindOption);
         command.Options.Add(rootRequestOption);
         command.Options.Add(activePackageOption);
         command.Options.Add(libraryOption);
@@ -79,6 +127,7 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(typeOption);
         command.Options.Add(memberOption);
         command.Options.Add(lensOption);
+        command.Options.Add(shareOption);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Json);
@@ -92,6 +141,18 @@ public static class WorkspaceCommandDefinitions
             string[] packages =
                 parseResult.GetValue(packageOption) ?? [];
             string? tfm = parseResult.GetValue(tfmOption);
+            string? packet = parseResult.GetValue(packetOption);
+            string[] registeredLibraries =
+                parseResult.GetValue(registerLibraryOption) ?? [];
+            string[] registeredPackagePrefixes =
+                parseResult.GetValue(registerPackagePrefixOption) ?? [];
+            string[] registeredEcosystems =
+                parseResult.GetValue(registerEcosystemOption) ?? [];
+            WorkspaceTopLevelInventoryEntryKind[] inventoryKinds =
+            [
+                .. (parseResult.GetValue(kindOption) ?? [])
+                    .Select(ParseInventoryKind),
+            ];
             string? rootRequest = parseResult.GetValue(rootRequestOption);
             int? activePackage =
                 parseResult.GetValue(activePackageOption);
@@ -126,6 +187,11 @@ public static class WorkspaceCommandDefinitions
                 {
                     Packages = packages,
                     Tfm = tfm,
+                    Packet = packet,
+                    RegisteredLibraries = registeredLibraries,
+                    RegisteredPackagePrefixes = registeredPackagePrefixes,
+                    RegisteredEcosystems = registeredEcosystems,
+                    InventoryKinds = inventoryKinds,
                     RootRequest = rootRequest,
                     ActivePackage = activePackage,
                     Library = library,
@@ -140,6 +206,8 @@ public static class WorkspaceCommandDefinitions
                     Rows = opts.ParseRows(parseResult),
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
+                    ShareFormat =
+                        WorkspaceShareOption.Parse(parseResult, shareOption),
                     SourceOptions =
                         opts.ParseNuGetSourceOptions(parseResult),
                 },
@@ -148,4 +216,18 @@ public static class WorkspaceCommandDefinitions
 
         return command;
     }
+
+    static WorkspaceTopLevelInventoryEntryKind ParseInventoryKind(
+        string value) =>
+        value.ToLowerInvariant() switch
+        {
+            "package" => WorkspaceTopLevelInventoryEntryKind.Package,
+            "exact-library" =>
+                WorkspaceTopLevelInventoryEntryKind.ExactLibrary,
+            "package-prefix" =>
+                WorkspaceTopLevelInventoryEntryKind.PackagePrefix,
+            "ecosystem" => WorkspaceTopLevelInventoryEntryKind.Ecosystem,
+            _ => throw new InvalidOperationException(
+                "System.CommandLine admitted an unsupported Workspace inventory kind."),
+        };
 }
