@@ -1,0 +1,195 @@
+using System.IO.Compression;
+
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Planning;
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using ILInspector.Metadata;
+using NuGetFetch;
+
+namespace DotnetInspect.Cli.Tests;
+
+[Collection("Console")]
+public sealed class ExactLibraryWorkspaceRouteTests
+{
+    const string PackageId = "exact-library-cli.test";
+    const string Version = "1.0.0";
+    const string Framework = "net11.0";
+    const string Library = "ILInspector.Metadata.dll";
+    const string SourceUrl = "https://example.test/v3/index.json";
+
+    static readonly PackageSource Source =
+        new("test", SourceUrl);
+
+    [Fact]
+    public async Task EligibleListingUsesInjectedWorkspaceCapabilities()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            AssemblyPath = Library,
+            Tfm = Framework,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization([Source]),
+                        PackageStore = store,
+                    }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            "ILInspector.Metadata.ApiType",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "# exact-library-cli.test",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RicherAndNonExactRequestsRemainOnCompatibilityPath()
+    {
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            AssemblyPath = Library,
+            Tfm = Framework,
+        };
+
+        Assert.True(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options,
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    PackagePath = PackageId,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    Tfm = "all",
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    TypeName = typeof(ApiType).FullName,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    FormatExplicitlySet = true,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    DocsExplicitlySet = true,
+                    ShowDocs = true,
+                },
+                out _));
+    }
+
+    [Fact]
+    public async Task MissingLibraryPreservesCompatibilityError()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            AssemblyPath = "Missing.dll",
+            Tfm = Framework,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization([Source]),
+                        PackageStore = store,
+                    }));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Library 'Missing.dll' not found in package.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    static async Task<IPackageStore> CachedStoreAsync()
+    {
+        var store = new InMemoryPackageStore();
+        byte[] package = Archive(
+            ($"ref/{Framework}/{Library}",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiSurface).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(SourceUrl),
+            new MemoryStream(package),
+            TestContext.Current.CancellationToken);
+        return store;
+    }
+
+    static byte[] Archive(
+        params (string EntryPath, byte[] Content)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            foreach ((string path, byte[] content) in entries)
+            {
+                using Stream entry = archive.CreateEntry(path).Open();
+                entry.Write(content);
+            }
+        }
+        return buffer.ToArray();
+    }
+
+    sealed class FailingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                $"Unexpected request to {request.RequestUri}.");
+    }
+}

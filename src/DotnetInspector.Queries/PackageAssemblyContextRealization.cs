@@ -185,8 +185,14 @@ public sealed class PackageRootBinding
         [NotNullWhen(true)] out PackageRootBinding? binding,
         string? displayPackageId = null)
     {
-        string? acquisitionFramework =
-            ValidateSourceSelection(payload, receipt);
+        if (!TryValidateSourceSelection(
+                payload,
+                receipt,
+                out string? acquisitionFramework))
+        {
+            binding = null;
+            return false;
+        }
         return TryCreate(
             payload,
             payload.Coordinate.PackageId,
@@ -210,6 +216,23 @@ public sealed class PackageRootBinding
     private static string? ValidateSourceSelection(
         AcquiredPackageSourcePayload payload,
         PackageCompileAssetSelectionReceipt receipt)
+    {
+        if (!TryValidateSourceSelection(
+                payload,
+                receipt,
+                out string? acquisitionFramework))
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier requires a canonical acquisition framework.",
+                nameof(receipt));
+        }
+        return acquisitionFramework;
+    }
+
+    private static bool TryValidateSourceSelection(
+        AcquiredPackageSourcePayload payload,
+        PackageCompileAssetSelectionReceipt receipt,
+        out string? acquisitionFramework)
     {
         ArgumentNullException.ThrowIfNull(payload);
         ArgumentNullException.ThrowIfNull(receipt);
@@ -237,17 +260,10 @@ public sealed class PackageRootBinding
                 "A package Root runtime identifier must be a canonical lowercase moniker.",
                 nameof(receipt));
         }
-        string? acquisitionFramework =
+        acquisitionFramework =
             SourceAcquisitionFramework(receipt.RequestedTargetFramework);
-        if (receipt.RequestedRuntimeIdentifier is not null
-            && acquisitionFramework is null)
-        {
-            throw new ArgumentException(
-                "A package Root runtime identifier requires a canonical acquisition framework.",
-                nameof(receipt));
-        }
-
-        return acquisitionFramework;
+        return receipt.RequestedRuntimeIdentifier is null
+            || acquisitionFramework is not null;
     }
 
     /// <summary>

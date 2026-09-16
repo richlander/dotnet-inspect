@@ -97,6 +97,7 @@ public static class TypeCommand
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, SelectDefault = options.SelectDefault,
             Columns = options.Columns, Fields = options.Fields,
+            FieldsExplicitlySet = options.FieldsExplicitlySet,
             Discover = options.Discover, Tree = options.Tree,
             ShapeOutput = options.ShapeOutput,
             ShapeExplicitlySet = options.ShapeExplicitlySet,
@@ -173,6 +174,19 @@ public static class TypeCommand
                     plan,
                     exactTypeRequest,
                     exactTypeCapabilities)).ConfigureAwait(false);
+        }
+
+        if (resolvedSource is null
+            && loadedSurface is null
+            && TryCreateSharedExactLibraryApiRequest(
+                options,
+                out ExactLibraryApiInspectionRequest? exactLibraryRequest))
+        {
+            return await ExecuteSharedExactLibraryApiAsync(
+                    options,
+                    exactLibraryRequest,
+                    exactTypeCapabilities)
+                .ConfigureAwait(false);
         }
 
         bool ownsSource = resolvedSource is null;
@@ -727,6 +741,161 @@ public static class TypeCommand
         {
             return false;
         }
+    }
+
+    internal static bool TryCreateSharedExactLibraryApiRequest(
+        TypeOptions options,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out ExactLibraryApiInspectionRequest? request)
+    {
+        request = null;
+        if (string.IsNullOrWhiteSpace(options.PackagePath)
+            || File.Exists(options.PackagePath)
+            || options.PackagePath.Contains("::", StringComparison.Ordinal)
+            || options.PackageRangeAddress is not null
+            || string.IsNullOrWhiteSpace(options.AssemblyPath)
+            || options.PlatformAssembly is not null
+            || options.ProjectPath is not null
+            || options.ProjectAssetsPath is not null
+            || string.IsNullOrWhiteSpace(options.Tfm)
+            || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
+            || !(string.IsNullOrWhiteSpace(options.TypeName)
+                || new TypeGestureIntent(options.TypeFilter)
+                    .SelectsListingCatalog(options.TypeName))
+            || options.EffectiveDiscovery
+            || !options.IsDefaultInvocation
+            || options.HasSectionQuery
+            || options.IncludeSections is { Count: > 0 }
+            || options.IncludeAll
+            || options.ShowDocs
+            || options.DocsExplicitlySet
+            || options.ShowSamples
+            || options.BrowsableUrls
+            || options.MemberFilter.Count > 0
+            || options.KindFilter.Count > 0
+            || options.UnsafeOnly
+            || options.Limit.HasValue
+            || options.MemberLimit.HasValue
+            || options.Rows is not null
+            || options.PerformanceTriage.HasFilters
+            || options.BodyKindQuery.HasFilter
+            || options.RequestReadableLocalNames
+            || options.SourceRepositories.Length > 0
+            || options.DllPath is not null
+            || options.PdbPath is not null
+            || CloneCandidatesCommand.IsSelected(options.IncludeSections))
+        {
+            return false;
+        }
+
+        (string packageId, string? version) =
+            PackageExtractor.ParsePackageReference(options.PackagePath);
+        if (string.IsNullOrWhiteSpace(packageId)
+            || string.IsNullOrWhiteSpace(version))
+        {
+            return false;
+        }
+
+        try
+        {
+            request = new ExactLibraryApiInspectionRequest(
+                packageId,
+                version,
+                options.Tfm,
+                options.AssemblyPath);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    static Task<int> ExecuteSharedExactLibraryApiAsync(
+        TypeOptions options,
+        ExactLibraryApiInspectionRequest request,
+        WorkspaceContextLoadOptions? capabilities) =>
+        ExecuteSharedExactLibraryApiCoreAsync(
+            options,
+            request,
+            capabilities
+            ?? new WorkspaceContextLoadOptions
+            {
+                HttpClient = HttpClientFactory.Shared,
+                SourceAuthorization =
+                    new SourcePolicyPackageSourceAuthorization(
+                        options.SourceOptions),
+                PackageStore = new FileSystemPackageStore(),
+                UseVersionCache = true,
+                Log = options.Verbose
+                    ? CommandError.WriteLine
+                    : null,
+            });
+
+    static async Task<int> ExecuteSharedExactLibraryApiCoreAsync(
+        TypeOptions options,
+        ExactLibraryApiInspectionRequest request,
+        WorkspaceContextLoadOptions capabilities)
+    {
+        ExactLibraryApiInspectionExecution execution =
+            await ExactLibraryApiInspectionOperation.ExecuteAsync(
+                    request,
+                    capabilities)
+                .ConfigureAwait(false);
+        InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
+            execution.Inspection;
+        ExactLibraryApiInspectionResult result = envelope.Content;
+        if (result.Outcome
+                is not ExactLibraryApiInspectionOutcome.Available
+            || execution.Surface is null)
+        {
+            CommandError.Write(
+                result.Failures.FirstOrDefault()?.Detail
+                ?? "Could not extract API from library.");
+            return 1;
+        }
+
+        int writeExitCode =
+            ApiCommand.WriteFullApiOutput(
+                execution.Surface,
+                options,
+                result.Asset?.TargetFramework);
+        if (writeExitCode != 0)
+            return writeExitCode;
+
+        if (!options.FormatExplicitlySet
+            && !options.IsRawOutput)
+        {
+            ApiType? exampleType = execution.Surface.Types
+                .OrderByDescending(type => type.Members.Count)
+                .FirstOrDefault();
+            if (exampleType is not null)
+            {
+                string sourceFlag =
+                    $"--package {request.PackageId} "
+                    + $"--library {request.Library}";
+                string simpleName =
+                    TypeMatcher.GetSimpleName(exampleType.FullName);
+                Hints.WriteTips(
+                    options.TipLevel,
+                    [
+                        new(
+                            MemberCommand.Name,
+                            $"{simpleName} {sourceFlag}",
+                            "inspect type members"),
+                        new(
+                            Name,
+                            $"{sourceFlag} --shape",
+                            "view type shape"),
+                        new(
+                            Name,
+                            $"-t \"*Writer*\" {sourceFlag}",
+                            "filter types by pattern"),
+                    ]);
+            }
+        }
+
+        return result.IsComplete ? 0 : 1;
     }
 
     static Task<int> ExecuteSharedExactTypeAsync(

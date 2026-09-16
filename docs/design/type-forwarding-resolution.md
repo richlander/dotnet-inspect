@@ -1609,6 +1609,15 @@ An intrinsic request therefore cannot reopen a package entry, embedded-content
 provider, network source, or filesystem path. Custom policies can opt in only
 when their implementation meets the acquisition-free contract.
 
+Package API/implementation role policies also attest this capability: selection
+only compares the frozen role's already-acquired descriptor identities and
+never opens a descriptor. This preserves exact reference-version and signing
+semantics, role separation, and platform-scope refusal.
+`PackageAssemblyContextRolesTests.RoleSelection_AttestsAcquisitionFreeAndDoesNotOpenDescriptors`
+gates selected and missing answers without descriptor opens. Committed Package
+Roots can therefore use the same closed-world resolution composition without
+replacing their policy or constructing a second Library universe.
+
 This is not a second frozen-context API. Metadata still builds a request
 manifest before freezing, using the acquisition-free policy over retained
 images. Once frozen, `TypeResolutionContext.Resolve` performs neither policy

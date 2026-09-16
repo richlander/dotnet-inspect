@@ -39,10 +39,14 @@ public static class ApiCommandDefinitions
         var projectOption = new Option<string?>("--project") { Description = "Source: restored project.assets.json context" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
+        var matchOption = new Option<bool>("--match")
+        {
+            Description = "Match this Type's API coordinate across two literal package-version endpoints"
+        };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
-        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json or --envelope where supported)" };
         var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
         var repoOption = new Option<string[]>("--repo")
@@ -70,6 +74,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
         typeCommand.Options.Add(tfmOption);
+        typeCommand.Options.Add(matchOption);
         typeCommand.Options.Add(allOption);
         typeCommand.Options.Add(typeFilterOption);
         typeCommand.Options.Add(opts.Json);
@@ -89,6 +94,7 @@ public static class ApiCommandDefinitions
         opts.AddPerformanceTriageOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
+        typeCommand.Options.Add(opts.Envelope);
         typeCommand.Options.Add(opts.Bare);
         typeCommand.Options.Add(opts.Taste);
         typeCommand.Options.Add(opts.ReadableNames);
@@ -103,6 +109,31 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetValue(opts.Envelope)
+                && !parseResult.GetValue(matchOption))
+            {
+                CommandError.Write("--envelope on type requires --match.");
+                return 1;
+            }
+
+            if (parseResult.GetValue(matchOption))
+            {
+                return ApiCoordinateMatchOptionsParser.ParseType(
+                    parseResult,
+                    opts,
+                    commandArgs,
+                    matchOption) switch
+                {
+                    ApiCoordinateMatchOptionsParser.Failure failure =>
+                        WriteMatchError(failure.Error),
+                    ApiCoordinateMatchOptionsParser.Success success =>
+                        await ApiCoordinateMatchCommand.ExecuteAsync(
+                            success,
+                            ct),
+                    _ => 1,
+                };
+            }
+
             if (TypeOptionsParser.TryCreateStructuralPlan(
                     parseResult,
                     opts,
@@ -205,6 +236,10 @@ public static class ApiCommandDefinitions
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
+        var matchOption = new Option<bool>("--match")
+        {
+            Description = "Match this Member's API coordinate across two literal package-version endpoints"
+        };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
         var memberOption = new Option<string[]>("-m")
         {
@@ -213,7 +248,7 @@ public static class ApiCommandDefinitions
         };
         memberOption.Aliases.Add("--member");
         var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
-        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json or --envelope where supported)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
         var shareOption = WorkspaceShareOption.Create(
@@ -264,6 +299,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(platformOption);
         memberCommand.Options.Add(frameworkOption);
         memberCommand.Options.Add(tfmOption);
+        memberCommand.Options.Add(matchOption);
         memberCommand.Options.Add(allOption);
         memberCommand.Options.Add(memberOption);
         memberCommand.Options.Add(ctorOption);
@@ -291,6 +327,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(opts.Mermaid);
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
+        memberCommand.Options.Add(opts.Envelope);
         memberCommand.Options.Add(opts.Bare);
         memberCommand.Options.Add(opts.Taste);
         memberCommand.Options.Add(opts.ReadableNames);
@@ -309,6 +346,31 @@ public static class ApiCommandDefinitions
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetValue(opts.Envelope)
+                && !parseResult.GetValue(matchOption))
+            {
+                CommandError.Write("--envelope on member requires --match.");
+                return 1;
+            }
+
+            if (parseResult.GetValue(matchOption))
+            {
+                return ApiCoordinateMatchOptionsParser.ParseMember(
+                    parseResult,
+                    opts,
+                    commandArgs,
+                    matchOption) switch
+                {
+                    ApiCoordinateMatchOptionsParser.Failure failure =>
+                        WriteMatchError(failure.Error),
+                    ApiCoordinateMatchOptionsParser.Success success =>
+                        await ApiCoordinateMatchCommand.ExecuteAsync(
+                            success,
+                            ct),
+                    _ => 1,
+                };
+            }
+
             if (MemberOptionsParser.TryCreateStructuralPlan(
                     parseResult,
                     opts,
@@ -449,5 +511,11 @@ public static class ApiCommandDefinitions
         });
 
         return memberCommand;
+    }
+
+    private static int WriteMatchError(OptionError error)
+    {
+        CommandError.Write(error);
+        return 1;
     }
 }

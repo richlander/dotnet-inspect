@@ -54,6 +54,10 @@ public static class FixtureIds
 {
     public const string JsExportUnions = "js-export.unions";
     public const string MetadataAttributeEnums = "metadata.attribute-enums";
+    public const string MetadataApiCorrespondenceV1 =
+        "metadata.api-correspondence.v1";
+    public const string MetadataApiCorrespondenceV2 =
+        "metadata.api-correspondence.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
     public const string MetadataTypeDependencyConsumer =
         "metadata.type-dependency.consumer";
@@ -184,6 +188,22 @@ public static class FixtureCatalog
         "ILInspector.Metadata.AttributeEnumFixtures.dll",
         Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "metadata", "custom-attributes", "producer-truth");
+
+    public static readonly FixtureDefinition MetadataApiCorrespondenceV1 =
+        Fixture(
+            FixtureIds.MetadataApiCorrespondenceV1,
+            "ILInspector.Metadata.ApiDeclarationCorrespondence.V1",
+            "ILInspector.Metadata.ApiDeclarationCorrespondence.dll",
+            Boundaries(FixtureBoundary.VersionPair),
+            "metadata", "api-correspondence", "version-pair");
+
+    public static readonly FixtureDefinition MetadataApiCorrespondenceV2 =
+        Fixture(
+            FixtureIds.MetadataApiCorrespondenceV2,
+            "ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
+            "ILInspector.Metadata.ApiDeclarationCorrespondence.dll",
+            Boundaries(FixtureBoundary.VersionPair),
+            "metadata", "api-correspondence", "version-pair");
 
     public static readonly FixtureDefinition MetadataTypeDependencyConsumer =
         Fixture(
@@ -907,6 +927,8 @@ public static class FixtureCatalog
     [
         JsExportUnions,
         MetadataAttributeEnums,
+        MetadataApiCorrespondenceV1,
+        MetadataApiCorrespondenceV2,
         MetadataMemorySafety,
         MetadataTypeDependencyConsumer,
         MetadataTypeDependencyReference,
@@ -999,6 +1021,10 @@ public static class FixtureCatalog
     ];
 
     public static readonly FixturePair DiffPair = new("diff", DiffV1, DiffV2);
+    public static readonly FixturePair MetadataApiCorrespondencePair = new(
+        "metadata.api-correspondence",
+        MetadataApiCorrespondenceV1,
+        MetadataApiCorrespondenceV2);
     public static readonly FixturePair SourceDiffPair = new("source-diff", SourceDiffV1, SourceDiffV2);
     public static readonly FixturePair LibraryApiDiffPair = new(
         "library-api-diff",
@@ -1298,6 +1324,10 @@ public static class FixtureCatalog
                 "fixtures/js-export/ILInspector.JsExportSurface.UnionFixtures",
             "ILInspector.Metadata.AttributeEnumFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures",
+            "ILInspector.Metadata.ApiDeclarationCorrespondence.V1" =>
+                "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1",
+            "ILInspector.Metadata.ApiDeclarationCorrespondence.V2" =>
+                "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
             "ILInspector.Metadata.TypeDependencyConsumer" =>

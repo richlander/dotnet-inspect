@@ -2,10 +2,32 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using InertText;
 
 namespace ILInspector.JsExportSurface.TypeScriptFixtures;
 
 public sealed record WidgetDto(string Name, int Count);
+
+public sealed record InertWidgetDto(
+    string Name,
+    [property: JsonConverter(typeof(InertStringWriteConverter))]
+    InertString Display);
+
+public sealed class InertStringWriteConverter : JsonConverter<InertString>
+{
+    public override InertString Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options) =>
+        throw new NotSupportedException(
+            "The fixture exposes inert text only as an output contract.");
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        InertString value,
+        JsonSerializerOptions options) =>
+        writer.WriteStringValue(value.ToString());
+}
 
 public sealed record RuntimeAPI(string Value);
 
@@ -65,6 +87,7 @@ public sealed class HiddenTypeJsonIncludeDto
 }
 
 [JsonSerializable(typeof(WidgetDto))]
+[JsonSerializable(typeof(InertWidgetDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
 [JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(HiddenTypeJsonIncludeDto))]
@@ -141,6 +164,19 @@ public static partial class TypeScriptFixtureExports
         return JsonSerializer.Serialize(
             new WidgetDto(name, count),
             FixtureJsonContext.Default.WidgetDto);
+    }
+
+    [JSExport]
+    public static async Task<string> GetInertWidgetAsync(string name)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new InertWidgetDto(
+                name,
+                new InertString(
+                    TextPolicy.Field,
+                    "line\u202Egpj")),
+            FixtureJsonContext.Default.InertWidgetDto);
     }
 
     [JSExport]

@@ -63,6 +63,7 @@ public sealed record TypeDeclarationLocatorReferenceEvidence(
 [JsonDerivedType(typeof(TypeDeclarationLocatorContextFailure.ContextLoad), "context-load")]
 [JsonDerivedType(typeof(TypeDeclarationLocatorContextFailure.ReferenceSource), "reference-source")]
 [JsonDerivedType(typeof(TypeDeclarationLocatorContextFailure.ReferenceImage), "reference-image")]
+[JsonDerivedType(typeof(TypeDeclarationLocatorContextFailure.PackageScopeSelection), "package-scope-selection")]
 public abstract record TypeDeclarationLocatorContextFailure
 {
     private protected TypeDeclarationLocatorContextFailure(string message) => Message = message;
@@ -89,6 +90,16 @@ public abstract record TypeDeclarationLocatorContextFailure
         CandidateOpenFailure Failure)
         : TypeDeclarationLocatorContextFailure(
             Failure.Detail ?? $"Reference image admission failed: {Failure.Kind}.");
+
+    public sealed record PackageScopeSelection(
+        string PackageId,
+        string PackageVersion,
+        string Producer,
+        string? Framework,
+        string? RuntimeIdentifier,
+        PackageCompileAssetSelectionStatus Status)
+        : TypeDeclarationLocatorContextFailure(
+            $"Package Scope has no searchable surface assemblies: {Status}.");
 }
 
 internal sealed class TypeDeclarationLocatorReferenceProjection
@@ -143,8 +154,25 @@ internal sealed class TypeDeclarationLocatorReferenceProjection
             WorkspaceDeclarationFailure.ReferenceImage image =>
                 new TypeDeclarationLocatorContextFailure.ReferenceImage(
                     Evidence(image.Source), image.Path, image.Failure),
+            WorkspaceDeclarationFailure.PackageScopeSelection package =>
+                PackageScopeFailure(package),
             _ => throw new InvalidOperationException("Unknown declaration context failure."),
         };
+
+    static TypeDeclarationLocatorContextFailure.PackageScopeSelection
+        PackageScopeFailure(
+            WorkspaceDeclarationFailure.PackageScopeSelection failure)
+    {
+        RealizedMemberCoordinate.Package package =
+            failure.Occurrence.Occurrence.Package.Coordinate;
+        return new(
+            package.PackageId,
+            package.Version,
+            package.Producer,
+            package.Framework,
+            package.RuntimeIdentifier,
+            failure.Status);
+    }
 
     TypeDeclarationLocatorPackageSource Source(PackageSourceResultIdentity source) =>
         new(source.Producer.Key, Ordinal(_sourceAssociations, source.Association), source.TransportKind);

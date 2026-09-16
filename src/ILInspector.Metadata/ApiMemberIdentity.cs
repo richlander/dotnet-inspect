@@ -973,6 +973,88 @@ public static class ApiMemberIdentity
     public static MemberAnchor GetMemberAnchor(ApiType type, ApiMember member)
         => CreateAnchor(type, member, GetCanonicalSignature(type, member));
 
+    internal static MemberAnchor CreateProjectedMethodAnchor(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        ApiMember member,
+        ref int scanWorkRemaining)
+    {
+        if (scanWorkRemaining <= 0)
+        {
+            throw new BadImageFormatException(
+                "The assembly exceeds the classification scan work budget.");
+        }
+
+        int anchorAllowance = scanWorkRemaining;
+        if (anchorAllowance > MetadataSafetyPolicy.MaxAnchorSignatureWorkChars)
+            anchorAllowance = MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
+
+        var workBudget = new AnchorSignatureWorkBudget(
+            anchorAllowance,
+            chargeProjectionWork: true);
+        try
+        {
+            string typeFullName =
+                FormatDefinitionName(reader, typeHandle, workBudget);
+            ChargeProjectedMethodCanonicalInput(
+                workBudget,
+                typeFullName,
+                member);
+            if (!TryGetCanonicalSignature(
+                    typeFullName,
+                    member,
+                    out string canonicalSignature))
+            {
+                throw new BadImageFormatException(
+                    "The projected method identity has no canonical signature.");
+            }
+
+            MemberAnchor anchor = CreateAnchor(
+                typeFullName,
+                GetMemberSelectorName(member),
+                member.Name,
+                canonicalSignature,
+                workBudget);
+            int spent = anchorAllowance - workBudget.Remaining;
+            scanWorkRemaining -= spent;
+            if (scanWorkRemaining < 0)
+                scanWorkRemaining = 0;
+            return anchor;
+        }
+        catch (BadImageFormatException)
+        {
+            scanWorkRemaining = workBudget.Remaining;
+            throw;
+        }
+    }
+
+    static void ChargeProjectedMethodCanonicalInput(
+        AnchorSignatureWorkBudget workBudget,
+        string typeFullName,
+        ApiMember member)
+    {
+        long work =
+            4L
+            + typeFullName.Length
+            + member.Name.Length
+            + (member.Signature?.Length ?? 0);
+        if (member.SignatureModel is { } signature)
+        {
+            work += signature.MemberName?.Length ?? 0;
+            work += signature.EffectiveCanonicalReturnType?.Length ?? 0;
+            foreach (ApiParameter parameter in signature.Parameters)
+            {
+                work +=
+                    4L
+                    + parameter.EffectiveCanonicalType.Length
+                    + (parameter.Modifier?.Length ?? 0);
+            }
+        }
+        workBudget.ChargeProjection(
+            work,
+            "canonical identity projection");
+    }
+
     public static MemberAnchor CreateMethodAnchor(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -2007,7 +2089,19 @@ public static class ApiMemberIdentity
         return canonical;
     }
 
-    public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
+    public static bool TryGetCanonicalSignature(
+        ApiType type,
+        ApiMember member,
+        out string canonicalSignature)
+        => TryGetCanonicalSignature(
+            DeclaringTypeAnchorName(type, member),
+            member,
+            out canonicalSignature);
+
+    static bool TryGetCanonicalSignature(
+        string declaringType,
+        ApiMember member,
+        out string canonicalSignature)
     {
         // See GetCanonicalSignature: a persisted canonical identity is authoritative and
         // survives the JSON round-trip that discards SignatureModel.
@@ -2016,8 +2110,6 @@ public static class ApiMemberIdentity
             canonicalSignature = member.CanonicalSignature!;
             return true;
         }
-
-        var declaringType = DeclaringTypeAnchorName(type, member);
 
         var kindCode = member.Kind switch
         {

@@ -1,9 +1,13 @@
+using System.IO.Compression;
 using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using Markout;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -16,6 +20,24 @@ public sealed class CloneCandidatesSectionTests
     public CloneCandidatesSectionTests()
     {
         NuGetCache.Initialize("dotnet-inspect");
+    }
+
+    [Fact]
+    public void StructuralSchemaUsesGeneratedCandidateColumns()
+    {
+        SectionSchema generated = Assert.IsType<SectionSchema>(
+            CloneCandidateViewContext.Default
+                .GetSchemaInfo<CloneCandidateTableView>()!
+                .ToDocumentSchema()
+                .GetSection(SectionNames.CloneCandidates));
+        SectionSchema structural = Assert.IsType<SectionSchema>(
+            LibraryCommand.CreateStructuralSchema()
+                .GetSection(SectionNames.CloneCandidates));
+
+        Assert.Equal("column", structural.ItemKind);
+        Assert.Equal(
+            generated.Items.Select(item => item.Name),
+            structural.Items.Select(item => item.Name));
     }
 
     static Task<(int ExitCode, string Output, string Error)> Run(
@@ -337,7 +359,7 @@ public sealed class CloneCandidatesSectionTests
     }
 
     [Fact]
-    public async Task Type_JsonProjectionSupportsFieldsColumnsAndRows()
+    public async Task Type_JsonProjectionSupportsColumnsAndRows()
     {
         var result = await Run(
             "type",
@@ -346,8 +368,6 @@ public sealed class CloneCandidatesSectionTests
             FixturePath,
             "-S",
             SectionNames.CloneCandidates,
-            "--fields",
-            "Breadth;Coverage",
             "--columns",
             "Rank;Score",
             "--rows",
@@ -359,11 +379,7 @@ public sealed class CloneCandidatesSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         using var json = JsonDocument.Parse(result.Output);
-        Assert.Equal(
-            ["breadth", "coverage"],
-            json.RootElement.GetProperty("summary")
-                .EnumerateObject()
-                .Select(property => property.Name));
+        Assert.False(json.RootElement.TryGetProperty("summary", out _));
         JsonElement rows =
             json.RootElement.GetProperty("clone_candidates");
         Assert.Equal(2, rows.GetArrayLength());
@@ -374,8 +390,14 @@ public sealed class CloneCandidatesSectionTests
                 row.EnumerateObject().Select(property => property.Name)));
     }
 
-    [Fact]
-    public async Task Library_JsonProjectionSupportsSummaryFields()
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task FieldsAreRejectedAcrossOutputFormats(string format)
     {
         var result = await Run(
             "library",
@@ -383,19 +405,194 @@ public sealed class CloneCandidatesSectionTests
             "-S",
             SectionNames.CloneCandidates,
             "--fields",
-            "Breadth;Coverage",
+            "Breadth",
+            format,
+            "-T",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "is row-oriented and does not support --fields",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task BareFieldsAreRejectedAcrossOutputFormats(string format)
+    {
+        var result = await Run(
+            "library",
+            FixturePath,
+            "-S",
+            SectionNames.CloneCandidates,
+            "--fields",
+            format,
+            "-T",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "is row-oriented and does not support --fields",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CommandlessTypeRouteRejectsBareFields()
+    {
+        var result = await Run(
+            "Cases.Widget",
+            "--library",
+            FixturePath,
+            "-S",
+            SectionNames.CloneCandidates,
+            "--fields",
             "--json",
             "-T",
             "q");
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Error);
-        using var json = JsonDocument.Parse(result.Output);
-        Assert.Equal(
-            ["breadth", "coverage"],
-            json.RootElement.GetProperty("summary")
-                .EnumerateObject()
-                .Select(property => property.Name));
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "is row-oriented and does not support --fields",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task BareFieldsAreRejectedForAllInspectionRoutes(
+        string command)
+    {
+        string[] target = command switch
+        {
+            "library" => [command, FixturePath],
+            "type" => [command, "Cases.Widget", "--library", FixturePath],
+            _ =>
+            [
+                command,
+                "Cases.Widget",
+                "--library",
+                FixturePath,
+                "-m",
+                "Raise",
+            ],
+        };
+        var result = await Run(
+            [
+                .. target,
+                "-S",
+                SectionNames.CloneCandidates,
+                "--fields",
+                "--json",
+                "-T",
+                "q",
+            ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "is row-oriented and does not support --fields",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PackageLibraryRouteRejectsBareFields()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"clone-package-{Guid.NewGuid():N}");
+        string content = Path.Combine(directory, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net10.0");
+        Directory.CreateDirectory(libraryDirectory);
+        string libraryName = Path.GetFileName(FixturePath);
+        File.Copy(FixturePath, Path.Combine(libraryDirectory, libraryName));
+        File.WriteAllText(
+            Path.Combine(content, "Clone.Candidates.Tests.nuspec"),
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Clone.Candidates.Tests</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>Clone Candidates routing fixture</description>
+              </metadata>
+            </package>
+            """);
+        string package = Path.Combine(
+            directory,
+            "Clone.Candidates.Tests.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, package);
+
+        try
+        {
+            var result = await Run(
+                "package",
+                package,
+                "--library",
+                libraryName,
+                "-S",
+                SectionNames.CloneCandidates,
+                "--fields",
+                "--json",
+                "-T",
+                "q");
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "is row-oriented and does not support --fields",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Participants")]
+    [InlineData("Returned pairs")]
+    [InlineData("Ranked pairs")]
+    [InlineData("Retrieval pairs")]
+    [InlineData("Name comparisons")]
+    [InlineData("Participant scope")]
+    [InlineData("Work")]
+    public async Task SummaryFieldNamesAreRejectedWithoutAliases(
+        string field)
+    {
+        var result = await Run(
+            "type",
+            "Cases.Widget",
+            "--library",
+            FixturePath,
+            "-S",
+            SectionNames.CloneCandidates,
+            "--fields",
+            field,
+            "--json",
+            "-T",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "is row-oriented and does not support --fields",
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
