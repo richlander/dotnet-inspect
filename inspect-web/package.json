@@ -32,7 +32,7 @@
     "oxc-parser": "^0.149.0",
     "oxlint": "^1.82.0",
     "oxlint-tsgolint": "7.0.2001",
-    "type-fest": "5.9.0",
+    "type-fest": "5.8.0",
     "typescript": "7.0.2",
     "vite": "^8.3.0"
   },
