@@ -5313,7 +5313,8 @@ public static class ApiSurfaceExtractor
                         AccessorSignatureMatchesProperty(
                             accessor.Kind,
                             signature,
-                            property);
+                            property,
+                            context.TypeParameters.Count);
                 }
                 accessor.IsExplicitInterfaceImplementation =
                     explicitImplementationBodies.Contains(handle)
@@ -5357,7 +5358,8 @@ public static class ApiSurfaceExtractor
     static bool AccessorSignatureMatchesProperty(
         string kind,
         MethodSignature<TypeNode> accessor,
-        MethodSignature<TypeNode> property)
+        MethodSignature<TypeNode> property,
+        int declaringTypeParameterCount)
     {
         if (property.Header.Kind != SignatureKind.Property
             || property.Header.HasExplicitThis
@@ -5380,34 +5382,44 @@ public static class ApiSurfaceExtractor
         return kind switch
         {
             "get" =>
-                SignatureTypeMatches(accessor.ReturnType, property.ReturnType)
+                SignatureTypeMatches(
+                    accessor.ReturnType,
+                    property.ReturnType,
+                    declaringTypeParameterCount)
                 && SignatureTypesMatch(
                     accessor.ParameterTypes,
-                    property.ParameterTypes),
+                    property.ParameterTypes,
+                    declaringTypeParameterCount),
             "set" =>
                 IsVoidReturn(accessor.ReturnType)
                 && accessor.ParameterTypes.Length
                     == property.ParameterTypes.Length + 1
                 && SignatureTypePrefixMatches(
                     accessor.ParameterTypes,
-                    property.ParameterTypes)
+                    property.ParameterTypes,
+                    declaringTypeParameterCount)
                 && SignatureTypeMatches(
                     accessor.ParameterTypes[^1],
-                    property.ReturnType),
+                    property.ReturnType,
+                    declaringTypeParameterCount),
             _ => false,
         };
     }
 
     static bool SignatureTypesMatch(
         ImmutableArray<TypeNode> left,
-        ImmutableArray<TypeNode> right)
+        ImmutableArray<TypeNode> right,
+        int declaringTypeParameterCount)
     {
         if (left.Length != right.Length)
             return false;
 
         for (int index = 0; index < left.Length; index++)
         {
-            if (!SignatureTypeMatches(left[index], right[index]))
+            if (!SignatureTypeMatches(
+                    left[index],
+                    right[index],
+                    declaringTypeParameterCount))
                 return false;
         }
 
@@ -5416,26 +5428,37 @@ public static class ApiSurfaceExtractor
 
     static bool SignatureTypePrefixMatches(
         ImmutableArray<TypeNode> left,
-        ImmutableArray<TypeNode> prefix)
+        ImmutableArray<TypeNode> prefix,
+        int declaringTypeParameterCount)
     {
         if (left.Length < prefix.Length)
             return false;
 
         for (int index = 0; index < prefix.Length; index++)
         {
-            if (!SignatureTypeMatches(left[index], prefix[index]))
+            if (!SignatureTypeMatches(
+                    left[index],
+                    prefix[index],
+                    declaringTypeParameterCount))
                 return false;
         }
 
         return true;
     }
 
-    static bool SignatureTypeMatches(TypeNode left, TypeNode right)
+    static bool SignatureTypeMatches(
+        TypeNode left,
+        TypeNode right,
+        int declaringTypeParameterCount)
     {
         if (ApiTypeShapeFactory.FromTypeNode(left) is not { } leftShape
             || ApiTypeShapeFactory.FromTypeNode(right) is not { } rightShape
-            || ContainsMethodGenericParameter(leftShape)
-            || ContainsMethodGenericParameter(rightShape))
+            || ContainsUnboundGenericParameter(
+                leftShape,
+                declaringTypeParameterCount)
+            || ContainsUnboundGenericParameter(
+                rightShape,
+                declaringTypeParameterCount))
         {
             return false;
         }
@@ -5443,24 +5466,33 @@ public static class ApiSurfaceExtractor
         return leftShape.Equals(rightShape);
     }
 
-    static bool ContainsMethodGenericParameter(ApiTypeShape shape)
+    static bool ContainsUnboundGenericParameter(
+        ApiTypeShape shape,
+        int declaringTypeParameterCount)
     {
         if (shape is
             {
                 Kind: ApiTypeShapeKind.GenericParameter,
-                IsMethodGenericParameter: true,
+                GenericParameterIndex: var index,
+                IsMethodGenericParameter: var isMethod,
             })
         {
-            return true;
+            return isMethod
+                || index < 0
+                || index >= declaringTypeParameterCount;
         }
         if (shape.ElementType is not null
-            && ContainsMethodGenericParameter(shape.ElementType))
+            && ContainsUnboundGenericParameter(
+                shape.ElementType,
+                declaringTypeParameterCount))
         {
             return true;
         }
         foreach (ApiTypeShape argument in shape.TypeArguments)
         {
-            if (ContainsMethodGenericParameter(argument))
+            if (ContainsUnboundGenericParameter(
+                    argument,
+                    declaringTypeParameterCount))
                 return true;
         }
 

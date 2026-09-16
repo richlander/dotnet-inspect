@@ -31,6 +31,9 @@ public class PropertyAccessorSignatureConsistencyTests
     [InlineData(AccessorMismatch.ArrayMethodGenericParameter, true)]
     [InlineData(AccessorMismatch.GenericArgumentMethodGenericParameter, true)]
     [InlineData(AccessorMismatch.TypeGenericParameter, false)]
+    [InlineData(AccessorMismatch.OutOfRangeTypeGenericParameter, true)]
+    [InlineData(AccessorMismatch.ArrayOutOfRangeTypeGenericParameter, true)]
+    [InlineData(AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter, true)]
     public void PropertyAccessorRetainsWhetherItsSignatureCorresponds(
         AccessorMismatch mismatch,
         bool expectedMismatch)
@@ -147,7 +150,10 @@ public class PropertyAccessorSignatureConsistencyTests
                 or AccessorMismatch.GenericClassValueType
                 or AccessorMismatch.MethodGenericParameter
                 or AccessorMismatch.ArrayMethodGenericParameter
-                or AccessorMismatch.GenericArgumentMethodGenericParameter =>
+                or AccessorMismatch.GenericArgumentMethodGenericParameter
+                or AccessorMismatch.OutOfRangeTypeGenericParameter
+                or AccessorMismatch.ArrayOutOfRangeTypeGenericParameter
+                or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter =>
                 "get",
             _ => "set",
         });
@@ -190,7 +196,10 @@ public class PropertyAccessorSignatureConsistencyTests
             or AccessorMismatch.MethodGenericParameter
             or AccessorMismatch.ArrayMethodGenericParameter
             or AccessorMismatch.GenericArgumentMethodGenericParameter
-            or AccessorMismatch.TypeGenericParameter;
+            or AccessorMismatch.TypeGenericParameter
+            or AccessorMismatch.OutOfRangeTypeGenericParameter
+            or AccessorMismatch.ArrayOutOfRangeTypeGenericParameter
+            or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter;
         bool getOnly = voidProperty || encodedReturn;
         byte getterReturn = voidProperty
             ? (byte)SignatureTypeCode.Void
@@ -227,6 +236,12 @@ public class PropertyAccessorSignatureConsistencyTests
             AccessorMismatch.GenericArgumentMethodGenericParameter =>
                 [0x15, 0x12, 0x05, 0x01, 0x1E, 0x00],
             AccessorMismatch.TypeGenericParameter => [0x13, 0x00],
+            AccessorMismatch.OutOfRangeTypeGenericParameter =>
+                [0x13, 0x00],
+            AccessorMismatch.ArrayOutOfRangeTypeGenericParameter =>
+                [0x1D, 0x13, 0x00],
+            AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter =>
+                [0x15, 0x12, 0x05, 0x01, 0x13, 0x00],
             _ =>
             [
                 voidProperty
@@ -462,5 +477,8 @@ public class PropertyAccessorSignatureConsistencyTests
         ArrayMethodGenericParameter,
         GenericArgumentMethodGenericParameter,
         TypeGenericParameter,
+        OutOfRangeTypeGenericParameter,
+        ArrayOutOfRangeTypeGenericParameter,
+        GenericArgumentOutOfRangeTypeGenericParameter,
     }
 }
