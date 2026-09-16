@@ -601,10 +601,12 @@ selection resolves `net10.0`; Browser explicitly selects that framework, opens
 and activates its occurrence, and reports the matching `IHttpClientFactory`
 and `AddHttpClient` signals. The same network-backed case opens
 `System.Text.Json@10.0.0/net10.0` through the ordinary Worker transport as its
-large-package payload boundary. These coordinates use the live Gallery CDN;
-the lifecycle and malformed-implementation cases use deterministic local
-archive responses. Run the gate after building the frontend and publishing
-`DotnetInspect.Web.csproj` in Release to `artifacts/inspect-web-publish`.
+large-package baseline and `Aspire.Hosting@13.5.4/net8.0` as the pathological
+package that crosses both former transport bounds. These coordinates use the
+live Gallery CDN; the lifecycle and malformed-implementation cases use
+deterministic local archive responses. Run the gate after building the frontend
+and publishing `DotnetInspect.Web.csproj` in Release to
+`artifacts/inspect-web-publish`.
 
 ## Supported
 
