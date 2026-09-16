@@ -208,6 +208,65 @@ public class DecompilerExceptionFactAdoptionTests
     }
 
     [Fact]
+    public void UnavailableInstructionFlow_PreservesFlatRegionsAndDeclinesVisibly()
+    {
+        byte[] image = File.ReadAllBytes(FixturePath);
+        int token = typeof(CfgSampleClass).GetMethod(
+            nameof(CfgSampleClass.ChecksThenTry))!.MetadataToken;
+        using (var pe = new PEReader(
+                   new MemoryStream(image, writable: false)))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            MethodDefinition method = reader.GetMethodDefinition(
+                (MethodDefinitionHandle)MetadataTokens.EntityHandle(token));
+            MethodBodyBlock body = pe.GetMethodBody(
+                method.RelativeVirtualAddress);
+            DecodedInstruction leave = Assert.Single(
+                MethodInstructions.Decode(body).Instructions,
+                instruction => instruction.OpCode == ILOpCode.Leave_s);
+            int bodyOffset = RvaToFileOffset(
+                pe.PEHeaders,
+                method.RelativeVirtualAddress);
+            ushort flagsAndSize =
+                BinaryPrimitives.ReadUInt16LittleEndian(
+                    image.AsSpan(bodyOffset, 2));
+            int headerSize = (flagsAndSize >> 12) * 4;
+            int opcodeOffset =
+                checked(bodyOffset + headerSize + leave.Offset);
+            Assert.Equal(
+                (byte)ILOpCode.Leave_s,
+                image[opcodeOffset]);
+            image[opcodeOffset] = (byte)ILOpCode.Br_s;
+        }
+
+        using var source = MetadataSource.OpenFromPrefetchedImage(
+            "unavailable-instruction-flow.dll",
+            ImmutableArray.Create(image));
+        IrFunction function = Assert.IsType<IrFunction>(
+            IrImporter.Import(source, token));
+
+        Assert.IsType<InstructionExceptionFlowResult<
+            InstructionExceptionFlowFacts>.Unavailable>(
+                function.ExceptionFlow);
+        Assert.NotEmpty(function.Regions);
+        Assert.Empty(function.ExceptionClauseImports);
+        Assert.DoesNotContain(
+            function.Diagnostics,
+            diagnostic => diagnostic.Id == DiagnosticIds.InternalError);
+
+        new EhStructuringPass().Run(function, PassContext.None);
+
+        Assert.NotEmpty(function.Regions);
+        Assert.Empty(function.Descendants.OfType<TryCatch>());
+        Assert.Contains(
+            FidelityRemarks.Collect(function),
+            remark => remark.Code == DiagnosticIds.ExceptionFactsUnavailable
+                && remark.Reason.Contains(
+                    "Instructions exception-flow evidence is unavailable",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SyntheticRawRegions_KeepLegacyStructuringPath()
     {
         var body = new BlockContainer();

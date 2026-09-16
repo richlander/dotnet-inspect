@@ -239,7 +239,7 @@ public static class MethodImporter
         {
             LocalDeclaredInNestedScope = NestedScopeFlags(declarations.Scopes, il.Length),
             ExceptionInstructions = exceptionInstructions,
-            ExceptionClauseImports = clauseImports.MoveToImmutable(),
+            ExceptionClauseImports = clauseImports.ToImmutable(),
         };
         return new ImportedMethod(
             declaringType,
