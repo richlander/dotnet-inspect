@@ -18,8 +18,9 @@ This contract is implemented by
 `InstructionExceptionFlowResult<T>` as step 3 of
 [#6965](https://github.com/richlander/dotnet-inspect/issues/6965). It extends the
 [`ILInspector.Instructions` substrate](instruction-substrate.md), tracked by
-that issue. Analysis adopts the facts in step 4; Decompiler adoption remains a
-later focused step.
+that issue. Analysis adopts the facts in step 4. Decompiler import and EH
+structuring adopt them in step 5; later Decompiler consumers remain separately
+staged.
 
 Instructions is the right owner because these facts become true only after
 joining decoded opcodes and branch targets with the declared exception
@@ -210,6 +211,14 @@ and declines when location or catch-type evidence is unavailable. Exceptional
 search and unwind remain unclaimed; deciding whether an earlier catch can
 intercept a resource path is conservative Analysis policy.
 
+For a body that declares EH, the Decompiler step-5 adapter carries the same
+`MethodInstructions` object through physical import. EH structuring groups
+exact clause adapters by protected-region identity, uses `LocationAt` for
+production protected/filter/handler membership, and uses `NormalTransferAt`
+for supported explicit branch, leave, and return edges. It retains ownership of C#
+raisability, node construction, and fidelity; sequential fallthrough relies on
+successful Instructions construction rather than a transfer query.
+
 ## Analogous implementations
 
 The architecture comparison was performed on 2026-09-10 and transfers
@@ -264,6 +273,11 @@ clause identities, explicit refusal of uncorrelated body signals, nested
 protected-context ordering, handler-identity release membership, catch-all
 cleanup, and typed/nested catch near misses through the production
 `LibraryBodyIndex` path.
+
+Decompiler `DecompilerExceptionFactAdoptionTests` gate the correlated
+`MethodInstructions` handoff, exact clause and structured-node identity,
+Metadata catch order, visible refusal of missing or rejected evidence, and the
+runtime `TextReader.Read(Span<char>)` cleanup identity.
 
 The .NET runtime's
 [`TextReader.Read(Span<char>)`](https://github.com/dotnet/runtime/blob/f9b470a5ae7dccd67a1d3fb21aea39c3c8410c7c/src/libraries/System.Private.CoreLib/src/System/IO/TextReader.cs#L96-L114)
