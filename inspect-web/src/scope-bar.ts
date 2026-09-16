@@ -16,7 +16,7 @@ type LensDefinition<TId extends string = string> = readonly [
   label: string,
 ];
 
-export type ApplicationScope = "query" | "workspace";
+export type ApplicationScope = "query" | "activity" | "workspace";
 export type AdaptiveNavigationForm = "tabs" | "chooser";
 
 export interface AdaptiveNavigationPair {
@@ -129,7 +129,9 @@ interface AdaptiveNavigationGroup {
 function isApplicationScope(
   value: string | null | undefined,
 ): value is ApplicationScope {
-  return value === "query" || value === "workspace";
+  return value === "query"
+    || value === "activity"
+    || value === "workspace";
 }
 
 function isNavigationGroupName(
@@ -674,6 +676,7 @@ export function renderApplicationScopeBar(
 ): string {
   const scopes = [
     ["query", "Query"],
+    ["activity", "Activity"],
     ["workspace", "Workspace"],
   ] as const;
   return `

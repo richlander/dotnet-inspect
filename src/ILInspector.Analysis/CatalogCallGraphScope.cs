@@ -371,22 +371,8 @@ public sealed class CatalogCallGraphScope : IDisposable
     }
 
     static ImmutableArray<TypeRef> IdentityParameters(MemberRef member)
-    {
-        const byte CallingConventionMask = 0x0F;
-        const byte VarargCallingConvention = 0x05;
-
-        ImmutableArray<TypeRef> parameters =
-            member.OpenSignatureParameters;
-        if ((member.SignatureHeader & CallingConventionMask)
-                == VarargCallingConvention
-            && member.RequiredParameterCount >= 0
-            && member.RequiredParameterCount <= parameters.Length)
-        {
-            return parameters[..member.RequiredParameterCount];
-        }
-
-        return parameters;
-    }
+        => member.RequiredParameterPrefix(
+            member.OpenSignatureParameters);
 
     internal static bool IsResolvedExactTarget(
         CallKind kind,
