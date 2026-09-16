@@ -4958,6 +4958,31 @@ public static class ApiSurfaceExtractor
                         attributeMaterialize)
                 });
             }
+            else if (hasPublicSetter && hasGetter)
+            {
+                string getterAccessibility =
+                    GetAccessibility(getterAccess) ?? "private";
+                accessorStr = $"{{ {getterAccessibility} get; set; }}";
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "get",
+                    Accessibility = getterAccessibility,
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        beforeRetainText,
+                        attributeMaterialize)
+                });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "set",
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        beforeRetainText,
+                        attributeMaterialize)
+                });
+            }
             else if (hasPublicSetter)
             {
                 accessorStr = "{ set; }";

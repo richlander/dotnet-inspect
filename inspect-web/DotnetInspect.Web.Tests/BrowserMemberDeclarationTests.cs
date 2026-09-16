@@ -56,6 +56,14 @@ public sealed class BrowserMemberDeclarationTests
                 restrictedProperty.SignatureModel!.Accessors
                     .Single(accessor => accessor.Kind == "set")
                     .Accessibility);
+            ApiMember restrictedGetterProperty = Assert.Single(
+                extractedType.Members,
+                candidate => candidate.Name == "PrivateGet");
+            Assert.Equal(
+                "private",
+                restrictedGetterProperty.SignatureModel!.Accessors
+                    .Single(accessor => accessor.Kind == "get")
+                    .Accessibility);
             ApiType extractedReadonlyType = Assert.Single(
                 extractedSurface.Types,
                 candidate => candidate.FullName == ReadonlyPropertyType);
@@ -122,6 +130,15 @@ public sealed class BrowserMemberDeclarationTests
             Assert.IsType<string>(internalSetDeclaration.Text));
         Assert.Null(internalSetDeclaration.Unavailable);
         Assert.False(internalSetDeclaration.Compatibility);
+
+        BrowserMemberDeclaration privateGetDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "PrivateGet"));
+        Assert.Equal(
+            "public string PrivateGet { private get; set; }",
+            Assert.IsType<string>(privateGetDeclaration.Text));
+        Assert.Null(privateGetDeclaration.Unavailable);
+        Assert.False(privateGetDeclaration.Compatibility);
 
         BrowserMemberDeclaration initOnlyDeclaration = await Declaration(
             spellingType,
