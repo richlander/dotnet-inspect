@@ -59,6 +59,7 @@ public sealed class ApiCoordinateMatchCommandTests
     [Theory]
     [InlineData("Deserialize:1", "Deserialize:1")]
     [InlineData("Name~abcdef", "Name~abcdef")]
+    [InlineData("RegisterAttached<TOwner,THost,TValue>:1", "RegisterAttached<TOwner,THost,TValue>:1")]
     public void MemberMatch_FormsOneSourceSelector(
         string selector,
         string expected)
@@ -93,8 +94,10 @@ public sealed class ApiCoordinateMatchCommandTests
         Assert.Equal(expected, success.Request.Member);
     }
 
-    [Fact]
-    public void MemberMatch_IndexUsesEstablishedSelectorSpelling()
+    [Theory]
+    [InlineData("Deserialize", "Deserialize:2")]
+    [InlineData("RegisterAttached<TOwner,THost,TValue>", "RegisterAttached<TOwner,THost,TValue>:2")]
+    public void MemberMatch_IndexUsesEstablishedSelectorSpelling(string selector, string expected)
     {
         var options = new SharedOptions();
         Command command =
@@ -108,7 +111,7 @@ public sealed class ApiCoordinateMatchCommandTests
         var parseResult = command.Parse(
             [
                 "System.Text.Json.JsonSerializer",
-                "Deserialize",
+                selector,
                 "--index", "2",
                 "--package", "System.Text.Json@9.0.0..10.0.0",
                 "--match",
@@ -121,7 +124,7 @@ public sealed class ApiCoordinateMatchCommandTests
                 options,
                 args,
                 matchOption));
-        Assert.Equal("Deserialize:2", success.Request.Member);
+        Assert.Equal(expected, success.Request.Member);
     }
 
     [Theory]
@@ -296,6 +299,29 @@ public sealed class ApiCoordinateMatchCommandTests
             "8.0.6",
             contentJson.RootElement.GetProperty("after")
                 .GetProperty("version").GetString());
+    }
+
+    [Theory]
+    [InlineData("RegisterAttached<TOwner,THost,TValue>:1", "RegisterAttached~6a22f40030")]
+    [InlineData("RegisterAttached<THost,TValue>:1", "RegisterAttached~8192c3d837")]
+    public async Task Avalonia_GenericArityPreservesTheSelectedSource(string selector, string expected)
+    {
+        var result = await Invoke(
+            [
+                "member", "Avalonia.AvaloniaProperty", selector,
+                "--package", "Avalonia@11.3.14..11.3.14",
+                "--tfm", "net8.0",
+                "--source", "https://api.nuget.org/v3/index.json",
+                "--match", "--json", "--compact", "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement content = document.RootElement;
+        Assert.Equal("Exact", content.GetProperty("status").GetString());
+        Assert.Equal(expected, content.GetProperty("source").GetProperty("member").GetString());
+        Assert.Equal(expected, content.GetProperty("destination").GetProperty("member").GetString());
     }
 
     private static Task<(int Exit, string Output, string Error)> Invoke(

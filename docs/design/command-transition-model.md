@@ -221,12 +221,18 @@ An optional `--library` narrows the source Library only; destination Library
 selection is owned by coordinate-library pairing.
 
 The source Type query is exact. Member focus adds one source selector using the
-existing name, `Name:N`, `Name~digest`, or `--index N` grammar. A bare name may
-resolve only when unique. This operation matches declarations, not accessor
+existing name, `Name:N`, `Name~digest`, or `--index N` grammar. Generic arity,
+such as `RegisterAttached<TOwner,THost,TValue>:1`, remains part of that selector
+when CLI admission forms the shared request. A bare name may resolve only when
+unique. This operation matches declarations, not accessor
 bodies: `Foo:1`, `Foo~digest:1`, or `Foo --index 1` is refused when it selects
 an accessor of a singleton Property or Event. Omit that accessor ordinal to
 match the Property/Event declaration. An ordinal that selects among overloaded
 indexer declarations remains valid.
+
+`ApiCoordinateMatchCommandTests.Avalonia_GenericArityPreservesTheSelectedSource`
+gates the two- and three-type-parameter Avalonia overloads through the CLI in
+Release; the focused cases are PR-fast (1.38 seconds maximum observed).
 
 The source selector is not independently replayed at the destination: the
 destination coordinate comes from the established Metadata correspondence and

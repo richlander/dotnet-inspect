@@ -167,6 +167,7 @@ internal static class ApiCoordinateMatchOptionsParser
                 "A Name:N selector requires a positive one-based overload ordinal.");
         }
 
+        string requestedSelector = selector.RequestedText;
         if (index is { } overloadIndex)
         {
             if (selector.OverloadIndex is not null)
@@ -175,7 +176,7 @@ internal static class ApiCoordinateMatchOptionsParser
                     "--index cannot be combined with a Name:N selector.");
             }
 
-            selector = selector with { OverloadIndex = overloadIndex };
+            requestedSelector = $"{requestedSelector}:{overloadIndex}";
         }
 
         return CreateSuccess(
@@ -183,7 +184,7 @@ internal static class ApiCoordinateMatchOptionsParser
             options,
             parseResult.GetValue(args.PackageOption),
             type!,
-            selector.NormalizedSelector,
+            requestedSelector,
             parseResult.GetValue(args.TfmOption),
             parseResult.GetValue(args.AssemblyOption),
             parseResult.GetValue(args.CompactOption),
