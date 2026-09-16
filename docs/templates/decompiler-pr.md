@@ -575,6 +575,6 @@ For the full local delta, see
 
 ```bash
 dotnet build src/DotnetInspect.Cli -c Release --nologo --verbosity quiet
-dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -filter "/*/*/{FocusedTests}/*"
-dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --filter-query "/*/*/{FocusedTests}/*"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --filter-not-trait "Speed=Slow"
 ```

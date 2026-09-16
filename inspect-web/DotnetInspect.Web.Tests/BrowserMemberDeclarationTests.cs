@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
@@ -26,10 +27,16 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.dll";
     const string SpellingType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetySpellingFixture";
+    const string ReadonlyPropertyType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReadonlyPropertyFixture";
+    const string ReadonlySetterPropertyType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReadonlySetterPropertyFixture";
     const string ExplicitLayoutType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitLayoutFixture";
     const string AccessorType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract";
+    const string ImplicitPropertyType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyImplicitPropertyFixture";
     const string EnumType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionEnum";
 
@@ -38,6 +45,98 @@ public sealed class BrowserMemberDeclarationTests
     {
         byte[] image = File.ReadAllBytes(
             FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using (var peReader = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            ApiSurface extractedSurface = ApiSurfaceExtractor.Extract(peReader);
+            ApiType extractedType = Assert.Single(
+                extractedSurface.Types,
+                candidate => candidate.FullName == SpellingType);
+            foreach (string propertyName in
+                new[]
+                {
+                    "Type",
+                    "RequiredValue",
+                    "NativeInt",
+                    "InternalSet",
+                    "PrivateGet",
+                    "InitOnly",
+                })
+            {
+                ApiMember property = Assert.Single(
+                    extractedType.Members,
+                    candidate => candidate.Name == propertyName);
+                Assert.All(
+                    property.SignatureModel!.Accessors,
+                    accessor =>
+                    {
+                        Assert.True(accessor.AccessibilityIsRepresentable);
+                        Assert.True(
+                            accessor.DeclarationModifiersMatchProperty);
+                        Assert.True(
+                            accessor.DeclarationModifiersAreRepresentable);
+                        Assert.False(
+                            accessor.IsExplicitInterfaceImplementation);
+                        Assert.True(accessor.SignatureMatchesProperty);
+                    });
+            }
+            ApiMember restrictedProperty = Assert.Single(
+                extractedType.Members,
+                candidate => candidate.Name == "InternalSet");
+            Assert.Equal(
+                "internal",
+                restrictedProperty.SignatureModel!.Accessors
+                    .Single(accessor => accessor.Kind == "set")
+                    .Accessibility);
+            ApiMember nativeIntProperty = Assert.Single(
+                extractedType.Members,
+                candidate => candidate.Name == "NativeInt");
+            Assert.Equal(
+                ApiPrimitiveType.IntPtr,
+                nativeIntProperty.SignatureModel!.ReturnTypeShape!.Primitive);
+            ApiMember restrictedGetterProperty = Assert.Single(
+                extractedType.Members,
+                candidate => candidate.Name == "PrivateGet");
+            Assert.Equal(
+                "private",
+                restrictedGetterProperty.SignatureModel!.Accessors
+                    .Single(accessor => accessor.Kind == "get")
+                    .Accessibility);
+            ApiType extractedReadonlyType = Assert.Single(
+                extractedSurface.Types,
+                candidate => candidate.FullName == ReadonlyPropertyType);
+            ApiMember readonlyProperty = Assert.Single(
+                extractedReadonlyType.Members,
+                candidate => candidate.Name == "Value");
+            Assert.True(
+                readonlyProperty.SignatureModel!.Accessors.Single().IsReadOnly);
+            Assert.True(
+                readonlyProperty.SignatureModel.Accessors.Single()
+                    .SignatureMatchesProperty);
+            ApiType extractedReadonlySetterType = Assert.Single(
+                extractedSurface.Types,
+                candidate => candidate.FullName == ReadonlySetterPropertyType);
+            Assert.True(extractedReadonlySetterType.IsReadOnly);
+            ApiMember readonlySetterProperty = Assert.Single(
+                extractedReadonlySetterType.Members,
+                candidate => candidate.Name == "Value");
+            Assert.Contains(
+                readonlySetterProperty.SignatureModel!.Accessors,
+                accessor => accessor.Kind == "set");
+            Assert.All(
+                readonlySetterProperty.SignatureModel.Accessors,
+                accessor => Assert.False(accessor.IsReadOnly));
+            ApiType extractedImplicitType = Assert.Single(
+                extractedSurface.Types,
+                candidate => candidate.FullName == ImplicitPropertyType);
+            ApiAccessor implicitAccessor = Assert.Single(
+                Assert.Single(
+                    extractedImplicitType.Members,
+                    candidate => candidate.Name == "Value")
+                .SignatureModel!.Accessors);
+            Assert.True(implicitAccessor.DeclarationModifiersMatchProperty);
+            Assert.False(implicitAccessor.DeclarationModifiersAreRepresentable);
+        }
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
                 PackageId,
@@ -78,6 +177,101 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Null(pointerNoneDeclaration.Unavailable);
         Assert.False(pointerNoneDeclaration.Compatibility);
 
+        BrowserMemberDeclaration propertyDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "Type"));
+        Assert.Equal(
+            "public string Type { get; set; }",
+            Assert.IsType<string>(propertyDeclaration.Text));
+        Assert.Null(propertyDeclaration.Unavailable);
+        Assert.False(propertyDeclaration.Compatibility);
+
+        BrowserMemberDeclaration requiredDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "RequiredValue"));
+        Assert.True(
+            requiredDeclaration.Text is not null,
+            requiredDeclaration.Unavailable);
+        Assert.Equal(
+            "public required string RequiredValue { get; set; }",
+            Assert.IsType<string>(requiredDeclaration.Text));
+        Assert.Null(requiredDeclaration.Unavailable);
+        Assert.False(requiredDeclaration.Compatibility);
+
+        BrowserMemberDeclaration nativeIntDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "NativeInt"));
+        Assert.Equal(
+            "public nint NativeInt { get; set; }",
+            Assert.IsType<string>(nativeIntDeclaration.Text));
+        Assert.Null(nativeIntDeclaration.Unavailable);
+        Assert.False(nativeIntDeclaration.Compatibility);
+
+        BrowserMemberDeclaration internalSetDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "InternalSet"));
+        Assert.Equal(
+            "public int InternalSet { get; internal set; }",
+            Assert.IsType<string>(internalSetDeclaration.Text));
+        Assert.Null(internalSetDeclaration.Unavailable);
+        Assert.False(internalSetDeclaration.Compatibility);
+
+        BrowserMemberDeclaration privateGetDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "PrivateGet"));
+        Assert.Equal(
+            "public string PrivateGet { private get; set; }",
+            Assert.IsType<string>(privateGetDeclaration.Text));
+        Assert.Null(privateGetDeclaration.Unavailable);
+        Assert.False(privateGetDeclaration.Compatibility);
+
+        BrowserMemberDeclaration initOnlyDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "InitOnly"));
+        Assert.Null(initOnlyDeclaration.Text);
+        Assert.Contains(
+            "accessor return shape",
+            Assert.IsType<string>(initOnlyDeclaration.Unavailable),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(initOnlyDeclaration.Compatibility);
+
+        JsonElement readonlyPropertyType =
+            Type(surfaceDocument.RootElement, ReadonlyPropertyType);
+        BrowserMemberDeclaration readonlyPropertyDeclaration =
+            await Declaration(
+                readonlyPropertyType,
+                Member(readonlyPropertyType, "Value"));
+        Assert.Null(readonlyPropertyDeclaration.Text);
+        Assert.Contains(
+            "readonly accessor",
+            Assert.IsType<string>(readonlyPropertyDeclaration.Unavailable),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(readonlyPropertyDeclaration.Compatibility);
+
+        JsonElement readonlySetterPropertyType =
+            Type(surfaceDocument.RootElement, ReadonlySetterPropertyType);
+        BrowserMemberDeclaration readonlySetterPropertyDeclaration =
+            await Declaration(
+                readonlySetterPropertyType,
+                Member(readonlySetterPropertyType, "Value"));
+        Assert.Null(readonlySetterPropertyDeclaration.Text);
+        Assert.Contains(
+            "readonly struct",
+            Assert.IsType<string>(
+                readonlySetterPropertyDeclaration.Unavailable),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(readonlySetterPropertyDeclaration.Compatibility);
+
+        BrowserMemberDeclaration readonlyStaticPropertyDeclaration =
+            await Declaration(
+                readonlySetterPropertyType,
+                Member(readonlySetterPropertyType, "StaticValue"));
+        Assert.Equal(
+            "public static int StaticValue { get; set; }",
+            Assert.IsType<string>(readonlyStaticPropertyDeclaration.Text));
+        Assert.Null(readonlyStaticPropertyDeclaration.Unavailable);
+        Assert.False(readonlyStaticPropertyDeclaration.Compatibility);
+
         JsonElement explicitLayoutType =
             Type(surfaceDocument.RootElement, ExplicitLayoutType);
         BrowserMemberDeclaration safeFieldDeclaration = await Declaration(
@@ -94,14 +288,27 @@ public sealed class BrowserMemberDeclarationTests
         Assert.False(safeFieldDeclaration.Compatibility);
 
         JsonElement accessorType = Type(surfaceDocument.RootElement, AccessorType);
-        BrowserMemberDeclaration propertyDeclaration =
+        BrowserMemberDeclaration accessorContractDeclaration =
             await Declaration(accessorType, Member(accessorType, "Value"));
-        Assert.Null(propertyDeclaration.Text);
+        Assert.Null(accessorContractDeclaration.Text);
         Assert.Contains(
-            "not supported",
-            Assert.IsType<string>(propertyDeclaration.Unavailable),
+            "contract",
+            Assert.IsType<string>(accessorContractDeclaration.Unavailable),
             StringComparison.OrdinalIgnoreCase);
-        Assert.False(propertyDeclaration.Compatibility);
+        Assert.False(accessorContractDeclaration.Compatibility);
+
+        JsonElement implicitPropertyType =
+            Type(surfaceDocument.RootElement, ImplicitPropertyType);
+        BrowserMemberDeclaration implicitPropertyDeclaration =
+            await Declaration(
+                implicitPropertyType,
+                Member(implicitPropertyType, "Value"));
+        Assert.Null(implicitPropertyDeclaration.Text);
+        Assert.Contains(
+            "accessor declaration modifier",
+            Assert.IsType<string>(implicitPropertyDeclaration.Unavailable),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(implicitPropertyDeclaration.Compatibility);
 
         JsonElement enumType = Type(surfaceDocument.RootElement, EnumType);
         Assert.DoesNotContain(

@@ -1458,6 +1458,8 @@ public static partial class AttributeReader
             "System.Double" => ApiPrimitiveType.Double,
             "System.String" => ApiPrimitiveType.String,
             "System.Object" => ApiPrimitiveType.Object,
+            "System.IntPtr" => ApiPrimitiveType.IntPtr,
+            "System.UIntPtr" => ApiPrimitiveType.UIntPtr,
             _ => (ApiPrimitiveType)(-1),
         };
         return primitive != (ApiPrimitiveType)(-1)

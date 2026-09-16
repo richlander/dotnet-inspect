@@ -6,6 +6,7 @@ internal static class LibraryCallUseViewSections
 {
     internal const string ConsumerUseSites = "Consumer Use Sites";
     internal const string ProviderApiTypes = "Provider API Types";
+    internal const string DirectUseClusters = "Direct Use Clusters";
     internal const string CallSites = "Call Sites";
 }
 
@@ -104,6 +105,33 @@ public sealed class LibraryCallUseProviderApiTypesView
     TitleProperty = nameof(Title),
     DescriptionProperty = nameof(Description),
     AutoFields = false)]
+public sealed class LibraryCallUseDirectUseClustersView
+{
+    [MarkoutIgnore]
+    public string Title
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    } = LibraryCallUseViewText.Contain(
+        LibraryCallUseViewSections.DirectUseClusters);
+
+    [MarkoutIgnore]
+    public required string Description
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.ContainDescription(value);
+    }
+
+    [MarkoutSection(
+        Name = LibraryCallUseViewSections.DirectUseClusters,
+        Headless = true)]
+    public List<LibraryCallUseDirectUseClusterRow>? Rows { get; init; }
+}
+
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    DescriptionProperty = nameof(Description),
+    AutoFields = false)]
 public sealed class LibraryCallUseCallSitesView
 {
     [MarkoutIgnore]
@@ -134,6 +162,9 @@ public sealed class LibraryCallUseSelectedView
 
     [MarkoutSection(Name = LibraryCallUseViewSections.ProviderApiTypes)]
     public List<LibraryCallUseProviderApiTypeRow> ProviderApiTypes { get; init; } = [];
+
+    [MarkoutSection(Name = LibraryCallUseViewSections.DirectUseClusters)]
+    public List<LibraryCallUseDirectUseClusterRow> DirectUseClusters { get; init; } = [];
 
     [MarkoutSection(Name = LibraryCallUseViewSections.CallSites)]
     public List<LibraryCallUseCallSiteRow> CallSites { get; init; } = [];
@@ -227,6 +258,67 @@ public sealed class LibraryCallUseProviderApiTypeRow
 
     public int SourceMembers { get; init; }
     public int TargetMembers { get; init; }
+    public int CallSites { get; init; }
+    public required string CallSiteRows
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+}
+
+[MarkoutSerializable]
+public sealed class LibraryCallUseDirectUseClusterRow
+{
+    public required string SourceLibrary
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    [MarkoutPropertyName("Source MVID")]
+    public required string SourceMvid
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string TargetLibrary
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    [MarkoutPropertyName("Target MVID")]
+    public required string TargetMvid
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public int Cluster { get; init; }
+
+    public required string Derivation
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string AnchorSourceToken
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string AnchorTargetToken
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public int SourceMembers { get; init; }
+    public int ProviderTypes { get; init; }
+    public int TargetMembers { get; init; }
+    public int ExtensionMethods { get; init; }
     public int CallSites { get; init; }
     public required string CallSiteRows
     {
@@ -337,10 +429,12 @@ public sealed class LibraryCallUseCallSiteRow
 [MarkoutContext(typeof(LibraryCallUseHeaderView))]
 [MarkoutContext(typeof(LibraryCallUseConsumerUseSitesView))]
 [MarkoutContext(typeof(LibraryCallUseProviderApiTypesView))]
+[MarkoutContext(typeof(LibraryCallUseDirectUseClustersView))]
 [MarkoutContext(typeof(LibraryCallUseCallSitesView))]
 [MarkoutContext(typeof(LibraryCallUseSelectedView))]
 [MarkoutContext(typeof(LibraryCallUseConsumerUseSiteRow))]
 [MarkoutContext(typeof(LibraryCallUseProviderApiTypeRow))]
+[MarkoutContext(typeof(LibraryCallUseDirectUseClusterRow))]
 [MarkoutContext(typeof(LibraryCallUseCallSiteRow))]
 public partial class LibraryCallUseViewContext : MarkoutSerializerContext
 {

@@ -52,4 +52,37 @@ namespace ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.Contexts
         private sealed partial class NestedContextJsonContext
             : JsonSerializerContext;
     }
+
+#pragma warning disable CS0414
+#pragma warning disable SYSLIB1038
+    [SupportedOSPlatform("browser")]
+    public partial class NestedContextConditionalValueDto
+    {
+        [JsonInclude]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        private HiddenPayload? Hidden;
+
+        public static string SerializeNull() =>
+            JsonSerializer.Serialize(
+                new NestedContextConditionalValueDto(),
+                ConditionalJsonContext.Default
+                    .NestedContextConditionalValueDto);
+
+        public static string SerializeValue() =>
+            JsonSerializer.Serialize(
+                new NestedContextConditionalValueDto
+                {
+                    Hidden = new HiddenPayload("value"),
+                },
+                ConditionalJsonContext.Default
+                    .NestedContextConditionalValueDto);
+
+        private sealed record HiddenPayload(string Value);
+
+        [JsonSerializable(typeof(NestedContextConditionalValueDto))]
+        private sealed partial class ConditionalJsonContext
+            : JsonSerializerContext;
+    }
+#pragma warning restore SYSLIB1038
+#pragma warning restore CS0414
 }

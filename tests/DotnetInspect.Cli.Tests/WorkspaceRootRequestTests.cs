@@ -31,10 +31,19 @@ public sealed class WorkspaceRootRequestTests
     [Fact]
     public void RootRequestOption_IsAcceptedAndRejectsPackageSelection()
     {
-        Assert.Empty(
-            CommandLineBuilder.CreateRootCommand()
-                .Parse(["workspace", "--root-request", "pkgroot1.a.b.c.d.e.f.g"])
-                .Errors);
+        var root = CommandLineBuilder.CreateRootCommand();
+        Assert.Empty(root
+            .Parse(["workspace", "--root-request", "pkgroot1.a.b.c.d.e.f.g"])
+            .Errors);
+        var workspace = root.Subcommands.Single(
+            command => command.Name == "workspace");
+        var option = Assert.Single(
+            workspace.Options,
+            option => option.Name == "--root-request");
+        Assert.Contains(
+            "package query ... --library-literal",
+            option.Description,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -75,6 +84,10 @@ public sealed class WorkspaceRootRequestTests
         Assert.Empty(captured.Output);
         Assert.Contains(
             "must be a package Root reopening token",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "package query ... --library-literal",
             captured.Error,
             StringComparison.Ordinal);
     }

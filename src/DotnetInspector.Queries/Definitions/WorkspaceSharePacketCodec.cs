@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using UntrustedDocuments;
@@ -26,11 +27,16 @@ internal readonly record struct GroupExpressionPin(
 /// </remarks>
 public static class WorkspaceSharePacketCodec
 {
-    public const int CurrentFormatVersion = 1;
-    public const int MaxEncodedLength = 16 * 1024;
-    public const int MaxDecodedUtf8Length = 12 * 1024;
-    public const int MaxJsonDepth = 16;
-    public const int MaxJsonValues = 1024;
+    public const int LegacyFormatVersion = 1;
+    public const int CurrentFormatVersion = 2;
+    public const int MaxFormat1EncodedLength = 16 * 1024;
+    public const int MaxFormat1DecodedUtf8Length = 12 * 1024;
+    public const int MaxFormat1JsonDepth = 16;
+    public const int MaxFormat1JsonValues = 1024;
+    public const int MaxEncodedLength = 32 * 1024;
+    public const int MaxDecodedUtf8Length = 24 * 1024;
+    public const int MaxJsonDepth = 24;
+    public const int MaxJsonValues = 2048;
     public const int MaxTabs = 12;
     public const int MaxContexts = 24;
 
@@ -66,13 +72,14 @@ public static class WorkspaceSharePacketCodec
         }
 
         WorkspaceSharePacket packet = ParseJson(utf8Json, cancellationToken);
+        ValidateEncodedLength(packet.FormatVersion, encoded.Length);
 
         string canonical = Encode(packet);
         if (!string.Equals(encoded, canonical, StringComparison.Ordinal))
         {
             throw Failure(
                 WorkspaceSharePacketFailureKind.NonCanonical,
-                "Workspace share state is valid but not in canonical v1 form.");
+                $"Workspace share state is valid but not in canonical format-{packet.FormatVersion} form.");
         }
 
         return packet;
@@ -143,12 +150,7 @@ public static class WorkspaceSharePacketCodec
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
-        if (encoded.Length > MaxEncodedLength)
-        {
-            throw Failure(
-                WorkspaceSharePacketFailureKind.EncodedLimitExceeded,
-                $"Workspace share state exceeds the {MaxEncodedLength}-character limit.");
-        }
+        ValidateEncodedLength(packet.FormatVersion, encoded.Length);
 
         return encoded;
     }
@@ -168,7 +170,10 @@ public static class WorkspaceSharePacketCodec
         }
 
         ValidateUtf8(utf8Json.Span);
-        ValidateJsonBudget(utf8Json.Span);
+        ValidateJsonBudget(
+            utf8Json.Span,
+            MaxJsonDepth,
+            MaxJsonValues);
 
         JsonDocument document;
         try
@@ -191,19 +196,26 @@ public static class WorkspaceSharePacketCodec
         }
 
         using (document)
-            return Bind(document.RootElement);
+        {
+            int formatVersion = ReadFormatVersion(document.RootElement);
+            ValidateDecodedLength(formatVersion, utf8Json.Length);
+            if (formatVersion == LegacyFormatVersion)
+            {
+                ValidateJsonBudget(
+                    utf8Json.Span,
+                    MaxFormat1JsonDepth,
+                    MaxFormat1JsonValues);
+            }
+
+            return Bind(document.RootElement, formatVersion);
+        }
     }
 
     private static byte[] WriteValidatedJson(WorkspaceSharePacket packet)
     {
         ArgumentNullException.ThrowIfNull(packet);
         byte[] utf8Json = WriteCanonicalJson(packet);
-        if (utf8Json.Length > MaxDecodedUtf8Length)
-        {
-            throw Failure(
-                WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
-                $"Workspace share state exceeds the {MaxDecodedUtf8Length}-byte decoded limit.");
-        }
+        ValidateDecodedLength(packet.FormatVersion, utf8Json.Length);
 
         return utf8Json;
     }
@@ -253,7 +265,10 @@ public static class WorkspaceSharePacketCodec
         return decoded.AsSpan(0, written).ToArray();
     }
 
-    private static void ValidateJsonBudget(ReadOnlySpan<byte> utf8Json)
+    private static void ValidateJsonBudget(
+        ReadOnlySpan<byte> utf8Json,
+        int maxDepth,
+        int maxValues)
     {
         try
         {
@@ -263,7 +278,7 @@ public static class WorkspaceSharePacketCodec
                 {
                     AllowTrailingCommas = false,
                     CommentHandling = JsonCommentHandling.Disallow,
-                    MaxDepth = MaxJsonDepth,
+                    MaxDepth = maxDepth,
                 });
             int values = 0;
             while (reader.Read())
@@ -278,11 +293,11 @@ public static class WorkspaceSharePacketCodec
                     or JsonTokenType.Null)
                 {
                     values++;
-                    if (values > MaxJsonValues)
+                    if (values > maxValues)
                     {
                         throw Failure(
                             WorkspaceSharePacketFailureKind.JsonValueLimitExceeded,
-                            $"Workspace share state exceeds the {MaxJsonValues}-value JSON limit.");
+                            $"Workspace share state exceeds the {maxValues}-value JSON limit.");
                     }
                 }
             }
@@ -291,7 +306,7 @@ public static class WorkspaceSharePacketCodec
         {
             throw Failure(
                 WorkspaceSharePacketFailureKind.InvalidJson,
-                $"Workspace share state is invalid JSON or exceeds depth {MaxJsonDepth}.",
+                $"Workspace share state is invalid JSON or exceeds depth {maxDepth}.",
                 ex);
         }
     }
@@ -311,39 +326,54 @@ public static class WorkspaceSharePacketCodec
         }
     }
 
-    private static WorkspaceSharePacket Bind(JsonElement root)
+    private static int ReadFormatVersion(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object)
             throw InvalidShape("Workspace share state must be one JSON object.");
 
-        try
-        {
-            foreach (JsonProperty property in root.EnumerateObject())
-            {
-                if (property.Name is not ("f" or "t" or "g" or "a" or "x"
-                    or "v" or "y" or "m" or "s" or "c" or "l"))
-                {
-                    throw InvalidShape(
-                        "Workspace share state contains an unknown property.");
-                }
-            }
-        }
-        catch (InvalidOperationException ex)
+        JsonElement format = Required(root, "f");
+        if (format.ValueKind != JsonValueKind.Number
+            || !format.TryGetInt32(out int version))
         {
             throw InvalidShape(
-                "Workspace share state contains an invalid property name.",
-                ex);
+                "Workspace share state requires integer format field 'f'.");
         }
-
-        JsonElement format = Required(root, "f");
-        if (format.ValueKind != JsonValueKind.Number || !format.TryGetInt32(out int version))
-            throw InvalidShape("Workspace share state requires integer format field 'f'.");
-        if (version != CurrentFormatVersion)
+        if (version is not (LegacyFormatVersion or CurrentFormatVersion))
         {
             throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
-                $"Unsupported workspace share format {version}; expected {CurrentFormatVersion}.");
+                $"Unsupported workspace share format {version}; expected "
+                    + $"{LegacyFormatVersion} or {CurrentFormatVersion}.");
         }
+
+        return version;
+    }
+
+    private static WorkspaceSharePacket Bind(
+        JsonElement root,
+        int formatVersion) =>
+        formatVersion switch
+        {
+            LegacyFormatVersion => BindFormat1(root),
+            CurrentFormatVersion => BindFormat2(root),
+            _ => throw new UnreachableException(),
+        };
+
+    private static WorkspaceSharePacket BindFormat1(JsonElement root)
+    {
+        ValidateProperties(
+            root,
+            "f",
+            "t",
+            "g",
+            "a",
+            "x",
+            "v",
+            "y",
+            "m",
+            "s",
+            "c",
+            "l");
 
         WorkspaceShareTab[] tabs = ReadTabs(Required(root, "t"));
         WorkspaceShareContext[] contexts = ReadContexts(
@@ -379,6 +409,71 @@ public static class WorkspaceSharePacketCodec
             memberSignature,
             section,
             libraries);
+    }
+
+    private static WorkspaceSharePacket BindFormat2(JsonElement root)
+    {
+        ValidateProperties(root, "f", "t", "g", "a", "x", "q", "v");
+        if (root.TryGetProperty("q", out _))
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.UnsupportedFormat,
+                "Query-bearing workspace share format 2 requires #6971.");
+        }
+
+        WorkspaceShareTab[] tabs = ReadTabs(Required(root, "t"));
+        WorkspaceShareContext[] contexts = ReadContexts(
+            Required(root, "g"),
+            tabs);
+        int? focusedTab = ReadNullableIndex(
+            Required(root, "a"),
+            "a",
+            tabs.Length);
+        if (focusedTab is int focused
+            && tabs[focused].SourceKind != WorkspaceShareSourceKind.Package)
+        {
+            throw InvalidShape(
+                "Workspace share format-2 focus must name a direct Package tuple.");
+        }
+
+        int selectedContext = ReadIndex(
+            Required(root, "x"),
+            "x",
+            contexts.Length);
+        WorkspaceShareViewState[] viewStates = ReadFormat2ViewStates(
+            Required(root, "v"),
+            tabs);
+
+        return new WorkspaceSharePacket(
+            tabs,
+            contexts,
+            focusedTab,
+            selectedContext,
+            viewStates);
+    }
+
+    private static void ValidateProperties(
+        JsonElement root,
+        params string[] allowed)
+    {
+        var names = new HashSet<string>(allowed, StringComparer.Ordinal);
+        try
+        {
+            foreach (JsonProperty property in root.EnumerateObject())
+            {
+                if (!names.Contains(property.Name))
+                {
+                    throw InvalidShape(
+                        "Workspace share state contains an unknown property.");
+                }
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw InvalidShape(
+                "Workspace share state contains an invalid property name.",
+                ex);
+        }
     }
 
     private static WorkspaceShareTab[] ReadTabs(JsonElement element)
@@ -587,6 +682,216 @@ public static class WorkspaceSharePacketCodec
         return libraries;
     }
 
+    private static WorkspaceShareViewState[] ReadFormat2ViewStates(
+        JsonElement element,
+        WorkspaceShareTab[] tabs)
+    {
+        if (element.ValueKind != JsonValueKind.Array
+            || element.GetArrayLength() != tabs.Length + 1)
+        {
+            throw InvalidShape(
+                "Workspace share format-2 field 'v' requires one leading "
+                    + "Workspace row followed by one row for every tuple.");
+        }
+
+        var states = new WorkspaceShareViewState[tabs.Length + 1];
+        int stateIndex = 0;
+        foreach (JsonElement state in element.EnumerateArray())
+        {
+            if (state.ValueKind != JsonValueKind.Object)
+                throw InvalidShape("Every format-2 view row must be an object.");
+
+            ValidateProperties(state, "t", "r", "u", "f", "q", "l");
+            if (state.TryGetProperty("q", out _)
+                || state.TryGetProperty("l", out _))
+            {
+                throw Failure(
+                    WorkspaceSharePacketFailureKind.UnsupportedFormat,
+                    "Query-bearing workspace share format 2 requires #6971.");
+            }
+
+            int? tabIndex = ReadNullableIndex(
+                Required(state, "t"),
+                "view-state t",
+                tabs.Length);
+            int? expected = stateIndex == 0 ? null : stateIndex - 1;
+            if (tabIndex != expected)
+            {
+                throw InvalidShape(
+                    "Workspace share format-2 view rows must begin with the "
+                        + "null Workspace row and then follow tuple order.");
+            }
+
+            PortableRetainedSubjectContext? context =
+                state.TryGetProperty("r", out JsonElement retained)
+                    ? ReadRetainedContext(retained)
+                    : null;
+            PortableSubjectRequest? subject =
+                state.TryGetProperty("u", out JsonElement requestedSubject)
+                    ? ReadSubject(requestedSubject)
+                    : null;
+            string? facet = OptionalString(state, "f");
+
+            if (tabIndex is int index
+                && tabs[index].SourceKind != WorkspaceShareSourceKind.Package
+                && (subject is not null || context is not null || facet is not null))
+            {
+                throw InvalidShape(
+                    "A format-2 group tuple view row must remain undecorated.");
+            }
+
+            if (stateIndex == 0
+                && subject is not PortableSubjectRequest.Workspace)
+            {
+                throw InvalidShape(
+                    "The leading format-2 view row must request the Workspace subject.");
+            }
+            if (stateIndex == 0 && context is not null)
+            {
+                throw InvalidShape(
+                    "The leading format-2 Workspace row cannot retain Package context.");
+            }
+
+            try
+            {
+                _ = new CommittedViewStateDefinition(
+                    tabIndex is null ? null : $"t{tabIndex}",
+                    subject,
+                    context,
+                    facet);
+            }
+            catch (ArgumentException ex)
+            {
+                throw InvalidShape(
+                    "Workspace share format-2 view state is invalid.",
+                    ex);
+            }
+
+            states[stateIndex++] = new WorkspaceShareViewState(
+                tabIndex,
+                subject,
+                context,
+                facet);
+        }
+
+        return states;
+    }
+
+    private static PortableSubjectRequest ReadSubject(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            throw InvalidShape("Workspace share subject must be an object.");
+        ValidateProperties(element, "k");
+        return RequiredString(Required(element, "k"), "subject kind") switch
+        {
+            "workspace" => new PortableSubjectRequest.Workspace(),
+            "package" => new PortableSubjectRequest.Package(),
+            _ => throw InvalidShape(
+                "Workspace share subject kind must be 'workspace' or 'package'."),
+        };
+    }
+
+    private static PortableRetainedSubjectContext ReadRetainedContext(
+        JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            throw InvalidShape("Workspace share retained context must be an object.");
+        ValidateProperties(element, "k", "l", "y", "m", "s");
+
+        string kind = RequiredString(
+            Required(element, "k"),
+            "retained-context kind");
+        PortableLibraryIdentity? library =
+            element.TryGetProperty("l", out JsonElement libraryElement)
+                ? ReadPortableLibraryIdentity(libraryElement)
+                : null;
+        string? typeText = OptionalString(element, "y");
+        string? memberAnchor = OptionalString(element, "m");
+        string? memberSignature = OptionalString(element, "s");
+
+        try
+        {
+            return kind switch
+            {
+                "package" when library is null
+                    && typeText is null
+                    && memberAnchor is null
+                    && memberSignature is null =>
+                    new PortableRetainedSubjectContext.Package(),
+                "all-libraries" when library is null
+                    && typeText is null
+                    && memberAnchor is null
+                    && memberSignature is null =>
+                    new PortableRetainedSubjectContext.AllLibraries(),
+                "library" when library is not null
+                    && typeText is null
+                    && memberAnchor is null
+                    && memberSignature is null =>
+                    new PortableRetainedSubjectContext.Library(library),
+                "type" when library is not null
+                    && typeText is not null
+                    && memberAnchor is null
+                    && memberSignature is null =>
+                    new PortableRetainedSubjectContext.EscapedType(
+                        library,
+                        typeText),
+                "member" when library is not null
+                    && typeText is not null =>
+                    new PortableRetainedSubjectContext.EscapedMember(
+                        library,
+                        typeText,
+                        memberAnchor,
+                        memberSignature),
+                _ => throw InvalidShape(
+                    "Workspace share retained context fields do not match its kind."),
+            };
+        }
+        catch (ArgumentException ex)
+        {
+            throw InvalidShape(
+                "Workspace share retained context is invalid.",
+                ex);
+        }
+    }
+
+    private static PortableLibraryIdentity ReadPortableLibraryIdentity(
+        JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array
+            || element.GetArrayLength() != 4)
+        {
+            throw InvalidShape(
+                "A portable Library identity must contain exactly four values.");
+        }
+
+        JsonElement.ArrayEnumerator values = element.EnumerateArray();
+        values.MoveNext();
+        string name = RequiredString(values.Current, "Library name");
+        values.MoveNext();
+        string version = RequiredString(values.Current, "Library version");
+        values.MoveNext();
+        string? culture = NullableString(values.Current, "Library culture");
+        values.MoveNext();
+        string? publicKeyToken = NullableString(
+            values.Current,
+            "Library public-key token");
+
+        try
+        {
+            return new PortableLibraryIdentity(
+                name,
+                version,
+                culture,
+                publicKeyToken);
+        }
+        catch (ArgumentException ex)
+        {
+            throw InvalidShape(
+                "Workspace share portable Library identity is invalid.",
+                ex);
+        }
+    }
+
     private static int ReadIndex(JsonElement element, string field, int count)
     {
         if (element.ValueKind != JsonValueKind.Number
@@ -600,6 +905,14 @@ public static class WorkspaceSharePacketCodec
 
         return value;
     }
+
+    private static int? ReadNullableIndex(
+        JsonElement element,
+        string field,
+        int count) =>
+        element.ValueKind == JsonValueKind.Null
+            ? null
+            : ReadIndex(element, field, count);
 
     private static JsonElement Required(JsonElement root, string name)
     {
@@ -755,7 +1068,17 @@ public static class WorkspaceSharePacketCodec
     private static bool IsGroupVersionCharacter(char value) =>
         char.IsAsciiLetterOrDigit(value) || value is '.' or '-';
 
-    private static byte[] WriteCanonicalJson(WorkspaceSharePacket packet)
+    private static byte[] WriteCanonicalJson(WorkspaceSharePacket packet) =>
+        packet.FormatVersion switch
+        {
+            LegacyFormatVersion => WriteFormat1CanonicalJson(packet),
+            CurrentFormatVersion => WriteFormat2CanonicalJson(packet),
+            _ => throw Failure(
+                WorkspaceSharePacketFailureKind.UnsupportedFormat,
+                $"Unsupported workspace share format {packet.FormatVersion}."),
+        };
+
+    private static byte[] WriteFormat1CanonicalJson(WorkspaceSharePacket packet)
     {
         var writer = new CanonicalWriter();
         writer.WriteAscii("{\"f\":1,\"t\":["u8);
@@ -816,6 +1139,208 @@ public static class WorkspaceSharePacketCodec
 
         writer.WriteByte((byte)'}');
         return writer.ToArray();
+    }
+
+    private static byte[] WriteFormat2CanonicalJson(WorkspaceSharePacket packet)
+    {
+        if (packet.ViewStates.Count != packet.Tabs.Count + 1)
+        {
+            throw InvalidShape(
+                "Workspace share format 2 requires one leading Workspace view "
+                    + "row and one row for every tuple.");
+        }
+
+        var writer = new CanonicalWriter();
+        writer.WriteAscii("{\"f\":2,\"t\":["u8);
+        WriteTabs(writer, packet.Tabs);
+        writer.WriteAscii("],\"g\":["u8);
+        WriteContexts(writer, packet.Contexts);
+        writer.WriteAscii("],\"a\":"u8);
+        if (packet.FocusedTabIndex is int focused)
+            writer.WriteInteger(focused);
+        else
+            writer.WriteAscii("null"u8);
+        writer.WriteAscii(",\"x\":"u8);
+        writer.WriteInteger(packet.SelectedContextIndex);
+        writer.WriteAscii(",\"v\":["u8);
+        for (int index = 0; index < packet.ViewStates.Count; index++)
+        {
+            if (index > 0)
+                writer.WriteByte((byte)',');
+            WriteFormat2ViewState(writer, packet.ViewStates[index]);
+        }
+
+        writer.WriteAscii("]}"u8);
+        return writer.ToArray();
+    }
+
+    private static void WriteTabs(
+        CanonicalWriter writer,
+        IReadOnlyList<WorkspaceShareTab> tabs)
+    {
+        for (int index = 0; index < tabs.Count; index++)
+        {
+            if (index > 0)
+                writer.WriteByte((byte)',');
+            WorkspaceShareTab tab = tabs[index];
+            writer.WriteByte((byte)'[');
+            writer.WriteString(tab.Source);
+            writer.WriteByte((byte)',');
+            writer.WriteNullableString(tab.Version);
+            writer.WriteByte((byte)',');
+            writer.WriteNullableString(tab.Framework);
+            writer.WriteByte((byte)',');
+            writer.WriteNullableString(tab.RuntimeIdentifier);
+            writer.WriteByte((byte)']');
+        }
+    }
+
+    private static void WriteContexts(
+        CanonicalWriter writer,
+        IReadOnlyList<WorkspaceShareContext> contexts)
+    {
+        for (int contextIndex = 0; contextIndex < contexts.Count; contextIndex++)
+        {
+            if (contextIndex > 0)
+                writer.WriteByte((byte)',');
+            writer.WriteByte((byte)'[');
+            IReadOnlyList<int> indexes = contexts[contextIndex].TabIndexes;
+            for (int index = 0; index < indexes.Count; index++)
+            {
+                if (index > 0)
+                    writer.WriteByte((byte)',');
+                writer.WriteInteger(indexes[index]);
+            }
+
+            writer.WriteByte((byte)']');
+        }
+    }
+
+    private static void WriteFormat2ViewState(
+        CanonicalWriter writer,
+        WorkspaceShareViewState state)
+    {
+        writer.WriteAscii("{\"t\":"u8);
+        if (state.TabIndex is int tabIndex)
+            writer.WriteInteger(tabIndex);
+        else
+            writer.WriteAscii("null"u8);
+
+        if (state.Context is not null)
+        {
+            writer.WriteAscii(",\"r\":"u8);
+            WriteRetainedContext(writer, state.Context);
+        }
+        if (state.Subject is not null)
+        {
+            writer.WriteAscii(",\"u\":{\"k\":"u8);
+            writer.WriteString(state.Subject.Kind switch
+            {
+                PortableSubjectRequestKind.Workspace => "workspace",
+                PortableSubjectRequestKind.Package => "package",
+                _ => throw new UnreachableException(),
+            });
+            writer.WriteByte((byte)'}');
+        }
+
+        writer.WriteOptionalProperty("f"u8, state.Facet);
+        writer.WriteByte((byte)'}');
+    }
+
+    private static void WriteRetainedContext(
+        CanonicalWriter writer,
+        PortableRetainedSubjectContext context)
+    {
+        writer.WriteAscii("{\"k\":"u8);
+        writer.WriteString(context.Kind switch
+        {
+            PortableRetainedSubjectContextKind.Package => "package",
+            PortableRetainedSubjectContextKind.AllLibraries => "all-libraries",
+            PortableRetainedSubjectContextKind.Library => "library",
+            PortableRetainedSubjectContextKind.Type => "type",
+            PortableRetainedSubjectContextKind.Member => "member",
+            _ => throw new UnreachableException(),
+        });
+
+        switch (context)
+        {
+            case PortableRetainedSubjectContext.Library library:
+                WritePortableLibraryIdentity(writer, library.LibraryIdentity);
+                break;
+            case PortableRetainedSubjectContext.Type type:
+                WritePortableLibraryIdentity(writer, type.LibraryIdentity);
+                writer.WriteAscii(",\"y\":"u8);
+                writer.WriteString(type.TypeIdentity.ToEscapedFullName());
+                break;
+            case PortableRetainedSubjectContext.EscapedType type:
+                WritePortableLibraryIdentity(writer, type.LibraryIdentity);
+                writer.WriteAscii(",\"y\":"u8);
+                writer.WriteString(type.EscapedTypeIdentity);
+                break;
+            case PortableRetainedSubjectContext.Member member:
+                WritePortableLibraryIdentity(writer, member.LibraryIdentity);
+                writer.WriteAscii(",\"y\":"u8);
+                writer.WriteString(member.TypeIdentity.ToEscapedFullName());
+                writer.WriteOptionalProperty("m"u8, member.MemberAnchor);
+                writer.WriteOptionalProperty("s"u8, member.MemberSignature);
+                break;
+            case PortableRetainedSubjectContext.EscapedMember member:
+                WritePortableLibraryIdentity(writer, member.LibraryIdentity);
+                writer.WriteAscii(",\"y\":"u8);
+                writer.WriteString(member.EscapedTypeIdentity);
+                writer.WriteOptionalProperty("m"u8, member.MemberAnchor);
+                writer.WriteOptionalProperty("s"u8, member.MemberSignature);
+                break;
+        }
+
+        writer.WriteByte((byte)'}');
+    }
+
+    private static void WritePortableLibraryIdentity(
+        CanonicalWriter writer,
+        PortableLibraryIdentity library)
+    {
+        writer.WriteAscii(",\"l\":["u8);
+        writer.WriteString(library.Name);
+        writer.WriteByte((byte)',');
+        writer.WriteString(library.Version);
+        writer.WriteByte((byte)',');
+        writer.WriteNullableString(library.Culture);
+        writer.WriteByte((byte)',');
+        writer.WriteNullableString(library.PublicKeyToken);
+        writer.WriteByte((byte)']');
+    }
+
+    private static void ValidateEncodedLength(
+        int formatVersion,
+        int length)
+    {
+        int limit = formatVersion == LegacyFormatVersion
+            ? MaxFormat1EncodedLength
+            : MaxEncodedLength;
+        if (length > limit)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.EncodedLimitExceeded,
+                $"Workspace share state exceeds the {limit}-character "
+                    + $"format-{formatVersion} limit.");
+        }
+    }
+
+    private static void ValidateDecodedLength(
+        int formatVersion,
+        int length)
+    {
+        int limit = formatVersion == LegacyFormatVersion
+            ? MaxFormat1DecodedUtf8Length
+            : MaxDecodedUtf8Length;
+        if (length > limit)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
+                $"Workspace share state exceeds the {limit}-byte decoded "
+                    + $"format-{formatVersion} limit.");
+        }
     }
 
     private static WorkspaceSharePacketException Failure(
