@@ -2555,6 +2555,7 @@ test("pending Platform catalog cannot overwrite a loaded Package selected throug
   ).click();
   await page.locator("#spotlight-input").fill("Example.Package");
   await page.locator('[data-sl-pkg-open="Example.Package"]').click();
+  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await chooseSubject(page, "package", "Package");
 
