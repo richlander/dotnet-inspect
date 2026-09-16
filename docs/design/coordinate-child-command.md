@@ -34,15 +34,16 @@ Related documents:
 
 ## Claim
 
-> A coordinate child command establishes a required subordinate coordinate
-> within one already selected subject. Its sections select observations of that
-> coordinate; no section, predicate, lens, or renderer is responsible for
-> supplying the coordinate.
+> A coordinate child command establishes the closed grammar for a required
+> subordinate coordinate family within one already selected subject. Its exact
+> mode admits one point; a bounded population mode is a multi-coordinate
+> operation over that same family. No section, predicate, lens, or renderer is
+> responsible for supplying the coordinate input.
 
 The parent command continues to identify and acquire the subject. The child
 does not create another subject domain or another implementation architecture.
-It creates a closed request grammar for a point or bounded coordinate
-population whose observations are otherwise unavailable.
+It creates a closed request grammar for exact points and closely paired
+coordinate-population operations whose observations are otherwise unavailable.
 
 This yields four distinct CLI roles:
 
@@ -65,8 +66,8 @@ true:
 2. The additional coordinate is required before the relevant request can
    execute.
 3. At least one observation is meaningless without that coordinate, and either
-   coordinate resolution is itself the useful result, peer observations reuse
-   it, or a bounded coordinate population has its own result document.
+   coordinate resolution is itself the useful result or peer observations
+   reuse it.
 4. The bare child has a meaningful bounded default result rather than existing
    only to make one section syntactically legal.
 5. The coordinate can be parsed and resolved as typed request input before its
@@ -80,9 +81,12 @@ qualifies because resolving the address is itself the coordinate result.
 Implementation size is not evidence: complex production work may remain behind
 an ordinary section when the request shape is unchanged.
 
-The child owns coordinate admission, scalar-versus-batch mode, and
-coordinate-level failure topology. Sections own observations after successful
-admission. Output options continue to own projection of the completed content.
+The child owns exact-coordinate admission. A population gesture beneath it is
+admitted only as an explicit multi-coordinate operation mode with an
+owner-declared bound, acquisition plan, result Document, ordering, and
+coordinate-local failure topology. Sections own observations after successful
+exact admission. Output options continue to own projection of completed
+content.
 
 ## Target Library grammar
 
@@ -151,11 +155,20 @@ child does not silently rename or merge their evidence.
 ### Coordinate-file mode
 
 `--file` selects a bounded coordinate population rather than one exact point.
-The first adoption preserves the current sparse IL-coordinate file semantics:
-input order, optional labels, per-line malformed-input rows, and partial useful
-output within the admitted 1,024-significant-record population. It returns a
-coordinate-explanation Document, not a scalar Library inspection with several
-incidental sections.
+It is a multi-coordinate operation mode beneath the Coordinate child, not
+unary Library inspection. The first adoption preserves optional labels,
+per-line malformed-input rows, partial useful output, and existing output
+capabilities within the admitted 1,024-significant-record population. It
+returns an ordered coordinate-explanation Document, not a scalar Library
+inspection with several incidental sections.
+
+The target deliberately corrects mixed-record ordering. Current
+`library --il-offsets` groups all malformed rows before valid coordinate rows;
+`library coordinate --file` emits every valid or malformed row in source-file
+order. Row windows apply after that ordering. A mixed valid/malformed Release
+fixture proves full order and head/tail selection. This correction is excluded
+from strict old/new row-order parity and must receive a Breaking release-note
+entry.
 
 Exact and file modes are mutually exclusive. File bounds, accepted coordinate
 families, normalization, ordering, failures, and output schema remain with
@@ -186,11 +199,16 @@ slice must classify it under
 [CLI change classification](cli-change-classification.md) and name its exact
 Release gates. This specification's target is currently **unverified**.
 
-Before retirement, Release CLI parity gates compare old and new bare
+Before retirement, Release CLI parity gates compare old and new bare exact
 invocations for an ordinary IL instruction, exception-region instruction,
 callsite, return address, unavailable source location, and valid heap address.
 The selected applicable sections, rows, typed failures, and exit status must
 match; command placement is the intended change, not default disclosure.
+
+File-mode gates compare labels, coordinate interpretation, row fields, partial
+failures, projections, and exit status. Mixed valid/malformed row order and
+row-window results compare against the explicitly corrected target order rather
+than the legacy grouped order.
 
 ## Other candidate surfaces
 
@@ -199,7 +217,7 @@ The coordinate rule is intentionally narrow:
 | Current or possible surface | Disposition | Reason |
 | --- | --- | --- |
 | `library --il-offset` | Adopt as `library coordinate` | One required point enables several peer method-body observations. |
-| `library --il-offsets` | Adopt as `library coordinate --file` | A bounded coordinate population has its own ordered document and partial-failure semantics. |
+| `library --il-offsets` | Adopt as the multi-coordinate `library coordinate --file` mode | A bounded coordinate operation has its own ordered document, acquisition plan, and partial-failure semantics. |
 | `library --heap` | Adopt as `library coordinate` | One required metadata point enables a coordinate value bound to the selected metadata root. |
 | Future `member coordinate` | Valid future adopter, not initial scope | A member-relative IL offset could reuse the same method-body query once a useful peer coordinate view and bare result are defined. |
 | `library --metadata-root` | Keep as a selector | It chooses the metadata image in which all metadata sections and coordinates are interpreted; it does not identify one subordinate point. |

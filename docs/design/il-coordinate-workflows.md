@@ -81,6 +81,18 @@ and malformed records, and a second gate supplies one additional significant
 record and proves pre-acquisition rejection. This is an operation-work bound,
 not a claim that local files are hostile or immutable.
 
+### Record ordering
+
+The target operation emits one row per significant record in source-file order,
+whether that record contains a valid coordinate or a malformed-input failure.
+Row selection applies to that ordered result.
+
+This intentionally corrects the current `library --il-offsets` implementation,
+which accumulates malformed and valid records separately and emits every
+malformed row first. The cutover does not claim legacy row-order parity for
+mixed files. A Release fixture interleaves valid and malformed records and
+asserts the full result plus `--rows 1 --head` and `--rows 1 --tail`.
+
 ## Prototype producer workflows
 
 These workflows are intentionally producer-agnostic. The skill-worthy part is

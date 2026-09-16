@@ -566,8 +566,8 @@ A command transition is justified when one of these changes:
    subject-owned operation or mode can express that transition without moving
    the operation to the root.
 3. **Required subordinate-coordinate grammar:** the parent subject remains
-   selected, but a required point or bounded coordinate population establishes
-   a coherent family of observations with its own useful default result.
+   selected, but one required subordinate point establishes a coherent family
+   of observations with its own useful default result.
    [Coordinate child command](coordinate-child-command.md) owns this narrower
    rule and its initial `library coordinate` adoption.
 
@@ -585,12 +585,15 @@ An execution lifecycle is different when at least one of these is true:
 - operation outcomes have a structurally incompatible top-level schema;
 - the addressed subject has a different identity model.
 
-A coordinate child need not change the parent subject or top-level acquisition.
-It is justified when the subordinate coordinate is mandatory, resolving it is
-itself useful or several peer observations depend on it, and the bare child has
-a meaningful bounded result. A section-specific predicate, metadata-root
-selector, traversal depth, row selector, or payload projection does not meet
-that rule.
+A coordinate child need not change the parent subject or top-level acquisition
+for its exact mode. It is justified when the subordinate point is mandatory,
+resolving it is itself useful or several peer observations depend on it, and
+the bare child has a meaningful bounded result. A bounded population of those
+points is instead a multi-coordinate operation mode and must declare its own
+population, acquisition, result, and partial-failure contract. It may remain
+beneath the Coordinate child when that child is the closed grammar for the
+same coordinate family. A section-specific predicate, metadata-root selector,
+traversal depth, row selector, or payload projection does not meet either rule.
 
 Additional optional work does not by itself justify a command. A selected
 section may authorize another scanner or network request while remaining one
@@ -1143,8 +1146,9 @@ content contracts. The diagram describes axes, not positional argument grammar.
 
 ### Coordinate child
 
-A coordinate child keeps the subject and unary inspection basis while
-establishing a required subordinate address:
+The exact Coordinate mode keeps the subject and unary inspection basis while
+establishing one required subordinate address. File mode is a bounded
+multi-coordinate operation over the same address family:
 
 ```text
 library -> library coordinate <coordinate> --library <source>
@@ -1154,9 +1158,10 @@ library -> library coordinate <coordinate> --library <source>
 The initial coordinate families are MethodDef token plus IL offset and metadata
 heap plus offset. Instruction, member, callsite, return-address, allocation,
 safety, cost, and heap-value views remain sections over that established
-request. Raw IL remains a representation lens. The child is a CLI grammar
-boundary over the shared owner queries, not another method-body or metadata
-architecture.
+exact request. Raw IL remains a representation lens. File mode owns its ordered
+coordinate population, acquisition plan, Document result, and coordinate-local
+failure topology. The child is a CLI grammar boundary over the shared owner
+queries, not another method-body or metadata architecture.
 
 The coordinate owns the child's positional slot. Library acquisition remains
 source context and therefore uses named `--library`, `--package`, or
