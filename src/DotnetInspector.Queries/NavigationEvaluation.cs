@@ -276,6 +276,14 @@ internal static class NavigationEvaluation
                     incomplete ? library.Types : null);
         }
 
+        if (basis.ActiveSubject == type)
+        {
+            return new(
+                request,
+                basis,
+                new(NavigationOutcomeKind.Applied));
+        }
+
         var context = new NavigationRetainedSubjectContext(
             type.Library.Package,
             type.Library,

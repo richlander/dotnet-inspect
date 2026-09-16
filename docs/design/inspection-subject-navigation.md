@@ -1160,7 +1160,8 @@ Package or recommended default-Type snapshot before the selected Type. One
 semantically changed successful completion advances the semantic revision once
 and uses the existing complete-snapshot installation and acknowledgement
 protocol. Selecting the already-active exact Type is an applied semantic no-op:
-it returns fresh effect authority without advancing the semantic revision,
+it preserves the complete installed snapshot, including an exact lens basis,
+and returns fresh effect authority without advancing the semantic revision,
 under the ordinary unchanged-snapshot rule.
 
 #### Atomic descendant subject and lens activation

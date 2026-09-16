@@ -302,6 +302,11 @@ public sealed class NavigationRetainedTypeActionTests
         var active =
             Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
                 fixture.Session.InstalledSnapshot.ActiveSubject);
+        NavigationConsumerResult explicitLens =
+            await fixture.Session.ActivateLensAsync(
+                new(active, new ViewFacetId("type.metadata")),
+                TestContext.Current.CancellationToken);
+        fixture.Acknowledge(explicitLens);
         NavigationAction action = Assert.IsType<NavigationAction>(
             fixture.Session.PublishRetainedTypeAction(active).Action);
 
@@ -313,10 +318,19 @@ public sealed class NavigationRetainedTypeActionTests
         Assert.Equal(
             NavigationOutcomeKind.Applied,
             result.Outcome.Kind);
-        Assert.Same(selected.Snapshot, result.Snapshot);
         Assert.Equal(
-            selected.Authority!.Revision,
+            NavigationLensBasisKind.ExactRequest,
+            result.Snapshot.LensOutcome.Basis);
+        Assert.Equal(
+            "type.metadata",
+            result.Snapshot.LensOutcome.EffectiveLens!.Facet);
+        Assert.Same(explicitLens.Snapshot, result.Snapshot);
+        Assert.Equal(
+            explicitLens.Authority!.Revision,
             result.Authority!.Revision);
+        Assert.NotEqual(
+            explicitLens.Authority.Epoch,
+            result.Authority.Epoch);
     }
 
     [Theory]
