@@ -172,8 +172,7 @@ public static class MethodImporter
         }
 
         MethodInstructions? exceptionInstructions = null;
-        IReadOnlyDictionary<MethodExceptionClauseId, InstructionExceptionClause>?
-            decodedClauses = null;
+        InstructionExceptionFlowFacts? decodedExceptionFlow = null;
         if (physicalBody.ExceptionRegionCatalog.HasExceptionRegions)
         {
             exceptionInstructions = MethodInstructions.Decode(physicalBody);
@@ -181,8 +180,7 @@ public static class MethodImporter
                 InstructionExceptionFlowResult<
                     InstructionExceptionFlowFacts>.Available availableFlow)
             {
-                decodedClauses = availableFlow.Value.Clauses.ToDictionary(
-                    clause => clause.Id);
+                decodedExceptionFlow = availableFlow.Value;
             }
         }
 
@@ -210,12 +208,11 @@ public static class MethodImporter
                 CatchType(reader, clause, scope));
             handlers.Add(handler);
 
-            if (decodedClauses is not null)
+            if (decodedExceptionFlow is not null)
             {
-                if (!decodedClauses.TryGetValue(
-                        clause.Id,
-                        out InstructionExceptionClause? decodedClause)
-                    || !ReferenceEquals(decodedClause.Clause, clause))
+                if (decodedExceptionFlow.GetClause(clause.Id) is not
+                    InstructionExceptionFlowResult<
+                        InstructionExceptionClause>.Available availableClause)
                 {
                     throw new InvalidOperationException(
                         "Instructions did not preserve the exact Metadata exception clause.");
@@ -223,7 +220,7 @@ public static class MethodImporter
 
                 clauseImports.Add(new DecompilerExceptionClauseImport(
                     handler,
-                    decodedClause));
+                    availableClause.Value));
             }
         }
 
