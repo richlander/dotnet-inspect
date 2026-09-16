@@ -307,7 +307,7 @@ export interface TypeNavOptions {
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
   library: string;
-  parentSubject: "package" | "platform" | "library";
+  parentSubject: "package" | "platform" | "library" | null;
   filtersExpanded: boolean;
   filterSummary: string;
   escapeHtml: EscapeHtml;
@@ -335,11 +335,11 @@ export function renderTypeNav(options: TypeNavOptions): string {
           ${renderContentNavigationCloseButton()}
         </div>
       </div>
-      <button class="nav-back-row" type="button" data-type-nav-back title="Back to ${parentSubject}" aria-label="${escapeHtml(library)}: Back to ${parentSubject}">
+      ${parentSubject ? `<button class="nav-back-row" type="button" data-type-nav-back title="Back to ${parentSubject}" aria-label="${escapeHtml(library)}: Back to ${parentSubject}">
         <span class="chevron">‹</span>
         <span class="type-name">${escapeHtml(library)}</span>
         <small>library</small>
-      </button>
+      </button>` : ""}
       <details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure${filtersExpanded ? " open" : ""}>
         <summary id="type-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
         <label class="type-search">

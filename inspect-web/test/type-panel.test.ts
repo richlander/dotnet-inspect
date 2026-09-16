@@ -707,6 +707,31 @@ test("the type nav reports no matches for an empty filtered group", () => {
   assert.match(html, /data-type-filter-disclosure open/);
 });
 
+test("the type nav omits a parent action when the Library has no visible parent", () => {
+  const html = renderTypeNav({
+    current: jsonSerializer,
+    visible: [jsonSerializer],
+    typeGroups: new Map([["System.Text.Json", [jsonSerializer]]]),
+    typeFilter: "",
+    namespaceFilter: "",
+    kindFilter: "",
+    namespaceCount: 1,
+    namespaceOptionsHtml: "",
+    kindFilters: ["class"],
+    accessibilityControlHtml: "",
+    library: "System.Text.Json",
+    parentSubject: null,
+    filtersExpanded: false,
+    filterSummary: "public",
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    shortKind,
+  });
+
+  assert.doesNotMatch(html, /data-type-nav-back/);
+});
+
 test("the type nav handles a package with no projected types", () => {
   const html = renderTypeNav({
     current: null,

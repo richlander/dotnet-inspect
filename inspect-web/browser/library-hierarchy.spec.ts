@@ -2428,12 +2428,14 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
   await releaseFacade(page, "finish-platform-library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
   await page.reload();
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
   await releaseFacade(page, "finish-platform-library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
 });
 
 test("Spotlight framework Library failure stays outside Platform presentation", async ({ page }) => {
@@ -2462,6 +2464,7 @@ test("Platform Library parent, history and refresh retain the exact target witho
   await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
     JSON.stringify(["net11.0", platformVersion, "System.Facade.dll", "netcore.app", "System.Facade.dll"]));
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
   await page.locator(".type-browser .nav-back-row").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".platform-library-list")).toBeFocused();

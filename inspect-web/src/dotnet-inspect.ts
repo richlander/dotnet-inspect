@@ -2485,6 +2485,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const retainedWorkspaceHistoryKey = "inspectWorkspaceId";
 const retainedWorkspaceHistorySessionKey = "inspectWorkspaceSession";
 const retainedWorkspaceHistorySessionId = crypto.randomUUID();
+const platformRootParentHistoryKey = "inspectPlatformRootParent";
 
 function retainedWorkspaceIdFromHistory(historyState: unknown): string | null {
   if (!isRecord(historyState)) return null;
@@ -2496,6 +2497,30 @@ function retainedWorkspaceIdFromHistory(historyState: unknown): string | null {
 
 function historyReferencesRetainedWorkspace(historyState: unknown): boolean {
   return retainedWorkspaceIdFromHistory(historyState) !== null;
+}
+
+function historyHasPlatformRootParent(historyState: unknown): boolean {
+  return isRecord(historyState)
+    && historyState[platformRootParentHistoryKey] === true;
+}
+
+function withPlatformRootParentHistory(
+  historyState: unknown,
+  present: boolean,
+): unknown {
+  if (present) {
+    return {
+      ...(isRecord(historyState) ? historyState : {}),
+      [platformRootParentHistoryKey]: true,
+    };
+  }
+  if (!isRecord(historyState)
+    || !(platformRootParentHistoryKey in historyState)) {
+    return historyState;
+  }
+  const next = { ...historyState };
+  delete next[platformRootParentHistoryKey];
+  return next;
 }
 
 function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
@@ -5262,6 +5287,12 @@ function renderWorkspaceNavPane() {
   });
 }
 
+function hasPlatformRootHistoryView() {
+  return historyHasPlatformRootParent(history.state)
+    || navigationHistory.snapshot().stack.some(entry =>
+      entry.view.rootKind === "platform" && entry.view.atPackageRoot);
+}
+
 function renderTypeNavPane(
   current: AppTypeSurface | null | undefined,
   visible: readonly AppTypeSurface[],
@@ -5278,7 +5309,11 @@ function renderTypeNavPane(
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
     library: selectedLibraryName(),
-    parentSubject: state.atLibraryRoot ? state.rootKind : "library",
+    parentSubject: state.atLibraryRoot
+      ? state.rootKind === "platform" && !hasPlatformRootHistoryView()
+        ? null
+        : state.rootKind
+      : "library",
     filtersExpanded: state.typeFiltersExpanded,
     filterSummary: typeFilterSummary(),
     escapeHtml,
@@ -5312,8 +5347,7 @@ function renderScopeBar(
   const selected = selectedType();
   const rootScopes: readonly WorkspaceScope[] =
     state.rootKind === "platform"
-      && !navigationHistory.snapshot().stack.some(entry =>
-        entry.view.rootKind === "platform" && entry.view.atPackageRoot)
+      && !hasPlatformRootHistoryView()
       ? []
       : [state.rootKind];
   availableScopes ??= [
@@ -7508,7 +7542,7 @@ function bindTypePanelEvents() {
     },
     onTypeNavBack: () => {
       if (state.atLibraryRoot && state.rootKind === "platform") {
-        showPlatformRoot();
+        if (hasPlatformRootHistoryView()) showPlatformRoot();
         return;
       }
       const focusGeneration = beginSpotlightNavigation();
@@ -9353,6 +9387,8 @@ async function openPlatformLibrary(
   const focusGeneration = documentFocusGeneration;
   const navigationSeq = options.navigationSeq ?? navigationSequence.begin();
   if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
+  const hasPlatformRootParent =
+    state.rootKind === "platform" && state.atPackageRoot;
   const tfm = options.tfm ?? platformScopeTfm();
   const version = options.version ?? state.platformSelection?.version;
   if (createsWorkspace) spotlight.reset();
@@ -9421,6 +9457,9 @@ async function openPlatformLibrary(
     state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
     resetMemberFilters();
+    workspaceLocation.replace(
+      location.href,
+      withPlatformRootParentHistory(history.state, hasPlatformRootParent));
     render();
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
