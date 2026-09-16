@@ -41,6 +41,7 @@ const engineWorkerPackageQueryKind = "package-query";
 const maximumRequestCharacters = 1_048_576;
 const maximumEventCharacters = 1_048_576;
 const maximumCollectionItems = 4_096;
+const maximumQueryTerms = 24;
 const maximumOwnerItems = 4_096;
 // Match the PackageManifestFactsQuery owner limits while retaining the
 // pre-existing event budget for evidence and evidence previews.
@@ -91,9 +92,14 @@ interface EngineWorkerPackageQueryEvidenceSummary
 }
 
 interface EngineWorkerPackageQueryEvidence
-  extends Omit<BrowserPackageQueryEvidence, "scope" | "summary"> {
+  extends Omit<BrowserPackageQueryEvidence, "scope" | "summary" | "term"> {
   readonly scope: PackageQueryEvidenceScope;
   readonly summary: EngineWorkerPackageQueryEvidenceSummary | null;
+  readonly term: {
+    readonly key: string;
+    readonly operator: string;
+    readonly value: string;
+  } | null;
 }
 
 interface EngineWorkerPackageQueryRow
@@ -184,6 +190,11 @@ export type EngineWorkerPackageQueryInput =
       readonly kind: "query";
       readonly searchText: string;
       readonly facetIds: readonly string[];
+      readonly terms: readonly {
+        readonly key: string;
+        readonly operator: string;
+        readonly value: string;
+      }[];
       readonly maximumCandidates: number;
       readonly maximumMatches: number;
       readonly includePrerelease: boolean;
@@ -414,6 +425,36 @@ function stringArray(
     text(item, `${description}[${index}]`, budget));
 }
 
+function queryTerms(
+  value: unknown,
+  budget: PayloadBudget,
+): readonly {
+  readonly key: string;
+  readonly operator: string;
+  readonly value: string;
+}[] {
+  return arrayItems(
+    value,
+    "Package Query terms",
+    budget,
+    maximumQueryTerms,
+  ).map((item, index) => {
+    const term = dataRecord(
+      item,
+      ["key", "operator", "value"],
+      `Package Query terms[${index}]`,
+    );
+    return {
+      key: text(term.key, `Package Query terms[${index}].key`, budget),
+      operator: text(
+        term.operator,
+        `Package Query terms[${index}].operator`,
+        budget),
+      value: text(term.value, `Package Query terms[${index}].value`, budget),
+    };
+  });
+}
+
 function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
   const kindProperty = typeof value === "object" && value !== null
     ? Object.getOwnPropertyDescriptor(value, "kind")
@@ -431,6 +472,7 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
       "kind",
       "searchText",
       "facetIds",
+      "terms",
       "maximumCandidates",
       "maximumMatches",
       "includePrerelease",
@@ -446,6 +488,7 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
         input.facetIds,
         "Package Query facets",
         budget),
+      terms: queryTerms(input.terms, budget),
       maximumCandidates: integer(
         input.maximumCandidates,
         "Package Query candidate limit",
@@ -539,7 +582,7 @@ function parseEvidence(
 ): EngineWorkerPackageQueryEvidence {
   const evidence = dataRecord(
     value,
-    ["id", "text", "scope", "summary"],
+    ["id", "text", "scope", "summary", "term"],
     "Package Query evidence",
   );
   return {
@@ -550,6 +593,26 @@ function parseEvidence(
       ["Package", "Query"] as const,
       "Package Query evidence scope"),
     summary: parseEvidenceSummary(evidence.summary, budget),
+    term: evidence.term === null
+      ? null
+      : (() => {
+          const term = dataRecord(
+            evidence.term,
+            ["key", "operator", "value"],
+            "Package Query evidence term",
+          );
+          return {
+            key: text(term.key, "Package Query evidence term key", budget),
+            operator: text(
+              term.operator,
+              "Package Query evidence term operator",
+              budget),
+            value: text(
+              term.value,
+              "Package Query evidence term value",
+              budget),
+          };
+        })(),
   };
 }
 
@@ -1533,6 +1596,11 @@ function encodeQueryRequest(
           kind: "query",
           searchText: request.scopeQuery,
           facetIds: request.facets.map(facet => facet.key),
+          terms: request.terms.map(term => ({
+            key: term.descriptor.key,
+            operator: term.operator,
+            value: term.value,
+          })),
           maximumCandidates: request.requestedLimit,
           maximumMatches: request.requestedMatchLimit,
           includePrerelease: request.includePrerelease,
@@ -1689,6 +1757,7 @@ export function registerEngineWorkerPackageQueryOperation(
               context.operation.operationId,
               input.searchText,
               JSON.stringify(input.facetIds),
+              JSON.stringify(input.terms),
               input.maximumCandidates,
               input.maximumMatches,
               input.includePrerelease,

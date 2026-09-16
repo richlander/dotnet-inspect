@@ -482,6 +482,9 @@ import {
   initialQueryState,
   shouldExecuteQuery,
   toggleFacet,
+  replaceTerm,
+  withTerm,
+  withoutTerm,
   withEditorDraft,
   withSourceSelection,
   withScopeQuery,
@@ -490,6 +493,7 @@ import {
   type QueryFacetTerm,
   type QueryRequest,
   type QuerySourceSelection,
+  type QueryTermDescriptor,
 } from "./package-query.ts";
 import {
   createPackageQueryLiveAnnouncer,
@@ -498,7 +502,7 @@ import {
 import {
   createBrowserPackageQueryDataSource,
   packageQueryAssemblyPatterns,
-  packageQueryFacets,
+  packageQueryCatalog,
   type BrowserPackageQueryInspection,
 } from "./package-query-source.ts";
 import {
@@ -956,6 +960,7 @@ const initialState = {
   packageQueryState: initialQueryState(),
   packageQueryInspection: null,
   packageQueryFacets: [],
+  packageQueryTerms: [],
   packageQueryAssemblyPatterns: [],
   packageChangesPackageSets: [],
   packageChangesState: initialPackageChangesState(),
@@ -1178,6 +1183,7 @@ interface StateOverrides {
   packageChangesState: PackageChangesState;
   packageQueryInspection: BrowserPackageQueryInspection | null;
   packageQueryFacets: QueryFacetTerm[];
+  packageQueryTerms: QueryTermDescriptor[];
   packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
   packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: PackageQueryReturnFocus | null;
@@ -1508,6 +1514,7 @@ function captureRetainedHostState() {
     packageQueryState: state.packageQueryState,
     packageQueryInspection: state.packageQueryInspection,
     packageQueryFacets: state.packageQueryFacets,
+    packageQueryTerms: state.packageQueryTerms,
     packageQueryAssemblyPatterns: state.packageQueryAssemblyPatterns,
     packageChangesPackageSets: state.packageChangesPackageSets,
     packageChangesState: state.packageChangesState,
@@ -1955,6 +1962,7 @@ const packageQueryController = createPackageQueryController(
       operationId,
       prefix,
       facetIdsJson,
+      termsJson,
       maximumCandidates,
       maximumMatches,
       includePrerelease,
@@ -1964,6 +1972,7 @@ const packageQueryController = createPackageQueryController(
       operationId,
       prefix,
       facetIdsJson,
+      termsJson,
       maximumCandidates,
       maximumMatches,
       includePrerelease,
@@ -11752,6 +11761,7 @@ async function selectWorkspaceApplicationScope() {
 
 function closePackageQueryRoute() {
   navigationSequence.begin();
+  state.packageQueryState.termDraft = null;
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
   if (state.packageQueryOpenedFromApp) {
@@ -11866,6 +11876,63 @@ function togglePackageQueryFacet(facetKey: string, text: string) {
   submitPackageQueryRequest(toggleFacet(current, facet));
 }
 
+function addPackageQueryTerm(termKey: string) {
+  const descriptor = state.packageQueryTerms.find(
+    candidate => candidate.key === termKey);
+  if (!descriptor || descriptor.operators.length === 0) {
+    state.packageQueryNavigationError =
+      "The selected package-query term is unavailable.";
+    render();
+    return;
+  }
+
+  state.packageQueryState.termDraft = descriptor;
+  state.packageQueryNavigationError = "";
+  render();
+  afterCurrentNavigationFrame(() =>
+    document.querySelector<HTMLElement>("[data-query-term-draft-value]")
+      ?.focus());
+}
+
+function applyPackageQueryTerm(
+  index: number | null,
+  operator: string,
+  value: string,
+  text: string,
+) {
+  const descriptor = index === null
+    ? state.packageQueryState.termDraft
+    : state.packageQueryState.request?.terms[index]?.descriptor;
+  if (!descriptor) {
+    state.packageQueryNavigationError =
+      "The selected package-query term is unavailable.";
+    render();
+    return;
+  }
+
+  const current = preparePackageQueryControlRequest(text);
+  const request = index === null
+    ? withTerm(current, descriptor, operator, value)
+    : replaceTerm(current, index, operator, value);
+  state.packageQueryState.termDraft = null;
+  submitPackageQueryRequest(request);
+}
+
+function removePackageQueryTerm(index: number, text: string) {
+  const current = preparePackageQueryControlRequest(text);
+  submitPackageQueryRequest(withoutTerm(current, index));
+}
+
+function cancelPackageQueryTermDraft() {
+  const descriptor = state.packageQueryState.termDraft;
+  state.packageQueryState.termDraft = null;
+  render();
+  if (!descriptor) return;
+  afterCurrentNavigationFrame(() =>
+    document.querySelector<HTMLElement>(
+      `[data-query-term-add="${cssEscape(descriptor.key)}"]`)?.focus());
+}
+
 async function openPackageQueryRow(
   packageId: string,
   version: string,
@@ -11972,10 +12039,15 @@ const packageQueryActions: PackageQueryBindingActions = {
   onModeChange: switchPackageQueryMode,
   onAssemblyRun: request => {
     state.packageQueryNavigationError = "";
+    state.packageQueryState.termDraft = null;
     packageQueryLiveAnnouncer.reset();
     void packageQueryController.run(request);
   },
   onFacetToggle: togglePackageQueryFacet,
+  onTermAdd: addPackageQueryTerm,
+  onTermApply: applyPackageQueryTerm,
+  onTermDraftCancel: cancelPackageQueryTermDraft,
+  onTermRemove: removePackageQueryTerm,
   onSourceChange: changePackageQuerySource,
   onPrefixInput: prefix => {
     state.packageQueryPrefix = prefix;
@@ -12092,6 +12164,7 @@ function renderPackageQueryPage() {
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
+    availableTerms: state.packageQueryTerms,
     availableAssemblyPatterns: state.packageQueryAssemblyPatterns,
     navigationError: [
       state.packageQueryCatalogError,
@@ -15923,12 +15996,15 @@ async function bootstrap() {
         `Package Changes package sets are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
-      state.packageQueryFacets =
-        packageQueryFacets(await engineClient.package.listPackageQueryFacets());
+      const catalog =
+        packageQueryCatalog(await engineClient.package.listPackageQueryCatalog());
+      state.packageQueryFacets = catalog.facets;
+      state.packageQueryTerms = catalog.terms;
     } catch (error) {
       state.packageQueryFacets = [];
+      state.packageQueryTerms = [];
       state.packageQueryCatalogError =
-        `Package-query facets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package-query vocabulary is unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
       state.packageQueryAssemblyPatterns =

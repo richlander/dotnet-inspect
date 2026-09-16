@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   createBrowserPackageQueryDataSource,
   packageQueryAssemblyPatterns,
-  packageQueryFacets,
+  packageQueryCatalog,
   type BrowserPackageQueryEngine,
 } from "../src/package-query-source.ts";
 import {
@@ -13,14 +13,16 @@ import {
   createQueryRequest,
   initialQueryState,
   withFacet,
+  withTerm,
   type QueryAssemblyAssessment,
   type QueryResultRow,
+  type QueryTermDescriptor,
 } from "../src/package-query.ts";
 import type {
   BrowserPackageQueryCancellation,
   BrowserPackageQueryCompletion,
   BrowserPackageQueryEvent,
-  BrowserPackageQueryFacetCatalog,
+  BrowserPackageQueryCatalog,
   BrowserPackageQueryMatchCreditResponse,
   BrowserPackageQueryResult,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -45,6 +47,17 @@ const completionEvent: BrowserPackageQueryEvent = {
     scope: null,
     kind: "Exhausted",
   },
+};
+
+const DEPENDS_TERM: QueryTermDescriptor = {
+  key: "depends",
+  label: "Direct dependency",
+  summary: "Matches a direct dependency in any group.",
+  weight: 10,
+  tier: "nuspec",
+  operators: ["eq"],
+  valueKind: "package-id",
+  example: "Microsoft.Extensions.Hosting",
 };
 
 const assemblyCompletionEvent = {
@@ -143,11 +156,11 @@ function packageEvidence(
   text: string,
   summary: { count: number; preview: string[] } | null = null,
 ) {
-  return { id, text, scope: "Package" as const, summary };
+  return { id, text, scope: "Package" as const, summary, term: null };
 }
 
 function queryEvidence(id: string, text: string) {
-  return { id, text, scope: "Query" as const, summary: null };
+  return { id, text, scope: "Query" as const, summary: null, term: null };
 }
 
 async function runCompletion(
@@ -186,12 +199,13 @@ test("Browser source dispatches exact and prefix package input with unchanged K"
       const engine: BrowserPackageQueryEngine = {
         ...defaultControls,
         async run(...args) {
-          assert.deepEqual(args.slice(0, 7), [
+          assert.deepEqual(args.slice(0, 8), [
             "package-query-operation",
-            searchText, '["producer.inspection.facet"]', 200, matchLimit, true, 20,
+            searchText, '["producer.inspection.facet"]', "[]",
+            200, matchLimit, true, 20,
           ]);
-          assert.ok(typeof args[7] === "object" && args[7] !== null);
-          assert.equal(args.length, 8);
+          assert.ok(typeof args[8] === "object" && args[8] !== null);
+          assert.equal(args.length, 9);
           return succeeded(completionEvent);
         },
       };
@@ -209,8 +223,8 @@ test("Browser source preserves the default stable-only selection", async () => {
       ...defaultControls,
       async run(...args) {
         assert.equal(args[1], searchText);
-        assert.equal(args[5], false);
-        assert.equal(args.length, 8);
+        assert.equal(args[6], false);
+        assert.equal(args.length, 9);
         return succeeded(completionEvent);
       },
     };
@@ -218,6 +232,48 @@ test("Browser source preserves the default stable-only selection", async () => {
       createQueryRequest(searchText),
       () => {}, () => {}, () => {}, new AbortController().signal);
   }
+});
+
+test("Browser source forwards repeated active terms as exact generic triples", async () => {
+  const engine: BrowserPackageQueryEngine = {
+    ...defaultControls,
+    async run(
+      _operationId,
+      _searchText,
+      _facetIdsJson,
+      termsJson,
+    ) {
+      assert.deepEqual(JSON.parse(termsJson), [
+        {
+          key: "depends",
+          operator: "eq",
+          value: "Microsoft.Extensions.Hosting",
+        },
+        {
+          key: "depends",
+          operator: "eq",
+          value: "  Microsoft.Extensions.DependencyInjection  ",
+        },
+      ]);
+      return succeeded(completionEvent);
+    },
+  };
+  const request = withTerm(
+    withTerm(
+      createQueryRequest("Microsoft.*"),
+      DEPENDS_TERM,
+      "eq",
+      "Microsoft.Extensions.Hosting"),
+    DEPENDS_TERM,
+    "eq",
+    "  Microsoft.Extensions.DependencyInjection  ");
+
+  await createBrowserPackageQueryDataSource(engine).run(
+    request,
+    () => {},
+    () => {},
+    () => {},
+    new AbortController().signal);
 });
 
 test("Browser source retains the Package Query inspection envelope", async () => {
@@ -328,8 +384,8 @@ test("V3 metadata rows preserve unknown downloads and source-authored evidence",
       const engine: BrowserPackageQueryEngine = {
         ...defaultControls,
         async run(...args) {
-          assert.ok(typeof args[7] === "object" && args[7] !== null);
-          Reflect.set(args[7], "event", JSON.stringify(event));
+          assert.ok(typeof args[8] === "object" && args[8] !== null);
+          Reflect.set(args[8], "event", JSON.stringify(event));
           return succeeded(completionEvent);
         },
       };
@@ -355,14 +411,61 @@ test("V3 metadata rows preserve unknown downloads and source-authored evidence",
   }
 });
 
+test("V3 rows preserve structured product term attribution", async () => {
+  const rows: QueryResultRow[] = [];
+  const engine: BrowserPackageQueryEngine = {
+    ...defaultControls,
+    async run(...args) {
+      assert.ok(typeof args[8] === "object" && args[8] !== null);
+      Reflect.set(args[8], "event", JSON.stringify({
+        ...toolMatchEvent,
+        row: {
+          ...toolMatchEvent.row!,
+          tier: "Nuspec",
+          evidence: [{
+            ...packageEvidence(
+              "package.query.term.depends",
+              "Direct dependency matches Microsoft.Extensions.Hosting."),
+            term: {
+              key: "depends",
+              operator: "eq",
+              value: "Microsoft.Extensions.Hosting",
+            },
+          }],
+        },
+      } satisfies BrowserPackageQueryEvent));
+      return succeeded(completionEvent);
+    },
+  };
+
+  await createBrowserPackageQueryDataSource(engine).run(
+    createQueryRequest("Contoso.*"),
+    page => rows.push(...page),
+    () => {},
+    () => {},
+    new AbortController().signal);
+
+  assert.deepEqual(rows[0]?.evidence, [{
+    id: "package.query.term.depends",
+    text: "Direct dependency matches Microsoft.Extensions.Hosting.",
+    scope: "package",
+    summary: null,
+    term: {
+      key: "depends",
+      operator: "eq",
+      value: "Microsoft.Extensions.Hosting",
+    },
+  }]);
+});
+
 test("V3 row descriptions are projected unchanged from the producer", async () => {
   const description = "  Tools for <format> packages & templates.  ";
   const rows: QueryResultRow[] = [];
   const engine: BrowserPackageQueryEngine = {
     ...defaultControls,
     async run(...args) {
-      assert.ok(typeof args[7] === "object" && args[7] !== null);
-      Reflect.set(args[7], "event", JSON.stringify({
+      assert.ok(typeof args[8] === "object" && args[8] !== null);
+      Reflect.set(args[8], "event", JSON.stringify({
         ...toolMatchEvent,
         row: {
           ...toolMatchEvent.row!,
@@ -465,8 +568,8 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
     const engine: BrowserPackageQueryEngine = {
       ...defaultControls,
       async run(...args) {
-        assert.ok(typeof args[7] === "object" && args[7] !== null);
-        Reflect.set(args[7], "event", JSON.stringify({ ...toolMatchEvent, row }));
+        assert.ok(typeof args[8] === "object" && args[8] !== null);
+        Reflect.set(args[8], "event", JSON.stringify({ ...toolMatchEvent, row }));
         return succeeded(completionEvent);
       },
     };
@@ -530,8 +633,8 @@ const toolMatchEvent: BrowserPackageQueryEvent = {
   },
 };
 
-test("packageQueryFacets preserves product descriptors and producer ordering", () => {
-  const catalog: BrowserPackageQueryFacetCatalog = {
+test("packageQueryCatalog preserves product descriptors and producer ordering", () => {
+  const catalog: BrowserPackageQueryCatalog = {
     facets: [
       {
         id: "package.query.no-dependencies",
@@ -567,9 +670,20 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
         displayGroupLabel: ".NET tool format",
       },
     ],
+    terms: [{
+      key: "depends",
+      label: "Direct dependency",
+      summary: "Matches a direct dependency in any group.",
+      weight: 10,
+      tier: "Nuspec",
+      operators: ["eq"],
+      valueKind: "package-id",
+      example: "Microsoft.Extensions.Hosting",
+    }],
   };
 
-  assert.deepEqual(packageQueryFacets(catalog), [
+  const projected = packageQueryCatalog(catalog);
+  assert.deepEqual(projected.facets, [
     {
       key: "package.query.no-dependencies",
       label: "No dependencies",
@@ -604,6 +718,16 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
       displayGroupLabel: ".NET tool format",
     },
   ]);
+  assert.deepEqual(projected.terms, [{
+    key: "depends",
+    label: "Direct dependency",
+    summary: "Matches a direct dependency in any group.",
+    weight: 10,
+    tier: "nuspec",
+    operators: ["eq"],
+    valueKind: "package-id",
+    example: "Microsoft.Extensions.Hosting",
+  }]);
 });
 
 test("packageQueryAssemblyPatterns preserves only engine-issued descriptors", () => {
@@ -943,6 +1067,7 @@ test("Browser data source maps package-content rows and visible failures", async
       _operationId,
       _prefix,
       _facets,
+      _terms,
       candidates,
       _matches,
       _prerelease,
@@ -1044,7 +1169,7 @@ test("Browser data source streams matches and failures before terminal completio
     ...defaultControls,
     async run(...args) {
       receivedArguments = args;
-      const eventSink = args[7];
+      const eventSink = args[8];
       assert.ok(typeof eventSink === "object" && eventSink !== null);
       Reflect.set(eventSink, "event", JSON.stringify(progressEvent));
       Reflect.set(eventSink, "event", JSON.stringify(matchEvent));
@@ -1072,15 +1197,16 @@ test("Browser data source streams matches and failures before terminal completio
     new AbortController().signal);
 
   assert.equal(typeof receivedArguments[0], "string");
-  assert.deepEqual(receivedArguments.slice(1, 7), [
+  assert.deepEqual(receivedArguments.slice(1, 8), [
     "Microsoft.",
     '["package.query.source-verified"]',
+    "[]",
     200,
     100,
     false,
     20,
   ]);
-  assert.equal(receivedArguments.length, 8);
+  assert.equal(receivedArguments.length, 9);
   assert.deepEqual(rows, ["Microsoft.Extensions.Hosting"]);
   assert.deepEqual(
     failures,
@@ -1266,6 +1392,46 @@ test("Browser source decodes managed failure and cancellation results", async ()
     { kind: "cancelled" });
 });
 
+test("Browser source surfaces expected planning rejection without diagnostics", async () => {
+  const diagnostics: string[] = [];
+  const engine: BrowserPackageQueryEngine = {
+    ...defaultControls,
+    async run() {
+      return {
+        version: 3,
+        kind: "Failed",
+        value: null,
+        inspection: null,
+        failureKind: "Expected",
+        error: "A package-query term value is invalid.",
+        diagnostic: null,
+        reason: null,
+      };
+    },
+  };
+
+  const failures: string[] = [];
+  assert.deepEqual(
+    await createBrowserPackageQueryDataSource(engine, {
+      reportUnexpectedFailure: () => diagnostics.push("unexpected"),
+    }).run(
+      withTerm(
+        createQueryRequest("Microsoft.*"),
+        DEPENDS_TERM,
+        "eq",
+        "not a package id"),
+      () => {},
+      failure => failures.push(failure),
+      () => {},
+      new AbortController().signal),
+    {
+      kind: "failed",
+      reason: "A package-query term value is invalid.",
+    });
+  assert.deepEqual(failures, ["A package-query term value is invalid."]);
+  assert.deepEqual(diagnostics, []);
+});
+
 test("Browser source reports unexpected failure after a superseded observer failure", async () => {
   const diagnostics: Array<[string, string, string | null]> = [];
   let settleManagedResult:
@@ -1276,7 +1442,7 @@ test("Browser source reports unexpected failure after a superseded observer fail
   const engine: BrowserPackageQueryEngine = {
     ...defaultControls,
     async run(...args) {
-      const eventSink = args[7];
+      const eventSink = args[8];
       assert.ok(typeof eventSink === "object" && eventSink !== null);
       Reflect.set(eventSink, "event", JSON.stringify({
         kind: "Progress",
@@ -1343,6 +1509,7 @@ test("Browser data source batches consecutive matches into one controller page",
       _operationId,
       _prefix,
       _facets,
+      _terms,
       _candidates,
       _matches,
       _prerelease,
@@ -1379,6 +1546,7 @@ test("Browser progress is delivered while later engine work remains pending", as
       _operationId,
       _prefix,
       _facets,
+      _terms,
       _candidates,
       _matches,
       _prerelease,
@@ -1428,6 +1596,7 @@ test("established durable events flush before producer failure is reported", asy
       _operationId,
       _prefix,
       _facets,
+      _terms,
       _candidates,
       _matches,
       _prerelease,
@@ -1466,6 +1635,7 @@ test("established durable events reach the generation guard before cancellation 
       _operationId,
       _prefix,
       _facets,
+      _terms,
       _candidates,
       _matches,
       _prerelease,
@@ -1506,6 +1676,7 @@ test("durable-event delivery failure remains visible during cancellation", async
       _operationId,
       _prefix,
       _facets,
+      _terms,
       _candidates,
       _matches,
       _prerelease,
@@ -1601,6 +1772,7 @@ test("malformed streamed events fail visibly instead of becoming empty output", 
       _operationId,
       _prefix,
       _facets,
+      _terms,
       _candidates,
       _matches,
       _prerelease,
@@ -1630,6 +1802,7 @@ test("terminal completion is rejected on the nonterminal callback channel", asyn
       _operationId,
       _prefix,
       _facets,
+      _terms,
       _candidates,
       _matches,
       _prerelease,

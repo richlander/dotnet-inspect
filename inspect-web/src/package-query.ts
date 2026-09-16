@@ -21,6 +21,25 @@ export interface QueryFacetTerm {
   displayGroupLabel?: string | null;
 }
 
+/** One product-issued operand-bearing package-query term descriptor. */
+export interface QueryTermDescriptor {
+  key: string;
+  label: string;
+  summary: string;
+  weight: number;
+  tier: "nuspec" | "package-content";
+  operators: readonly string[];
+  valueKind: string;
+  example: string;
+}
+
+/** One unresolved term retained exactly as the user applied it. */
+interface QueryTerm {
+  descriptor: QueryTermDescriptor;
+  operator: string;
+  value: string;
+}
+
 const DEFAULT_QUERY_CANDIDATE_LIMIT = 200;
 const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
 export const PACKAGE_QUERY_INITIAL_MATCH_CREDIT = 20;
@@ -49,6 +68,7 @@ export interface QueryAssemblyPatternRequest {
 export interface QueryRequest extends QuerySourceSelection {
   scopeQuery: string;
   facets: readonly QueryFacetTerm[];
+  terms: readonly QueryTerm[];
   assemblyPattern?: QueryAssemblyPatternRequest;
   /** Declared cap communicated to the source. The bounded-complete footer
    * renders the source's own free-text `completion.reason` (see design doc
@@ -66,6 +86,7 @@ export function createQueryRequest(
     scopeQuery,
     includePrerelease: false,
     facets: [],
+    terms: [],
     requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
     requestedMatchLimit: 100,
   };
@@ -141,10 +162,18 @@ function withFacets(
 ): QueryRequest {
   return queryRequest(request, {
     facets,
-    requestedLimit: facets.some(facet => facet.tier === "package-content")
-      ? PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT
-      : DEFAULT_QUERY_CANDIDATE_LIMIT,
+    requestedLimit: queryCandidateLimit(facets, request.terms),
   });
+}
+
+function queryCandidateLimit(
+  facets: readonly QueryFacetTerm[],
+  terms: readonly QueryTerm[],
+): number {
+  return facets.some(facet => facet.tier === "package-content")
+      || terms.some(term => term.descriptor.tier === "package-content")
+    ? PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT
+    : DEFAULT_QUERY_CANDIDATE_LIMIT;
 }
 
 function queryRequest(
@@ -155,6 +184,7 @@ function queryRequest(
     scopeQuery: request.scopeQuery,
     includePrerelease: request.includePrerelease,
     facets: request.facets,
+    terms: request.terms,
     requestedLimit: request.requestedLimit,
     requestedMatchLimit: request.requestedMatchLimit,
     ...changes,
@@ -178,6 +208,46 @@ export function toggleFacet(
   return withFacet(withFacets(request, compatible), facet);
 }
 
+export function withTerm(
+  request: QueryRequest,
+  descriptor: QueryTermDescriptor,
+  operator: string,
+  value: string,
+): QueryRequest {
+  const terms = [...request.terms, { descriptor, operator, value }];
+  return queryRequest(request, {
+    terms,
+    requestedLimit: queryCandidateLimit(request.facets, terms),
+  });
+}
+
+export function replaceTerm(
+  request: QueryRequest,
+  index: number,
+  operator: string,
+  value: string,
+): QueryRequest {
+  if (index < 0 || index >= request.terms.length) return request;
+  const terms = request.terms.map((term, termIndex) =>
+    termIndex === index ? { ...term, operator, value } : term);
+  return queryRequest(request, {
+    terms,
+    requestedLimit: queryCandidateLimit(request.facets, terms),
+  });
+}
+
+export function withoutTerm(
+  request: QueryRequest,
+  index: number,
+): QueryRequest {
+  if (index < 0 || index >= request.terms.length) return request;
+  const terms = request.terms.filter((_term, termIndex) => termIndex !== index);
+  return queryRequest(request, {
+    terms,
+    requestedLimit: queryCandidateLimit(request.facets, terms),
+  });
+}
+
 type QueryEvidenceScope = "package" | "query";
 
 interface QueryEvidenceSummary {
@@ -190,6 +260,11 @@ interface QueryEvidence {
   text: string;
   scope: QueryEvidenceScope;
   summary: QueryEvidenceSummary | null;
+  term?: {
+    key: string;
+    operator: string;
+    value: string;
+  } | null;
 }
 
 /** One package's projection plus product-authored evidence. Query-scoped
@@ -343,10 +418,11 @@ export interface PackageQueryDataSource {
 export interface PackageQueryState {
   request: QueryRequest | null;
   outcome: QueryOutcome;
+  termDraft?: QueryTermDescriptor | null;
 }
 
 export function initialQueryState(): PackageQueryState {
-  return { request: null, outcome: idleOutcome() };
+  return { request: null, outcome: idleOutcome(), termDraft: null };
 }
 
 export interface PackageQueryController {

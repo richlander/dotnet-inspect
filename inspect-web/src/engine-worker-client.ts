@@ -218,6 +218,7 @@ function registerEngineWorkerCanaryAdapter(host: EngineWorkerHost) {
 function packageQueryRequest(
   searchText: string,
   facetIdsJson: string,
+  termsJson: string,
   maximumCandidates: number,
   maximumMatches: number,
   includePrerelease: boolean,
@@ -228,17 +229,64 @@ function packageQueryRequest(
       `Package Query initial credit must be ${PACKAGE_QUERY_INITIAL_MATCH_CREDIT}.`);
   }
   const rawFacetIds: unknown = JSON.parse(facetIdsJson);
-  if (!Array.isArray(rawFacetIds)
-    || !rawFacetIds.every(value => typeof value === "string")) {
+  if (!Array.isArray(rawFacetIds)) {
     throw new TypeError("Package Query facet IDs must be a JSON string array.");
   }
+  const facetIds = rawFacetIds.map((value: unknown) => {
+    if (typeof value !== "string") {
+      throw new TypeError(
+        "Package Query facet IDs must be a JSON string array.");
+    }
+    return value;
+  });
+  const rawTerms: unknown = JSON.parse(termsJson);
+  if (!Array.isArray(rawTerms)) {
+    throw new TypeError(
+      "Package Query terms must be a JSON term array.");
+  }
+  const terms = rawTerms.map((value: unknown, index) => {
+    if (typeof value !== "object" || value === null) {
+      throw new TypeError(
+        `Package Query term ${index} must be an object.`);
+    }
+    if (!("key" in value)
+      || !("operator" in value)
+      || !("value" in value)
+      || typeof value.key !== "string"
+      || typeof value.operator !== "string"
+      || typeof value.value !== "string") {
+      throw new TypeError(
+        `Package Query term ${index} must contain text key, operator, and value fields.`);
+    }
+    return {
+      key: value.key,
+      operator: value.operator,
+      value: value.value,
+    };
+  });
   return {
     scopeQuery: searchText,
-    facets: rawFacetIds.map(key => ({
+    facets: facetIds.map(key => ({
       key,
       label: key,
       tier: "nuspec",
     })),
+    terms: terms.map(term => {
+      return {
+        descriptor: {
+          key: term.key,
+          label: term.key,
+          summary: "",
+          weight: 0,
+          tier: "nuspec",
+          operators: [term.operator],
+          valueKind: "",
+          example: "",
+        },
+        operator: term.operator,
+        value: term.value,
+      };
+    }),
     requestedLimit: maximumCandidates,
     requestedMatchLimit: maximumMatches,
     includePrerelease,
@@ -265,6 +313,7 @@ function packageAssemblyQueryRequest(
   return {
     scopeQuery: "",
     facets: [],
+    terms: [],
     requestedLimit: Math.max(1, rawCoordinates.length),
     requestedMatchLimit: Math.max(1, rawCoordinates.length),
     includePrerelease: false,
@@ -548,6 +597,7 @@ export function bindPackageQueryFacade(
       operationId,
       searchText,
       facetIdsJson,
+      termsJson,
       maximumCandidates,
       maximumMatches,
       includePrerelease,
@@ -559,6 +609,7 @@ export function bindPackageQueryFacade(
         packageQueryRequest(
           searchText,
           facetIdsJson,
+          termsJson,
           maximumCandidates,
           maximumMatches,
           includePrerelease,

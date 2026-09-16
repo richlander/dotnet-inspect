@@ -1,6 +1,7 @@
 import type {
-  BrowserPackageQueryFacetCatalog,
+  BrowserPackageQueryCatalog,
   BrowserPackageQueryFacetDescriptor,
+  BrowserPackageQueryTermDescriptor,
   BrowserPackageAssemblyQueryPattern,
   BrowserPackageAssemblyAssessment,
   BrowserPackageQueryCompletion as BrowserPackageQueryCompletionPayload,
@@ -21,6 +22,7 @@ import type {
   QueryFacetTerm,
   QueryProgress,
   QueryResultRow,
+  QueryTermDescriptor,
   TerminalQueryCompletion,
 } from "./package-query.ts";
 import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
@@ -51,6 +53,7 @@ export interface BrowserPackageQueryEngine {
     operationId: string,
     searchText: string,
     facetIdsJson: string,
+    termsJson: string,
     maximumCandidates: number,
     maximumMatches: number,
     includePrerelease: boolean,
@@ -80,10 +83,16 @@ export interface BrowserPackageQueryDataSourceOptions {
   ) => void;
 }
 
-export function packageQueryFacets(
-  catalog: BrowserPackageQueryFacetCatalog,
-): QueryFacetTerm[] {
-  return catalog.facets.map(toQueryFacet);
+export function packageQueryCatalog(
+  catalog: BrowserPackageQueryCatalog,
+): {
+  readonly facets: QueryFacetTerm[];
+  readonly terms: QueryTermDescriptor[];
+} {
+  return {
+    facets: catalog.facets.map(toQueryFacet),
+    terms: catalog.terms.map(toQueryTermDescriptor),
+  };
 }
 
 export function packageQueryAssemblyPatterns(
@@ -111,6 +120,21 @@ function toQueryFacet(
     combinesWithinSelectionGroup: descriptor.combinesWithinSelectionGroup,
     displayGroupId: descriptor.displayGroupId,
     displayGroupLabel: descriptor.displayGroupLabel,
+  };
+}
+
+function toQueryTermDescriptor(
+  descriptor: BrowserPackageQueryTermDescriptor,
+): QueryTermDescriptor {
+  return {
+    key: descriptor.key,
+    label: descriptor.label,
+    summary: descriptor.summary,
+    weight: descriptor.weight,
+    tier: toInspectionTier(descriptor.tier),
+    operators: [...descriptor.operators],
+    valueKind: descriptor.valueKind,
+    example: descriptor.example,
   };
 }
 
@@ -239,6 +263,11 @@ export function createBrowserPackageQueryDataSource(
               operationId,
               request.scopeQuery,
               JSON.stringify(request.facets.map(facet => facet.key)),
+              JSON.stringify(request.terms.map(term => ({
+                key: term.descriptor.key,
+                operator: term.operator,
+                value: term.value,
+              }))),
               request.requestedLimit,
               request.requestedMatchLimit,
               request.includePrerelease,
@@ -270,8 +299,11 @@ export function createBrowserPackageQueryDataSource(
         }
         if (result.kind === "Canceled") return { kind: "cancelled" };
         if (result.kind === "Failed") {
-          throw unexpectedFailure ?? new Error(
-            result.error ?? "The Browser package query failed without an error.");
+          if (unexpectedFailure) throw unexpectedFailure;
+          const reason =
+            result.error ?? "The Browser package query failed without an error.";
+          onFailure(reason);
+          return { kind: "failed", reason };
         }
         if (result.kind !== "Succeeded") {
           throw new TypeError(
@@ -529,6 +561,7 @@ function parseRow(value: unknown): BrowserPackageQueryRowPayload {
         text: stringValue(evidence.text, "package-query evidence text"),
         scope,
         summary: parseEvidenceSummary(evidence.summary),
+        term: parseEvidenceTerm(evidence.term),
       };
     }),
     totalDownloads: nullableNumberValue(
@@ -688,6 +721,20 @@ function parseEvidenceSummary(
     count: countValue(summary.count, "package-query evidence count"),
     preview: summary.preview.map(item =>
       stringValue(item, "package-query evidence preview")),
+  };
+}
+
+function parseEvidenceTerm(
+  value: unknown,
+): BrowserPackageQueryRowPayload["evidence"][number]["term"] {
+  if (value === null) return null;
+  const term = objectValue(value, "package-query evidence term");
+  return {
+    key: stringValue(term.key, "package-query evidence term key"),
+    operator: stringValue(
+      term.operator,
+      "package-query evidence term operator"),
+    value: stringValue(term.value, "package-query evidence term value"),
   };
 }
 
@@ -947,6 +994,13 @@ function toQueryRow(
           count: item.summary.count,
           preview: [...item.summary.preview],
         },
+    ...(item.term === null
+      ? {}
+      : { term: {
+          key: item.term.key,
+          operator: item.term.operator,
+          value: item.term.value,
+        } }),
   }));
   if (!evidence.length || evidence.some(item => item.text.trim().length === 0)) {
     throw new TypeError("A package-query row contained no evidence.");

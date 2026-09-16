@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Web;
@@ -14,7 +15,7 @@ namespace DotnetInspect.Web.Interop.Package
     [SupportedOSPlatform("browser")]
     internal static class BrowserPackageQueryOperations
     {
-        internal static BrowserPackageQueryFacetCatalog Facets() =>
+        internal static BrowserPackageQueryCatalog Catalog() =>
             new(
                 [
                     .. PackageQuery.Facets.Select(facet =>
@@ -36,20 +37,68 @@ namespace DotnetInspect.Web.Interop.Package
                             facet.CombinesWithinSelectionGroup,
                             facet.DisplayGroupId,
                             facet.DisplayGroupLabel)),
+                ],
+                [
+                    .. PackageQuery.Terms.Select(term =>
+                        new BrowserPackageQueryTermDescriptor(
+                            term.Key,
+                            term.Label,
+                            term.Summary,
+                            term.Weight,
+                            term.Tier switch
+                            {
+                                PackageQueryFacetTier.Nuspec =>
+                                    BrowserPackageQueryFacetTier.Nuspec,
+                                PackageQueryFacetTier.PackageContent =>
+                                    BrowserPackageQueryFacetTier.PackageContent,
+                                _ => throw new InvalidOperationException(
+                                    "Unknown package-query term tier."),
+                            },
+                            [.. term.Operators],
+                            term.ValueKind,
+                            term.ExampleValue)),
                 ]);
 
         internal static PackageQueryPlanResult Plan(
             string text,
             string[] facetIds,
+            IReadOnlyCollection<PortableQueryTerm>? terms,
             int maximumCandidates,
             int maximumMatches,
             bool includePrerelease) =>
             PackageQuery.PlanInput(
                 text,
                 facetIds,
+                terms,
                 maximumCandidates,
                 maximumMatches,
                 includePrerelease);
+
+        internal static bool TryCreateTerms(
+            BrowserPackageQueryTerm[] wireTerms,
+            out PortableQueryTerm[] terms,
+            out string error)
+        {
+            ArgumentNullException.ThrowIfNull(wireTerms);
+            terms = new PortableQueryTerm[wireTerms.Length];
+            for (int index = 0; index < wireTerms.Length; index++)
+            {
+                BrowserPackageQueryTerm term = wireTerms[index];
+                if (!PortableQueryModel.TryParseOperator(
+                        term.Operator,
+                        out PortableQueryOperator @operator))
+                {
+                    terms = [];
+                    error =
+                        $"Unknown package-query operator '{term.Operator}'.";
+                    return false;
+                }
+                terms[index] =
+                    new PortableQueryTerm(term.Key, @operator, term.Value);
+            }
+            error = "";
+            return true;
+        }
 
         internal static async Task<BrowserPackageQueryInspection> ExecuteAsync(
             string prefix,
@@ -91,14 +140,33 @@ namespace DotnetInspect.Web.Interop.Package
             PackageQueryPlanResult planResult = Plan(
                 prefix,
                 facetIds,
+                terms: null,
                 maximumCandidates,
                 maximumMatches,
                 includePrerelease);
             if (planResult is PackageQueryPlanResult.Rejected rejected)
                 throw new InvalidOperationException(rejected.Failure.Message);
 
-            PackageQueryPlan plan =
-                ((PackageQueryPlanResult.Accepted)planResult).Plan;
+            return await ExecuteAsync(
+                ((PackageQueryPlanResult.Accepted)planResult).Plan,
+                contentProvider,
+                matchCredit,
+                emit,
+                cancellationToken,
+                deadline).ConfigureAwait(false);
+        }
+
+        internal static async Task<BrowserPackageQueryInspection> ExecuteAsync(
+            PackageQueryPlan plan,
+            IPackageQueryContentProvider? contentProvider,
+            BrowserPackageQueryMatchCredit? matchCredit,
+            Action<BrowserPackageQueryEvent> emit,
+            CancellationToken cancellationToken,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
+        {
+            ArgumentNullException.ThrowIfNull(plan);
+            ArgumentNullException.ThrowIfNull(emit);
+
             var observer = new EventObserver(
                 matchCredit,
                 emit,
@@ -456,6 +524,13 @@ namespace DotnetInspect.Web.Interop.Package
                                                 .. summary.Preview.Select(
                                                     value => value.ToString()),
                                             ])
+                                        : null,
+                                    evidence.Term is { } term
+                                        ? new BrowserPackageQueryTerm(
+                                            term.Key,
+                                            PortableQueryModel.TextOf(
+                                                term.Operator),
+                                            term.Value)
                                         : null)),
                         ],
                         match.Value.Package.TotalDownloads,
@@ -684,11 +759,11 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.BrowserPackageAssemblyQueryPatternArray);
 
     [JSExport]
-    public static string ListPackageQueryFacets()
+    public static string ListPackageQueryCatalog()
     {
         string result = JsonSerializer.Serialize(
-            BrowserPackageQueryOperations.Facets(),
-            BrowserPackageJsonContext.Default.BrowserPackageQueryFacetCatalog);
+            BrowserPackageQueryOperations.Catalog(),
+            BrowserPackageJsonContext.Default.BrowserPackageQueryCatalog);
         BrowserPackageQueryOperations.StartSerializationPreparation();
         return result;
     }
@@ -799,6 +874,7 @@ public static partial class PackageExports
         string operationId,
         string prefix,
         string facetIdsJson,
+        string termsJson,
         int maximumCandidates,
         int maximumMatches,
         bool includePrerelease,
@@ -809,6 +885,36 @@ public static partial class PackageExports
         string[] facetIds = JsonSerializer.Deserialize(
             facetIdsJson,
             BrowserPackageJsonContext.Default.StringArray) ?? [];
+        BrowserPackageQueryTerm[] wireTerms = JsonSerializer.Deserialize(
+            termsJson,
+            BrowserPackageJsonContext.Default.BrowserPackageQueryTermArray) ?? [];
+        if (!BrowserPackageQueryOperations.TryCreateTerms(
+                wireTerms,
+                out PortableQueryTerm[] terms,
+                out string termError))
+        {
+            return JsonSerializer.Serialize(
+                BrowserPackageQueryResult.ExpectedFailure(termError),
+                BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
+        }
+
+        PackageQueryPlanResult planResult =
+            BrowserPackageQueryOperations.Plan(
+                prefix,
+                facetIds,
+                terms,
+                maximumCandidates,
+                maximumMatches,
+                includePrerelease);
+        if (planResult is PackageQueryPlanResult.Rejected rejected)
+        {
+            return JsonSerializer.Serialize(
+                BrowserPackageQueryResult.ExpectedFailure(
+                    rejected.Failure.Message),
+                BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
+        }
+        PackageQueryPlan plan =
+            ((PackageQueryPlanResult.Accepted)planResult).Plan;
 
         BrowserManagedOperationResult<
             BrowserPackageQueryInspection,
@@ -834,11 +940,7 @@ public static partial class PackageExports
                             var contentProvider =
                                 new BrowserPackageQueryContentProvider(deadline);
                             return await BrowserPackageQueryOperations.ExecuteAsync(
-                                prefix,
-                                facetIds,
-                                maximumCandidates,
-                                maximumMatches,
-                                includePrerelease,
+                                plan,
                                 contentProvider,
                                 matchCredit,
                                 events.Report,
