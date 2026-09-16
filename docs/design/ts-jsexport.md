@@ -337,13 +337,31 @@ alias components and retain their existing behavior.
 Unused union registrations remain inert. No discriminator, replacement
 transport, or runtime schema validator is introduced.
 
-The envelope pilot has one deliberate converter exception: the shared
-`InertText.InertString` field converter is authenticated as the JSON `string`
-wire shape and preserves nullable fields as `string | null`. Polymorphic
-`System.Text.Json` base records remain structural in this generation slice;
-their runtime discriminator and derived members are preserved by the managed
-serializer, while a later union-lowering slice may expose them as a
-discriminated TypeScript union.
+The shared `InertText.InertString` field converter is one deliberate converter
+exception. Its exact metadata identity and converter evidence authenticate a
+JSON string wire value, while the generated TypeScript contract preserves its
+provenance as an opaque string brand:
+
+```ts
+export type InertString =
+  string & { readonly __inertStringBrand: unique symbol };
+```
+
+The JSON payload and JavaScript runtime value remain strings. The generated
+facade grants the brand only where the authenticated C# wire contract names the
+exact `InertText.InertString` type; an unrelated type with the same simple name
+remains an ordinary generated type. The brand has no public constructor,
+decoder, or unchecked helper. It carries neither policy, forms, concerns, nor
+truncation state, and it does not mean HTML-, attribute-, DOM-, or URL-safe.
+Consumers retain their sink-specific escaping.
+
+The generator and browser receive only the already-encoded representation.
+They do not import or expose `InertText.Encoding`; recovering original text
+remains a separate CLI concern under the InertText audit boundary.
+Polymorphic `System.Text.Json` base records remain structural in this
+generation slice; their runtime discriminator and derived members are
+preserved by the managed serializer, while a later union-lowering slice may
+expose them as a discriminated TypeScript union.
 
 `JsonUnionWireTests` and the compiler/runtime consumer harness
 `eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
@@ -1072,6 +1090,11 @@ issue references below.
   types;
 - close-negative tests keep direct interop values distinct from authenticated
   JSON wire values;
+- exact `InertText.InertString` wire members emit an opaque string brand, the
+  TypeScript compiler rejects an untreated string at that boundary, and a
+  same-named application type does not acquire the brand;
+- the inert-text fixture remains a scalar JSON string at runtime and the
+  generated module exposes no decoder or unchecked branding helper;
 - structurally equal hand-composed owner-issued surfaces produce byte-identical
   TypeScript without any lowering-specific generator branch;
 - an integration gate gives the command paired compiler-async and

@@ -1,5 +1,7 @@
 import { dotnet } from "./runtime-loader.js";
 
+export type InertString = string & { readonly __inertStringBrand: unique symbol };
+
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
@@ -545,8 +547,8 @@ export interface ExactTypeParameter {
 export interface InspectionDiagnostic {
   readonly code: string;
   readonly severity: InspectionDiagnosticSeverity;
-  readonly summary: string;
-  readonly correspondence: string | null;
+  readonly summary: InertString;
+  readonly correspondence: InertString | null;
 }
 
 export interface InspectionEnvelope<T0> {

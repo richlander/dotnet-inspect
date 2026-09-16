@@ -60,6 +60,22 @@ const transformed: boolean = transformValue(
 void transformed;
 TS
 
+cat > "$scratch/inert-usage.ts" <<'TS'
+import { getInertWidgetAsync } from "./facade.js";
+import type { InertString } from "./facade.js";
+
+export async function readInertDisplay(): Promise<string> {
+  const widget = await getInertWidgetAsync("widget");
+  const encoded: InertString = widget.display;
+  const display: string = encoded;
+  return display;
+}
+
+// A plain string has not crossed the authenticated inert-text wire boundary.
+// @ts-expect-error
+export const untreated: InertString = "plain text";
+TS
+
 cat > "$scratch/union-usage.ts" <<'TS'
 import {
   getBoxedCount,
@@ -333,7 +349,12 @@ cat > "$scratch/tsconfig.json" <<'JSON'
     "types": [],
     "verbatimModuleSyntax": true
   },
-  "include": ["facade.ts", "callback-usage.ts", "union-usage.ts"]
+  "include": [
+    "facade.ts",
+    "callback-usage.ts",
+    "inert-usage.ts",
+    "union-usage.ts"
+  ]
 }
 JSON
 cp "$dotnet_dts" "$scratch/dotnet.d.ts"
@@ -368,7 +389,13 @@ expect_compile_failure() {
   local scope=$4
   local mutation="$scratch/$name"
   mkdir "$mutation"
-  cp "$scratch/dotnet.d.ts" "$scratch/tsconfig.json" "$mutation/"
+  cp \
+    "$scratch/dotnet.d.ts" \
+    "$scratch/tsconfig.json" \
+    "$scratch/callback-usage.ts" \
+    "$scratch/inert-usage.ts" \
+    "$scratch/union-usage.ts" \
+    "$mutation/"
   sed -E "/$scope/ s/$expression/$replacement/" \
     "$scratch/facade.ts" > "$mutation/facade.ts"
   if cmp -s "$scratch/facade.ts" "$mutation/facade.ts"; then
@@ -406,6 +433,11 @@ expect_compile_failure \
   'getAssemblyExports' \
   'missingGetAssemblyExports' \
   'const exports: unknown'
+expect_compile_failure \
+  inert-string-brand \
+  'string & \{ readonly __inertStringBrand: unique symbol \}' \
+  'string' \
+  '^export type InertString'
 
 expect_callback_compile_failure() {
   local name=$1

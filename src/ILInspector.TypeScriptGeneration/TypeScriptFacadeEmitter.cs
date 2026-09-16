@@ -61,7 +61,8 @@ internal static class TypeScriptFacadeEmitter
                     surface,
                     function,
                     diagnostics,
-                    names.TypeNames);
+                    names.TypeNames,
+                    names.InertStringName);
             signatures.Add(
                 function,
                 names.Apply(function, signature));
@@ -74,7 +75,8 @@ internal static class TypeScriptFacadeEmitter
         sb.Append(DtsEmitter.EmitWireDeclarations(
             surface,
             diagnostics,
-            names.TypeNames));
+            names.TypeNames,
+            names.InertStringName));
 
         ExportPathNode exportTree = BuildExportTree(functions);
         EmitManagedExportsType(sb, exportTree, signatures);
@@ -430,17 +432,20 @@ internal static class TypeScriptFacadeEmitter
         private readonly Dictionary<ApiType, string> _typeNames;
         private readonly Dictionary<JsExportFunction, string> _operationNames;
         private readonly Dictionary<JsExportFunction, string[]> _parameterNames;
+        private readonly string? _inertStringName;
 
         private TypeScriptNameAllocator(
             HashSet<string> moduleBindings,
             Dictionary<ApiType, string> typeNames,
             Dictionary<JsExportFunction, string> operationNames,
-            Dictionary<JsExportFunction, string[]> parameterNames)
+            Dictionary<JsExportFunction, string[]> parameterNames,
+            string? inertStringName)
         {
             _moduleBindings = moduleBindings;
             _typeNames = typeNames;
             _operationNames = operationNames;
             _parameterNames = parameterNames;
+            _inertStringName = inertStringName;
         }
 
         public static TypeScriptNameAllocator Create(
@@ -450,6 +455,16 @@ internal static class TypeScriptFacadeEmitter
             var moduleBindings = new HashSet<string>(
                 InfrastructureBindings,
                 StringComparer.Ordinal);
+            ApiTypeReferenceIdentity? inertStringIdentity =
+                DtsEmitter.FindInertStringIdentity(surface);
+            string? inertStringName = inertStringIdentity is null
+                ? null
+                : Allocate(
+                    moduleBindings,
+                    "InertString",
+                    "type",
+                    CanonicalInertStringIdentity(inertStringIdentity),
+                    TypeScriptIdentifier.IsTypeDeclarationIdentifier);
             var typeNames = new Dictionary<ApiType, string>();
             foreach (ApiType type in surface.Records
                 .Concat(surface.Enums)
@@ -521,11 +536,14 @@ internal static class TypeScriptFacadeEmitter
                 moduleBindings,
                 typeNames,
                 operationNames,
-                parameterNames);
+                parameterNames,
+                inertStringName);
         }
 
         public IReadOnlyDictionary<ApiType, string> TypeNames =>
             _typeNames;
+
+        public string? InertStringName => _inertStringName;
 
         public TypeScriptFunctionSignature Apply(
             JsExportFunction function,
@@ -583,5 +601,19 @@ internal static class TypeScriptFacadeEmitter
             + (type.DefinitionName?.ToString() ?? "")
             + "|"
             + type.Kind;
+
+        static string CanonicalInertStringIdentity(
+            ApiTypeReferenceIdentity identity) =>
+            identity.Assembly.Name
+            + "|"
+            + identity.Assembly.Version
+            + "|"
+            + identity.Assembly.Culture
+            + "|"
+            + identity.Assembly.PublicKeyToken
+            + "|"
+            + identity.FullName
+            + "|"
+            + identity.DefinitionName;
     }
 }
