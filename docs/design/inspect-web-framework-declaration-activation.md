@@ -62,9 +62,7 @@ realization either:
 - produces one detached ordinary-Library effect for the exact observed
   Library;
 - produces one detached ordinary-Type effect for the exact definition in that
-  Library;
-- reports that the exact destination is already current without replacing its
-  view state; or
+  Library; or
 - settles with a typed non-success and no Browser navigation effect.
 
 The operation never chooses a framework target, Library, or Type from display
@@ -183,10 +181,6 @@ and the exact structured definition selection as one effect; it does not first
 publish an intermediate default Library or Type. The Browser consumer applies
 the effect only while its ordinary operation authority is current.
 
-Reselecting the already-current exact Library or Type preserves the installed
-subject, explicit view or lens, and semantic revision. It may refresh ephemeral
-interaction authority but does not rebuild equivalent navigation state.
-
 Unavailable, stale, ambiguous, refused, failed, canceled, and superseded
 execution outcomes install no effect. Failure evidence is detached before
 crossing the Browser boundary and cannot retain the Workspace, registration,
@@ -258,7 +252,8 @@ Release managed gates must prove:
   participant-failure paths remain typed;
 - successful and failed detached outcomes do not retain live acquisition or
   Metadata authority after action/result retirement; and
-- same-Type reselection preserves the current view and semantic revision.
+- the effect identifies the exact definition without requiring an intermediate
+  Library/default-Type installation.
 
 Generated-facade, Worker, and TypeScript gates land with the production adopter
 and must preserve opaque actions and the closed result union without
@@ -277,7 +272,7 @@ the managed owner gates in this issue.
 | [Spotlight destination activation](inspect-web-spotlight-destination-activation.md) | Captured current-result and Workspace authority |
 | This owner | Exact framework occurrence binding, opaque action publication, validation, and detached activation effect |
 | [Inspect Web Type Find](inspect-web-type-find.md) | Candidate/action association, typed presentation, and selection handoff |
-| [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | Current Browser subject, effect installation, and synchronization |
+| [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | Current Browser subject, no-effect recognition, effect installation, and synchronization |
 
 This capability is step 4 within the **nine-step** reverse-locator production
 adoption tracked by #6843 and #6851:
@@ -294,7 +289,7 @@ adoption tracked by #6843 and #6851:
 9. retire or narrow the duplicate client-owned framework Type lookup after
    parity.
 
-#6851 is the Inspect Web production consumer. This issue may implement and
+Issue #6851 is the Inspect Web production consumer. This issue may implement and
 gate the managed owner against `BrowserWorkspaceRealizationHost` before #7028
 adopts that host in production; it must not bypass that dependency with a
 second active-Workspace registry or frontend reconstruction.
@@ -317,6 +312,8 @@ This design does not:
 - define Package Version/TFM correspondence or cross-Workspace continuity;
 - choose framework targets, views, packs, acquisition, cache, or source policy;
 - make detached locator results or Browser effects Metadata authority;
+- decide whether an exact destination is already current or rebuild an
+  installed Navigation lens;
 - define Spotlight lifecycle, ranking, persistent UI, or a second dispatcher;
 - adopt the action in production before #7028, #7030, #6686, and #6851; or
 - claim repository-wide no-Platform Browser composition without a gate.
