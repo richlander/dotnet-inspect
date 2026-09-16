@@ -6,7 +6,7 @@
   discoveries emit `Direct` instead of `Exact` in unprojected JSON. Direct
   member discovery remains case-insensitive and one-to-many across overloads,
   declaring Types, and sources; the `this[]` alias continues to match indexer
-  metadata names. Glob matching and rendered output are unchanged.
+  metadata names. Glob matching and rendered output are unchanged (#7260).
 - Routes Inspect Web Package Activity at `/activity`, exposes it beside Query
   and Workspace with Spotlight as the responsive alternate entry, and retires
   the `/query` Packages/Activity peer mode while preserving report state,
