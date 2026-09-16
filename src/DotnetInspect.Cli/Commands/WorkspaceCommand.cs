@@ -17,6 +17,16 @@ public static class WorkspaceCommand
 {
     public const string Name = "workspace";
 
+    static readonly ApiSurfaceProjectionLimits NavigationSurfaceLimits =
+        new(
+            maxParticipants: WorkspaceScopeLimits.DefaultMaxPackages,
+            maxTypes: 10_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 8_000_000);
+
     public static async Task<int> ExecuteAsync(
         WorkspaceOptions options,
         CancellationToken cancellationToken = default)
@@ -400,7 +410,7 @@ public static class WorkspaceCommand
                 ready.Generation,
                 (realization, token) =>
                     ValueTask.FromResult(
-                        NavigationPackageEvaluationFactory.Create(
+                        EvaluatePackage(
                             occurrence,
                             binding,
                             realization,
@@ -433,6 +443,51 @@ public static class WorkspaceCommand
             options,
             registry,
             availability);
+    }
+
+    static NavigationPackageEvaluation EvaluatePackage(
+        WorkspacePackageOccurrenceDescriptor occurrence,
+        PackageRootBinding binding,
+        PackageAssemblyContextRealization realization,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!realization.HasAssemblyContexts)
+        {
+            return new NavigationPackageEvaluation(
+                occurrence,
+                binding,
+                [],
+                new AssemblyContextApiSurfaceResult(
+                    new AssemblyContextResult<AssemblyApiSurface>([]),
+                    [],
+                    Truncation: null));
+        }
+
+        RealizedMemberCoordinate.Package coordinate =
+            occurrence.Occurrence.Package.Coordinate;
+        ImmutableArray<NavigationLibraryEvaluation> libraries =
+        [
+            .. realization.SurfaceParticipants.Select(participant =>
+                new NavigationLibraryEvaluation(
+                    coordinate,
+                    participant)),
+        ];
+        AssemblyContextApiSurfaceResult surface =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                realization.SurfaceGroup,
+                ApiSurfaceScope.Public,
+                NavigationSurfaceLimits,
+                [
+                    .. libraries.Select(
+                        static library =>
+                            library.Library.Participant),
+                ]);
+        return new NavigationPackageEvaluation(
+            occurrence,
+            binding,
+            libraries,
+            surface);
     }
 
     static WorkspaceNavigationCommandResult? SelectDestination(

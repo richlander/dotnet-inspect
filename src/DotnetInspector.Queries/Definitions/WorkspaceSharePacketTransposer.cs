@@ -247,7 +247,7 @@ public static class WorkspaceSharePacketTransposer
         registry.Add(view);
         registry.Add(scenario);
         return AssertVersion2(
-            registry.PreparePacketScenario(ScenarioId));
+            registry.PrepareScenario(ScenarioId));
     }
 
     private static WorkspaceContextDefinition[] ToWorkspaceContexts(
@@ -932,18 +932,14 @@ public static class WorkspaceSharePacketTransposer
             definitions.Workspace,
             definitions.Navigation,
             view,
-            definitions.Catalogs,
-            definitions.NavigationTargetMatchMode);
+            definitions.Catalogs);
         var registry = new InspectionDefinitionRegistry();
         try
         {
             foreach (InspectionDefinitionRecord record in
                 queryFreeDefinitions.Records)
                 registry.Add(record);
-            _ = definitions.NavigationTargetMatchMode
-                is NavigationTargetMatchMode.Exact
-                    ? registry.PreparePacketScenario(definitions.Scenario.Id)
-                    : registry.PrepareScenario(definitions.Scenario.Id);
+            _ = registry.PrepareScenario(definitions.Scenario.Id);
         }
         catch (InspectionDefinitionException ex)
         {

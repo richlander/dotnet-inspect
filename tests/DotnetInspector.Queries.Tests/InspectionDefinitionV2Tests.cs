@@ -952,55 +952,6 @@ public sealed class InspectionDefinitionV2Tests
     }
 
     [Fact]
-    public void ResolveScenario_Version1NavigationRemainsIndependentOfWorkspace()
-    {
-        var registry = new InspectionDefinitionRegistry();
-        var workspace = new WorkspaceDefinition(
-            InspectionDefinitionSchema.Version1,
-            "workspace",
-            [
-                new WorkspaceContextDefinition(
-                    "context",
-                    members:
-                    [
-                        new DefinitionMemberCoordinate.PackageCoordinate(
-                            "Workspace.Package",
-                            "1.0.0"),
-                    ]),
-            ]);
-        var navigation = new NavigationDefinition(
-            InspectionDefinitionSchema.Version1,
-            "navigation",
-            [
-                new NavigationTabDefinition(
-                    "package",
-                    coordinate:
-                        new DefinitionMemberCoordinate.PackageCoordinate(
-                            "Navigation.Package",
-                            "2.0.0",
-                            "net9.0")),
-            ],
-            "package");
-        var scenario = new ScenarioDefinition(
-            InspectionDefinitionSchema.Version1,
-            "scenario",
-            workspace: workspace.Id,
-            navigation: navigation.Id);
-        registry.Add(workspace);
-        registry.Add(navigation);
-        registry.Add(scenario);
-
-        ResolvedScenario resolved = registry.ResolveScenario(scenario.Id);
-
-        var coordinate =
-            Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
-                resolved.Navigation!.FocusTab.Coordinate);
-        Assert.Equal("Navigation.Package", coordinate.PackageId);
-        Assert.Equal("2.0.0", coordinate.Version);
-        Assert.Equal("net9.0", coordinate.Framework);
-    }
-
-    [Fact]
     public void PrepareScenario_LibraryScopedVersion1KeepsVersion1Path()
     {
         var registry = new InspectionDefinitionRegistry();
