@@ -41,6 +41,10 @@ public class PropertyAccessorSignatureConsistencyTests
     [InlineData(AccessorMismatch.GenericArityAbsent, true)]
     [InlineData(AccessorMismatch.GenericArityMismatch, true)]
     [InlineData(AccessorMismatch.GenericArityTrustedNoSuffix, false)]
+    [InlineData(AccessorMismatch.NamedSameModuleGenericDefinition, true)]
+    [InlineData(AccessorMismatch.NamedSameModuleNonGenericDefinition, false)]
+    [InlineData(AccessorMismatch.NamedSameModuleMissingDefinition, true)]
+    [InlineData(AccessorMismatch.NamedSameModuleAmbiguousDefinition, true)]
     public void PropertyAccessorRetainsWhetherItsSignatureCorresponds(
         AccessorMismatch mismatch,
         bool expectedMismatch)
@@ -144,7 +148,10 @@ public class PropertyAccessorSignatureConsistencyTests
         }
         if (mismatch is
             AccessorMismatch.GenericArityAbsent
-            or AccessorMismatch.GenericArityMismatch)
+            or AccessorMismatch.GenericArityMismatch
+            or AccessorMismatch.NamedSameModuleGenericDefinition
+            or AccessorMismatch.NamedSameModuleMissingDefinition
+            or AccessorMismatch.NamedSameModuleAmbiguousDefinition)
         {
             Assert.Null(property.SignatureModel.ReturnTypeShape);
         }
@@ -189,7 +196,10 @@ public class PropertyAccessorSignatureConsistencyTests
                 or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter
                 or AccessorMismatch.GenericArityAbsent
                 or AccessorMismatch.GenericArityMismatch
-                or AccessorMismatch.GenericArityTrustedNoSuffix =>
+                or AccessorMismatch.GenericArityTrustedNoSuffix
+                or AccessorMismatch.NamedSameModuleGenericDefinition
+                or AccessorMismatch.NamedSameModuleMissingDefinition
+                or AccessorMismatch.NamedSameModuleAmbiguousDefinition =>
                 "get",
             _ => "set",
         });
@@ -198,7 +208,7 @@ public class PropertyAccessorSignatureConsistencyTests
     static byte[] BuildImage(AccessorMismatch mismatch)
     {
         var metadata = new MetadataBuilder();
-        metadata.AddModule(
+        ModuleDefinitionHandle module = metadata.AddModule(
             0,
             metadata.GetOrAddString("PropertyAccessors.dll"),
             metadata.GetOrAddGuid(Guid.NewGuid()),
@@ -245,7 +255,11 @@ public class PropertyAccessorSignatureConsistencyTests
             or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter
             or AccessorMismatch.GenericArityAbsent
             or AccessorMismatch.GenericArityMismatch
-            or AccessorMismatch.GenericArityTrustedNoSuffix;
+            or AccessorMismatch.GenericArityTrustedNoSuffix
+            or AccessorMismatch.NamedSameModuleGenericDefinition
+            or AccessorMismatch.NamedSameModuleNonGenericDefinition
+            or AccessorMismatch.NamedSameModuleMissingDefinition
+            or AccessorMismatch.NamedSameModuleAmbiguousDefinition;
         bool getOnly = voidProperty
             || encodedReturn
             || mismatch is
@@ -269,10 +283,16 @@ public class PropertyAccessorSignatureConsistencyTests
         byte[] setterParameters = mismatch == AccessorMismatch.SetterIndexParameter
             ? [(byte)SignatureTypeCode.Int32, setterValue]
             : [setterValue];
+        bool sameModuleReference = mismatch is
+            AccessorMismatch.NamedSameModuleGenericDefinition
+            or AccessorMismatch.NamedSameModuleNonGenericDefinition
+            or AccessorMismatch.NamedSameModuleMissingDefinition
+            or AccessorMismatch.NamedSameModuleAmbiguousDefinition;
 
         metadata.AddTypeReference(
-            contractAssembly,
-            metadata.GetOrAddString("Samples"),
+            sameModuleReference ? module : contractAssembly,
+            metadata.GetOrAddString(
+                sameModuleReference ? "ReferencedTypes" : "Samples"),
             metadata.GetOrAddString(
                 mismatch is
                     AccessorMismatch.GenericClassValueType
@@ -305,6 +325,11 @@ public class PropertyAccessorSignatureConsistencyTests
                 [0x15, 0x12, 0x05, 0x02, 0x08, 0x0E],
             AccessorMismatch.GenericArityTrustedNoSuffix =>
                 [0x15, 0x12, 0x0C, 0x02, 0x08, 0x0E],
+            AccessorMismatch.NamedSameModuleGenericDefinition
+                or AccessorMismatch.NamedSameModuleNonGenericDefinition
+                or AccessorMismatch.NamedSameModuleMissingDefinition
+                or AccessorMismatch.NamedSameModuleAmbiguousDefinition =>
+                [0x12, 0x05],
             _ =>
             [
                 voidProperty
@@ -424,6 +449,44 @@ public class PropertyAccessorSignatureConsistencyTests
                 GenericParameterAttributes.None,
                 metadata.GetOrAddString("TSecond"),
                 index: 1);
+        }
+        if (mismatch is
+            AccessorMismatch.NamedSameModuleGenericDefinition
+            or AccessorMismatch.NamedSameModuleNonGenericDefinition
+            or AccessorMismatch.NamedSameModuleAmbiguousDefinition)
+        {
+            TypeDefinitionHandle referenced = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("ReferencedTypes"),
+                metadata.GetOrAddString("Referenced"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
+            if (mismatch
+                == AccessorMismatch.NamedSameModuleGenericDefinition)
+            {
+                metadata.AddGenericParameter(
+                    referenced,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("TFirst"),
+                    index: 0);
+                metadata.AddGenericParameter(
+                    referenced,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("TSecond"),
+                    index: 1);
+            }
+            if (mismatch
+                == AccessorMismatch.NamedSameModuleAmbiguousDefinition)
+            {
+                metadata.AddTypeDefinition(
+                    TypeAttributes.NotPublic,
+                    metadata.GetOrAddString("ReferencedTypes"),
+                    metadata.GetOrAddString("Referenced"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(3));
+            }
         }
         if (mismatch == AccessorMismatch.ExplicitInterfaceGetter)
         {
@@ -591,5 +654,9 @@ public class PropertyAccessorSignatureConsistencyTests
         GenericArityAbsent,
         GenericArityMismatch,
         GenericArityTrustedNoSuffix,
+        NamedSameModuleGenericDefinition,
+        NamedSameModuleNonGenericDefinition,
+        NamedSameModuleMissingDefinition,
+        NamedSameModuleAmbiguousDefinition,
     }
 }
