@@ -146,6 +146,14 @@ The recipe, protocol roles, structured-ancestor accounting, and reconstruction
 policy remain Decompiler-owned. Explicit non-Metadata Layer 0 requests retain
 their range-based compatibility path.
 
+The Decompiler composition boundary also requires the
+`StateMachineRelationship`-selected `MoveNext` MethodDef to equal
+`InstructionExceptionFlowFacts.Body.Method` whenever the production execution
+body carries available exception-flow facts. Instructions-owned `GetClause`
+and `GetRegion` resolve exact imported identities without consumer scans or
+object-reference correspondence. Neither composition rule merges async and EH
+semantics or moves Decompiler policy into either fact owner.
+
 ## Nine-step adoption plan
 
 Tracker #6965 owns this complete sequence:
@@ -232,8 +240,11 @@ synthetic compatibility path.
 `ClassicInverseCoreExceptionTests` gates production catch/finally membership
 through shared facts, visible missing-correlation refusal, exact protected,
 catch, and finally associations, same-range foreign-body rejection, and the
-same-observation raw/planning join. The full `ClassicInverseCoreTests` fixture
-population gates unchanged recipe and accounting behavior.
+same-observation raw/planning join. It also gates the exact
+relationship-selected `MoveNext`/EH-body MethodDef join, rejection of a foreign
+method's observation, and neighboring user-`finally` reconstruction. The full
+`ClassicInverseCoreTests` fixture population gates unchanged recipe and
+accounting behavior.
 
 This composition does not add exceptional search/unwind semantics, a
 cross-method exception graph, shared Analysis/Decompiler policy, or a new
