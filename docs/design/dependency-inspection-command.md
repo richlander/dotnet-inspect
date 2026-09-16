@@ -3,20 +3,26 @@
 This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
-**Status:** adopted implementation contract. Asset-mode `depends` implements
-the explicit-root, traversal, section, and output contract in #5994. The
-separate `dependency-evidence` command and positional type-to-library fallback
-were retired in #5995.
+**Status:** adopted implementation contract with a proposed placement
+transition. `depends` implements the type-relationship and explicit-root
+dependency contracts through #5994. The separate `dependency-evidence` command
+and positional type-to-library fallback were retired in #5995. The next target,
+tracked by steps 5 and 8 of
+[#7308](https://github.com/richlander/dotnet-inspect/issues/7308), moves the
+selected-Type workflow to `type graph`, moves the heterogeneous asset-root
+workflow to `graph dependencies`, and then retires `depends`.
 The Debug service-evidence enrichment is proposed under
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117).
 
 ## Owner and claim
 
-The `depends` command owns one CLI operation:
+The Dependency command owner defines one CLI operation, currently exposed as
+two modes of `depends` and targeted for two subject-admission placements:
 
 > Admit explicitly named dependency subjects and assets, project their
-> owner-issued relationships and evidence, and apply one traversal, section,
-> row, and rendering contract.
+> owner-issued relationships and evidence, apply one traversal and disclosure
+> model, and close each target placement into its declared document and
+> rendering contract.
 
 Traversal and evidence are not separate operations. Traversal selects which
 reachable relationships participate; sections and verbosity select how much
@@ -28,10 +34,13 @@ This owner defines:
 - explicit root and source-scope gestures;
 - root-set lifetime and partial-failure behavior;
 - traversal direction and depth;
-- the dependency graph document and its CLI section composition;
+- the current Dependency documents and CLI section composition;
+- the selected-Type machine-schema transition into the Inspection Graph
+  document;
 - row selection, count, output-format eligibility, diagnostics, and exit
   status; and
-- migration from the two current commands to one supported `depends` surface.
+- migration from the former two-command split to the current `depends`
+  surface, then to target `type graph` and `graph dependencies` placements.
 
 It consumes owner-issued facts and does not redefine their construction:
 
@@ -98,22 +107,42 @@ The target experience lets the user vary two independent axes:
    completion, and failure sections are rendered.
 
 Neither axis changes the admitted subject or operation arity, so the
-[Command Transition Model](command-transition-model.md) keeps them within
-`depends`.
+[Command Transition Model](command-transition-model.md) keeps them within one
+Dependency operation. The target CLI placement splits only on subject
+admission: `type graph` begins with one selected Type, while
+`graph dependencies` admits an explicit heterogeneous asset-root set. Neither
+placement splits traversal from evidence.
 
-The historical `dependency-evidence` design used heterogeneous root cardinality to
-justify a separate command. This target supersedes that conclusion. Root-set
-cardinality is source context inside the dependency operation: one or several
-roots still produce the same dependency document, per-root completion, graph
-edges, and evidence row families. Type relationship mode and asset dependency
-mode use different admission plans, but they now close into that same
-top-level outcome envelope and the same traversal/disclosure axes. The
-unification is justified by removing the incompatible result and presentation
-shapes that previously made those plans appear to be separate operations.
+The historical `dependency-evidence` design used heterogeneous root cardinality
+to justify a separate command. This target supersedes that conclusion. Root-set
+cardinality is source context inside the asset dependency operation: one or
+several roots still produce the same dependency document, per-root completion,
+graph edges, and evidence row families.
+
+Type relationship mode and asset dependency mode use different admission plans
+and target documents. They remain under one Dependency semantic owner because
+both project owner-issued dependency relationships and evidence through the
+same traversal/disclosure axes, not because they share a target envelope.
+`type graph` adapts the selected-Type producer into
+`InspectionGraphDocument`; `graph dependencies` retains the sectioned
+Dependency document.
 
 ## Consumer, tracker, and delivery
 
-The production consumer is the `depends` CLI command.
+The current production consumer is the `depends` CLI command. The target
+production consumers are:
+
+- `type graph` for the selected-Type relationship workflow, tracked by step 5
+  of [#7308](https://github.com/richlander/dotnet-inspect/issues/7308); and
+- `graph dependencies` for the heterogeneous asset-root workflow, tracked by
+  step 8.
+
+This document remains the sole owner of each Dependency request, producer
+result, evidence, failure, and migration contract. The Type Graph adoption
+supplies local subject admission, Inspection Graph composition, and final
+Graph-document rendering over that producer result. The root Graph owner
+supplies only the `graph dependencies` command namespace; the Dependency owner
+retains that mode's sectioned document and rendering eligibility.
 
 The shared evidence substrate is implemented by
 [#5533](https://github.com/richlander/dotnet-inspect/issues/5533), and
@@ -135,7 +164,7 @@ and the
 remain separately owned; this design does not define Networking capture or
 CLI-wide diagnostic retirement.
 
-The seven-step delivery is complete:
+The original seven-step consolidation delivery is complete:
 
 1. Lock this command contract in #5993.
 2. Supply the shared declaration-to-exact-candidate handoff under
@@ -222,6 +251,36 @@ omitted.
 `depends` has two modes selected by whether the positional type subject is
 present.
 
+The target grammar places those modes according to their admitted subject:
+
+```console
+dotnet-inspect type graph <type> \
+  [--package <package>]... \
+  [--library <library>]... \
+  [--project <project>]... \
+  [--platform [<framework>...]] \
+  [--tfm <target-framework>] \
+  [--depth <positive-integer>]
+
+dotnet-inspect graph dependencies \
+  [--package <package-target>]... \
+  [--nuspec <path>]... \
+  [--library <library>]... \
+  [--project <path>]... \
+  [--package-prefix <prefix>] \
+  [--tfm <target-framework>] \
+  [--depth <positive-integer>]
+```
+
+Exact relationship-selection spelling inside `type graph` remains owned by its
+focused adoption. The bare Dependency-backed Type Graph route must preserve
+the existing base-type and interface topology, bounded search-scope meaning,
+traversal, evidence, failures, and output-format eligibility before the
+positional `depends` mode can retire. Its section names, discovery schema, row
+fields, JSON shape, and envelope content intentionally transition to the
+Inspection Graph contract. Package, library, project, platform, and target
+framework gestures remain search scope there; they never become graph roots.
+
 ### Type relationship mode
 
 ```console
@@ -229,7 +288,9 @@ dotnet-inspect depends <type> \
   [--package <package>]... \
   [--library <library>]... \
   [--project <project>]... \
-  [--platform [<framework>...]]
+  [--platform [<framework>...]] \
+  [--tfm <target-framework>] \
+  [--depth <positive-integer>]
 ```
 
 The positional type is the focus. Package, library, project, and platform
@@ -531,10 +592,12 @@ turns the other's incompleteness into success-shaped absence.
 
 ## Sections and disclosure
 
-The command uses ordinary verbosity and section selection instead of adding
-`--evidence` or `--details`. Those proposed flags would duplicate an axis
-already owned by progressive disclosure and would not say which evidence is
-wanted.
+The asset dependency route uses ordinary verbosity and section selection
+instead of adding `--evidence` or `--details`. At the target placement,
+`graph dependencies` retains this sectioned Dependency document. `type graph`
+instead composes the selected-Type producer result into the Inspection Graph
+document. The proposed flags would duplicate an axis already owned by
+progressive disclosure and would not say which evidence is wanted.
 
 The retail base section ladder is:
 
@@ -545,8 +608,9 @@ The retail base section ladder is:
 | `Pruning` | One direct declaration's pruning applicability or candidate-bound policy result. | Explicit only |
 | `Failures` | One typed root, acquisition, projection, or traversal failure occurrence. | Normal when present |
 
-`Dependency Graph` is the command's single high-value minimal section. It
-preserves the current reason to invoke `depends`: seeing what depends on what.
+`Dependency Graph` is the asset route's single high-value minimal section. It
+preserves the current reason to invoke the Dependency operation: seeing what
+depends on what.
 
 `-v:n` adds normalized direct dependency evidence and any failures needed to
 interpret the result. `Pruning` is unbounded because it may read an installed
@@ -560,14 +624,14 @@ declaration evidence without traversal selects the public evidence and failure
 sections it needs:
 
 ```console
-dotnet-inspect depends --project ./App.csproj \
+dotnet-inspect graph dependencies --project ./App.csproj \
   -S Dependencies -S Failures
 ```
 
 Pruning policy evidence is a separate explicit projection:
 
 ```console
-dotnet-inspect depends --package Some.Package@1.2.3 \
+dotnet-inspect graph dependencies --package Some.Package@1.2.3 \
   --tfm net11.0 -S Pruning
 ```
 
@@ -601,10 +665,10 @@ typed JSON section output. Their descriptor, view, and owner-issued evidence
 types may remain compiled where the retail graph and dependency projections
 reuse them; those types do not make a section public.
 
-For `depends`, `@Dependencies` is the base category. The same category name may
-have different authored membership in another command; package inspection
-continues to use its own dependency-section membership. Automatic verbosity
-selects only the `depends` base category.
+For the asset dependency route, `@Dependencies` is the base category. The same
+category name may have different authored membership in another command;
+package inspection continues to use its own direct dependency-section
+membership. Automatic verbosity selects only the asset route's base category.
 
 `Dependency Graph` declares conditional acquisition cost. It is network-free
 for restored assets and already-admitted local facts, and package-acquiring
@@ -1120,7 +1184,7 @@ truncation is partial and returns nonzero.
 
 ## Migration and retirement
 
-The final command surface is intentionally breaking:
+The completed consolidation into `depends` was intentionally breaking:
 
 - `depends` gains asset-root, depth, section, discovery, table, and normalized
   evidence behavior;
@@ -1133,30 +1197,101 @@ The final command surface is intentionally breaking:
 - `dependency-evidence` is removed as a supported command; and
 - current README examples, help, demos, and product skills use `depends`.
 
-No compatibility alias or hidden forwarding command remains. Keeping both
-names would preserve the conceptual split this design removes and would leave
-two published entry points for one operation.
+No compatibility alias or hidden forwarding command remains for
+`dependency-evidence`. Keeping both former names would preserve the conceptual
+split this design removed and would leave two published entry points for one
+operation.
 
 The removed `dependency-evidence` token remains reserved because releasing it
 would send a bare invocation through implicit package-target routing. The
 focused invalid-input guard fails nonzero and points to `depends`; it does not
 execute the replacement command or reinterpret old arguments.
 
-The change is **intentionally breaking** under
+That completed change was **intentionally breaking** under
 [CLI Change Classification](cli-change-classification.md). Its implementation
 requires a Breaking release-note entry, replacement examples, routing tests,
 and machine-contract tests for the new `depends` document.
+
+### Target Graph placements
+
+The next placement is also intentionally breaking:
+
+```text
+depends <type> <search scope and traversal>
+  -> type graph <type> <same search scope and traversal>
+
+depends <asset roots and traversal>
+  -> graph dependencies <same roots and traversal>
+```
+
+`type graph` adopts the complete selected-Type relationship mode. The Type is
+its already selected local subject, and the current package, library, project,
+platform, and target-framework options remain bounded search scope. Its focused
+Graph adoption composes owner-issued Dependency relationships into
+`InspectionGraphDocument`; that adaptation does not transfer relationship,
+scope, evidence, or failure ownership from this document.
+
+This selected-Type cutover intentionally changes the presentation and machine
+contract. Current `depends <type> --json` and `--envelope` expose the versioned
+`type-dependencies` result and `DependencyGraphDocument`. Target
+`type graph --json` and `--envelope` expose the Inspection Graph schema and an
+`InspectionEnvelope<InspectionGraphDocument>`. Structural and effective
+discovery likewise use the Graph section and field schemas rather than the
+Dependency section catalog. Obsolete selected-Type section or field names fail
+with `type graph` discovery guidance; they do not forward or silently select a
+similarly named Graph projection.
+
+The migration gate compares the selected subject, base-type and interface
+relationships, search-scope behavior, traversal depth, evidence, typed
+failures, exit status, and supported output-format classes. Separate
+before/after machine-contract fixtures prove that the old `type-dependencies`
+schema remains stable until retirement and that the replacement emits the
+versioned Inspection Graph schema. Byte-for-byte rendering, old section names,
+old row fields, and the old JSON or envelope content type are intentionally not
+parity requirements.
+
+`graph dependencies` adopts the complete asset dependency mode. It does not
+construct a Workspace, consume a Workspace packet, or convert the Dependency
+document into `InspectionGraphDocument`. All existing explicit roots,
+traversal, sections, row semantics, partial failures, output formats, and
+source policies remain owned here.
+
+The cutover:
+
+1. adds the Dependency-backed `type graph` relationship family with complete
+   selected-Type semantic, scope, traversal, failure, exit-status, and
+   output-format coverage plus the explicit Inspection Graph schema transition;
+2. adds `graph dependencies` with full asset dependency mode parity;
+3. updates help, discovery, completion, README examples, demos, replay or
+   sharing surfaces, and product skills;
+4. removes `depends` only after both replacement routes are complete, without
+   a forwarding alias or hidden fallback; and
+5. reserves the removed `depends` token so obsolete input fails nonzero and
+   points to `type graph` or `graph dependencies` according to whether a
+   positional Type was supplied, without executing either replacement or
+   reinterpreting its arguments.
+
+Selected-Type semantic and capability coverage plus the machine-schema
+transition are Release gates for step 5; asset-root parity is a Release gate
+for step 8 of
+[#7308](https://github.com/richlander/dotnet-inspect/issues/7308).
+Obsolete-token routing is part of step 9. Missing support for any currently
+admitted selected-Type scope, relationship/evidence fact, traversal, typed
+failure, exit status, or output-format class blocks retirement. Its old section
+names, fields, and machine schema instead follow the explicit rejection and
+before/after transition above. The asset route still requires full root,
+section, row, failure, and output parity.
 
 The [Dependency Evidence CLI](dependency-evidence-cli.md) document is
 historical. This document is the sole command owner.
 
 ## Demonstration
 
-The target project experience combines traversal and evidence without changing
-commands:
+The target asset-root experience combines traversal and evidence under
+`graph dependencies`:
 
 ```console
-$ dotnet-inspect depends --project ./src/App/App.csproj \
+$ dotnet-inspect graph dependencies --project ./src/App/App.csproj \
     --depth 2 -S "Dependency Graph" -S Dependencies
 
 # App dependencies
@@ -1179,11 +1314,12 @@ App
 | App | net10.0 | Microsoft.Extensions.Hosting | 10.* | 10.0.0 |
 ```
 
-The neighboring direct-only package case uses the same command and graph row
+The neighboring direct-only package case uses the same route and graph row
 currency:
 
 ```console
-dotnet-inspect depends --package Microsoft.Extensions.Hosting@10.0.0 \
+dotnet-inspect graph dependencies \
+  --package Microsoft.Extensions.Hosting@10.0.0 \
   --depth 1 --table
 ```
 
@@ -1204,7 +1340,7 @@ The explicit pruning projection shows direct-declaration policy evidence
 without changing that graph:
 
 ```console
-$ dotnet-inspect depends --package Some.Package@1.2.3 \
+$ dotnet-inspect graph dependencies --package Some.Package@1.2.3 \
     --tfm net11.0 -S Pruning
 
 ## Pruning
@@ -1218,6 +1354,18 @@ $ dotnet-inspect depends --package Some.Package@1.2.3 \
 The second row is not a downgrade: `4.3.2` remains the package candidate, and
 the older platform-supplied version explains why the package path is retained.
 
+The selected-Type workflow instead begins with its local subject:
+
+```console
+dotnet-inspect type graph System.Int128 --platform --tfm net10.0 \
+  --depth 2 --table
+```
+
+Package, library, project, and platform options remain search scope for this
+route. They do not become asset roots, and its base-type/interface relationships
+compose into the Inspection Graph document rather than the asset Dependency
+document above.
+
 ## Evidence and gates
 
 The implementation slices must provide focused gates. Product correctness
@@ -1226,8 +1374,9 @@ targeted Debug-build probe.
 
 | Claim | Gate |
 | --- | --- |
-| Type-present options remain source scopes; type-absent options become roots; mode-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`, plus rejected cross-mode gestures. |
-| One positional type gesture resolves to one owner-issued root or a typed ambiguity/failure. | Multi-source type fixture with equal display names and distinct typed identities. |
+| `type graph` source options remain search scopes; `--platform --tfm net10.0` selects Platform scope at that target framework; `graph dependencies` options become asset roots; route-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`, valued versus unvalued `--platform`, separate `--tfm`, and rejected cross-route gestures. |
+| Selected-Type migration preserves subject, relationship/evidence facts, scope, traversal, typed failures, exit status, and output-format classes while intentionally replacing the `type-dependencies` JSON/envelope and Dependency discovery schemas with Inspection Graph schemas. | Fixed-fixture before/after Release contracts for the old command and new child across text, Markdown, table, JSON, envelope, structural discovery, and effective discovery; obsolete selected-Type section and field names reject with discovery guidance. |
+| One `type graph` subject resolves to one owner-issued seed or a typed ambiguity/failure. | Multi-source type fixture with equal display names and distinct typed identities. |
 | `.csproj` and direct assets with identical bytes produce equivalent graph and evidence identities except locator provenance. | CLI tests over the same checked-in restored assets fixture through both locators. |
 | Restored-project depth is measured from the explicit project through project-reference and package edges. | #5998 fixture containing `App -> ProjectB -> PackageC`, asserted at depths 1, 2, and unbounded without opening package manifests. |
 | Missing restored assets fail visibly without changing valid sibling results. | Multi-root CLI test with one unrestored project and one valid root. |
@@ -1246,7 +1395,7 @@ targeted Debug-build probe.
 | Retail builds expose only sections with documented consumer scenarios. | Release catalog, category, exact and wildcard selection, discovery/schema, verbosity, count-order, and typed JSON absence tests; Debug exact-selection tests for the diagnostic farm team. |
 | Partial or truncated evidence never renders or counts as complete. | Multi-root and package-prefix completion tests across Markdown and typed JSON. |
 | Source-authored labels remain inert and never supply graph identity. | Existing hostile-text fixtures extended through graph, evidence, and JSON sinks. |
-| The removed command cannot enter implicit package routing. | Product-entry reservation test for `dependency-evidence`. |
+| Removed commands cannot enter implicit package routing or forward obsolete input. | Product-entry reservation tests for `dependency-evidence` and `depends`, including selected-Type and asset-root guidance. |
 
 Documentation-only #5993 is gated by Markdown lint. These named product gates
 become obligations of the implementation slices; they do not claim current

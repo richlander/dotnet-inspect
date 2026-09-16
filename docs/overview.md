@@ -723,7 +723,8 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   integrations, Findings, characteristics, and package/type lenses.
 - [Inspection graph modes](design/inspection-graph-modes.md): single-seed,
   peer-seed, and induced-set requests over member, type, assembly, and package
-  subjects.
+  subjects, plus the target split between subject-local Graph children and
+  top-level Workspace construction or packet reopening.
 - [Call graph characteristics](design/call-graph-characteristics.md):
   call-specific mapping from current topology, signals, loop state, and
   physical occurrences into the inspection-graph descriptor model.
