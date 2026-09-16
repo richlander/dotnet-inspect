@@ -2817,7 +2817,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task CommandlessGenericMemberCategoryKeepsPeeledInterpretation()
+    public async Task CommandlessGenericMemberCategoryKeepsPeeledInventoryRoute()
     {
         string fixture =
             typeof(MemberGenericSelectorFixture)
@@ -2838,7 +2838,11 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
-            "[member/member-target/ApiMemberDetail] Annotated Source",
+            SectionNames.DecompiledSource,
+            result.Output);
+        Assert.Contains(SectionNames.IL, result.Output);
+        Assert.DoesNotContain(
+            SectionNames.AnnotatedSource,
             result.Output);
         Assert.Empty(result.Error);
     }
