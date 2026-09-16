@@ -24,9 +24,10 @@ internal sealed record BrowserLibraryApiDiffEndpointContext(
 /// The Browser API-surface owner admits at most 100,000 Types and 32,000,000
 /// retained text characters per endpoint. This narrower wire boundary admits
 /// at most 10,000 changed Types and 6,000,000 characters across the repeated
-/// document, display, and structured endpoint Type identities. It then
-/// checks the entire result, including the complete service baseline, against
-/// the ordinary Worker's collection-entry and <c>JSON.stringify</c> character
+/// document, display, structured endpoint Type identities, and exact changed-
+/// Member identities. It admits the complete service baseline before building
+/// the repeated Browser inventory, then checks the final result against the
+/// ordinary Worker's collection-entry and <c>JSON.stringify</c> character
 /// limits. An excess rejects the whole result and never truncates the baseline
 /// or inventory.
 /// </remarks>
@@ -49,6 +50,19 @@ internal static class BrowserLibraryApiDiffWireProjection
         ArgumentNullException.ThrowIfNull(inspection);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(current);
+
+        var wireInspection = new InspectionEnvelope<JsonElement>(
+            JsonSerializer.SerializeToElement(
+                inspection.Content,
+                LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome),
+            inspection.Share,
+            inspection.Diagnostics);
+        BrowserLibraryApiDiffResult? inspectionRejection =
+            AdmitInspectionTransport(request, wireInspection);
+        if (inspectionRejection is not null)
+        {
+            return inspectionRejection;
+        }
 
         BrowserLibraryApiDiffResult projected = inspection.Content switch
         {
@@ -78,12 +92,6 @@ internal static class BrowserLibraryApiDiffWireProjection
             _ => throw new InvalidOperationException(
                 "Unknown Library API diff outcome."),
         };
-        var wireInspection = new InspectionEnvelope<JsonElement>(
-            JsonSerializer.SerializeToElement(
-                inspection.Content,
-                LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome),
-            inspection.Share,
-            inspection.Diagnostics);
         return AdmitTransport(
             request,
             projected with { Inspection = wireInspection });
@@ -185,6 +193,41 @@ internal static class BrowserLibraryApiDiffWireProjection
             BrowserLibraryApiDiffRejectionKind.SerializedResultLimitExceeded,
             MaxOrdinaryWorkerJsonCharacters,
             transportedCharacters);
+    }
+
+    static BrowserLibraryApiDiffResult? AdmitInspectionTransport(
+        BrowserLibraryApiDiffRequest request,
+        InspectionEnvelope<JsonElement> inspection)
+    {
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
+            inspection,
+            BrowserMetadataJsonContext.Default.JsonInspectionEnvelope);
+        long collectionEntries = OrdinaryWorkerResultTupleOverhead
+            + CollectionEntries(document.RootElement);
+        if (collectionEntries > MaxOrdinaryWorkerCollectionEntries)
+        {
+            return TransportRejected(
+                request,
+                BrowserLibraryApiDiffRejectionKind
+                    .CollectionEntryLimitExceeded,
+                MaxOrdinaryWorkerCollectionEntries,
+                collectionEntries);
+        }
+
+        long transportedCharacters =
+            JsonStringifyCharacters(document.RootElement)
+            + OrdinaryWorkerResultTupleOverhead;
+        if (transportedCharacters > MaxOrdinaryWorkerJsonCharacters)
+        {
+            return TransportRejected(
+                request,
+                BrowserLibraryApiDiffRejectionKind
+                    .SerializedResultLimitExceeded,
+                MaxOrdinaryWorkerJsonCharacters,
+                transportedCharacters);
+        }
+
+        return null;
     }
 
     static BrowserLibraryApiDiffResult TransportRejected(
@@ -477,7 +520,8 @@ internal static class BrowserLibraryApiDiffWireProjection
             type.AdditiveCount,
             type.PotentiallyBreakingCount,
             type.Before is null ? null : Project(type.Before),
-            type.After is null ? null : Project(type.After));
+            type.After is null ? null : Project(type.After),
+            [.. type.Members.Select(Project)]);
     }
 
     static BrowserLibraryApiDiffTypeIdentity Project(
@@ -488,21 +532,88 @@ internal static class BrowserLibraryApiDiffWireProjection
             [.. identity.DefinitionName.Segments],
             identity.Display);
 
+    static BrowserLibraryApiDiffMember Project(
+        LibraryApiMemberDiff member) =>
+        new(
+            member.Relation.Identifier,
+            member.Relation.PairKind switch
+            {
+                LibraryApiMemberPairKind.Changed =>
+                    BrowserLibraryApiDiffMemberPairKind.Changed,
+                LibraryApiMemberPairKind.Added =>
+                    BrowserLibraryApiDiffMemberPairKind.Added,
+                LibraryApiMemberPairKind.Removed =>
+                    BrowserLibraryApiDiffMemberPairKind.Removed,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(member),
+                    member.Relation.PairKind,
+                    "Unknown Library API member pair kind."),
+            },
+            member.Role switch
+            {
+                LibraryApiMemberRelationRole.Before =>
+                    BrowserLibraryApiDiffMemberRelationRole.Before,
+                LibraryApiMemberRelationRole.After =>
+                    BrowserLibraryApiDiffMemberRelationRole.After,
+                LibraryApiMemberRelationRole.Both =>
+                    BrowserLibraryApiDiffMemberRelationRole.Both,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(member),
+                    member.Role,
+                    "Unknown Library API member relation role."),
+            },
+            member.Relation.Before is null
+                ? null
+                : Project(member.Relation.Before),
+            member.Relation.After is null
+                ? null
+                : Project(member.Relation.After));
+
+    static BrowserLibraryApiDiffMemberIdentity Project(
+        LibraryApiMemberIdentity identity) =>
+        new(
+            identity.DeclaringType.Identifier,
+            identity.Anchor.StableSelector,
+            identity.Anchor.CanonicalSignature,
+            identity.Anchor.Fingerprint,
+            identity.Anchor.TypeFullName,
+            identity.Anchor.MemberName,
+            identity.Display);
+
     static long TypeTextCharacters(
         ComparisonSubject<LibraryApiTypeDiff> subject)
     {
         long count = subject.Identifier.Length + subject.Display.Length;
-        Add(subject.Comparison.Before);
-        Add(subject.Comparison.After);
+        AddTypeIdentity(subject.Comparison.Before);
+        AddTypeIdentity(subject.Comparison.After);
+        foreach (LibraryApiMemberDiff member in subject.Comparison.Members)
+        {
+            count += member.Relation.Identifier.Length;
+            AddMemberIdentity(member.Relation.Before);
+            AddMemberIdentity(member.Relation.After);
+        }
         return count;
 
-        void Add(LibraryApiTypeIdentity? identity)
+        void AddTypeIdentity(LibraryApiTypeIdentity? identity)
         {
             if (identity is null)
                 return;
             count += identity.Identifier.Length;
             count += identity.DefinitionName.Namespace.Length;
             count += identity.DefinitionName.Segments.Sum(segment => segment.Length);
+            count += identity.Display.Length;
+        }
+
+        void AddMemberIdentity(LibraryApiMemberIdentity? identity)
+        {
+            if (identity is null)
+                return;
+            count += identity.DeclaringType.Identifier.Length;
+            count += identity.Anchor.StableSelector.Length;
+            count += identity.Anchor.CanonicalSignature.Length;
+            count += identity.Anchor.Fingerprint.Length;
+            count += identity.Anchor.TypeFullName.Length;
+            count += identity.Anchor.MemberName.Length;
             count += identity.Display.Length;
         }
     }

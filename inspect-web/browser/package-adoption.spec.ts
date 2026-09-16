@@ -674,6 +674,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
       segments: ["A", "B"],
       display: identifier,
     },
+    members: [],
   });
   const share = {
     kind: "nonProjectable",
