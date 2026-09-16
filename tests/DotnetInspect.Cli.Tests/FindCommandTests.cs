@@ -32,11 +32,11 @@ public class FindCommandTests
     {
         var results = new List<TypeFindResult>
         {
-            new() { Pattern = "Pattern1", Match = MatchKind.Exact, Similarity = 1.0,
+            new() { Pattern = "Pattern1", Match = TypeFindMatchKind.Direct, Similarity = 1.0,
                      Type = "Zebra", Namespace = "Animals", Kind = "class", Library = "Zoo", Source = "runtime" },
-            new() { Pattern = "Pattern1", Match = MatchKind.Exact, Similarity = 1.0,
+            new() { Pattern = "Pattern1", Match = TypeFindMatchKind.Direct, Similarity = 1.0,
                      Type = "Alpha", Namespace = "Greek", Kind = "struct", Library = "Letters", Source = "runtime" },
-            new() { Pattern = "Pattern2", Match = MatchKind.Exact, Similarity = 1.0,
+            new() { Pattern = "Pattern2", Match = TypeFindMatchKind.Direct, Similarity = 1.0,
                      Type = "Beta", Namespace = "Greek", Kind = "interface", Library = "Letters", Source = "runtime" }
         };
 
@@ -52,11 +52,68 @@ public class FindCommandTests
     }
 
     [Fact]
+    public void TypeMatchVocabulary_UsesDirectInTypedAndRenderedJson()
+    {
+        var results = new List<TypeFindResult>
+        {
+            new()
+            {
+                Pattern = "Action",
+                Match = TypeFindMatchKind.Direct,
+                Similarity = 1.0,
+                Type = "Action",
+                Namespace = "System",
+                Kind = "delegate",
+                Library = "System.Private.CoreLib",
+                Source = "runtime",
+            },
+            new()
+            {
+                Pattern = "Action*",
+                Match = TypeFindMatchKind.Glob,
+                Similarity = 1.0,
+                Type = "Action<T>",
+                Namespace = "System",
+                Kind = "delegate",
+                Library = "System.Private.CoreLib",
+                Source = "runtime",
+            },
+        };
+
+        string typedJson = JsonSerializer.Serialize(
+            results,
+            TypeFindResultCompactJsonContext.Default.ListTypeFindResult);
+        using var typedDocument = JsonDocument.Parse(typedJson);
+        Assert.Equal(
+            "Direct",
+            typedDocument.RootElement[0].GetProperty("match").GetString());
+
+        FindResultView view = FindOutputFormatter.BuildView(results);
+        string renderedJson = OutputFormatter.RenderProjectedJson(
+            columns: null,
+            fields: null,
+            (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(
+                    view,
+                    writer,
+                    formatter,
+                    SearchViewContext.Default,
+                    writerOptions));
+        using var renderedDocument = JsonDocument.Parse(renderedJson);
+        Assert.Equal(
+            "direct",
+            renderedDocument.RootElement
+                .GetProperty("results")[0]
+                .GetProperty("match")
+                .GetString());
+    }
+
+    [Fact]
     public void TableFormatter_VisiblyEncodesTabsAndNewlinesInTsvCells()
     {
         var results = new List<TypeFindResult>
         {
-            new() { Pattern = "Pattern\t1", Match = MatchKind.Exact, Similarity = 1.0,
+            new() { Pattern = "Pattern\t1", Match = TypeFindMatchKind.Direct, Similarity = 1.0,
                      Type = "Line\nBreak", Namespace = "Ns\r\nValue", Kind = "class", Library = "Tab\tLib", Source = "runtime" }
         };
 
@@ -78,7 +135,7 @@ public class FindCommandTests
                 new TypeFindResult
                 {
                     Pattern = hostile,
-                    Match = MatchKind.Exact,
+                    Match = TypeFindMatchKind.Direct,
                     Similarity = 1.0,
                     Type = hostile,
                     Namespace = hostile,
@@ -94,7 +151,7 @@ public class FindCommandTests
                 new MemberFindResult
                 {
                     Pattern = hostile,
-                    Match = MatchKind.Exact,
+                    Match = MemberFindMatchKind.Exact,
                     Member = hostile,
                     Kind = hostile,
                     DeclaringType = hostile,
@@ -166,10 +223,10 @@ public class FindCommandTests
     {
         var results = new List<TypeFindResult>
         {
-            new() { Pattern = "Found*", Match = MatchKind.Glob, Similarity = 1.0,
+            new() { Pattern = "Found*", Match = TypeFindMatchKind.Glob, Similarity = 1.0,
                      Type = "FoundType", Namespace = "Ns", Kind = "class", Library = "Lib", Source = "runtime" },
-            new() { Pattern = "Missing1", Match = MatchKind.NotFound },
-            new() { Pattern = "Missing2", Match = MatchKind.NotFound }
+            new() { Pattern = "Missing1", Match = TypeFindMatchKind.NotFound },
+            new() { Pattern = "Missing2", Match = TypeFindMatchKind.NotFound }
         };
 
         var view = FindOutputFormatter.BuildView(results);
@@ -186,9 +243,9 @@ public class FindCommandTests
     {
         var results = new List<TypeFindResult>
         {
-            new() { Pattern = "Bad1", Match = MatchKind.NotFound },
-            new() { Pattern = "Bad2", Match = MatchKind.NotFound },
-            new() { Pattern = "Bad3", Match = MatchKind.NotFound }
+            new() { Pattern = "Bad1", Match = TypeFindMatchKind.NotFound },
+            new() { Pattern = "Bad2", Match = TypeFindMatchKind.NotFound },
+            new() { Pattern = "Bad3", Match = TypeFindMatchKind.NotFound }
         };
 
         var view = FindOutputFormatter.BuildView(results);
@@ -203,7 +260,7 @@ public class FindCommandTests
     {
         var results = new List<TypeFindResult>
         {
-            new() { Pattern = "Test*", Match = MatchKind.Glob, Similarity = 1.0,
+            new() { Pattern = "Test*", Match = TypeFindMatchKind.Glob, Similarity = 1.0,
                      Type = "TestA", Namespace = "Ns", Kind = "class", Library = "Lib", Source = "runtime" }
         };
 
@@ -219,7 +276,7 @@ public class FindCommandTests
     {
         var results = new List<TypeFindResult>
         {
-            new() { Pattern = "Test*", Match = MatchKind.Glob, Similarity = 1.0,
+            new() { Pattern = "Test*", Match = TypeFindMatchKind.Glob, Similarity = 1.0,
                      Type = "TestA", Namespace = "Ns", Kind = "class", Library = "Lib", Source = "runtime" }
         };
 
@@ -235,9 +292,9 @@ public class FindCommandTests
     {
         var results = new List<TypeFindResult>
         {
-            new() { Pattern = "A", Match = MatchKind.Exact, Similarity = 1.0,
+            new() { Pattern = "A", Match = TypeFindMatchKind.Direct, Similarity = 1.0,
                      Type = "Short", Namespace = "Ns", Kind = "class", Library = "Lib", Source = "runtime" },
-            new() { Pattern = "A", Match = MatchKind.Exact, Similarity = 1.0,
+            new() { Pattern = "A", Match = TypeFindMatchKind.Direct, Similarity = 1.0,
                      Type = "LongerType", Namespace = "Ns", Kind = "class", Library = "Lib", Source = "runtime" }
         };
 
@@ -255,7 +312,7 @@ public class FindCommandTests
     {
         var results = new List<TypeFindResult>
         {
-            new() { Pattern = "Json", Match = MatchKind.Partial, Similarity = 0.50,
+            new() { Pattern = "Json", Match = TypeFindMatchKind.Partial, Similarity = 0.50,
                      Type = "IsLong", Namespace = "System.Runtime.CompilerServices", Kind = "class", Library = "VisualC", Source = "runtime" }
         };
 
@@ -1643,7 +1700,8 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(0, exit);
         using var document = System.Text.Json.JsonDocument.Parse(output);
-        var result = Assert.Single(document.RootElement.EnumerateArray());
+        var result = Assert.Single(
+            document.RootElement.EnumerateArray());
         Assert.Equal(
             "System.Text.Json.JsonDocument",
             result.GetProperty("full_name").GetString());

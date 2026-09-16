@@ -713,16 +713,22 @@ body. The reservation becomes a cache entry only after shared archive validation
 store commit, and re-admission complete.
 Composite workspace construction temporarily leases each resolved coordinate,
 so a later acquisition cannot evict an earlier pending coordinate. In-flight
-reservations and retained cache entries share the same 12-package/128 MB limit.
+reservations and retained cache entries share the same 256-entry/128 MB limit.
+The entry limit is derived from the logical maximum of 64 committed Packages
+across the Browser host's four charged realizations. It therefore admits the
+fully disjoint count envelope for an active realization, a candidate, and
+nonterminal or failed-settlement predecessors without weakening the independent
+byte refusal.
 Before assembly identity decoding, each workspace role also rejects more than
 256 selected assemblies or a declared expanded total above that role's 32/64 MB
 retained-image budget.
 
 A [2026-09-14 package census](../data/inspect-web-storage-budget-census-2026-09-14.tsv)
-keeps those Browser limits unchanged. The exact stable versions of ranks 1-10
-in `docs/data/nuget-top-packages.json` total 8.47 MiB of archives; their largest
-single-target managed set is `AWSSDK.Core@4.0.102.6` at 1.04 MiB. Larger
-immutable witnesses remain within both byte ceilings:
+keeps the Browser byte and per-package limits unchanged. The exact stable
+versions of ranks 1-10 in `docs/data/nuget-top-packages.json` total 8.47 MiB of
+archives; their largest single-target managed set is
+`AWSSDK.Core@4.0.102.6` at 1.04 MiB. Larger immutable witnesses remain within
+both byte ceilings:
 `Microsoft.CodeAnalysis.CSharp@5.0.0` is 16.85 MiB compressed and 12.87 MiB for
 its largest managed target,
 `Microsoft.AspNetCore.App.Runtime.linux-x64@10.0.10` is 12.33 MiB and
@@ -737,12 +743,16 @@ The [2026-09-15 Workspace census](../data/inspect-web-workspace-budget-census-20
 separately measures the shipped 44-package Microsoft.Extensions set. Its
 archives total 12.87 MiB, and the real Workspace role realization admits its
 shared 44-assembly, 5.47 MiB selected image set within one Workspace slot. The
-128 MiB archive, 256-assembly-per-role, 64 MiB retained-image, and four-slot
-limits have substantial headroom for this first complex scenario. The
-12-package-entry limit rejects the complete set and is not sufficient for the
-planned multi-Package Workspace experience. Selecting a larger entry bound
-remains owned by that Workspace adoption because an atomic edit may retain the
-old realization while acquiring its replacement.
+256-entry, 128 MiB archive, 256-assembly-per-role, 64 MiB retained-image, and
+four-slot limits admit this first complex scenario. A fully non-sharing atomic
+replacement at the measured demand uses 88 entries and 25.74 MiB; four charged
+realizations use 176 entries and 51.47 MiB. The structural entry ceiling remains
+256 because each realization may contain 64 logical Packages.
+`PackageCacheEntryBudget_CoversChargedRealizationEnvelope` gates the exact
+64-by-four formula and proves that entry 257 fails visibly with zero byte
+demand. The census check proves the immutable 44-package realization and both
+measured concurrency cases without claiming that every 64-package combination
+fits the independent byte budget.
 Browser API-surface projection additionally spends one shared
 32,000,000-character retained-text budget across its selected assemblies. The
 extractor charges every string-bearing model field as it retains each member,

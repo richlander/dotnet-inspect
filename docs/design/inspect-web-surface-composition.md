@@ -17,10 +17,18 @@ This owner defines:
 - Home's page-level hierarchy, wide and narrow composition, and relationship to
   the data bar;
 - which working surfaces exist (Type API, Member API, Type Metadata, Compare,
-  Source, Annotated Source, Member Diff, Package query, Diagnostics) and their
-  page-level placement relative to Type/Member navigation;
+  Source, Annotated Source, Member Diff, Package query, Package activity,
+  Diagnostics) and their page-level placement relative to Type/Member
+  navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
+- the `/activity` route's placement beside `/query`. The two are sibling
+  routes rather than modes of one: Package query answers what is true of a
+  package now, and Package activity reports what happened across an interval,
+  which is a different grain and a different cadence. Their interaction
+  contracts are
+  [`package-query-experience.md`](package-query-experience.md) and
+  [`package-activity-experience.md`](package-activity-experience.md);
 - Source, Annotated Source, and Member Diff pane placement and independent
   scrolling;
 - Unified Settings' section composition (Appearance, Decompiler style,

@@ -24,7 +24,7 @@ type PackageOperations =
   | "getPlatformVersions"
   | "getPackageDocument"
   | "listPackageChangesPackageSets"
-  | "listPackageQueryFacets"
+  | "listPackageQueryCatalog"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "matchPackageDependencyCoordinate"
