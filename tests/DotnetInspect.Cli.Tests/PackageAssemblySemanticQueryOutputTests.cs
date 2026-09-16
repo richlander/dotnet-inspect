@@ -126,6 +126,36 @@ public sealed class PackageAssemblySemanticQueryOutputTests
             return Task.FromResult(0);
         });
         Assert.Equal("1", count.Output.Trim());
+
+        var incompleteCount = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(
+                PackageQueryCommand.CompleteLibraryLiteralExecution(
+                    options with { Count = true },
+                    options.LibraryLiteralPlan!,
+                    document)));
+        Assert.Equal(1, incompleteCount.ExitCode);
+        Assert.Empty(incompleteCount.Output);
+        Assert.Contains(
+            "Cannot count Package Query rows",
+            incompleteCount.Error,
+            StringComparison.Ordinal);
+
+        var qualifiedCount = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(
+                PackageQueryCommand.CompleteLibraryLiteralExecution(
+                    options with
+                    {
+                        RowSelection = tail,
+                        Count = true,
+                    },
+                    options.LibraryLiteralPlan!,
+                    document)));
+        Assert.Equal(0, qualifiedCount.ExitCode);
+        Assert.Equal("1", qualifiedCount.Output.Trim());
+        Assert.Contains(
+            "Contoso.Broken",
+            qualifiedCount.Error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static PackageQueryOptions Options()

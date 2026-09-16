@@ -166,6 +166,17 @@ internal static class PackageQueryCommand
             operation?.Dispose();
         }
 
+        return CompleteLibraryLiteralExecution(
+            options,
+            plan,
+            document);
+    }
+
+    internal static int CompleteLibraryLiteralExecution(
+        PackageQueryOptions options,
+        PackageAssemblySemanticQueryCliPlan plan,
+        PackageAssemblySemanticQueryDocument document)
+    {
         if (!CliSemanticRowSelection.TrySelect(
                 options.RowSelection,
                 document.Results,
@@ -185,12 +196,13 @@ internal static class PackageQueryCommand
         bool complete =
             document.Completion.IsRequestedPopulationComplete
             && document.Completion.IsSemanticEvaluationComplete;
-        if (options.Count
-            && (!complete
-                || !CliSemanticRowSelection.ProvidesExactCount(
-                    options.RowSelection,
-                    document.Results.Length,
-                    sourceComplete: complete)))
+        bool countIsExact =
+            !options.Count
+            || CliSemanticRowSelection.ProvidesExactCount(
+                options.RowSelection,
+                document.Results.Length,
+                sourceComplete: complete);
+        if (!countIsExact)
         {
             WriteLibraryLiteralDiagnostics(document);
             CommandError.Write(
@@ -208,7 +220,7 @@ internal static class PackageQueryCommand
                 document);
         WriteLibraryLiteralOutput(view, options);
         WriteLibraryLiteralDiagnostics(document);
-        return complete ? 0 : 1;
+        return complete || options.Count ? 0 : 1;
     }
 
     internal static async Task<int> ExecuteAsync(
