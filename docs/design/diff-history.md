@@ -321,17 +321,23 @@ selector exactly once in that selected source cell and issue one typed source
 Member currency containing its Version and owner-issued structural declaration
 identity.
 
-If source selection is absent, ambiguous, refused, failed, or cancelled,
-History has no Analysis seed. Preserve that native source-selection non-success
-and do not evaluate destination Analysis. A later Version that happens to
-contain the same display name or ordinal is not a replacement source. The user
-must choose a range whose first Version supplies the intended Member.
+If source selection is absent, ambiguous, refused, or failed, History has no
+Analysis seed. Preserve that native source-selection non-success and do not
+evaluate destination Analysis. A later Version that happens to contain the
+same display name or ordinal is not a replacement source. The user must choose
+a range whose first Version supplies the intended Member.
+
+Caller cancellation is not a source-selection status or declaration edge. It
+terminates History after required cleanup and propagates with the caller token;
+the operation publishes no `DiffHistoryOutcome`. A separately owner-typed
+timeout, acquisition failure, or other operational non-success retains that
+owner's native outcome and is not relabeled as caller cancellation.
 
 The source observation uses that resolved Member directly; it does not invent
 a same-Version correspondence edge. For every other selected checkpoint,
 invoke strict API coordinate correspondence directly from the same source
-Member. Each exact, absent, ambiguous, refused, failed, or cancelled result is
-one source-to-checkpoint declaration edge. A non-exact edge does not stop later
+Member. Each exact, absent, ambiguous, refused, or failed result is one
+source-to-checkpoint declaration edge. A non-exact edge does not stop later
 independent checkpoints, and a later direct exact edge may establish that the
 seeded declaration is present again. It does not bridge through or derive
 identity from the intervening gap.
@@ -701,8 +707,11 @@ The implementation slices must supply Release gates for:
   evaluated selection, including rejection before payload work when restricted
   `--at` omits it;
 - baseline Member selection exactly once, with absent, ambiguous, refused,
-  failed, and cancelled source outcomes preventing destination Analysis rather
-  than selecting a later same-named or same-ordinal seed;
+  and failed source outcomes preventing destination Analysis rather than
+  selecting a later same-named or same-ordinal seed;
+- caller cancellation during source selection, checkpoint correspondence, or
+  destination Analysis terminating History after required cleanup, propagating
+  the caller token, and publishing no History outcome;
 - direct source-to-checkpoint exact and non-exact declaration edges, including
   a later exact edge after an intervening gap without checkpoint chaining or
   transitive identity;
