@@ -1162,6 +1162,9 @@ test("history signatures distinguish captured library scope", () => {
     assert.notEqual(workspaceViewSignature(view), workspaceViewSignature({
       ...view, platform: { ...view.platform!, includeAllLibraries: true },
     }));
+    assert.notEqual(workspaceViewSignature(view), workspaceViewSignature({
+      ...view, platformPresentedAsRoot: true,
+    }));
     let current = view;
     const history = createNavigationHistory({
       capture: () => current, signature: workspaceViewSignature,
