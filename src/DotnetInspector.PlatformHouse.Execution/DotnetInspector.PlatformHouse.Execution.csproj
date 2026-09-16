@@ -15,7 +15,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="DotnetInspector.PlatformHouse.Execution.Installed" />
     <ProjectReference Include="../DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
     <ProjectReference Include="../DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
