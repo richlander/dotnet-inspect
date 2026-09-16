@@ -3272,6 +3272,21 @@ public sealed class DtsEmitterTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Emit_DoesNotOrphanTypesReachedOnlyThroughConditionalMembers()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            """
+            export interface DirectionalConditionalNote {
+              readonly text: string;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

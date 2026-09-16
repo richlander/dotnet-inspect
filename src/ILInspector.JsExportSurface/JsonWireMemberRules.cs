@@ -5,18 +5,16 @@ namespace ILInspector.JsExportSurface;
 public static class JsonWireMemberRules
 {
     /// <summary>
-    /// The direction-independent membership rule: true when the member appears
-    /// in at least one direction's contract. Discovery uses this union so that
-    /// no type reachable through a direction-sensitive member is left
-    /// undeclared.
+    /// The legacy direction-independent rule for consumers that can represent
+    /// only unconditional members.
     /// </summary>
     public static bool IsSerialized(ApiMember member) =>
         IsSerialized(member, JsonWireDirection.Both);
 
     /// <summary>
-    /// The direction-independent membership rule, additionally requiring every
-    /// same-assembly named value type to remain accessible to the generated
-    /// serializer context.
+    /// The legacy direction-independent unconditional-membership rule,
+    /// additionally requiring every same-assembly named value type to remain
+    /// accessible to the generated serializer context.
     /// </summary>
     public static bool IsSerialized(
         ApiMember member,
@@ -30,40 +28,28 @@ public static class JsonWireMemberRules
             typesByScopedIdentity);
 
     /// <summary>
-    /// True when the member appears in the contract for at least one of the
+    /// True when the member is unconditionally present in at least one of the
     /// requested <paramref name="directions"/>.
     /// </summary>
     /// <remarks>
     /// A member whose <c>[JsonIgnore]</c> or <c>[JsonInclude]</c> metadata is
     /// duplicated or malformed is excluded from every direction: the intent is
     /// real but unreadable, and <c>DtsEmitter</c> refuses to emit such a
-    /// declaration at all. Gated by
-    /// <c>JsonWireMemberRulesTests.DirectionalIgnoreConditionsSelectDirections</c>.
+    /// declaration at all. Conditional members return false in their
+    /// conditional direction; use <see cref="GetPresence(ApiMember,
+    /// JsonWireDirection)"/> when a consumer can represent them. Gated by
+    /// <c>JsonWireMemberRulesTests.DirectionalIgnoreConditionsSelectPresence</c>.
     /// </remarks>
     public static bool IsSerialized(
         ApiMember member,
         JsonWireDirection directions)
-    {
-        if (member.IsStatic
-            || member.IsCompilerGenerated
-            || HasUnsupportedJsonIgnoreMetadata(member)
-            || HasUnsupportedJsonIncludeMetadata(member)
-            || (PresentDirections(member) & directions)
-                == JsonWireDirection.None)
-        {
-            return false;
-        }
-
-        return member.Kind switch
-        {
-            "property" => IsSerializedProperty(member, directions),
-            "field" => member.HasJsonInclude,
-            _ => false,
-        };
-    }
+        => HasPresence(
+            member,
+            directions,
+            JsonWireMemberPresence.Present);
 
     /// <summary>
-    /// True when the member appears in the contract for at least one of the
+    /// True when the member is unconditionally present in at least one of the
     /// requested <paramref name="directions"/>, and every same-assembly named
     /// value type remains accessible to the generated serializer context.
     /// </summary>
@@ -85,8 +71,8 @@ public static class JsonWireMemberRules
     /// both directions.
     /// </summary>
     public static bool IsDirectionSensitive(ApiMember member) =>
-        IsSerialized(member, JsonWireDirection.Serialize)
-            != IsSerialized(member, JsonWireDirection.Deserialize);
+        GetPresence(member, JsonWireDirection.Serialize)
+            != GetPresence(member, JsonWireDirection.Deserialize);
 
     /// <summary>
     /// True when the member's presence differs between serialization and
@@ -98,16 +84,105 @@ public static class JsonWireMemberRules
         ApiAssemblyIdentity? assemblyIdentity,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             typesByScopedIdentity) =>
-        IsSerialized(
+        GetPresence(
             member,
             JsonWireDirection.Serialize,
             assemblyIdentity,
             typesByScopedIdentity)
-            != IsSerialized(
+            != GetPresence(
                 member,
                 JsonWireDirection.Deserialize,
                 assemblyIdentity,
                 typesByScopedIdentity);
+
+    /// <summary>
+    /// The member's authenticated presence in one wire direction.
+    /// </summary>
+    /// <remarks>
+    /// <c>WhenWritingNull</c> and <c>WhenWritingDefault</c> are conditional
+    /// while serializing and present while deserializing. This fact is
+    /// target-language-neutral: consumers decide how to lower conditional key
+    /// presence. A malformed, duplicated, or unknown authentic condition is
+    /// <see cref="JsonWireMemberPresence.Unsupported"/>, never absence.
+    /// </remarks>
+    public static JsonWireMemberPresence GetPresence(
+        ApiMember member,
+        JsonWireDirection direction)
+    {
+        if (direction is not JsonWireDirection.Serialize
+            and not JsonWireDirection.Deserialize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(direction),
+                direction,
+                "Member presence requires one wire direction.");
+        }
+
+        if (HasUnsupportedJsonIgnoreMetadata(member)
+            || HasUnsupportedJsonIncludeMetadata(member))
+        {
+            return JsonWireMemberPresence.Unsupported;
+        }
+
+        if (member.IsStatic
+            || member.IsCompilerGenerated
+            || !ParticipatesStructurally(member, direction))
+        {
+            return JsonWireMemberPresence.Absent;
+        }
+
+        return GetConditionPresence(member, direction);
+    }
+
+    /// <summary>
+    /// The member's authenticated presence in one wire direction, additionally
+    /// requiring every same-assembly named value type to remain accessible to
+    /// the generated serializer context.
+    /// </summary>
+    public static JsonWireMemberPresence GetPresence(
+        ApiMember member,
+        JsonWireDirection direction,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        HasAccessibleValueType(
+            member,
+            assemblyIdentity,
+            typesByScopedIdentity)
+            ? GetPresence(member, direction)
+            : JsonWireMemberPresence.Absent;
+
+    /// <summary>
+    /// True when the member is present or conditionally present in at least one
+    /// requested wire direction.
+    /// </summary>
+    public static bool ParticipatesInWireContract(
+        ApiMember member,
+        JsonWireDirection directions) =>
+        HasPresence(
+            member,
+            directions,
+            JsonWireMemberPresence.Present,
+            JsonWireMemberPresence.Conditional);
+
+    /// <summary>
+    /// True when the member is present or conditionally present in at least one
+    /// requested wire direction, and every same-assembly named value type
+    /// remains accessible to the generated serializer context.
+    /// </summary>
+    public static bool ParticipatesInWireContract(
+        ApiMember member,
+        JsonWireDirection directions,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        HasPresence(
+            member,
+            directions,
+            JsonWireMemberPresence.Present,
+            JsonWireMemberPresence.Conditional,
+            assemblyIdentity,
+            typesByScopedIdentity);
 
     /// <summary>
     /// True when deserialization may bind a getter-only property, or a
@@ -125,9 +200,10 @@ public static class JsonWireMemberRules
             && !member.IsStatic
             && !HasUnsupportedJsonIgnoreMetadata(member)
             && !HasUnsupportedJsonIncludeMetadata(member)
-            && (PresentDirections(member)
-                    & JsonWireDirection.Deserialize)
-                != JsonWireDirection.None
+            && GetConditionPresence(
+                    member,
+                    JsonWireDirection.Deserialize)
+                == JsonWireMemberPresence.Present
             && indexParameterCount == 0
             && !IsIncludedAccessor(
                 member.HasSetter,
@@ -238,7 +314,10 @@ public static class JsonWireMemberRules
     /// </summary>
     public static bool HasUnsupportedJsonIgnoreMetadata(ApiMember member) =>
         member.JsonIgnoreConditions.Count > 1
-        || member.JsonIgnoreConditions.Contains(null);
+        || member.JsonIgnoreConditions.Contains(null)
+        || member.JsonIgnoreConditions.Any(
+            condition => condition is { } value
+                && !Enum.IsDefined(value));
 
     /// <summary>
     /// True when the member carries an authentic <c>[JsonInclude]</c> row whose
@@ -247,32 +326,15 @@ public static class JsonWireMemberRules
     public static bool HasUnsupportedJsonIncludeMetadata(ApiMember member) =>
         member.HasMalformedJsonInclude;
 
-    /// <summary>
-    /// The directions the member's <c>[JsonIgnore]</c> condition leaves intact.
-    /// </summary>
-    /// <remarks>
-    /// <c>WhenWritingDefault</c> and <c>WhenWritingNull</c> are value-dependent
-    /// rather than declaration-dependent, so a static projection cannot promise
-    /// the member is present in either direction and conservatively drops it,
-    /// preserving the behavior that predates directional handling.
-    /// </remarks>
-    static JsonWireDirection PresentDirections(ApiMember member) =>
-        member.JsonIgnoreConditions is [var condition]
-            ? condition switch
-            {
-                JsonWireIgnoreCondition.Never => JsonWireDirection.Both,
-                JsonWireIgnoreCondition.WhenWriting =>
-                    JsonWireDirection.Deserialize,
-                JsonWireIgnoreCondition.WhenReading =>
-                    JsonWireDirection.Serialize,
-                _ => JsonWireDirection.None,
-            }
-            : JsonWireDirection.Both;
-
-    static bool IsSerializedProperty(
+    static bool ParticipatesStructurally(
         ApiMember member,
-        JsonWireDirection directions)
+        JsonWireDirection direction)
     {
+        if (member.Kind == "field")
+            return member.HasJsonInclude;
+        if (member.Kind != "property")
+            return false;
+
         int? indexParameterCount =
             member.IndexParameterCount
             ?? member.SignatureModel?.ParameterCount;
@@ -291,12 +353,74 @@ public static class JsonWireMemberRules
                 member.SetterAccessibility,
                 member.Accessibility,
                 member.HasJsonInclude);
+        return direction == JsonWireDirection.Serialize
+            ? serialize
+            : deserialize;
+    }
+
+    static JsonWireMemberPresence GetConditionPresence(
+        ApiMember member,
+        JsonWireDirection direction) =>
+        member.JsonIgnoreConditions is [var condition]
+            ? condition switch
+            {
+                JsonWireIgnoreCondition.Never =>
+                    JsonWireMemberPresence.Present,
+                JsonWireIgnoreCondition.Always =>
+                    JsonWireMemberPresence.Absent,
+                JsonWireIgnoreCondition.WhenWritingDefault
+                    or JsonWireIgnoreCondition.WhenWritingNull =>
+                    direction == JsonWireDirection.Serialize
+                        ? JsonWireMemberPresence.Conditional
+                        : JsonWireMemberPresence.Present,
+                JsonWireIgnoreCondition.WhenWriting =>
+                    direction == JsonWireDirection.Serialize
+                        ? JsonWireMemberPresence.Absent
+                        : JsonWireMemberPresence.Present,
+                JsonWireIgnoreCondition.WhenReading =>
+                    direction == JsonWireDirection.Serialize
+                        ? JsonWireMemberPresence.Present
+                        : JsonWireMemberPresence.Absent,
+                _ => JsonWireMemberPresence.Unsupported,
+            }
+            : JsonWireMemberPresence.Present;
+
+    static bool HasPresence(
+        ApiMember member,
+        JsonWireDirection directions,
+        JsonWireMemberPresence expected) =>
+        HasPresence(member, directions, expected, expected);
+
+    static bool HasPresence(
+        ApiMember member,
+        JsonWireDirection directions,
+        JsonWireMemberPresence first,
+        JsonWireMemberPresence second,
+        ApiAssemblyIdentity? assemblyIdentity = null,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>?
+            typesByScopedIdentity = null)
+    {
+        JsonWireMemberPresence Presence(JsonWireDirection direction) =>
+            typesByScopedIdentity is null
+                ? GetPresence(member, direction)
+                : GetPresence(
+                    member,
+                    direction,
+                    assemblyIdentity,
+                    typesByScopedIdentity);
+
+        bool Matches(JsonWireDirection direction)
+        {
+            JsonWireMemberPresence presence = Presence(direction);
+            return presence == first || presence == second;
+        }
+
         return ((directions & JsonWireDirection.Serialize)
                     != JsonWireDirection.None
-                && serialize)
+                && Matches(JsonWireDirection.Serialize))
             || ((directions & JsonWireDirection.Deserialize)
                     != JsonWireDirection.None
-                && deserialize);
+                && Matches(JsonWireDirection.Deserialize));
     }
 
     static bool IsIncludedAccessor(

@@ -19,22 +19,42 @@ public sealed class JsonWireMemberRulesTests
         };
 
     /// <summary>
-    /// The directional table: only <c>WhenWriting</c> and <c>WhenReading</c>
-    /// split the two directions, and the value-dependent conditions stay
-    /// conservatively absent from both.
+    /// The directional table preserves value-dependent write presence instead
+    /// of collapsing it into absence.
     /// </summary>
     [Theory]
-    [InlineData(null, true, true)]
-    [InlineData(JsonWireIgnoreCondition.Never, true, true)]
-    [InlineData(JsonWireIgnoreCondition.Always, false, false)]
-    [InlineData(JsonWireIgnoreCondition.WhenWritingDefault, false, false)]
-    [InlineData(JsonWireIgnoreCondition.WhenWritingNull, false, false)]
-    [InlineData(JsonWireIgnoreCondition.WhenWriting, false, true)]
-    [InlineData(JsonWireIgnoreCondition.WhenReading, true, false)]
-    public void DirectionalIgnoreConditionsSelectDirections(
+    [InlineData(
+        null,
+        JsonWireMemberPresence.Present,
+        JsonWireMemberPresence.Present)]
+    [InlineData(
+        JsonWireIgnoreCondition.Never,
+        JsonWireMemberPresence.Present,
+        JsonWireMemberPresence.Present)]
+    [InlineData(
+        JsonWireIgnoreCondition.Always,
+        JsonWireMemberPresence.Absent,
+        JsonWireMemberPresence.Absent)]
+    [InlineData(
+        JsonWireIgnoreCondition.WhenWritingDefault,
+        JsonWireMemberPresence.Conditional,
+        JsonWireMemberPresence.Present)]
+    [InlineData(
+        JsonWireIgnoreCondition.WhenWritingNull,
+        JsonWireMemberPresence.Conditional,
+        JsonWireMemberPresence.Present)]
+    [InlineData(
+        JsonWireIgnoreCondition.WhenWriting,
+        JsonWireMemberPresence.Absent,
+        JsonWireMemberPresence.Present)]
+    [InlineData(
+        JsonWireIgnoreCondition.WhenReading,
+        JsonWireMemberPresence.Present,
+        JsonWireMemberPresence.Absent)]
+    public void DirectionalIgnoreConditionsSelectPresence(
         JsonWireIgnoreCondition? condition,
-        bool serialized,
-        bool deserialized)
+        JsonWireMemberPresence serialized,
+        JsonWireMemberPresence deserialized)
     {
         ApiMember member = condition is { } value
             ? Property(value)
@@ -42,16 +62,17 @@ public sealed class JsonWireMemberRulesTests
 
         Assert.Equal(
             serialized,
-            JsonWireMemberRules.IsSerialized(
+            JsonWireMemberRules.GetPresence(
                 member,
                 JsonWireDirection.Serialize));
         Assert.Equal(
             deserialized,
-            JsonWireMemberRules.IsSerialized(
+            JsonWireMemberRules.GetPresence(
                 member,
                 JsonWireDirection.Deserialize));
         Assert.Equal(
-            serialized || deserialized,
+            serialized == JsonWireMemberPresence.Present
+                || deserialized == JsonWireMemberPresence.Present,
             JsonWireMemberRules.IsSerialized(member));
         Assert.Equal(
             serialized != deserialized,
@@ -65,6 +86,11 @@ public sealed class JsonWireMemberRulesTests
 
         Assert.True(
             JsonWireMemberRules.HasUnsupportedJsonIgnoreMetadata(member));
+        Assert.Equal(
+            JsonWireMemberPresence.Unsupported,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Serialize));
         Assert.False(JsonWireMemberRules.IsSerialized(member));
         Assert.False(
             JsonWireMemberRules.IsSerialized(
@@ -87,6 +113,24 @@ public sealed class JsonWireMemberRulesTests
         Assert.True(
             JsonWireMemberRules.HasUnsupportedJsonIgnoreMetadata(member));
         Assert.False(JsonWireMemberRules.IsSerialized(member));
+    }
+
+    [Fact]
+    public void UnknownIgnoreConditionIsUnsupported()
+    {
+        ApiMember member = Property((JsonWireIgnoreCondition)9);
+
+        Assert.True(
+            JsonWireMemberRules.HasUnsupportedJsonIgnoreMetadata(member));
+        Assert.Equal(
+            JsonWireMemberPresence.Unsupported,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Serialize));
+        Assert.False(
+            JsonWireMemberRules.ParticipatesInWireContract(
+                member,
+                JsonWireDirection.Both));
     }
 
     [Fact]
