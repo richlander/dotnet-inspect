@@ -28,14 +28,14 @@ public sealed class WorkspaceSharePacketRealizationPlan
 
     /// <summary>
     /// Associates the retained packet with the exact Workspace definition and
-    /// selected context that the host realized.
+    /// Package acquisitions that the host realized.
     /// </summary>
     public WorkspaceDefinitionShareProjectionReceipt CreateShareProjection(
         WorkspaceDefinitionSnapshot definition,
-        IReadOnlyList<PackageRootBinding> packageRoots)
+        IReadOnlyList<PackageRootBinding> packageAcquisitions)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        ArgumentNullException.ThrowIfNull(packageRoots);
+        ArgumentNullException.ThrowIfNull(packageAcquisitions);
 
         if (!ReferenceEquals(definition.Plan, Plan))
         {
@@ -44,13 +44,39 @@ public sealed class WorkspaceSharePacketRealizationPlan
                 nameof(definition));
         }
 
-        if (!PackageRootsMatchPlan(packageRoots))
+        var declarations = Plan.Contexts
+            .SelectMany(static context => context.Members
+                .OfType<WorkspaceMemberCoordinate.PackageMember>()
+                .Select(package => (Context: context, Package: package)))
+            .ToArray();
+        if (declarations.Length != packageAcquisitions.Count)
         {
             throw new ArgumentException(
-                "The realized Package roots do not match the packet's Workspace plan.",
-                nameof(packageRoots));
+                "The Package acquisitions do not match the packet's declarations.",
+                nameof(packageAcquisitions));
         }
 
+        for (int index = 0; index < declarations.Length; index++)
+        {
+            (WorkspaceContextInput context,
+                WorkspaceMemberCoordinate.PackageMember package) =
+                declarations[index];
+            if (!MatchesDeclaration(
+                    context,
+                    package,
+                    packageAcquisitions[index]))
+            {
+                throw new ArgumentException(
+                    "A Package acquisition does not match its packet declaration.",
+                    nameof(packageAcquisitions));
+            }
+        }
+
+        PackageRootBinding[] packageRoots =
+        [
+            .. packageAcquisitions.DistinctBy(
+                static root => root.CreateReacquisitionRequest()),
+        ];
         if (!ScopeMatches(definition.Scope, packageRoots))
         {
             throw new ArgumentException(
@@ -62,36 +88,6 @@ public sealed class WorkspaceSharePacketRealizationPlan
             definition,
             WorkspaceDefinitionShareProjectionSource.PacketInput,
             _packet);
-    }
-
-    bool PackageRootsMatchPlan(IReadOnlyList<PackageRootBinding> roots)
-    {
-        var expected = new List<ExpectedPackage>();
-        foreach (WorkspaceContextInput context in Plan.Contexts)
-        {
-            foreach (WorkspaceMemberCoordinate.PackageMember package
-                in context.Members.OfType<WorkspaceMemberCoordinate.PackageMember>())
-            {
-                var candidate = new ExpectedPackage(
-                    package.PackageId,
-                    package.Version,
-                    package.Framework ?? context.Framework,
-                    package.RuntimeIdentifier ?? context.RuntimeIdentifier);
-                if (!expected.Any(existing => existing.EquivalentTo(candidate)))
-                    expected.Add(candidate);
-            }
-        }
-
-        if (expected.Count != roots.Count)
-            return false;
-
-        for (int index = 0; index < roots.Count; index++)
-        {
-            if (!expected[index].Matches(roots[index]))
-                return false;
-        }
-
-        return true;
     }
 
     static bool ScopeMatches(
@@ -122,52 +118,30 @@ public sealed class WorkspaceSharePacketRealizationPlan
         return true;
     }
 
-    sealed record ExpectedPackage(
-        string PackageId,
-        string? Version,
-        string? Framework,
-        string? RuntimeIdentifier)
+    static bool MatchesDeclaration(
+        WorkspaceContextInput context,
+        WorkspaceMemberCoordinate.PackageMember package,
+        PackageRootBinding root)
     {
-        public bool EquivalentTo(ExpectedPackage other) =>
-            string.Equals(
-                PackageId,
-                other.PackageId,
+        var descriptor = new WorkspacePackageDescriptor(root);
+        string? framework = package.Framework ?? context.Framework;
+        string? runtimeIdentifier =
+            package.RuntimeIdentifier ?? context.RuntimeIdentifier;
+        return string.Equals(
+                package.PackageId,
+                descriptor.PackageId,
                 StringComparison.OrdinalIgnoreCase)
-            && VersionsEqual(Version, other.Version)
+            && (package.Version is null
+                || NuGetVersion.Parse(package.Version)
+                    == NuGetVersion.Parse(descriptor.PackageVersion))
             && string.Equals(
-                Framework,
-                other.Framework,
+                framework,
+                descriptor.RequestedTargetFramework,
                 StringComparison.OrdinalIgnoreCase)
             && string.Equals(
-                RuntimeIdentifier,
-                other.RuntimeIdentifier,
+                runtimeIdentifier,
+                descriptor.RuntimeIdentifier,
                 StringComparison.Ordinal);
-
-        public bool Matches(PackageRootBinding root)
-        {
-            var descriptor = new WorkspacePackageDescriptor(root);
-            return string.Equals(
-                    PackageId,
-                    descriptor.PackageId,
-                    StringComparison.OrdinalIgnoreCase)
-                && (Version is null
-                    || VersionsEqual(Version, descriptor.PackageVersion))
-                && string.Equals(
-                    Framework,
-                    descriptor.RequestedTargetFramework,
-                    StringComparison.OrdinalIgnoreCase)
-                && string.Equals(
-                    RuntimeIdentifier,
-                    descriptor.RuntimeIdentifier,
-                    StringComparison.Ordinal);
-        }
-
-        static bool VersionsEqual(string? left, string? right) =>
-            left is null
-                ? right is null
-                : right is not null
-                    && NuGetVersion.Parse(left)
-                        == NuGetVersion.Parse(right);
     }
 }
 

@@ -980,6 +980,55 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task PacketRoute_CoalescesFloatingAndExactMembersResolvingToOneRoot()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(WorkspaceCommandTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            $$"""
+            {
+              "f": 1,
+              "t": [
+                ["{{PackageId}}", null, "{{Framework}}", null],
+                ["{{PackageId}}", "{{Version}}", "{{Framework}}", null]
+              ],
+              "g": [[0], [1]],
+              "a": 0,
+              "x": 0,
+              "v": "api"
+            }
+            """,
+            TestContext.Current.CancellationToken);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        using var client = new HttpClient(new VersionListingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = encoded,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.True(
+            captured.ExitCode == 0,
+            $"Output: {captured.Output}{Environment.NewLine}Error: {captured.Error}");
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        Assert.Single(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(encoded, captured.Error.Trim());
+    }
+
+    [Fact]
     public async Task PacketRoute_RejectsGroupConstructionIntent()
     {
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
@@ -1781,6 +1830,35 @@ public sealed class WorkspaceCommandTests
                 {
                     RequestMessage = request,
                 });
+    }
+
+    sealed class VersionListingHandler : HttpMessageHandler
+    {
+        const string FlatContainer = "https://fixture.invalid/flat/";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = url switch
+            {
+                "https://fixture.invalid/v3/index.json" =>
+                    $$"""
+                    {"resources":[{"@id":"{{FlatContainer}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    """,
+                $"{FlatContainer}workspace.command.fixture/index.json" =>
+                    $$"""{"versions":["{{Version}}"]}""",
+                _ => null,
+            };
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    body is null ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body ?? ""),
+                    RequestMessage = request,
+                });
+        }
     }
 }
 

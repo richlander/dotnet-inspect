@@ -58,6 +58,9 @@ acquires Package members from every plan context and logically coalesces exact
 duplicate roots. Both routes complete, activate, and admit the same realization
 before calling
 `WorkspaceTopLevelInventoryOperation`.
+The packet plan validates each declaration against its acquired Root before
+coalescing, preserving floating/exact declaration evidence when both resolve
+to one logical Scope occurrence.
 
 The focused packet route accepts direct Package context members only. Group
 subscriptions and non-Package context members are rejected visibly until the

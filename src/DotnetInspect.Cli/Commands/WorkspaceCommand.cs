@@ -152,6 +152,7 @@ public static class WorkspaceCommand
         }
 
         IReadOnlyList<PackageRootBinding> committedBindings = [];
+        IReadOnlyList<PackageRootBinding> packetAcquisitions = [];
         using (WorkspaceRealizationConstructionLease construction =
             prepared.Candidate.EnterConstruction())
         {
@@ -212,6 +213,7 @@ public static class WorkspaceCommand
                     }
                 }
 
+                packetAcquisitions = packageBindings;
                 committedBindings =
                 [
                     .. packageBindings.DistinctBy(
@@ -328,7 +330,7 @@ public static class WorkspaceCommand
                 : WorkspaceTopLevelInventoryShareBasis.CreateProjectable(
                     packetPlan.CreateShareProjection(
                         ready.Definition,
-                        committedBindings));
+                        packetAcquisitions));
         }
         catch (ArgumentException ex)
         {

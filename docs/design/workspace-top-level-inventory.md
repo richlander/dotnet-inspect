@@ -155,7 +155,10 @@ routes:
    publishes that complete Package membership before operation admission. A
    packet containing a group subscription or non-Package context member is
    rejected visibly rather than certified after dropping construction intent;
-   complete restoration of those packets remains #7027.
+   complete restoration of those packets remains #7027. Each declaration is
+   associated with its acquisition result before coalescing, so floating and
+   exact declarations that resolve to one logical Root retain exact packet
+   evidence while Scope applies its duplicate policy.
 
 Both routes populate and admit one ephemeral realized Workspace through the
 same owner operations before calling
