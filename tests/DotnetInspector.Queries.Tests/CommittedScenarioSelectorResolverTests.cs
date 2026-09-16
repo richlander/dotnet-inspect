@@ -138,9 +138,7 @@ public sealed class CommittedScenarioSelectorResolverTests
                 new CommittedViewStateDefinition(
                     null,
                     new PortableSubjectRequest.Workspace()),
-                new CommittedViewStateDefinition(
-                    "first",
-                    context: new PortableRetainedSubjectContext.Package()),
+                new CommittedViewStateDefinition("first"),
                 new CommittedViewStateDefinition(
                     "second",
                     new PortableSubjectRequest.Package(),
@@ -285,7 +283,9 @@ public sealed class CommittedScenarioSelectorResolverTests
             ],
             states:
             [
-                new CommittedViewStateDefinition(null),
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
                 new CommittedViewStateDefinition(
                     "first",
                     new PortableSubjectRequest.Workspace(),
@@ -350,7 +350,9 @@ public sealed class CommittedScenarioSelectorResolverTests
             tabs: [PackageTab("package", "Package.A")],
             states:
             [
-                new CommittedViewStateDefinition(null),
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
                 new CommittedViewStateDefinition("package"),
             ]);
 
@@ -377,7 +379,9 @@ public sealed class CommittedScenarioSelectorResolverTests
             tabs: [PackageTab("package", "Package.Other")],
             states:
             [
-                new CommittedViewStateDefinition(null),
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
                 new CommittedViewStateDefinition("package"),
             ]);
         AssertFailure(
@@ -522,7 +526,9 @@ public sealed class CommittedScenarioSelectorResolverTests
             tabs: [PackageTab("package", "Package.A")],
             states:
             [
-                new CommittedViewStateDefinition(null),
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
                 new CommittedViewStateDefinition(
                     "package",
                     new PortableSubjectRequest.Workspace(),
@@ -560,7 +566,9 @@ public sealed class CommittedScenarioSelectorResolverTests
             tabs: [PackageTab("package", "Package.A")],
             states:
             [
-                new CommittedViewStateDefinition(null),
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
                 new CommittedViewStateDefinition(
                     "package",
                     new PortableSubjectRequest.Workspace(),
@@ -633,7 +641,9 @@ public sealed class CommittedScenarioSelectorResolverTests
                     tabs: [PackageTab("package", "Package.A")],
                     states:
                     [
-                        new CommittedViewStateDefinition(null),
+                        new CommittedViewStateDefinition(
+                            null,
+                            new PortableSubjectRequest.Workspace()),
                         new CommittedViewStateDefinition(
                             "package",
                             new PortableSubjectRequest.Workspace(),
@@ -653,7 +663,9 @@ public sealed class CommittedScenarioSelectorResolverTests
                             tabs: [PackageTab("package", "Package.A")],
                             states:
                             [
-                                new CommittedViewStateDefinition(null),
+                                new CommittedViewStateDefinition(
+                                    null,
+                                    new PortableSubjectRequest.Workspace()),
                                 new CommittedViewStateDefinition(
                                     "package",
                                     new PortableSubjectRequest.Workspace(),
@@ -704,7 +716,9 @@ public sealed class CommittedScenarioSelectorResolverTests
                     tabs: [PackageTab("empty", "Package.Empty")],
                     states:
                     [
-                        new CommittedViewStateDefinition(null),
+                        new CommittedViewStateDefinition(
+                            null,
+                            new PortableSubjectRequest.Workspace()),
                         new CommittedViewStateDefinition(
                             "empty",
                             new PortableSubjectRequest.Workspace(),
@@ -726,7 +740,9 @@ public sealed class CommittedScenarioSelectorResolverTests
                     ],
                     states:
                     [
-                        new CommittedViewStateDefinition(null),
+                        new CommittedViewStateDefinition(
+                            null,
+                            new PortableSubjectRequest.Workspace()),
                         new CommittedViewStateDefinition("full"),
                         new CommittedViewStateDefinition(
                             "empty",
@@ -750,7 +766,9 @@ public sealed class CommittedScenarioSelectorResolverTests
                             tabs: [PackageTab("empty", "Package.Empty")],
                             states:
                             [
-                                new CommittedViewStateDefinition(null),
+                                new CommittedViewStateDefinition(
+                                    null,
+                                    new PortableSubjectRequest.Workspace()),
                                 new CommittedViewStateDefinition(
                                     "empty",
                                     new PortableSubjectRequest.Package(),
