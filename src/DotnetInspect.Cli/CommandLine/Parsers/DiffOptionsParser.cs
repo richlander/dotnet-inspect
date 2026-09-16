@@ -37,7 +37,8 @@ public static class DiffOptionsParser
         Option<bool> LegacyAuthoredSourceOption,
         Option<string?> FindingOption,
         Option<bool> LegendOption,
-        Option<string[]> RepoOption);
+        Option<string[]> RepoOption,
+        Option<bool> CompactOption);
 
     /// <summary>
     /// Result of parsing diff command options.
@@ -108,6 +109,7 @@ public static class DiffOptionsParser
         if (memberFilterValues?.Length > 0)
             memberFilter = new HashSet<string>(memberFilterValues, StringComparer.OrdinalIgnoreCase);
 
+        bool envelopeOutput = parseResult.GetValue(opts.Envelope);
         var options = new DiffOptions
         {
             PackageVersionRange = packageVersionRange,
@@ -119,10 +121,17 @@ public static class DiffOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             TypeFilter = typeFilter,
             MemberFilter = memberFilter,
-            Tabular = opts.ResolveTabular(parseResult),
-            Tsv = opts.ResolveTsv(parseResult),
-            Jsonl = opts.ResolveJsonl(parseResult),
-            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            Tabular = !envelopeOutput && opts.ResolveTabular(parseResult),
+            Tsv = !envelopeOutput && opts.ResolveTsv(parseResult),
+            Jsonl = !envelopeOutput && opts.ResolveJsonl(parseResult),
+            JsonOutput = !envelopeOutput && opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            EnvelopeOutput = envelopeOutput,
+            CompactJson = parseResult.GetValue(args.CompactOption),
+            VerbosityExplicitlySet =
+                parseResult.GetResult(opts.Verbosity) is { Implicit: false },
+            HasRenderedLineWindow =
+                ArgumentPreprocessor.HeadLines is not null
+                || ArgumentPreprocessor.TailLines is not null,
             TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
