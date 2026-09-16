@@ -81,3 +81,10 @@ public static class VarArgContainer
     public static void VarArg(int value, __arglist)
         => _ = value;
 }
+
+public static class OrdinalSelection
+{
+    public static int Pick(bool value) => value ? 1 : 0;
+    public static int Pick(int value) => value;
+    public static int Pick(string value) => value.Length;
+}

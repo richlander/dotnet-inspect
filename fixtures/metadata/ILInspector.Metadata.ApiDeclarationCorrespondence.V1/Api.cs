@@ -69,6 +69,12 @@ public static class VarArgContainer
         => _ = value;
 }
 
+public static class OrdinalSelection
+{
+    public static int Pick(int value) => value;
+    public static int Pick(string value) => value.Length;
+}
+
 public sealed class ConstraintChanged<T>
     where T : class;
 
