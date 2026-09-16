@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Breaking:** Renames `package changes` to `package activity` and removes the
+  old spelling with direct replacement guidance. Inspect Web now presents the
+  same report as **Package Activity** while retaining the existing
+  `package-changes` Worker operation, bridge route, wire contracts, and report
+  semantics (#7175).
 - Adds canonical query-free Workspace share packet format 2 with nullable
   Workspace/Package focus, complete direct-Package committed view state,
   dormant non-Package rows, schema-version-2 transposition, and unchanged

@@ -60,7 +60,7 @@ public static partial class LocalRepoSourceAcquisition
             if (bytes is null)
                 continue;
 
-            if (PdbSourceHouse.VerifyChecksum(checksumAlgorithm, checksum, bytes)
+            if (SourceLinkService.VerifyChecksum(checksumAlgorithm, checksum, bytes)
                 is SourceChecksumVerification.Exact or SourceChecksumVerification.LineEndingNormalized)
             {
                 return bytes;

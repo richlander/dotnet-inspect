@@ -40,6 +40,10 @@ import {
   renderSourcePageActions,
   renderSourceResult,
 } from "../src/type-panel.ts";
+import type {
+  BrowserSource,
+  InertString,
+} from "../src/facades/inspect-web-source.d.ts";
 import { renderMemberContractSections } from "../src/member-overview.ts";
 import { renderMemberFacts } from "../src/member-facts.ts";
 import {
@@ -275,11 +279,19 @@ let contentFrameReplacementFocus: MemberFocusSnapshot | null = null;
 let contentFrameReplacementFocusGeneration: number | null = null;
 let documentFocusGeneration = 0;
 const contentFrameMedia = window.matchMedia(CONTENT_FRAME_NARROW_QUERY);
-const source = {
+
+function inertString(value: string): InertString {
+  // Browser fixtures model values after the generated JSON boundary.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as InertString;
+}
+
+const source: BrowserSource = {
   provider: limitationMode ? "decompiled" : "pdb",
-  provenance: limitationMode
-    ? "dotnet-inspect from System.Text.Json 10.0.0 lib/net10.0/System.Text.Json.dll"
-    : "SourceLink · github.com/dotnet/runtime",
+  provenance: inertString(
+    limitationMode
+      ? "dotnet-inspect from System.Text.Json 10.0.0 lib/net10.0/System.Text.Json.dll"
+      : "SourceLink · github.com/dotnet/runtime"),
   url: "https://github.com/dotnet/runtime",
   pdbSourceLimitation: limitationMode
     ? "The selected type's primary source document is not uniquely identified in the portable PDB."

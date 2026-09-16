@@ -211,13 +211,19 @@ public sealed record PlatformDependencyManifest
 {
     internal PlatformDependencyManifest(
         string runtimeTargetName,
+        int libraryCount,
+        int assetCount,
         IReadOnlyList<PlatformManifestAssetCoordinate> managedAssets)
     {
         RuntimeTargetName = runtimeTargetName;
+        LibraryCount = libraryCount;
+        AssetCount = assetCount;
         ManagedAssets = managedAssets;
     }
 
     public string RuntimeTargetName { get; }
+    public int LibraryCount { get; }
+    public int AssetCount { get; }
     public IReadOnlyList<PlatformManifestAssetCoordinate> ManagedAssets { get; }
 }
 

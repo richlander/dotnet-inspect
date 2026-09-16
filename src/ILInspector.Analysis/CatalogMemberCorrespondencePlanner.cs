@@ -10,14 +10,17 @@ internal sealed class CatalogMemberCorrespondencePlanner
     const byte VarargCallingConvention = 0x05;
 
     readonly ResolvedAssemblyReference _source;
+    readonly IReadOnlyDictionary<TypeRef, ResolvedAssemblyReference>? _origins;
     readonly Dictionary<TypeResolutionRequest, int> _requestIndices =
         new(TypeResolutionRequestComparer.Instance);
 
     internal CatalogMemberCorrespondencePlanner(
         ResolvedAssemblyReference source,
-        ImmutableArray<MemberCorrespondenceFailure>.Builder failures)
+        ImmutableArray<MemberCorrespondenceFailure>.Builder failures,
+        IReadOnlyDictionary<TypeRef, ResolvedAssemblyReference>? origins = null)
     {
         _source = source;
+        _origins = origins;
         Failures = failures;
     }
 
@@ -57,7 +60,9 @@ internal sealed class CatalogMemberCorrespondencePlanner
 
                 TypeResolutionRequest request =
                     TypeResolutionRequestFactory.Create(
-                        _source,
+                        _origins is not null
+                            && _origins.TryGetValue(type, out var origin)
+                                ? origin : _source,
                         type.Resolution);
                 if (!_requestIndices.TryGetValue(
                     request,

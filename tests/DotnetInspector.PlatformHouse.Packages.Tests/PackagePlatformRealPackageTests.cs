@@ -84,6 +84,88 @@ public sealed class PackagePlatformRealPackageTests
         Assert.Equal((byte)'Z', bytes[1]);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task GalleryAspNetRuntimeClosureAndDetachedLifetime()
+    {
+        PackageSourceAuthorization sources =
+            PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
+        var authorization = new TestAuthorization(sources);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateGallery(
+                sources.Authorities[0].Association);
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var store = new InMemoryPackageStore();
+        var source = new PackagePlatformSource(
+            authorization,
+            new PackagePayloadAcquisitionPlan((_, _) => store));
+        var adapter = new PackagePlatformHouseAdapter(
+            source,
+            "gallery-runtime");
+        PlatformFamilyTarget target = new(
+            PlatformFamily.AspNetCore,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse(
+                PackagePlatformTestEnvironment.Version));
+        PlatformHouseRequest request = ImplementationRequest(
+            adapter,
+            target,
+            TestContext.Current.CancellationToken);
+
+        var realized = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(
+                        request,
+                        "linux-x64",
+                        root.IssueOperationLease(
+                            request.CancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+
+        Assert.Equal(
+            [
+                "Microsoft.NETCore.App",
+                "Microsoft.AspNetCore.App",
+            ],
+            realized.Value.Frameworks.Select(
+                static framework => framework.Name.Value));
+        Assert.Equal(
+            [
+                PackagePlatformTestEnvironment
+                    .RuntimeImplementationPackageId,
+                PackagePlatformTestEnvironment
+                    .AspNetImplementationPackageId,
+            ],
+            realized.Value.Frameworks.Select(
+                static framework => framework.PackageId));
+        PackageImplementationLibrary json = Assert.Single(
+            realized.Value.Libraries,
+            library => library.Identity.Name == "System.Text.Json");
+        Assert.Contains(
+            realized.Value.Libraries,
+            library =>
+                library.Identity.Name
+                == "Microsoft.AspNetCore.Hosting");
+        var contribution =
+            Assert.IsType<PlatformSourceContribution.Realization>(
+                realized.Contribution);
+        Assert.Equal(
+            PlatformSourceFacet.Implementation,
+            contribution.Facet);
+        Assert.Equal(target, contribution.Target);
+
+        ValueTask close = root.DisposeAsync();
+        Assert.True(close.IsCompletedSuccessfully);
+        await close;
+        byte[] bytes =
+            await PackagePlatformTestData.ReadAllAsync(json);
+        Assert.True(bytes.Length > 0);
+        Assert.Equal((byte)'M', bytes[0]);
+        Assert.Equal((byte)'Z', bytes[1]);
+    }
+
     private static PlatformHouseRequest SelectingRequest(
         PackagePlatformHouseAdapter adapter,
         CancellationToken cancellationToken) =>
@@ -141,6 +223,29 @@ public sealed class PackagePlatformRealPackageTests
                         [adapter.ReferenceRealization]),
                 ]),
             Work(maxBytes),
+            cancellationToken);
+
+    private static PlatformHouseRequest ImplementationRequest(
+        PackagePlatformHouseAdapter adapter,
+        PlatformFamilyTarget target,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create("gallery-runtime"),
+            new PlatformTargetDemand.Exact(target),
+            Origin(),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformViewDemand.Implementation),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create("gallery-runtime"),
+                PlatformSourcePolicyGeneration.Create("gallery-runtime"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Implementation,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ImplementationRealization]),
+                ]),
+            Work(maxBytes: 512L * 1024 * 1024),
             cancellationToken);
 
     private static PlatformHouseRequestOrigin Origin() =>

@@ -142,9 +142,11 @@ A logical asset coordinate:
   character; and
 - ends in one non-empty file name.
 
-The result retains the complete logical coordinate and its final segment.
-Projection of that final segment into an installed directory or package
-payload belongs to the source adapter.
+The result retains the selected target name, observed selected-target library
+and asset counts, each complete managed logical coordinate, and its final
+segment. The counts let a composing source consume one closure-wide budget
+without reparsing JSON. Projection of a final segment into an installed
+directory or package payload belongs to the source adapter.
 
 ## Failure and work semantics
 

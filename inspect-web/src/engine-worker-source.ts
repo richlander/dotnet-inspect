@@ -232,7 +232,9 @@ export const engineWorkerTypeSourceValue: BoundedPayloadDecoder<BrowserSource> =
       kind: "decoded",
       value: {
         provider: provider.value,
-        provenance: provenance.value,
+        // The source facade is the sole producer; this worker boundary has revalidated its wire string.
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+        provenance: provenance.value as BrowserSource["provenance"],
         url: url.value,
         pdbSourceLimitation: limitation.value,
         text: text.value,

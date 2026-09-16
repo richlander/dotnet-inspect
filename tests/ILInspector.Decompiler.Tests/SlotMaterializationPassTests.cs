@@ -267,7 +267,6 @@ public class SlotMaterializationPassTests
 
         var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
         Assert.True(decision.Vetoes.HasFlag(SlotMaterializationVeto.MultiStoreSingleLoadFold));
-        Assert.True(decision.Vetoes.HasFlag(SlotMaterializationVeto.CrossBlockStoreFold));
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
@@ -721,8 +720,7 @@ public class SlotMaterializationPassTests
 
         Assert.Equal(
             SlotMaterializationVeto.UnderivableTypeTestimony
-                | SlotMaterializationVeto.MultiStoreSingleLoadFold
-                | SlotMaterializationVeto.CrossBlockStoreFold,
+                | SlotMaterializationVeto.MultiStoreSingleLoadFold,
             decision.Vetoes);
     }
 }

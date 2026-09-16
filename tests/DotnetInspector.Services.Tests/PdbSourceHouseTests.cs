@@ -349,7 +349,7 @@ public class PdbSourceHouseTests
         byte[] expected = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\n"));
         byte[] actual = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\r\n"));
 
-        var verification = PdbSourceHouse.VerifyChecksum(
+        var verification = SourceLinkService.VerifyChecksum(
             Document(expected),
             actual);
 

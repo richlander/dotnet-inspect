@@ -241,6 +241,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool DiscoverDeferredToListing { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
+    public bool FieldsExplicitlySet { get; init; }
     public bool Schema { get; init; }
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
@@ -432,13 +433,13 @@ public record MethodSourceContext(
     string? SourceUrl,
     string? ChecksumAlgorithm = null,
     string? Checksum = null,
-    DotnetInspector.Services.SourceChecksumVerification ChecksumVerification =
-        DotnetInspector.Services.SourceChecksumVerification.Unavailable)
+    ILInspector.SourceLink.SourceChecksumVerification ChecksumVerification =
+        ILInspector.SourceLink.SourceChecksumVerification.Unavailable)
 {
     public bool HasChecksumEvidence =>
         !string.IsNullOrWhiteSpace(ChecksumAlgorithm)
         && !string.IsNullOrWhiteSpace(Checksum)
         && ChecksumVerification is
-            DotnetInspector.Services.SourceChecksumVerification.Exact
-            or DotnetInspector.Services.SourceChecksumVerification.LineEndingNormalized;
+            ILInspector.SourceLink.SourceChecksumVerification.Exact
+            or ILInspector.SourceLink.SourceChecksumVerification.LineEndingNormalized;
 }

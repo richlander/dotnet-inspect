@@ -5,7 +5,7 @@
 This document defines the Inspect Web public-evidence bridge: the narrow
 same-origin transport used when a product-owned Browser/Wasm operation needs a
 fixed public provider whose response is not browser-CORS-readable. Its first
-consumer is Package Changes, tracked by
+consumer is Package Activity, tracked by
 [#7037](https://github.com/richlander/dotnet-inspect/issues/7037) as a
 prerequisite to step 7 of the eight-step
 [#6124](https://github.com/richlander/dotnet-inspect/issues/6124) adoption
@@ -136,7 +136,7 @@ their payloads.
 
 Package-change Worker streaming and Browser presentation remain follow-on work
 under the ecosystem-report and Browser operation owners. This slice does not
-make Package Changes user-visible, add a query mode, or claim the complete
+make Package Activity user-visible, add a query mode, or claim the complete
 Browser adoption step.
 
 The bridge is host-specific rather than shared product substrate: the CLI can
@@ -162,5 +162,5 @@ Release gates must establish:
   unchanged or is rejected as specified, never redirected through the bridge.
 
 These gates enforce this owner's construction and transport claims. The
-existing Package Changes query, presentation, CLI, and later real-Wasm gates
+existing Package Activity query, presentation, CLI, and later real-Wasm gates
 remain responsible for report semantics and production-host behavior.

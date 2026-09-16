@@ -1134,7 +1134,7 @@ test.describe("Package Query website over real Wasm", () => {
 
 });
 
-test.describe("Package Changes website over real Wasm", () => {
+test.describe("Package Activity website over real Wasm", () => {
   test("streams product activity and reconciles typed partial evidence", async ({
     page,
     context,
@@ -1271,6 +1271,11 @@ test.describe("Package Changes website over real Wasm", () => {
     await expect(page.locator("#package-query-prefix"))
       .toBeVisible({ timeout: 120_000 });
     await page.locator('[data-query-mode="changes"]').click();
+    await expect(page.locator('[data-query-mode="changes"]'))
+      .toHaveText("Activity");
+    await expect(page.locator("#package-changes-heading"))
+      .toHaveText("Package Activity");
+    await expect(page).toHaveTitle("Package Activity · dotnet-inspect");
     const packageSet = page.locator("#package-changes-package-set");
     await expect(packageSet).toBeVisible();
     expect(await packageSet.locator("option").count()).toBeGreaterThan(0);
@@ -1282,7 +1287,7 @@ test.describe("Package Changes website over real Wasm", () => {
     await page.locator("#package-changes-run").click();
     expect(await maximumRows.evaluate(input => {
       if (!(input instanceof HTMLInputElement)) {
-        throw new Error("Package Changes maximum rows is not an input.");
+        throw new Error("Package Activity maximum rows is not an input.");
       }
       return input.validity.valueMissing;
     })).toBe(true);
@@ -1338,7 +1343,7 @@ test.describe("Package Changes website over real Wasm", () => {
       const first = document.querySelector<HTMLElement>(
         "[data-changes-row-index='0']");
       if (!scroll || !window || !first) {
-        throw new Error("Package Changes window geometry is unavailable.");
+        throw new Error("Package Activity window geometry is unavailable.");
       }
       const scrollRect = scroll.getBoundingClientRect();
       const windowRect = window.getBoundingClientRect();
@@ -1350,7 +1355,7 @@ test.describe("Package Changes website over real Wasm", () => {
     });
     expect(geometry.extent).toBeGreaterThan(1_600);
     await expect(page.locator("#package-changes-row-window"))
-      .toHaveAttribute("aria-label", "Changes 1 through 30 of 40");
+      .toHaveAttribute("aria-label", "Activity events 1 through 30 of 40");
     const retainedLink = page.locator(
       "[data-changes-row-index='10'] [data-package-changes-focus-key='package-10']");
     await retainedLink.focus();
@@ -1360,7 +1365,7 @@ test.describe("Package Changes website over real Wasm", () => {
       element.dispatchEvent(new Event("scroll"));
     });
     await expect(page.locator("#package-changes-row-window"))
-      .not.toHaveAttribute("aria-label", "Changes 1 through 30 of 40");
+      .not.toHaveAttribute("aria-label", "Activity events 1 through 30 of 40");
     expect(await scroller.evaluate(element => element.scrollTop))
       .toBeGreaterThanOrEqual(geometry.target);
     await expect(page.locator(".package-changes-row")).toHaveCount(30);

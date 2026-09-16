@@ -412,7 +412,8 @@ internal sealed record ProductTargetBody(
     IReadOnlyList<DecompilerDecision> Decisions,
     string? ConstructorChain = null,
     bool RequiresAsyncModifier = false,
-    bool RequiresUnsafeModifier = false);
+    bool RequiresUnsafeModifier = false,
+    DecompilationFidelity Fidelity = DecompilationFidelity.Full);
 
 internal sealed class CompileBackSourceUnavailableException(string message)
     : InvalidOperationException(message)
@@ -481,7 +482,8 @@ public static class CompileBackSourceComposer
             produced.Projection.Decisions,
             produced.Projection.ConstructorChain,
             produced.Body.RequiresAsyncModifier,
-            produced.Body.RequiresUnsafeModifier);
+            produced.Body.RequiresUnsafeModifier,
+            produced.Projection.Fidelity);
     }
 
     // ReferencedNamespaces already returns an ordinal-sorted set; route "System"

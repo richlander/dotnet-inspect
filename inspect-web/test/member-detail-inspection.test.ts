@@ -27,6 +27,7 @@ import {
   type MemberFindingCensus,
 } from "../src/finding-interaction.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 import {
   createAppMemberSurface,
   type AppMemberSurface,
@@ -136,7 +137,7 @@ function annotatedResult(): AnnotatedSourceResult {
   return {
     document,
     viewerCatalog: sampleViewerCatalog,
-    provenance: "decompiled from IL",
+    provenance: inertStringFixture("decompiled from IL"),
     contextLimitation: null,
   };
 }

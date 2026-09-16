@@ -11,7 +11,7 @@ namespace DotnetInspector.Platforms.Packages;
 /// Realizes Platform reference distributions through host-authorized Package Source operations.
 /// Each call consumes its operation lease; clients, stores and retained package content stay caller-owned.
 /// </summary>
-public sealed class PackagePlatformSource
+public sealed partial class PackagePlatformSource
 {
     private readonly object _association = new();
     private readonly IPackageSourceAuthorization _authorization;

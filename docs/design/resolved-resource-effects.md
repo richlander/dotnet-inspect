@@ -237,6 +237,14 @@ neither expands nor mutates the generation. An unexpected
 `PlanExpansionRequired` at that point is typed incomplete evidence, never
 `Unmatched`.
 
+Interface application uses two explicit bounded planning phases: retained
+concrete declaring types contribute their exact `InterfaceImpl` types, then
+those types contribute their interface member definitions and signatures.
+Only recipes, source registrations, addresses, and requests survive between
+phases. All definition and closed-slot projections and the occurrence receipt
+are issued against the final generation; this is not an unbounded discovery
+fixpoint.
+
 ## Resolution request
 
 One resolution request carries:
@@ -699,6 +707,21 @@ the frozen resolution context. It returns:
 - `Incomplete`, when required metadata, type binding, or bounded work is
   unavailable.
 
+  Applications are indexed by admitted declaration, not by static interface
+  calls. A concrete-only invocation can therefore receive its interface effect.
+  The index is associated with the exact admission receipt and final
+  occurrence-population receipt as well as the catalog and generation.
+  `CatalogMemberJoinKey` retains its open-signature correspondence contract;
+  the application proof separately retains the exact closed interface type and
+  substituted slot signature. Method-generic parameters remain symbolic during
+  slot matching. Resource binding uses the concrete invocation's method
+  arguments and generic scope, with declaration-relative references still
+  interpreted in the selected interface definition's origin.
+  Caller-owned generic parameters introduced by declaring-type substitution
+  remain distinct from the interface method's symbolic parameters, including
+  when both have the same ordinal. Occurrence binding substitutes the original
+  signature simultaneously rather than reinterpreting an inserted argument.
+
 The proof first resolves an exact closed `InterfaceImpl` relationship for the
 concrete declaring type. It then evaluates every `MethodImpl` row on that type
 whose declaration may name the exact closed interface slot. One unique
@@ -743,6 +766,13 @@ charges:
 - compatibility comparisons; and
 - retained diagnostics and provenance associations.
 
+Interface application additionally accounts for relationship rows, interface
+definition methods and their metadata associations, slot comparisons, selector
+bindings, and retained application proofs. Signature work is accumulated
+across definition reading, substitution, and application matching. Exhaustion
+stops the affected expensive traversal, retaining its typed dimension and the
+incomplete suffix rather than scanning the remaining Cartesian population.
+
 Candidate indexes may conservatively admit extra work, but a complete
 `Unmatched` result requires complete final matching over the request
 population. Exhaustion produces typed incomplete evidence with the exact
@@ -778,6 +808,14 @@ The resolved receipt is derived from:
 - ordered occurrence-bound effects and their exact provenance associations;
 - completion state; and
 - ordered incomplete or conflict evidence.
+
+Semantic coalescing keys only on the physical occurrence and canonical bound
+effect. Each source association retains the full set of its exact interface
+application proofs, including definition identities, closed-slot shapes and
+forwarding evidence. Proof sets are ordered and serialized into the receipt;
+they are not part of semantic effect equality and are never reduced to an
+arbitrary representative. The singular convenience view is available only
+when the effect has exactly one distinct proof.
 
 The receipt does not hash display text. Equal receipts require equal exact
 inputs, associations, completion, and output. A new Metadata generation, even
@@ -859,6 +897,12 @@ The implementation gate must cover:
 - property accessor, constructor, and field definition occurrences;
 - callback and outcome local labels normalizing to occurrence-local facts;
 - equal effects coalescing with every provenance association retained;
+- closed `I<int>` and `I<string>` remaining distinct, a non-generic concrete
+  type implementing `I<int>`, and concrete-only calls receiving their effects;
+- interface and concrete method-generic invocations binding independently;
+- multiple interface proofs coalescing at one physical occurrence without
+  losing their source associations, and mismatched application-index admission
+  or population receipts being rejected within the same generation;
 - borrow-versus-consume, unequal terminal transition, overlapping operation
   fact, borrow/derive/pass/move/consume/accept-versus-independent, and
   acquire/borrow-lender-versus-independent conflicts, plus callback conflicts;

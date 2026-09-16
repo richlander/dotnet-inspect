@@ -1,5 +1,11 @@
 import { dotnet } from "./runtime-loader.js";
 
+declare const inertStringBrand: unique symbol;
+
+export type InertString = string & {
+  readonly [inertStringBrand]: "InertString";
+};
+
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
@@ -19,7 +25,7 @@ export type JsonValueKind = number;
 export interface BrowserAnnotatedSource {
   readonly document: unknown;
   readonly viewerCatalog: BrowserAnnotatedSourceViewerCatalog;
-  readonly provenance: string;
+  readonly provenance: InertString;
   readonly contextLimitation: string | null;
 }
 
@@ -223,7 +229,7 @@ export interface BrowserMethodBodyTargetsResult {
 
 export interface BrowserSource {
   readonly provider: string;
-  readonly provenance: string;
+  readonly provenance: InertString;
   readonly url: string | null;
   readonly pdbSourceLimitation: string | null;
   readonly text: string;

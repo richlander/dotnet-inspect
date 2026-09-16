@@ -347,6 +347,25 @@ without changing the suite's MSDL symbol request validation, fixed upstream
 authority, response bounds, failure mapping, package-change evidence routing,
 or Function response-security evidence.
 
+`DecompilerHarness.Tests` is the thirtieth migrated adopter. Its required
+decompiler CI and developer commands remain unfiltered, while focused
+development uses MTP class and method filters. These paths reuse the pinned
+outcome-level host gate without changing the harness-owned ReturnToSender
+compilation-closure evidence or the decompiler suite's separate gate presets
+and completeness receipts.
+
+`Inspector.Resources.Tests` is the thirty-first migrated adopter. Its required
+resource-contract CI command remains unfiltered. This path reuses the pinned
+outcome-level host gate without changing the suite's ownership-role attribute,
+stack-only snapshot view, borrow lifetime, callback, failure-propagation, or
+owner-release evidence.
+
+`NetworkAccess.Tests` is the thirty-second migrated adopter. Its required
+network-policy CI and developer commands remain unfiltered. This path reuses
+the pinned outcome-level host gate without changing the suite-owned IPv4 and
+IPv6 non-public destination-classification evidence used by independent
+desktop transports.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
