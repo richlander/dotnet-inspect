@@ -2233,7 +2233,7 @@ public sealed class DependsAssetCommandTests
             ]);
 
         Assert.Equal(0, countExitCode);
-        Assert.Equal($"0{Environment.NewLine}", countOutput);
+        Assert.Equal("0\n", countOutput);
         Assert.Empty(countError);
     }
 
