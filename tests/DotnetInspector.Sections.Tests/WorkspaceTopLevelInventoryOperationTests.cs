@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -11,15 +12,19 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
     {
         await using RealizationFixture fixture =
             await RealizationFixture.CreateAsync();
-        const string packet = "workspace-packet";
+        WorkspaceDefinitionShareProjectionReceipt projection =
+            Project(
+                fixture.Lease.Definition,
+                WorkspaceDefinitionShareProjectionSource.PacketInput,
+                "System.Text.Json");
+        string packet = projection.CanonicalPacket;
 
         WorkspaceTopLevelInventoryExecution execution =
             WorkspaceTopLevelInventoryOperation.Execute(
                 fixture.Lease,
                 WorkspaceTopLevelInventoryRequest.All,
-                WorkspaceTopLevelInventoryShareBasis.CreatePacketInput(
-                    fixture.Lease.Definition,
-                    packet));
+                WorkspaceTopLevelInventoryShareBasis.CreateProjectable(
+                    projection));
 
         var available =
             Assert.IsType<WorkspaceTopLevelInventoryOutcome.Available>(
@@ -63,9 +68,11 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
                     [
                         WorkspaceTopLevelInventoryEntryKind.Package,
                     ])),
-                WorkspaceTopLevelInventoryShareBasis.CreateDefinitionInput(
-                    fixture.Lease.Definition,
-                    "workspace-packet"));
+                WorkspaceTopLevelInventoryShareBasis.CreateProjectable(
+                    Project(
+                        fixture.Lease.Definition,
+                        WorkspaceDefinitionShareProjectionSource.DefinitionInput,
+                        "System.Text.Json")));
 
         Assert.IsType<WorkspaceTopLevelInventoryOutcome.Available>(
             unfiltered.Inspection.Content);
@@ -93,14 +100,23 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
         var request = new WorkspaceTopLevelInventoryRequest(
             new WorkspaceTopLevelInventoryKindFilter(
                 Array.Empty<WorkspaceTopLevelInventoryEntryKind>()));
+        WorkspaceDefinitionShareProjectionReceipt foreignProjection =
+            Project(
+                second.Lease.Definition,
+                WorkspaceDefinitionShareProjectionSource.PacketInput,
+                "Markout");
+        WorkspaceSharePacket foreignPacket =
+            WorkspaceSharePacketCodec.Decode(
+                foreignProjection.CanonicalPacket,
+                TestContext.Current.CancellationToken);
+        Assert.Equal("Markout", foreignPacket.Tabs[0].Source);
 
         WorkspaceTopLevelInventoryExecution execution =
             WorkspaceTopLevelInventoryOperation.Execute(
                 first.Lease,
                 request,
-                WorkspaceTopLevelInventoryShareBasis.CreatePacketInput(
-                    second.Lease.Definition,
-                    "foreign-packet"));
+                WorkspaceTopLevelInventoryShareBasis.CreateProjectable(
+                    foreignProjection));
 
         var unavailable =
             Assert.IsType<WorkspaceTopLevelInventoryOutcome.Unavailable>(
@@ -129,9 +145,11 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
                     new WorkspaceTopLevelInventoryKindFilter(
                         Array.Empty<
                             WorkspaceTopLevelInventoryEntryKind>())),
-                WorkspaceTopLevelInventoryShareBasis.CreatePacketInput(
-                    fixture.Lease.Definition,
-                    "workspace-packet"));
+                WorkspaceTopLevelInventoryShareBasis.CreateProjectable(
+                    Project(
+                        fixture.Lease.Definition,
+                        WorkspaceDefinitionShareProjectionSource.PacketInput,
+                        "System.Text.Json")));
 
         var rejected =
             Assert.IsType<WorkspaceTopLevelInventoryOutcome.Rejected>(
@@ -148,6 +166,40 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
                     == "workspace-top-level-inventory.invalid-filter");
         Assert.False(execution.Selection.HasAuthority);
     }
+
+    [Fact]
+    public void DefinitionShareProjectionReceiptIsNotPubliclyConstructible()
+    {
+        Assert.Empty(
+            typeof(WorkspaceDefinitionShareProjectionReceipt)
+                .GetConstructors());
+    }
+
+    static WorkspaceDefinitionShareProjectionReceipt Project(
+        WorkspaceDefinitionSnapshot definition,
+        WorkspaceDefinitionShareProjectionSource source,
+        string packageId) =>
+        new(
+            definition,
+            source,
+            new WorkspaceSharePacket(
+                [
+                    new WorkspaceShareTab(
+                        WorkspaceShareSourceKind.Package,
+                        packageId,
+                        "1.0.0",
+                        "net11.0",
+                        runtimeIdentifier: null),
+                ],
+                [new WorkspaceShareContext([0])],
+                activeTabIndex: 0,
+                selectedContextIndex: 0,
+                lens: null,
+                type: null,
+                memberAnchor: null,
+                memberSignature: null,
+                section: null,
+                libraries: []));
 
     sealed class RealizationFixture : IAsyncDisposable
     {

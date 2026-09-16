@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspector.Sections;
 
@@ -45,17 +46,15 @@ public sealed class WorkspaceTopLevelInventoryShareBasis
         WorkspaceDefinitionSnapshot definition,
         WorkspaceTopLevelInventoryShareRequestKind requestKind,
         WorkspaceTopLevelInventoryShareProjection projection)
+        : this(
+            (definition
+                ?? throw new ArgumentNullException(nameof(definition)))
+                .Workspace,
+            definition.Registrations.Identity,
+            definition.Scope.Identity,
+            requestKind,
+            projection)
     {
-        ArgumentNullException.ThrowIfNull(definition);
-        if (!Enum.IsDefined(requestKind))
-            throw new ArgumentOutOfRangeException(nameof(requestKind));
-
-        Workspace = definition.Workspace;
-        RegistrationRevision = definition.Registrations.Identity;
-        ScopeRevision = definition.Scope.Identity;
-        RequestKind = requestKind;
-        Projection =
-            projection ?? throw new ArgumentNullException(nameof(projection));
     }
 
     public InspectionWorkspaceIdentity Workspace { get; }
@@ -68,23 +67,26 @@ public sealed class WorkspaceTopLevelInventoryShareBasis
 
     public WorkspaceTopLevelInventoryShareProjection Projection { get; }
 
-    public static WorkspaceTopLevelInventoryShareBasis CreatePacketInput(
-        WorkspaceDefinitionSnapshot definition,
-        string canonicalPacket) =>
-        new(
-            definition,
-            WorkspaceTopLevelInventoryShareRequestKind.PacketInput,
+    public static WorkspaceTopLevelInventoryShareBasis CreateProjectable(
+        WorkspaceDefinitionShareProjectionReceipt projection)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        return new(
+            projection.Workspace,
+            projection.RegistrationRevision,
+            projection.ScopeRevision,
+            projection.Source switch
+            {
+                WorkspaceDefinitionShareProjectionSource.PacketInput =>
+                    WorkspaceTopLevelInventoryShareRequestKind.PacketInput,
+                WorkspaceDefinitionShareProjectionSource.DefinitionInput =>
+                    WorkspaceTopLevelInventoryShareRequestKind.DefinitionInput,
+                _ => throw new InvalidOperationException(
+                    "Unknown Workspace Definition Share projection source."),
+            },
             new WorkspaceTopLevelInventoryShareProjection.Projectable(
-                canonicalPacket));
-
-    public static WorkspaceTopLevelInventoryShareBasis CreateDefinitionInput(
-        WorkspaceDefinitionSnapshot definition,
-        string canonicalPacket) =>
-        new(
-            definition,
-            WorkspaceTopLevelInventoryShareRequestKind.DefinitionInput,
-            new WorkspaceTopLevelInventoryShareProjection.Projectable(
-                canonicalPacket));
+                projection.CanonicalPacket));
+    }
 
     public static WorkspaceTopLevelInventoryShareBasis CreateRealizedWorkspace(
         WorkspaceDefinitionSnapshot definition) =>
@@ -94,6 +96,27 @@ public sealed class WorkspaceTopLevelInventoryShareBasis
             new WorkspaceTopLevelInventoryShareProjection.NonProjectable(
                 WorkspaceTopLevelInventoryShareNonProjectableReason
                     .NoRetainedDefinitionProjection));
+
+    WorkspaceTopLevelInventoryShareBasis(
+        InspectionWorkspaceIdentity workspace,
+        WorkspaceRegistrationRevisionIdentity registrationRevision,
+        WorkspaceScopeRevisionIdentity scopeRevision,
+        WorkspaceTopLevelInventoryShareRequestKind requestKind,
+        WorkspaceTopLevelInventoryShareProjection projection)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(registrationRevision);
+        ArgumentNullException.ThrowIfNull(scopeRevision);
+        if (!Enum.IsDefined(requestKind))
+            throw new ArgumentOutOfRangeException(nameof(requestKind));
+
+        Workspace = workspace;
+        RegistrationRevision = registrationRevision;
+        ScopeRevision = scopeRevision;
+        RequestKind = requestKind;
+        Projection =
+            projection ?? throw new ArgumentNullException(nameof(projection));
+    }
 
     internal bool Matches(WorkspaceDefinitionSnapshot definition) =>
         ReferenceEquals(Workspace, definition.Workspace)
