@@ -191,8 +191,14 @@ synthetic cases preserve the explicit Layer 0 compatibility path, while its
 detached-clone case proves that production structuring candidates retain their
 function evidence owner.
 `ProtectedContinueRecoveryTests` gates the production `ForLoopPass` adoption
-outcome. These gates do not verify the later classic-async correspondence or
-return-timing consumer migrations.
+outcome.
+`ClassicInverseCoreExceptionTests` gates the classic-async consumer: production
+raw membership comes from `LocationAt`, structured catch/finally projections
+retain exact clause and region associations, raw and planning views share one
+fact observation, missing correlation declines visibly, and same-range foreign
+identity cannot license reconstruction. The full `ClassicInverseCoreTests`
+population gates unchanged recipe and accounting behavior. These gates do not
+verify the later return-timing consumer migration.
 
 ### EH normal-continuation return timing
 
