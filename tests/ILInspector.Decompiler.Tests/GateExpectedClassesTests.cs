@@ -97,7 +97,7 @@ public class GateExpectedClassesTests
 
         return preset.Args
             .Select((arg, i) => (arg, i))
-            .Where(x => x.arg == "-class")
+            .Where(x => x.arg == "--filter-class")
             .Select(x => preset.Args[x.i + 1])
             .ToList();
     }
