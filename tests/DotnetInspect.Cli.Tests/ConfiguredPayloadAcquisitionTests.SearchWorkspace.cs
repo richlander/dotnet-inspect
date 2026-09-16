@@ -595,6 +595,62 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Find_LocatorPublishesDefinitionsInsteadOfForwarders(
+        bool limit)
+    {
+        string id =
+            $"Workspace.Search.Forwarder.{Guid.NewGuid():N}";
+        byte[] facade = await File.ReadAllBytesAsync(
+            FixtureCatalog.MatchBindingFacade.AssemblyPath(),
+            TestContext.Current.CancellationToken);
+        byte[] implementation = await File.ReadAllBytesAsync(
+            FixtureCatalog.MatchBindingImplementation.AssemblyPath(),
+            TestContext.Current.CancellationToken);
+        byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+            ($"{id}.nuspec", "<package />"u8.ToArray()),
+            (
+                "lib/net11.0/"
+                    + FixtureCatalog.MatchBindingFacade.AssemblyFileName,
+                facade),
+            (
+                "lib/net11.0/"
+                    + FixtureCatalog.MatchBindingImplementation
+                        .AssemblyFileName,
+                implementation));
+        ConfigureCommandFeed(id, package);
+
+        var arguments = new List<string>
+        {
+            "find",
+            "DotnetInspector.MatchBinding.ComparisonApi",
+            "--package", $"{id}@{Version}",
+            "--tfm", "net11.0",
+            "--source", FirstFeed,
+            "--json",
+            "--tips", "q",
+        };
+        if (limit)
+        {
+            arguments.Add("-n");
+            arguments.Add("1");
+        }
+
+        var result = await RunCommandAsync([.. arguments]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Equal("", result.Error);
+        using System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        System.Text.Json.JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            "DotnetInspector.MatchBinding.Implementation",
+            row.GetProperty("library").GetString());
+    }
+
+    [Theory]
     [InlineData(
         "DotnetInspect.Cli.Tests.NullablePatternTarget<string?>",
         "Exact")]

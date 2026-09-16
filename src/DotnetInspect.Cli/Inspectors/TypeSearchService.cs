@@ -470,6 +470,12 @@ internal static class TypeSearchService
         foreach (TypeDeclarationLocatorSectionCandidate candidate
             in candidates)
         {
+            if (candidate.DeclarationKind
+                is not AssemblyTypeDeclarationKind.Definition)
+            {
+                continue;
+            }
+
             string fullName =
                 candidate.Name.ToMetadataFullName();
             if (typeFilter is not null

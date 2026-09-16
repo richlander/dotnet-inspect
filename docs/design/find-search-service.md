@@ -43,22 +43,20 @@ Locator adoption is presentation-compatible under
 [CLI change classification](cli-change-classification.md). Default Markdown,
 tips, table formats, and plain type-search JSON preserve their established
 shapes; plain JSON remains a root `TypeFindResult` array.
-The locator's declaration role (`Definition` or `Forwarder`) is not the
-published row's type category (`class`, `struct`, `interface`, `enum`, or
-`delegate`). Metadata supplies the type category for definitions. A forwarder
-may reuse it only from a same-name definition selected in the same answer;
-otherwise Find uses the compatibility inventory rather than guessing a
-category or leaking the declaration role into the result.
+Find publishes definition rows only, matching the compatibility inventory.
+Forwarding declarations remain internal locator evidence and do not become
+additional `TypeFindResult` rows. Metadata supplies each definition's published
+type category (`class`, `struct`, `interface`, `enum`, or `delegate`); the
+locator's declaration role never becomes that category.
 
 Default discovery consumes Metadata's definition-local `IsDefinitionPublic`
 and `DiscoveryAttributes` facts. A definition whose own row is not Public or
 NestedPublic, a compiler-generated leaf name, or a known
 `EditorBrowsable(Never)` or obsolete definition is suppressed; `--all` admits
 nonpublic and attribute-hidden definitions but continues to suppress generated
-names. A same-name forwarder may reuse discovery attributes from a definition
-in the same answer. When required definition-local evidence cannot be
-established, Find uses the compatibility inventory rather than publishing a
-candidate under a guessed visibility policy.
+names. When required definition-local evidence cannot be established, Find
+uses the compatibility inventory rather than publishing a candidate under a
+guessed visibility policy.
 
 This service deliberately remains inside the CLI project. It consumes
 `FindOptions`, a host `HttpClient`, and the CLI diagnostic path, so it is not an
@@ -408,7 +406,8 @@ the command compatibility boundary:
   locator adapter;
 - visible Platform implementation-view handoff and command decline;
 - configured-source command decline; and
-- separate `System.Object` definition and forwarder choices.
+- definitions-only publication when a Package contains both a forwarding
+  facade and its implementation.
 
 `FindTypesAsync_NullableGenericPatternIsClassifiedAsExact` is the first focused
 service-level classification gate. It verifies that result classification uses
