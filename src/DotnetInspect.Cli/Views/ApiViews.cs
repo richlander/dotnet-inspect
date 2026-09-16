@@ -1276,6 +1276,9 @@ public class MemberCodeView
     [MarkoutIgnore]
     public int? CallGraphRowCount { get; set; }
 
+    [MarkoutIgnore]
+    public IReadOnlyList<string> CallGraphRenderedFields { get; set; } = [];
+
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 

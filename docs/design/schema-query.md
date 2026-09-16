@@ -126,7 +126,7 @@ Structural, effective, and rendered evidence answer different questions:
 | --- | --- | --- |
 | Structural schema | What can this document address? | Markout-generated schema plus product-owned composition |
 | Effective schema | Which structural sections are applicable and have evidence for this request? | Section and operation planning owners |
-| Rendered manifest | Which fields and columns did this exact render emit? | Markout formatter events captured by the product host |
+| Rendered manifest | Which fields and columns did this exact render emit? | Markout formatter events plus typed evidence from composite-shape owners |
 
 ### Structural discovery
 
@@ -154,8 +154,8 @@ was invalid. Effective filtering consumes owner-issued outcomes.
 ### Rendered manifest
 
 A valid structural field or column may still produce no row in one render.
-Post-render diagnosis uses formatter events, not text search over the final
-Markdown, table, or JSON artifact.
+Post-render diagnosis uses typed render evidence, not text search over the
+final Markdown, table, or JSON artifact.
 
 `RenderedSectionManifest` records section-scoped fields, declared table
 headers, and data-bearing table columns from the actual Markout render. It
@@ -174,6 +174,15 @@ rebuild the domain model. When a request combines field and column projection,
 one additional field-only replay preserves field-row identity after column
 lowering removes the `Field` cell. A fan-out formatter is not used because
 Markout formatters carry format-specific behavior as well as event callbacks.
+
+When a generic Markout shape cannot carry a product domain's projected field
+identities, the product adapter that created the shape records those identities
+from the same typed facts and selected rows. The Call Graph adapter follows
+this rule: Markout owns graph nodes and edges but not the analysis-field
+vocabulary embedded in node labels, so the adapter records only fields that
+produced annotations on nodes present in the selected graph lowering. The
+section owner merges that evidence into the manifest. It does not parse node
+labels or mark every requested field as present.
 
 The manifest is render evidence, not a replacement schema. It cannot advertise
 an item that was not structurally addressable, and one empty render must not

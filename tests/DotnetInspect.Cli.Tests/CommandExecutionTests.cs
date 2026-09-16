@@ -8737,6 +8737,56 @@ public partial class CommandExecutionTests
         Assert.Contains("| Type Parameters | T |", output);
     }
 
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Type_TypeInfoSection_NonTabularValidEmptyFieldReportsNoData(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            SectionNames.TypeInfo,
+            "--fields",
+            "Type Parameters",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output.Trim());
+        Assert.Contains(
+            "Note: 1 field has no data: Type Parameters",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Type_NonTabularUnknownFieldWithoutSectionFails(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "--fields",
+            "NoSuchField",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "No fields matched projection: NoSuchField",
+            error);
+    }
+
     /// <summary>
     /// Bare <c>-S</c> on a single type renders the fixed overview: sections whose length does not
     /// depend on which type is being viewed. It used to render the Info set - the per-kind member

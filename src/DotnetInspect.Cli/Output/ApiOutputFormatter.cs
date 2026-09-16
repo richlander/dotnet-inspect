@@ -1695,17 +1695,27 @@ public static class ApiOutputFormatter
                 // before rendering. Either route addresses the same stable edge rows exactly once.
                 IReadOnlyList<ILInspector.CallGraph.CallGraphRow>? renderedRows =
                     loweringNeedsSelectedGraph ? selectedRows : null;
-                memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
-                    projection,
-                    FormatCallee,
-                    analysisInspection.CallGraphFields,
-                    analysisInspection.HasCallGraphFieldProjection,
-                    renderedRows,
-                    analysisInspection.IncludesCallGraphOpportunities
-                        ? BuildCallGraphOpportunityAnnotations(
-                            projection,
-                            analysisInspection.CallGraphBodyIndexes)
-                        : null);
+                CallGraphSectionOutput graphOutput =
+                    CallGraphSectionAdapter.ToGraph(
+                        projection,
+                        FormatCallee,
+                        analysisInspection.CallGraphFields,
+                        analysisInspection.HasCallGraphFieldProjection,
+                        renderedRows,
+                        selectedRows,
+                        includeFocusInEvidence: loweringNeedsSelectedGraph,
+                        opportunityAnnotations:
+                            analysisInspection.IncludesCallGraphOpportunities
+                                ? BuildCallGraphOpportunityAnnotations(
+                                    projection,
+                                    analysisInspection.CallGraphBodyIndexes)
+                                : null);
+                memberCode.CallGraph = graphOutput.Graph;
+                memberCode.CallGraphRenderedFields =
+                [
+                    .. graphOutput.DataFields.SelectMany(
+                        CallGraphFieldSelection.NamesFor),
+                ];
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph)

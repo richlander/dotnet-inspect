@@ -89,6 +89,12 @@ internal sealed class RenderedSectionManifest
         GetOrCreateFields(section).Add(field);
     }
 
+    internal void RecordFields(string? section, IEnumerable<string> fields)
+    {
+        foreach (string field in fields)
+            RecordField(section, field);
+    }
+
     internal IReadOnlySet<string>? GetFields(string section)
         => _fields.TryGetValue(section, out var fields) ? fields : null;
 

@@ -7,6 +7,10 @@ namespace DotnetInspect.Cli.Output;
 internal readonly record struct CallGraphOpportunityAnnotations(
     int AsyncAlternatives);
 
+internal readonly record struct CallGraphSectionOutput(
+    Markout.Graph Graph,
+    IReadOnlySet<CallGraphField> DataFields);
+
 /// <summary>
 /// Turns the format-neutral <see cref="CallGraphProjection"/> into the generic
 /// <see cref="Markout.Graph"/> shape the writer lowers per format.
@@ -45,12 +49,14 @@ internal static class CallGraphSectionAdapter
     /// empty <paramref name="requestedFields"/> then means the projection did
     /// not request graph fields, not that default graph cues were requested.
     /// </param>
-    public static Markout.Graph ToGraph(
+    public static CallGraphSectionOutput ToGraph(
         CallGraphProjection projection,
         Func<MemberRef, string> spellMember,
         IReadOnlyList<CallGraphField>? requestedFields = null,
         bool hasFieldProjection = false,
         IReadOnlyList<CallGraphRow>? rows = null,
+        IReadOnlyList<CallGraphRow>? evidenceRows = null,
+        bool includeFocusInEvidence = false,
         IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
             opportunityAnnotations = null)
     {
@@ -114,7 +120,44 @@ internal static class CallGraphSectionAdapter
                 });
         }
 
-        return new Markout.Graph(nodes, edges, focusKey: Key(projection.Focus.Id));
+        var dataFields = new HashSet<CallGraphField>();
+        if (hasFieldProjection && requestedFields is { Count: > 0 })
+        {
+            var evidenceNodeIds = new HashSet<int>();
+            foreach (CallGraphRow row in evidenceRows ?? selectedRows)
+            {
+                evidenceNodeIds.Add(row.Edge.From);
+                evidenceNodeIds.Add(row.Edge.To);
+            }
+            if (includeFocusInEvidence)
+                evidenceNodeIds.Add(projection.Focus.Id);
+
+            foreach (CallGraphNode node in projection.Nodes)
+            {
+                if (!evidenceNodeIds.Contains(node.Id))
+                    continue;
+
+                foreach (CallGraphField field in requestedFields)
+                {
+                    if (Annotation(node.Perf, field) is not null
+                        || opportunityAnnotations is not null
+                        && opportunityAnnotations.TryGetValue(
+                            node.Id,
+                            out CallGraphOpportunityAnnotations opportunities)
+                        && OpportunityAnnotation(opportunities, field) is not null)
+                    {
+                        dataFields.Add(field);
+                    }
+                }
+            }
+        }
+
+        return new CallGraphSectionOutput(
+            new Markout.Graph(
+                nodes,
+                edges,
+                focusKey: Key(projection.Focus.Id)),
+            dataFields);
     }
 
     // The projection's dense ids are the node identity. They are opaque to Markout and never

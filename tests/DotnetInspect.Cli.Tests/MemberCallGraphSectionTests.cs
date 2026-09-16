@@ -786,7 +786,9 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Error);
+        Assert.Contains(
+            "Note: 1 field has no data: Category",
+            result.Error);
         Assert.Contains("## Call Graph", result.Output);
         Assert.Contains("## Facts", result.Output);
         Assert.DoesNotContain("fanout", result.Output);
@@ -1030,7 +1032,9 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Error);
+        Assert.Contains(
+            "Note: 1 field has no data: AsyncAlternatives",
+            result.Error);
         Assert.DoesNotContain("async alternatives", result.Output);
     }
 
@@ -1049,10 +1053,119 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
         Assert.Contains("## Call Graph", result.Output);
         Assert.Contains("depth 4", result.Output);
         Assert.Contains("loop", result.Output);
         Assert.DoesNotContain("fanout", result.Output);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CallGraphSection_StandaloneFormatsReportAbsentFields(
+        bool tree)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["Allocations"],
+            Tree = tree,
+            MermaidOutput = !tree,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.NotEmpty(result.Output);
+        Assert.Contains(
+            "Note: 1 field has no data: Allocations",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CallGraphSection_MachineFormatsRecognizeRenderedFields(
+        bool tsv)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["Depth", "Loop"],
+            Tabular = true,
+            Tsv = tsv,
+            Jsonl = !tsv,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("depth 4", result.Output);
+        Assert.Contains("loop", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_MachineFormatReportsAbsentField()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["Allocations"],
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(nameof(MemberCallGraphFixture.LoopHeavyCall), result.Output);
+        Assert.Contains(
+            "Note: 1 field has no data: Allocations",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_RowWindowExcludesFieldEvidence()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["Depth"],
+            Rows = RowWindow.Range(100, 100),
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.StartsWith("from\t", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(MemberCallGraphFixture.LoopHeavyCall),
+            result.Output);
+        Assert.Contains(
+            "Note: 1 field has no data: Depth",
+            result.Error);
     }
 
     [Fact]

@@ -2162,7 +2162,8 @@ public class ApiCommand
         RenderedSectionManifest manifest,
         ApiOptions options,
         DocumentSchema? schema = null,
-        IReadOnlyCollection<string>? sections = null)
+        IReadOnlyCollection<string>? sections = null,
+        bool requireMatchedProjection = true)
     {
         string[]? requested = options.Fields ?? options.Columns;
         if (requested is not { Length: > 0 })
@@ -2183,7 +2184,7 @@ public class ApiCommand
             sections,
             fieldSectionsAsColumns: true);
 
-        return TryReportEmptyProjection(
+        return !requireMatchedProjection || TryReportEmptyProjection(
             manifest.HasAnyData,
             options,
             schema);
@@ -3116,6 +3117,18 @@ public class ApiCommand
                 return 1;
             }
 
+            var projectionManifest = new RenderedSectionManifest();
+            MergeCallGraphRenderedFields(projectionManifest, view);
+            if (!DiagnoseProjection(
+                    projectionManifest,
+                    options,
+                    GetTypeDocumentSchema(options),
+                    options.IncludeSections,
+                    requireMatchedProjection: false))
+            {
+                return 1;
+            }
+
             if (graph.IsEmpty)
             {
                 sink.WriteLine("No inbound callers or outbound calls found for this method.");
@@ -3235,6 +3248,7 @@ public class ApiCommand
                     lockRootScope: true);
             }
 
+            MergeCallGraphRenderedFields(projectionManifest, view);
             if (!DiagnoseProjection(
                     projectionManifest,
                     options,
@@ -3246,46 +3260,97 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-            if (options.PlainText)
+            if (SelectResolver.IsActiveAllSelector(
+                options.Select,
+                options.IncludeSections,
+                options is MemberOptions { MemberSectionsPreResolved: true }))
             {
-                var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
-                ApiOutputFormatter.SerializeTypeDocument(
-                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-                writer.Flush();
+                var pipeline = ApiMemberSectionPipelines.Create(options);
+                writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
             }
-            else
+            else if (SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                options is MemberOptions { MemberSectionsPreResolved: true }))
             {
-                if (SelectResolver.IsActiveAllSelector(
-                    options.Select,
-                    options.IncludeSections,
-                    options is MemberOptions { MemberSectionsPreResolved: true }))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
-                }
-                else if (SelectResolver.IsActiveInfoSelector(
-                    options.SelectDefault,
-                    options.IncludeSections,
-                    options is MemberOptions { MemberSectionsPreResolved: true }))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    writerOptions.SectionOrder = pipeline.InfoSectionNames;
-                }
+                var pipeline = ApiMemberSectionPipelines.Create(options);
+                writerOptions.SectionOrder = pipeline.InfoSectionNames;
+            }
 
-                var sw = new StringWriter { NewLine = "\n" };
-                var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
+            DocumentSchema schema = GetTypeDocumentSchema(options);
+            var manifestFormatter = new RenderManifestFormatter(schema);
+            manifestFormatter.BeginDocument(writerOptions);
+            var manifestWriter = new MarkoutWriter(
+                TextWriter.Null,
+                manifestFormatter,
+                writerOptions);
+            ApiOutputFormatter.SerializeTypeDocument(
+                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, manifestWriter);
+            manifestWriter.Flush();
+            RenderedSectionManifest projectionManifest =
+                manifestFormatter.Manifest;
+            MergeCallGraphRenderedFields(projectionManifest, view);
+
+            if (options.Columns is { Length: > 0 }
+                && options.Fields is { Length: > 0 })
+            {
+                MarkoutWriterOptions fieldWriterOptions =
+                    ApiOutputFormatter.BuildTypeWriterOptions(
+                        type,
+                        options with { Columns = null });
+                fieldWriterOptions.RowWindow =
+                    RowWindow.ToMarkout(options.Rows);
+                fieldWriterOptions.SectionOrder = writerOptions.SectionOrder;
+                var fieldFormatter = new RenderManifestFormatter(schema);
+                fieldFormatter.BeginDocument(fieldWriterOptions);
+                var fieldManifestWriter = new MarkoutWriter(
+                    TextWriter.Null,
+                    fieldFormatter,
+                    fieldWriterOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-                writer.Flush();
-                var markdown = sw.ToString().TrimEnd();
-                OutputFormatter.WriteLfLine(sink, markdown);
+                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, fieldManifestWriter);
+                fieldManifestWriter.Flush();
+                projectionManifest.MergeFieldsFrom(fieldFormatter.Manifest);
+                MergeCallGraphRenderedFields(projectionManifest, view);
             }
+
+            if (!DiagnoseProjection(
+                    projectionManifest,
+                    options,
+                    schema,
+                    options.IncludeSections,
+                    requireMatchedProjection:
+                        options.IncludeSections is not { Count: > 0 }))
+                return 1;
+
+            var renderedWriter = new StringWriter { NewLine = "\n" };
+            var writer = new MarkoutWriter(
+                renderedWriter,
+                options.CreateFormatter(),
+                writerOptions);
+            ApiOutputFormatter.SerializeTypeDocument(
+                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
+            writer.Flush();
+            string rendered = renderedWriter.ToString();
+            if (options.PlainText)
+                sink.Write(rendered);
+            else
+                OutputFormatter.WriteLfLine(sink, rendered.TrimEnd());
         }
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);
         ApiOutputFormatter.WriteCallGraphWarning(view);
         return 0;
+    }
+
+    private static void MergeCallGraphRenderedFields(
+        RenderedSectionManifest manifest,
+        TypeView view)
+    {
+        if (view.MemberCode?.CallGraphRenderedFields is { Count: > 0 } fields)
+            manifest.RecordFields(SectionNames.CallGraph, fields);
     }
 
     private static async Task<int> PrintApiProjectionAsync(TypeView view, ApiOptions options)
