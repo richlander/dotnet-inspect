@@ -9534,7 +9534,7 @@ public partial class CommandExecutionTests
     [InlineData(new[] { "-S", "API Info", "--columns", "Field" }, "| Field |")]
     [InlineData(new[] { "-S", "API Info", "--columns", "Value" }, "| Value |")]
     [InlineData(new[] { "-S", "API Info,Classes", "--columns", "Field" }, "| Field |")]
-    [InlineData(new[] { "-S", "@All", "--columns", "Value" }, "| Value |")]
+    [InlineData(new[] { "-S", "@Surface", "--columns", "Value" }, "| Value |")]
     // A document-level field, which survives whichever section is selected.
     [InlineData(new[] { "-S", "Classes", "--fields", "Types" }, "Types:")]
     // Unmatched against the section, but the section's own table is not field-projected, so this
@@ -9912,7 +9912,8 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_Listing_ApiInfo_IsAdvertisedByDiscovery()    {
+    public async Task Type_Listing_ApiInfo_IsAdvertisedByDiscovery()
+    {
         // The discovery manifest is a second renderer fed by the option-filtered view, so a section
         // that renders under -S but never appears under -D is undiscoverable in practice.
         var (exit, output, _) = await RunAppAsync(
@@ -9920,6 +9921,138 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains(SectionNames.ApiInfo, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_DiscoveryUsesAuthoredSurfaceCategoryWithoutComputedPoles()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "-D", "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("@Surface", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@All", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@Default", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@Hidden", output, StringComparison.Ordinal);
+        Assert.Contains(SectionNames.ApiInfo, output, StringComparison.Ordinal);
+        Assert.Contains(SectionNames.InspectionFailures, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_SurfaceCategorySelectsTheCompleteCatalog()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            SectionCategoryNames.Surface,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## API Info", output, StringComparison.Ordinal);
+        Assert.Contains("## Classes", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_MixedSurfaceExposesForwarders()
+    {
+        var (_, discovery, _) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Drawing",
+            "-D",
+            "--table",
+            "--tips",
+            "q");
+        var (_, countOutput, _) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Drawing",
+            "-S",
+            SectionNames.TypeForwarders,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Contains("Classes", discovery, StringComparison.Ordinal);
+        Assert.Contains(
+            SectionNames.TypeForwarders,
+            discovery,
+            StringComparison.Ordinal);
+        Assert.True(
+            int.TryParse(countOutput.Trim(), out int count)
+            && count > 0);
+    }
+
+    [Theory]
+    [InlineData("--table", "Target Library", "Kind    Type")]
+    [InlineData("--tsv", "target_library\ttypes", "kind\ttype")]
+    [InlineData("--jsonl", "\"target_library\":", "\"kind\":")]
+    public async Task Type_Listing_MixedSurfaceProjectsForwardersInTabularFormats(
+        string format,
+        string expected,
+        string unexpected)
+    {
+        var (_, output, _) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Drawing",
+            "-S",
+            SectionNames.TypeForwarders,
+            format,
+            "--tips",
+            "q");
+
+        Assert.Contains(expected, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(unexpected, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Drawing.ColorConverter",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_ProjectedForwardersApplyRowsWithinSelectedSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            SectionNames.TypeForwarders,
+            "--table",
+            "--columns",
+            "Target Library",
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Target Library", output, StringComparison.Ordinal);
+        Assert.Contains("System.Runtime", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_ComputedAllSelectorIsRejected()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "@All",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value '@All' not found", error, StringComparison.Ordinal);
     }
 
     [Fact]
