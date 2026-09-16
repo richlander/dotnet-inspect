@@ -241,6 +241,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool DiscoverDeferredToListing { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
+    public bool FieldsExplicitlySet { get; init; }
     public bool Schema { get; init; }
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
