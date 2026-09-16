@@ -1153,7 +1153,7 @@ public static class AssemblyContextSourceQuery
             cancellationToken.ThrowIfCancellationRequested();
             FileStream transferred = owned;
             owned = null;
-            source.Context.LoadPdbFromStream(
+            source.LoadPdbFromStream(
                 transferred,
                 pdbLocation: "Standalone",
                 portablePdbPath: path,

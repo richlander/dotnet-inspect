@@ -27,7 +27,7 @@ an absence Finding or a source-provenance receipt.
 | Supporting owner | Role in this contract |
 | --- | --- |
 | [PDB acquisition](../pdb-acquisition.md) | Owns acquisition ordering, PDB-recorded local-file reads, source decoding/slicing, and remote outcome interpretation. |
-| `PdbSourceHouse.VerifyChecksum` | Supplies the checksum-verification classification consumed by this adapter. |
+| `SourceLinkService.VerifyChecksum` | Supplies the checksum-verification classification consumed by this adapter. |
 | Metadata and SourceLink | Supply document/checksum observations and resolved source locators. |
 | SourceLink provenance and the host source fetcher | Own immutable-origin classification and remote destination admission; local lookup does not replace either. |
 | CLI | Accepts explicit clone paths and presents the acquired source through existing views. |
