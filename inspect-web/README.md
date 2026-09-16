@@ -973,7 +973,7 @@ shared note explains that target selection is session-local and does not run a
 comparison.
 
 These controls prepare targets only: the Library Diff/Clone result inspectors
-remain follow-on work under #5083. The owner is
+remain follow-on work under #7213. The owner is
 [Browser Diff targets](../docs/design/inspect-web-diff-targets.md) for the
 Diff baseline and Structural Clone Search Scope for the replacement Clone
 breadth and candidate discovery.

@@ -555,7 +555,7 @@ public static class WorkspaceCommand
                 [
                     $"Expected a '{PackageRootReacquisitionRequest.TokenPrefix}' token of at most "
                     + $"{PackageRootReacquisitionRequest.MaxEncodedLength} characters, as printed in the "
-                    + "Root column of 'find --literal'.",
+                    + "Root column of 'package query ... --library-literal'.",
                 ]);
             return null;
         }

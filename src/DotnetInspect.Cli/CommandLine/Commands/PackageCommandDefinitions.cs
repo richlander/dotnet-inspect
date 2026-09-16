@@ -173,7 +173,8 @@ public static class PackageCommandDefinitions
             opts,
             packageCommand,
             packageNameArg,
-            prereleaseOption);
+            prereleaseOption,
+            tfmOption);
         packageCommand.Subcommands.Add(queryCommand);
         packageCommand.Subcommands.Add(
             PackageChangesCommandDefinitions.CreatePackageChangesCommand(
@@ -225,20 +226,20 @@ public static class PackageCommandDefinitions
                     return 1;
 
                 case PackageOptionsParser.Success success:
-                {
-                    var exitCode = await PackageCommand.ExecuteAsync(success.Options);
-
-                    if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && success.Options.PackageLibrary == null && !success.Options.AllLibraries && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
                     {
-                        var target = PackageExtractor.ParsePackageTarget(success.Options.PackageArgs[0]);
-                        var pkg = target.IsLocalFile
-                            ? target.OriginalArgument
-                            : PackageExtractor.ParsePackageReference(target.OriginalArgument).name;
-                        TipWriter.WritePackageTips(pkg, success.Options.TipLevel, success.Verbosity);
-                    }
+                        var exitCode = await PackageCommand.ExecuteAsync(success.Options);
 
-                    return exitCode;
-                }
+                        if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && success.Options.PackageLibrary == null && !success.Options.AllLibraries && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
+                        {
+                            var target = PackageExtractor.ParsePackageTarget(success.Options.PackageArgs[0]);
+                            var pkg = target.IsLocalFile
+                                ? target.OriginalArgument
+                                : PackageExtractor.ParsePackageReference(target.OriginalArgument).name;
+                            TipWriter.WritePackageTips(pkg, success.Options.TipLevel, success.Verbosity);
+                        }
+
+                        return exitCode;
+                    }
 
                 default:
                     return 1;
@@ -255,7 +256,8 @@ public static class PackageCommandDefinitions
         SharedOptions opts,
         Command packageCommand,
         Argument<string[]> inheritedPackageArgument,
-        Option<bool> inheritedPrereleaseOption)
+        Option<bool> inheritedPrereleaseOption,
+        Option<string?> inheritedTfmOption)
     {
         var queryCommand = new Command(
             "query",
@@ -273,7 +275,7 @@ public static class PackageCommandDefinitions
                 "Maximum package candidates to inspect "
                 + $"(otherwise default {PackageQuery.DefaultMaximumCandidates}; "
                 + $"{PackageQuery.MaximumPackageContentCandidates} for "
-                + "package-content queries; maximum "
+                + "package-content queries; 5 for --library-literal; maximum "
                 + $"{PackageQueryOptions.MaximumCandidates})",
             Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
@@ -288,6 +290,20 @@ public static class PackageCommandDefinitions
             Description =
                 "Reject queries that require package archive content"
         };
+        var libraryLiteralOption = new Option<string?>("--library-literal")
+        {
+            Description =
+                "Match packages whose selected primary implementation library "
+                + "contains this exact ordinal decoded IL string substring; "
+                + "requires --tfm",
+            Arity = ArgumentArity.ExactlyOne
+        };
+        var queryTfmOption = new Option<string?>("--tfm")
+        {
+            Description =
+                "Select the primary implementation library by TFM "
+                + "(required with --library-literal)"
+        };
         var compactOption = new Option<bool>("--compact")
         {
             Description = "Minified JSON (use with --json)"
@@ -299,6 +315,8 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(takeOption);
         queryCommand.Options.Add(prereleaseOption);
         queryCommand.Options.Add(nuspecOnlyOption);
+        queryCommand.Options.Add(libraryLiteralOption);
+        queryCommand.Options.Add(queryTfmOption);
         queryCommand.Options.Add(opts.RowWhere);
         queryCommand.Options.Add(opts.Json);
         queryCommand.Options.Add(compactOption);
@@ -346,6 +364,7 @@ public static class PackageCommandDefinitions
                 opts.Tree,
                 opts.QueryHelp,
                 inheritedPrereleaseOption,
+                inheritedTfmOption,
             };
             var unsupportedParentOption = packageCommand.Options.FirstOrDefault(
                 option => !acceptedParentOptions.Contains(option)
@@ -379,6 +398,22 @@ public static class PackageCommandDefinitions
 
             string[]? discover = opts.ParseDiscover(parseResult);
             OutputFormat format = opts.ResolveFormat(parseResult);
+            string? libraryLiteral =
+                parseResult.GetValue(libraryLiteralOption);
+            string? inheritedTfm =
+                parseResult.GetValue(inheritedTfmOption);
+            string? queryTfm =
+                parseResult.GetValue(queryTfmOption);
+            if (inheritedTfm is not null
+                && queryTfm is not null
+                && !inheritedTfm.Equals(
+                    queryTfm,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                CommandError.Write(
+                    "Package Query received conflicting --tfm values.");
+                return 1;
+            }
             if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                     parseResult,
                     "Package Query",
@@ -390,6 +425,13 @@ public static class PackageCommandDefinitions
             }
             if (discover is not null)
             {
+                if (libraryLiteral is not null)
+                {
+                    CommandError.Write(
+                        "--library-literal is not available with schema discovery.");
+                    return 1;
+                }
+
                 var discoveryOptions = new PackageQueryOptions
                 {
                     Plan = ((PackageQueryPlanResult.Accepted)PackageQuery.PlanInput(
@@ -447,6 +489,8 @@ public static class PackageCommandDefinitions
                     rowSelection,
                     parseResult.GetValue(inheritedPrereleaseOption)
                         || parseResult.GetValue(prereleaseOption),
+                    libraryLiteral,
+                    queryTfm ?? inheritedTfm,
                     out PackageQueryOptions? options,
                     out OptionError error))
             {
@@ -490,7 +534,9 @@ public static class PackageCommandDefinitions
         CliExecutionBoundCommandRegistry.Register(
             queryCommand,
             takeOption,
-            _ => PackageQueryOptions.MaximumCandidates,
+            result => result.GetValue(libraryLiteralOption) is null
+                ? PackageQueryOptions.MaximumCandidates
+                : PackageAcquisitionPopulation.MaximumCandidates,
             isActive: static _ => true);
 
         return queryCommand;
