@@ -651,6 +651,14 @@ Each step changes one owner. Steps 2-9 establish the reusable path; steps 10-12
 migrate production consumers and retire the alternative architecture. A change
 to the count or host coverage requires an explicit tracker update.
 
+The user-approved adapter-first sequence brings the assembly-context portion
+of step 9 ahead of step 5 under
+[#7312](https://github.com/richlander/dotnet-inspect/issues/7312).
+The [Workspace-owned adapter](assembly-context-library-adapter.md) supplies
+Library input for later House adoption; it does not complete step 9's broader
+adoption or the source-query and host migrations. The twelve steps and both
+production hosts remain in scope.
+
 Step 2 is the design correction tracked by
 [#6934](https://github.com/richlander/dotnet-inspect/issues/6934). SourceHouse
 implementation remains staged behind the Library contract floor, concrete

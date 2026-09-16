@@ -334,7 +334,7 @@ substrates, and inspection producers that will extend that space.
   provenance. PackageHouse, PlatformHouse, and direct-library adapters produce
   the shared representation; SourceLink, Decompiler, artifact lifetime,
   documentation, and host presentation remain with their focused owners.
-- The target
+- The
   [DocumentationHouse Composition](design/documentation-house.md) owner defines
   the sole host-neutral documentation settlement facade over one exact
   library-scoped type or member subject, an exact shared Library reference,
@@ -345,7 +345,10 @@ substrates, and inspection producers that will extend that space.
   conflicts instead of overwriting one source. PackageHouse, PlatformHouse,
   and direct-library adapters bind resource-free source evidence to exact
   Library content references; Metadata, CSharpText, SourceHouse, Library
-  ownership, and host presentation retain their focused authority.
+  ownership, and host presentation retain their focused authority. Its
+  contracts and core now implement the bounded compiled-XML attempt and
+  resource-free receipt; adapters, authored settlement, and host adoption
+  remain staged.
 - `src/DotnetInspector.LibraryMetadata/` owns
   [Library-Metadata correspondence](design/library-metadata-correspondence.md):
   bounded Metadata extraction inside one exact Library API-content snapshot
@@ -381,6 +384,14 @@ substrates, and inspection producers that will extend that space.
   newly constructed Workspace. Workspace construction itself remains empty and
   has no curated option; the handoff does not move catalog identity, display
   actions, or source execution downward.
+- The target
+  [Ecosystem Population Loading](design/ecosystem-population-loading.md) owner
+  defines one explicit host-neutral operation over a statically selected
+  Ecosystem loader binding. It preserves exact Workspace, registration,
+  capability, source-result, and admission correspondence while keeping loader
+  execution out of catalog discovery, registration, construction, and
+  restoration. The `.NET` Ecosystem is the first consumer and composes
+  PlatformHouse without exposing a user-facing Platform component.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -786,6 +797,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   population, and Integration contributions, typed projection outcomes, and
   Ecosystems-owned construction of the one curated
   Platform/ASP.NET Core/Microsoft.Extensions Workspace.
+- [Ecosystem Population Loading](design/ecosystem-population-loading.md):
+  explicit execution of one statically selected special loader for one exact
+  Workspace Ecosystem registration, with typed outcomes and owner-preserving
+  handoff to ordinary Workspace admission.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
