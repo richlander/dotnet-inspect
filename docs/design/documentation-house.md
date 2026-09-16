@@ -12,6 +12,22 @@ settles compiled XML documentation and documentation extracted from authored
 source over one exact shared Library reference and transferred operation lease,
 without acquiring packages, platforms, PDBs, or source bytes itself.
 
+The source-neutral request, contribution, attempt, outcome, and receipt floor
+and the compiled-XML operation are implemented in
+`DotnetInspector.DocumentationHouse.Contracts` and
+`DotnetInspector.DocumentationHouse`. The operation consumes one transferred
+`LibraryOperationLease`, snapshots one exact associated XML content reference
+into bounded detached bytes, ends the borrow, invokes the bounded CSharpText
+reader, and settles the lease before publishing resource-free evidence.
+Cancellation and the absolute deadline are observed at each synchronous stage
+boundary; CSharpText's document, member, child, depth, and retained-text limits
+bound the non-interruptible scan itself. Its current `XmlException` contract
+maps malformed and parser-limit-exhausted input to a visible **Failed**
+compiled attempt, while House contribution, byte, and deadline exhaustion
+remain typed **Incomplete** evidence.
+Source-specific adapters, Queries and host adoption, the authored channel,
+field settlement, and legacy retirement remain staged.
+
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
 documentation settlement moves from
@@ -766,7 +782,8 @@ assembly and XML companion in the .NET 11 reference pack.
    PlatformHouse;
 2. reconcile DocumentationHouse inputs, contributions, and lifetime with the
    shared Library ownership contract under #6950;
-3. implement compiled-XML attempt and receipt settlement over CSharpText;
+3. **Completed.** Implement compiled-XML attempt and receipt settlement over
+   CSharpText;
 4. add the PackageHouse adapter;
 5. add the direct-library adapter;
 6. add the shared Queries compiled-documentation result;
@@ -829,6 +846,13 @@ Implementation and adoption slices own these Release gates:
 | Browser portability | In-memory package and platform content requires no filesystem path. |
 | Host parity | Representative CLI and Browser requests produce equivalent House demand and settlement. |
 | Retirement | #6497 deletes its owned legacy XML readers; DocumentationHouse adoption deletes host-local companion selection and merge policy; final CSharpText adoption deletes `DocCommentParser`. |
+
+`CompiledXmlDocumentationHouseTests` is the Release gate for the implemented
+slice. It exercises the real `System.Text.Json` 10.0.0 assembly and XML
+companion, equal-ID cross-Library substitution, readable absence, unavailable
+and partial selection, explicit precedence, malformed and bounded XML,
+deadline, cancellation, in-flight owner retirement, and the resource-free
+result closure.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.

@@ -330,7 +330,7 @@ substrates, and inspection producers that will extend that space.
   provenance. PackageHouse, PlatformHouse, and direct-library adapters produce
   the shared representation; SourceLink, Decompiler, artifact lifetime,
   documentation, and host presentation remain with their focused owners.
-- The target
+- The
   [DocumentationHouse Composition](design/documentation-house.md) owner defines
   the sole host-neutral documentation settlement facade over one exact
   library-scoped type or member subject, an exact shared Library reference,
@@ -341,7 +341,10 @@ substrates, and inspection producers that will extend that space.
   conflicts instead of overwriting one source. PackageHouse, PlatformHouse,
   and direct-library adapters bind resource-free source evidence to exact
   Library content references; Metadata, CSharpText, SourceHouse, Library
-  ownership, and host presentation retain their focused authority.
+  ownership, and host presentation retain their focused authority. Its
+  contracts and core now implement the bounded compiled-XML attempt and
+  resource-free receipt; adapters, authored settlement, and host adoption
+  remain staged.
 - The target
   [Library Ownership and Borrowing](design/library-ownership-and-borrowing.md)
   owner defines the shared lifetime seam beneath those Houses: one
