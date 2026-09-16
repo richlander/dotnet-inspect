@@ -2751,6 +2751,7 @@ test("an unrelated Platform history entry does not parent a Spotlight Library", 
   await page.keyboard.press("Control+p");
   await page.locator("#spotlight-input").fill("System.Text.Json");
   await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
@@ -2828,6 +2829,31 @@ test("Platform descendant history and retained switching preserve the real paren
   await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel h1")).toContainText("Run");
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+});
+
+test("a fresh Spotlight Library preserves the predecessor Platform parent", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("System.Facade");
+  await page.locator('[data-sl-framework-lib="System.Facade"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+
+  await page.goBack();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
+  await page.reload();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
 });
 
 test("restored Platform failure retries its own Library request", async ({ page }) => {

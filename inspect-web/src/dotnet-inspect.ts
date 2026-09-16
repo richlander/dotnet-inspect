@@ -9479,9 +9479,11 @@ async function openPlatformLibrary(
     state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
     resetMemberFilters();
-    workspaceLocation.replace(
-      location.href,
-      withPlatformRootParentHistory(history.state, hasPlatformRootParent));
+    if (!construction) {
+      workspaceLocation.replace(
+        location.href,
+        withPlatformRootParentHistory(history.state, hasPlatformRootParent));
+    }
     render();
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
