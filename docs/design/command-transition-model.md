@@ -232,7 +232,8 @@ indexer declarations remains valid.
 
 `ApiCoordinateMatchCommandTests.Avalonia_GenericArityPreservesTheSelectedSource`
 gates the two- and three-type-parameter Avalonia overloads through the CLI in
-Release; the focused cases are PR-fast (1.38 seconds maximum observed).
+Release; the focused cases are PR-fast, measured below the two-second threshold
+in isolation.
 
 The source selector is not independently replayed at the destination: the
 destination coordinate comes from the established Metadata correspondence and
