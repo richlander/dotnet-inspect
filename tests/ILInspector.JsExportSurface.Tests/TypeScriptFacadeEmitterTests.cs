@@ -591,8 +591,13 @@ public sealed class TypeScriptFacadeEmitterTests
         string source = TypeScriptFacadeEmitter.Emit(surface, RuntimeModule);
 
         Assert.Contains(
-            "export type InertString = string & "
-                + "{ readonly __inertStringBrand: unique symbol };",
+            """
+            declare const inertStringBrand: unique symbol;
+
+            export type InertString = string & {
+              readonly [inertStringBrand]: "InertString";
+            };
+            """,
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -650,7 +655,7 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
-    public void Emit_AllocatesBrandBeforeAnUnrelatedInertStringType()
+    public void Emit_AllocatesBrandBindingsBeforeUnrelatedTypes()
     {
         ApiAssemblyIdentity assembly = AssemblyIdentity();
         var inertStringIdentity = new ApiTypeReferenceIdentity(
@@ -699,16 +704,33 @@ public sealed class TypeScriptFacadeEmitterTests
                 },
             ],
         };
+        var unrelatedBrand = new ApiType
+        {
+            Namespace = "Application",
+            Name = "inertStringBrand",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "string",
+                },
+            ],
+        };
         var surface =
             new global::ILInspector.JsExportSurface.JsExportSurface
             {
                 AssemblyIdentity = assembly,
-                Records = [container, unrelated],
+                Records = [container, unrelated, unrelatedBrand],
                 WireDirections =
                     new Dictionary<ApiType, JsonWireDirection>
                     {
                         [container] = JsonWireDirection.Serialize,
                         [unrelated] = JsonWireDirection.Serialize,
+                        [unrelatedBrand] = JsonWireDirection.Serialize,
                     },
             };
 
@@ -717,8 +739,13 @@ public sealed class TypeScriptFacadeEmitterTests
             RuntimeModule);
 
         Assert.Contains(
-            "export type InertString = string & "
-                + "{ readonly __inertStringBrand: unique symbol };",
+            """
+            declare const inertStringBrand: unique symbol;
+
+            export type InertString = string & {
+              readonly [inertStringBrand]: "InertString";
+            };
+            """,
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -729,11 +756,15 @@ public sealed class TypeScriptFacadeEmitterTests
             "export interface InertString {",
             source,
             StringComparison.Ordinal);
-        Assert.Contains(
-            source.Split('\n'),
-            line => line.StartsWith(
+        Assert.DoesNotContain(
+            "export interface inertStringBrand {",
+            source,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            source.Split(
                 "export interface type_",
-                StringComparison.Ordinal));
+                StringSplitOptions.None).Length - 1);
     }
 
     [Fact]

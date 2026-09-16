@@ -343,17 +343,23 @@ JSON string wire value, while the generated TypeScript contract preserves its
 provenance as an opaque string brand:
 
 ```ts
-export type InertString =
-  string & { readonly __inertStringBrand: unique symbol };
+declare const inertStringBrand: unique symbol;
+
+export type InertString = string & {
+  readonly [inertStringBrand]: "InertString";
+};
 ```
 
 The JSON payload and JavaScript runtime value remain strings. The generated
 facade grants the brand only where the authenticated C# wire contract names the
 exact `InertText.InertString` type; an unrelated type with the same simple name
 remains an ordinary generated type. The brand has no public constructor,
-decoder, or unchecked helper. It carries neither policy, forms, concerns, nor
-truncation state, and it does not mean HTML-, attribute-, DOM-, or URL-safe.
-Consumers retain their sink-specific escaping.
+decoder, or unchecked helper. Its module-private `unique symbol` key follows
+the conventional TypeScript nominal-typing pattern used by Inspect Web's other
+opaque identities; the generator allocates that private binding against the
+whole module just like public declarations. The brand carries neither policy,
+forms, concerns, nor truncation state, and it does not mean HTML-, attribute-,
+DOM-, or URL-safe. Consumers retain their sink-specific escaping.
 
 The generator and browser receive only the already-encoded representation.
 They do not import or expose `InertText.Encoding`; recovering original text

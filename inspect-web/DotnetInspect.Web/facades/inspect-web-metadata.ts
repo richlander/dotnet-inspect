@@ -1,6 +1,10 @@
 import { dotnet } from "./runtime-loader.js";
 
-export type InertString = string & { readonly __inertStringBrand: unique symbol };
+declare const inertStringBrand: unique symbol;
+
+export type InertString = string & {
+  readonly [inertStringBrand]: "InertString";
+};
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 

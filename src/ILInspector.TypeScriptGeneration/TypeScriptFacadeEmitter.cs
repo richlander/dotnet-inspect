@@ -76,7 +76,8 @@ internal static class TypeScriptFacadeEmitter
             surface,
             diagnostics,
             names.TypeNames,
-            names.InertStringName));
+            names.InertStringName,
+            names.InertStringBrandName));
 
         ExportPathNode exportTree = BuildExportTree(functions);
         EmitManagedExportsType(sb, exportTree, signatures);
@@ -433,19 +434,22 @@ internal static class TypeScriptFacadeEmitter
         private readonly Dictionary<JsExportFunction, string> _operationNames;
         private readonly Dictionary<JsExportFunction, string[]> _parameterNames;
         private readonly string? _inertStringName;
+        private readonly string? _inertStringBrandName;
 
         private TypeScriptNameAllocator(
             HashSet<string> moduleBindings,
             Dictionary<ApiType, string> typeNames,
             Dictionary<JsExportFunction, string> operationNames,
             Dictionary<JsExportFunction, string[]> parameterNames,
-            string? inertStringName)
+            string? inertStringName,
+            string? inertStringBrandName)
         {
             _moduleBindings = moduleBindings;
             _typeNames = typeNames;
             _operationNames = operationNames;
             _parameterNames = parameterNames;
             _inertStringName = inertStringName;
+            _inertStringBrandName = inertStringBrandName;
         }
 
         public static TypeScriptNameAllocator Create(
@@ -465,6 +469,14 @@ internal static class TypeScriptFacadeEmitter
                     "type",
                     CanonicalInertStringIdentity(inertStringIdentity),
                     TypeScriptIdentifier.IsTypeDeclarationIdentifier);
+            string? inertStringBrandName = inertStringIdentity is null
+                ? null
+                : Allocate(
+                    moduleBindings,
+                    "inertStringBrand",
+                    "brand",
+                    CanonicalInertStringIdentity(inertStringIdentity) + "#brand",
+                    TypeScriptIdentifier.IsStrictModeBindingIdentifier);
             var typeNames = new Dictionary<ApiType, string>();
             foreach (ApiType type in surface.Records
                 .Concat(surface.Enums)
@@ -537,13 +549,16 @@ internal static class TypeScriptFacadeEmitter
                 typeNames,
                 operationNames,
                 parameterNames,
-                inertStringName);
+                inertStringName,
+                inertStringBrandName);
         }
 
         public IReadOnlyDictionary<ApiType, string> TypeNames =>
             _typeNames;
 
         public string? InertStringName => _inertStringName;
+
+        public string? InertStringBrandName => _inertStringBrandName;
 
         public TypeScriptFunctionSignature Apply(
             JsExportFunction function,
