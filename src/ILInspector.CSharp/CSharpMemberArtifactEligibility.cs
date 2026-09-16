@@ -21,6 +21,7 @@ public static class CSharpMemberArtifactEligibility
             || member.SignatureDecodeStatus is not null
             || !IsMemberNameRepresentable(member)
             || member.SignatureModel is not { } signature
+            || !IsConstructorDeclarationRepresentable(member, signature)
             || !IsOperatorDeclarationRepresentable(type, member, signature)
             || signature.TypeParameters.Any(parameter => !IsIdentifier(parameter.Name))
             || signature.Parameters.Any(parameter => !IsIdentifier(parameter.Name))
@@ -72,6 +73,30 @@ public static class CSharpMemberArtifactEligibility
         return IsIdentifier(name);
     }
 
+    static bool IsConstructorDeclarationRepresentable(
+        ApiMember member,
+        ApiSignature signature)
+    {
+        if (member.Name == ".cctor")
+        {
+            return member.Accessibility == "private"
+                && member.IsStatic
+                && member.GenericArity == 0
+                && signature.TypeParameters.Count == 0
+                && signature.Parameters.Count == 0
+                && IsVoid(signature.ReturnTypeShape);
+        }
+
+        if (member.Name != ".ctor")
+            return true;
+
+        return member.Kind == "constructor"
+            && !member.IsStatic
+            && member.GenericArity == 0
+            && signature.TypeParameters.Count == 0
+            && IsVoid(signature.ReturnTypeShape);
+    }
+
     static bool IsOperatorDeclarationRepresentable(
         ApiType type,
         ApiMember member,
@@ -87,7 +112,8 @@ public static class CSharpMemberArtifactEligibility
             || !member.IsStatic
             || member.GenericArity != 0
             || signature.TypeParameters.Count != 0
-            || signature.ReturnType is null or "void"
+            || signature.ReturnTypeShape is null
+            || IsVoid(signature.ReturnTypeShape)
             || OperatorNames.GetStandaloneDeclarationParameterCount(
                 member.Name) is not int parameterCount
             || signature.Parameters.Count != parameterCount
@@ -98,19 +124,19 @@ public static class CSharpMemberArtifactEligibility
         }
 
         bool hasDeclaringOperand = signature.Parameters.Any(
-            parameter => parameter.TypeReferences.Any(
-                reference => HasDefinitionName(
-                    reference,
-                    declaringType)));
+            parameter => IsOpenConstructedDeclaringType(
+                parameter.TypeShape,
+                type,
+                declaringType));
         if (!hasDeclaringOperand)
             return false;
 
         if (member.Name is "op_Increment" or "op_Decrement")
         {
-            return signature.ReturnTypeReferences.Any(
-                reference => HasDefinitionName(
-                    reference,
-                    declaringType));
+            return IsOpenConstructedDeclaringType(
+                signature.ReturnTypeShape,
+                type,
+                declaringType);
         }
 
         if (member.Name is
@@ -124,12 +150,52 @@ public static class CSharpMemberArtifactEligibility
         return true;
     }
 
-    static bool HasDefinitionName(
-        ApiTypeReferenceIdentity reference,
-        MetadataTypeDefinitionName expected) =>
-        reference.DefinitionName is { } actual
-            && actual.Namespace == expected.Namespace
-            && actual.Segments.SequenceEqual(expected.Segments);
+    static bool IsOpenConstructedDeclaringType(
+        ApiTypeShape? shape,
+        ApiType type,
+        MetadataTypeDefinitionName expected)
+    {
+        if (shape?.Definition?.DefinitionName is not { } actual
+            || actual.Namespace != expected.Namespace
+            || !actual.Segments.SequenceEqual(expected.Segments)
+            || shape.IsValueType != (type.Kind == "struct"))
+        {
+            return false;
+        }
+
+        if (type.TypeParameters.Count == 0)
+            return shape.Kind == ApiTypeShapeKind.Named;
+
+        if (shape.Kind != ApiTypeShapeKind.GenericInstance
+            || shape.DefinitionArityMatchesTypeArguments != true
+            || shape.TypeArguments.Length != type.TypeParameters.Count)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < shape.TypeArguments.Length; index++)
+        {
+            if (shape.TypeArguments[index] is not
+                {
+                    Kind: ApiTypeShapeKind.GenericParameter,
+                    GenericParameterIndex: var parameterIndex,
+                    IsMethodGenericParameter: false,
+                }
+                || parameterIndex != index)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool IsVoid(ApiTypeShape? shape) =>
+        shape is
+        {
+            Kind: ApiTypeShapeKind.Primitive,
+            Primitive: ApiPrimitiveType.Void,
+        };
 
     static bool ConstraintsAreRepresentable(
         IEnumerable<TypeParameter> parameters)

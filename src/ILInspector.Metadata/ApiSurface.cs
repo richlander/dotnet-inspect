@@ -659,6 +659,13 @@ public class ApiParameter
     /// </summary>
     public string? StructuralType { get; set; }
 
+    /// <summary>
+    /// Exact signature shape retained for consumers that must compare a
+    /// parameter type rather than its display spelling or named references.
+    /// </summary>
+    [JsonIgnore]
+    public ApiTypeShape? TypeShape { get; set; }
+
     public string? Modifier { get; set; }
     public bool HasDefault { get; set; }
     public string? DefaultValueText { get; set; }

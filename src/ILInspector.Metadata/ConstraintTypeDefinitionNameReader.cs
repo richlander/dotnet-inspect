@@ -36,7 +36,9 @@ internal static class ConstraintTypeDefinitionNameReader
                     || !shape.IsUnmanagedValueTypeEncoding)
                 ? new(
                     [.. shape.DefinitionNames.Distinct()],
-                    shape.IsCoreLibraryPseudoConstraint)
+                    shape.ResolvesThroughCoreLibrary
+                        && shape.DefinitionNames is [var definitionName]
+                        && IsPseudoConstraintName(definitionName))
                 : null;
         }
         catch (Exception ex) when (
@@ -76,11 +78,11 @@ internal static class ConstraintTypeDefinitionNameReader
                 ? resolvesThroughCoreLibrary
                     ? ConstraintShape.Named(
                         read.Name,
-                        isCoreLibraryPseudoConstraint: true)
+                        resolvesThroughCoreLibrary: true)
                     : ConstraintShape.Unavailable
                 : ConstraintShape.Named(
                     read.Name,
-                    isCoreLibraryPseudoConstraint: false)
+                    resolvesThroughCoreLibrary)
             : ConstraintShape.Unavailable;
 
     static bool IsPseudoConstraintName(
@@ -92,7 +94,7 @@ internal static class ConstraintTypeDefinitionNameReader
         bool IsAvailable,
         bool IsConstraintType,
         ImmutableArray<MetadataTypeDefinitionName> DefinitionNames,
-        bool IsCoreLibraryPseudoConstraint = false,
+        bool ResolvesThroughCoreLibrary = false,
         bool IsUnmanagedValueTypeEncoding = false)
     {
         internal static ConstraintShape EmptyConstraint { get; } =
@@ -106,12 +108,12 @@ internal static class ConstraintTypeDefinitionNameReader
 
         internal static ConstraintShape Named(
             MetadataTypeDefinitionName name,
-            bool isCoreLibraryPseudoConstraint) =>
+            bool resolvesThroughCoreLibrary) =>
             new(
                 true,
                 true,
                 [name],
-                isCoreLibraryPseudoConstraint);
+                resolvesThroughCoreLibrary);
     }
 
     sealed class Provider :
@@ -255,11 +257,13 @@ internal static class ConstraintTypeDefinitionNameReader
                 || !IsExactNamed(
                     modifier,
                     "System.Runtime.InteropServices",
-                    "UnmanagedType")
+                    "UnmanagedType",
+                    requireCoreLibrary: true)
                 || !IsExactNamed(
                     unmodifiedType,
                     "System",
-                    "ValueType"))
+                    "ValueType",
+                    requireCoreLibrary: true))
             {
                 return ConstraintShape.Unavailable;
             }
@@ -273,7 +277,8 @@ internal static class ConstraintTypeDefinitionNameReader
         static bool IsExactNamed(
             ConstraintShape shape,
             string @namespace,
-            string simpleName) =>
+            string simpleName,
+            bool requireCoreLibrary = false) =>
             shape is
             {
                 IsAvailable: true,
@@ -283,7 +288,9 @@ internal static class ConstraintTypeDefinitionNameReader
             }
             && definitionName.Namespace == @namespace
             && definitionName.Segments is [var segment]
-            && segment == simpleName;
+            && segment == simpleName
+            && (!requireCoreLibrary
+                || shape.ResolvesThroughCoreLibrary);
     }
 }
 

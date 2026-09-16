@@ -3986,6 +3986,8 @@ public static class ApiSurfaceExtractor
                 StructuralType = paramTypes[i].HasStructuralPayload
                     ? paramTypes[i].StructuralIdentity()
                     : null,
+                TypeShape = ApiTypeShapeFactory.FromTypeNode(
+                    paramTypes[i]),
                 TypeReferences =
                     [.. paramTypes[i].ReferencedTypes().Distinct()],
                 Modifier = modifier,
@@ -5366,6 +5368,8 @@ public static class ApiSurfaceExtractor
                 StructuralType = parameterType.HasStructuralPayload
                     ? parameterType.StructuralIdentity()
                     : null,
+                TypeShape = ApiTypeShapeFactory.FromTypeNode(
+                    parameterType),
                 TypeReferences =
                     [.. parameterType.ReferencedTypes().Distinct()],
                 Modifier = modifier,

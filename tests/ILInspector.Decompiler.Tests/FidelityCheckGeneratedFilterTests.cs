@@ -181,12 +181,15 @@ public class FidelityCheckGeneratedFilterTests
                 [assemblyPath],
                 cap: int.MaxValue);
 
-            Assert.Equal(4, selected.Count);
+            Assert.Equal(6, selected.Count);
             Assert.Contains(selected, target => target.Method == "Good");
             Assert.Contains(selected, target => target.Method == "event");
             Assert.Contains(
                 selected,
                 target => target.Method == "op_Subtraction");
+            Assert.Contains(
+                selected,
+                target => target.Method == "op_Division");
             Assert.DoesNotContain(selected, target => target.Type.Contains(
                 "bad-namespace",
                 StringComparison.Ordinal));
@@ -196,7 +199,8 @@ public class FidelityCheckGeneratedFilterTests
                     "bad-name"
                     or "BadSignature"
                     or "BadConstraint"
-                    or "op_Addition");
+                    or "op_Addition"
+                    or "op_Multiply");
         }
         finally
         {
@@ -208,6 +212,23 @@ public class FidelityCheckGeneratedFilterTests
     public void SelectReturnToSenderTargets_RejectsInvalidConstraintSignaturesBeforeSampling()
     {
         string assemblyPath = CreateInvalidConstraintSignatureFixture();
+        try
+        {
+            Assert.Empty(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsMalformedConstructorsBeforeSampling()
+    {
+        string assemblyPath = CreateMalformedConstructorFixture();
         try
         {
             Assert.Empty(
@@ -2587,9 +2608,45 @@ public class FidelityCheckGeneratedFilterTests
         malformedOperatorBody.Emit(OpCodes.Ldc_I4_1);
         malformedOperatorBody.Emit(OpCodes.Ret);
 
+        TypeBuilder genericOperatorType = module.DefineType(
+            "GenericOperatorType`1",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Sealed);
+        GenericTypeParameterBuilder genericParameter =
+            genericOperatorType.DefineGenericParameters("T")[0];
+        Type openDeclaringType = genericOperatorType.MakeGenericType(
+            genericParameter);
+        Type wrongConstructedType = genericOperatorType.MakeGenericType(
+            typeof(int));
+        MethodBuilder validGenericOperator = genericOperatorType.DefineMethod(
+            "op_Division",
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            typeof(int),
+            [openDeclaringType, typeof(int)]);
+        ILGenerator validGenericOperatorBody =
+            validGenericOperator.GetILGenerator();
+        validGenericOperatorBody.Emit(OpCodes.Ldc_I4_1);
+        validGenericOperatorBody.Emit(OpCodes.Ret);
+        MethodBuilder malformedGenericOperator =
+            genericOperatorType.DefineMethod(
+                "op_Multiply",
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName,
+                typeof(int),
+                [wrongConstructedType, typeof(int)]);
+        ILGenerator malformedGenericOperatorBody =
+            malformedGenericOperator.GetILGenerator();
+        malformedGenericOperatorBody.Emit(OpCodes.Ldc_I4_1);
+        malformedGenericOperatorBody.Emit(OpCodes.Ret);
+
         badSignatureType.CreateType();
         goodType.CreateType();
         operatorType.CreateType();
+        genericOperatorType.CreateType();
         assembly.Save(path);
         return path;
     }
@@ -2656,10 +2713,46 @@ public class FidelityCheckGeneratedFilterTests
             publicKeyOrToken: default,
             flags: default,
             hashValue: default);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    (byte[])
+                    [
+                        0xb0, 0x3f, 0x5f, 0x7f,
+                        0x11, 0xd5, 0x0a, 0x3a,
+                    ]),
+                flags: default,
+                hashValue: default);
         TypeReferenceHandle fakeObject = metadata.AddTypeReference(
             resolutionScope: fakeCore,
             @namespace: metadata.GetOrAddString("System"),
             name: metadata.GetOrAddString("Object"));
+        TypeReferenceHandle fakeUnmanagedModifier =
+            metadata.AddTypeReference(
+                resolutionScope: fakeCore,
+                @namespace: metadata.GetOrAddString(
+                    "System.Runtime.InteropServices"),
+                name: metadata.GetOrAddString("UnmanagedType"));
+        TypeReferenceHandle coreValueType = metadata.AddTypeReference(
+            resolutionScope: systemRuntime,
+            @namespace: metadata.GetOrAddString("System"),
+            name: metadata.GetOrAddString("ValueType"));
+        TypeReferenceHandle isUnmanagedAttribute =
+            metadata.AddTypeReference(
+                resolutionScope: systemRuntime,
+                @namespace: metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                name: metadata.GetOrAddString(
+                    "IsUnmanagedAttribute"));
+        MemberReferenceHandle isUnmanagedConstructor =
+            metadata.AddMemberReference(
+                isUnmanagedAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    (byte[])[0x20, 0x00, 0x01]));
         TypeReferenceHandle enumerable = metadata.AddTypeReference(
             resolutionScope: fakeCore,
             @namespace: metadata.GetOrAddString(
@@ -2738,6 +2831,40 @@ public class FidelityCheckGeneratedFilterTests
         AddModifiedConstraintMethod("ModifiedObjectConstraint", @object);
         AddModifiedConstraintMethod("ModifiedValueTypeConstraint", valueType);
 
+        MethodDefinitionHandle fakeUnmanagedMethod =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("FakeUnmanagedConstraint"),
+                metadata.GetOrAddBlob(methodSignature),
+                AddBody(),
+                MetadataTokens.ParameterHandle(1));
+        GenericParameterHandle fakeUnmanagedParameter =
+            metadata.AddGenericParameter(
+                fakeUnmanagedMethod,
+                GenericParameterAttributes.NotNullableValueTypeConstraint
+                    | GenericParameterAttributes.DefaultConstructorConstraint,
+                metadata.GetOrAddString("U"),
+                index: 0);
+        metadata.AddCustomAttribute(
+            fakeUnmanagedParameter,
+            isUnmanagedConstructor,
+            metadata.GetOrAddBlob(
+                (byte[])[0x01, 0x00, 0x00, 0x00]));
+        var fakeUnmanagedConstraint = new BlobBuilder();
+        fakeUnmanagedConstraint.WriteByte(0x1F);
+        fakeUnmanagedConstraint.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(fakeUnmanagedModifier) << 2)
+                | 1);
+        fakeUnmanagedConstraint.WriteByte(0x11);
+        fakeUnmanagedConstraint.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(coreValueType) << 2)
+                | 1);
+        metadata.AddGenericParameterConstraint(
+            fakeUnmanagedParameter,
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(fakeUnmanagedConstraint)));
+
         void AddConstraintMethod(
             string name,
             EntityHandle constraintType)
@@ -2772,6 +2899,94 @@ public class FidelityCheckGeneratedFilterTests
             metadata.AddTypeSpecification(
                 metadata.GetOrAddBlob(arityMismatchConstraint)));
         AddConstraintMethod("FakeObjectConstraint", fakeObject);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+        return path;
+    }
+
+    static string CreateMalformedConstructorFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "MalformedConstructors.dll");
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                "MalformedConstructors.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedConstructors"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("MalformedConstructorFixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var methodBodies = new BlobBuilder();
+        var methodBodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        int AddBody()
+        {
+            var instructions = new BlobBuilder();
+            var encoder = new InstructionEncoder(instructions);
+            encoder.OpCode(ILOpCode.Ret);
+            return methodBodyEncoder.AddMethodBody(
+                encoder,
+                maxStack: 0);
+        }
+
+        metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(".cctor"),
+            metadata.GetOrAddBlob(
+                (byte[])[0x00, 0x01, 0x01, 0x08]),
+            AddBody(),
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(
+                (byte[])[0x00, 0x00, 0x01]),
+            AddBody(),
+            MetadataTokens.ParameterHandle(2));
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
