@@ -293,6 +293,48 @@ public sealed class AssemblyPairCallUseQueryTests
             incomplete.Clusters.Select(ClusterFingerprint));
     }
 
+    [Fact(Timeout = 5_000)]
+    public async Task ProjectionKeepsRepeatedPhysicalSitesLinear()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairCallUseResult pair =
+            AssemblyPairCallUseQuery.Execute(
+                context.Group,
+                context.First,
+                context.Second);
+        AssemblyPairCallUseOccurrence occurrence = Assert.Single(
+            pair.Occurrences,
+            candidate =>
+                candidate.SourceMethod.Name == "UseEcho"
+                && candidate.TargetMethod.Name == "Echo");
+        const int PhysicalSiteCount = 50_000;
+        AssemblyPairCallUseResult repeated = pair with
+        {
+            Occurrences =
+            [
+                .. Enumerable.Range(0, PhysicalSiteCount)
+                    .Select(index => occurrence with
+                    {
+                        Call = occurrence.Call with
+                        {
+                            ILOffset = index,
+                        },
+                    }),
+            ],
+        };
+
+        AssemblyPairDirectUseClusterProjection projection =
+            AssemblyPairDirectUseClusterProjection.Create(repeated);
+
+        AssemblyPairDirectUseCluster cluster =
+            Assert.Single(projection.Clusters);
+        Assert.Equal(PhysicalSiteCount, cluster.CallSiteCount);
+        Assert.Single(cluster.SourceMethods);
+        Assert.Single(cluster.TargetMethods);
+    }
+
     [Fact]
     public async Task ProjectionOrderIsIndependentOfRequestArgumentOrder()
     {

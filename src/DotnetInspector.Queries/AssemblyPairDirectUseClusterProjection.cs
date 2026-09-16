@@ -131,13 +131,13 @@ public sealed record AssemblyPairDirectUseClusterProjection(
                 AssemblyPairCallUseOccurrence occurrence =
                     pair.Occurrences[index];
                 EnqueueUnvisited(
-                    bySourceMethod[
-                        occurrence.SourceMethod.MetadataToken],
+                    bySourceMethod,
+                    occurrence.SourceMethod.MetadataToken,
                     visited,
                     queue);
                 EnqueueUnvisited(
-                    byTargetMethod[
-                        occurrence.TargetMethod.MetadataToken],
+                    byTargetMethod,
+                    occurrence.TargetMethod.MetadataToken,
                     visited,
                     queue);
             }
@@ -220,10 +220,18 @@ public sealed record AssemblyPairDirectUseClusterProjection(
     }
 
     static void EnqueueUnvisited(
-        IEnumerable<int> indexes,
+        Dictionary<int, List<int>> indexesByMethod,
+        int methodToken,
         HashSet<int> visited,
         Queue<int> queue)
     {
+        if (!indexesByMethod.Remove(
+                methodToken,
+                out List<int>? indexes))
+        {
+            return;
+        }
+
         foreach (int index in indexes)
         {
             if (visited.Add(index))

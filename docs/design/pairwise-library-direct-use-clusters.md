@@ -136,7 +136,11 @@ When pair evidence is incomplete:
   diagnostics.
 
 No additional failure state is introduced because clustering is a total,
-in-memory partition of already-validated occurrence identities.
+in-memory partition of already-validated occurrence identities. The projection
+expands each distinct source or target method's occurrence adjacency only once,
+so traversal work is linear in retained occurrences and method endpoints.
+`ProjectionKeepsRepeatedPhysicalSitesLinear` gates the practical repeated-site
+boundary with 50,000 exact physical occurrences.
 
 ## Pathological evidence
 
