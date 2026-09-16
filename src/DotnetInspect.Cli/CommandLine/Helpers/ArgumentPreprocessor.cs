@@ -144,6 +144,19 @@ public static class ArgumentPreprocessor
                 + "declaration evidence without traversal.";
             return true;
         }
+        if (command >= 0
+            && args[command].Equals(
+                "package",
+                StringComparison.OrdinalIgnoreCase)
+            && command + 1 < args.Length
+            && args[command + 1].Equals(
+                "changes",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "'package changes' has been removed. Use "
+                + "'package activity' with the same options.";
+            return true;
+        }
 
         error = null;
         return false;

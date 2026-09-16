@@ -736,7 +736,7 @@ keep it from becoming a caller-directed proxy. The function enforces the same
 
 The same managed Function app hosts the separately owned
 [public-evidence bridge](../docs/design/inspect-web-public-evidence-bridge.md)
-for Package Changes. Its Browser transport rewrites only canonical NuGet.org
+for Package Activity. Its Browser transport rewrites only canonical NuGet.org
 service-index/Catalog and GitHub reviewed-advisory requests to fixed
 same-origin routes. The Function reconstructs those requests from closed path
 and query grammars, follows no redirects, forwards no caller credentials or
@@ -1160,7 +1160,7 @@ the main thread.
 That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
 the Worker-only adoption host. Its facade-grouped `client` provides Promise
 results for build identity, vocabulary, home demos, Package Query facets, and
-the product-issued Package Changes package-set catalog.
+the product-issued Package Activity package-set catalog.
 Concurrent reads share one bootstrap without replacing one
 another, and disposal rejects outstanding reads. Generated JSON-shaped results
 use a bounded transport string (1,048,576 UTF-16 code units per result) and
@@ -1355,10 +1355,12 @@ request and reacquires under current source authorization; it does not retain
 the query candidate in the Workspace cache. RID selection and ecosystem-wide
 candidate discovery are outside this first assembly-pattern gesture.
 
-The same `/query` route exposes **Packages** and **Changes** as peer modes.
-Changes discovers product-owned package sets from the managed startup catalog,
-submits the default 42-day interval or one validated paired UTC interval, and
-streams the existing `package-changes` Worker operation. Its bounded row window
+The same `/query` route exposes **Packages** and **Activity** as peer modes.
+Package Activity discovers product-owned package sets from the managed startup
+catalog, submits the default 42-day interval or one validated paired UTC
+interval, and streams the existing `package-changes` Worker operation. That
+operation name, the same-origin bridge path, and the
+`BrowserPackageChanges*` wire records remain stable internal identifiers. Its bounded row window
 renders typed current-advisory, fixed-version, receipt, security-release,
 provider-failure, source-coverage, and completion evidence without inferring
 meaning from formatted text. Mode changes, route exit, replacement, and
