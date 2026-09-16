@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
+using InertText;
 
 using DotnetInspect.Web.Interop.Source;
 
@@ -309,7 +310,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         string envelopeJson = JsonSerializer.Serialize(
             BrowserAnnotatedSource.Create(
                 document,
-                "test provenance",
+                new InertString(TextPolicy.Field, "test provenance"),
                 contextLimitation: null),
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
         using JsonDocument envelope = JsonDocument.Parse(envelopeJson);
@@ -320,6 +321,11 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         Assert.Equal(
             documentJson,
             envelope.RootElement.GetProperty("document").GetRawText());
+        JsonElement provenance = envelope.RootElement.GetProperty("provenance");
+        Assert.Equal(JsonValueKind.String, provenance.ValueKind);
+        Assert.Equal(
+            "test provenance",
+            provenance.GetString());
         JsonElement catalog = envelope.RootElement.GetProperty("viewerCatalog");
         Assert.Equal(
             ["CSharp", "Il"],
@@ -356,7 +362,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         string envelopeJson = JsonSerializer.Serialize(
             BrowserAnnotatedSource.Create(
                 document,
-                "test provenance",
+                new InertString(TextPolicy.Field, "test provenance"),
                 contextLimitation: null,
                 [new(1, Target("n1", "Call"))]),
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);

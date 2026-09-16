@@ -25,6 +25,7 @@ import type {
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "../src/workbench-keybindings.ts";
 import { fakeDom } from "./fake-dom.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -1184,7 +1185,13 @@ test("type PDB source renders code above provenance once loaded", () => {
     sourceState: {
       status: "ready",
       signature: "sig",
-      source: { provider: "pdb", provenance: "SourceLink", url: "https://example.test", text: "class JsonSerializer {}" },
+      source: {
+        provider: "pdb",
+        provenance: inertStringFixture("SourceLink"),
+        url: "https://example.test",
+        pdbSourceLimitation: null,
+        text: "class JsonSerializer {}",
+      },
     },
     escapeHtml,
     highlightCSharp,
@@ -1202,8 +1209,9 @@ test("source page actions render copy, open, and Explore for the page-owned grou
   const html = renderSourcePageActions({
     source: {
       provider: "pdb",
-      provenance: "SourceLink",
+      provenance: inertStringFixture("SourceLink"),
       url: "https://example.test/source.cs?x=1&y=2",
+      pdbSourceLimitation: null,
       text: "class JsonSerializer {}",
     },
     copyButtonId: "copy-type-source",
@@ -1241,7 +1249,8 @@ test("decompiled type source discloses an escaped PDB-source limitation", () => 
       signature: "sig",
       source: {
         provider: "decompiled",
-        provenance: "decompiled from IL",
+        provenance: inertStringFixture("decompiled from IL"),
+        url: null,
         pdbSourceLimitation: "<checksum mismatch>",
         text: "class JsonSerializer {}",
       },

@@ -2,6 +2,7 @@ using System.Text.Json;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using InertText;
 using Inspector.Findings;
 using ILInspector.Research;
 
@@ -122,7 +123,7 @@ public sealed class BrowserMemberFindingCensusTests
                 first.Facts,
                 Assert.IsType<AnnotatedSourceDocument>(first.SourceDocument),
                 first.SourceDocumentFactIdentities,
-                "test provenance",
+                new InertString(TextPolicy.Field, "test provenance"),
                 contextLimitation: null));
 
         Assert.Contains("different receipt", error.Message);
@@ -153,7 +154,7 @@ public sealed class BrowserMemberFindingCensusTests
                 projection.Facts,
                 Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument),
                 [identity, identity],
-                "test provenance",
+                new InertString(TextPolicy.Field, "test provenance"),
                 contextLimitation: null));
 
         Assert.Contains("invalid or duplicate instance key", error.Message);
@@ -166,7 +167,7 @@ public sealed class BrowserMemberFindingCensusTests
             projection.Facts,
             Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument),
             projection.SourceDocumentFactIdentities,
-            "test provenance",
+            new InertString(TextPolicy.Field, "test provenance"),
             contextLimitation: null);
 
     static ResearchViews.MemberProjectionResult Project(
