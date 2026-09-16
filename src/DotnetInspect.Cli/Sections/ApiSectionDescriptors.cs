@@ -131,7 +131,9 @@ public static class ApiMemberSectionDescriptors
     /// <summary>Builds the section pipeline for the type-detail view.</summary>
     public static SectionPipeline<ApiType> CreatePipeline()
     {
-        return new SectionPipeline<ApiType>()
+        var pipeline = new SectionPipeline<ApiType>()
+            .UseCuratedCatalog()
+            .WithoutComputedPoles()
             .Add<TypeInfo>()
             .Add<Values>()
             .Add<TypeParameters>()
@@ -165,8 +167,28 @@ public static class ApiMemberSectionDescriptors
             .Add<CloneCandidates>()
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>()
             .Add<ILBody>()
-            .Add<Facts>()
-            .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
+            .Add<Facts>();
+
+        return ApiMemberSectionPipelines.AddCatalogCategories(
+            pipeline,
+            [
+                SectionNames.TypeInfo,
+                SectionNames.Values,
+                SectionNames.TypeParameters,
+                SectionNames.TypeInterfaces,
+                SectionNames.Baseclass,
+                SectionNames.Constructors,
+                SectionNames.Finalizer,
+                SectionNames.Fields,
+                SectionNames.Properties,
+                SectionNames.MethodGroups,
+                SectionNames.Methods,
+                SectionNames.Operators,
+                SectionNames.ExplicitInterfaceImplementations,
+                SectionNames.ExtensionMethods,
+                SectionNames.Events,
+                SectionNames.CustomAttributes,
+            ]);
     }
 
     // ===== Declarative sections (rendered via Markout [MarkoutSection]) =====
@@ -182,10 +204,9 @@ public static class ApiMemberSectionDescriptors
     /// this pipeline; the member-detail and overload-inventory views use different pipelines that
     /// do not register it.
     /// <para>
-    /// <c>ExplicitOnly</c> keeps it off the verbosity ladder. This pipeline is not a curated
-    /// catalog, so its ladder still selects by position and <c>IsExpensive</c>; without the flag a
-    /// section at this position would join the default <c>-v:m</c> markdown view, where the same
-    /// facts already render as the inline identity line.
+    /// <c>ExplicitOnly</c> keeps it off the automatic verbosity ladder even though it belongs to
+    /// <c>@Member</c>. Exact or category selection can still request it; automatic output keeps the
+    /// inline identity line instead of repeating the same facts.
     /// </para>
     /// </remarks>
     public sealed class TypeInfo : ISectionDescriptor<ApiType>
@@ -211,6 +232,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Type Parameters";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiType model)
             => model.TypeParameters.Count > 0;
     }
@@ -219,6 +241,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Interfaces";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiType model)
             => model.Interfaces.Count > 0;
     }
@@ -227,6 +250,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Baseclass";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiType model)
             => !string.IsNullOrEmpty(model.BaseType)
                && model.BaseType != "System.Object"
@@ -513,6 +537,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => SectionNames.PdbSource;
         public static bool IsExpensive => true;
+        public static SectionCost Cost => SectionCost.Moderated;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static bool CanRender(ApiType model)
@@ -590,6 +615,98 @@ public static class ApiMemberSectionDescriptors
 /// </summary>
 public static class ApiMemberSectionPipelines
 {
+    private static readonly string[] AuditSections =
+    [
+        SectionNames.UnsafeMembers,
+        SectionNames.UnsafeOperations,
+        SectionNames.SafetyFacts,
+        SectionNames.SemanticsOverlay,
+    ];
+
+    private static readonly string[] CallSections =
+    [
+        SectionNames.CalledTypes,
+        SectionNames.Calls,
+        SectionNames.Callers,
+        SectionNames.CallGraph,
+    ];
+
+    private static readonly string[] DecompilerSections =
+    [
+        SectionNames.DecompiledSource,
+        SectionNames.AnnotatedSource,
+        SectionNames.AnnotatedSourceDocument,
+        SectionNames.FidelityCauses,
+        SectionNames.AppliedTaste,
+        SectionNames.CostOverlay,
+        SectionNames.SemanticsOverlay,
+        SectionNames.Facts,
+        SectionNames.ExceptionRegions,
+        SectionNames.IL,
+    ];
+
+    private static readonly string[] PerformanceSections =
+    [
+        SectionNames.AllocationFacts,
+        SectionNames.CostFacts,
+        SectionNames.CostOverlay,
+        SectionNames.BodyShapes,
+        SectionNames.BodyShapeSummary,
+        SectionNames.CloneCandidates,
+        SectionNames.TopLeverage,
+        SectionNames.PerformanceTriage,
+    ];
+
+    private static readonly string[] SourceSections =
+    [
+        SectionNames.DecompiledSource,
+        SectionNames.AnnotatedSource,
+        SectionNames.PdbSource,
+        SectionNames.SourceDiff,
+        SectionNames.IL,
+    ];
+
+    private static readonly string[] SourceLinkSections =
+    [
+        SectionNames.SourceFiles,
+        SectionNames.SourceLocations,
+    ];
+
+    internal static SectionPipeline<ApiType> AddCatalogCategories(
+        SectionPipeline<ApiType> pipeline,
+        string[] memberSections)
+    {
+        HashSet<string> available =
+            pipeline.SelectableSectionNames.ToHashSet(
+                StringComparer.OrdinalIgnoreCase);
+
+        string[] Present(IEnumerable<string> sections) =>
+            [.. sections.Where(available.Contains)];
+
+        return pipeline
+            .AddBaseCategory(
+                SectionCategoryNames.Member,
+                Present(memberSections))
+            .AddCategory(
+                SectionCategoryNames.Audit,
+                Present(AuditSections))
+            .AddCategory(
+                SectionCategoryNames.Calls,
+                Present(CallSections))
+            .AddCategory(
+                SectionCategoryNames.Decompiler,
+                Present(DecompilerSections))
+            .AddCategory(
+                SectionCategoryNames.Performance,
+                Present(PerformanceSections))
+            .AddCategory(
+                SectionCategoryNames.Source,
+                Present(SourceSections))
+            .AddCategory(
+                SectionCategoryNames.SourceLink,
+                Present(SourceLinkSections));
+    }
+
     public static SectionPipeline<ApiType> Create(ApiOptions options)
         => UsesDetailPipeline(options)
             ? ApiMemberDetailSectionDescriptors.CreatePipeline(
@@ -634,7 +751,9 @@ public static class ApiMemberOverloadSectionDescriptors
         bool FindingCensusCanRender(ApiType model) =>
             HasSingleExecutableBodyMember(model, selectedBodyOrdinal);
 
-        return new SectionPipeline<ApiType>()
+        var pipeline = new SectionPipeline<ApiType>()
+            .UseCuratedCatalog()
+            .WithoutComputedPoles()
             .Add<ApiMemberSectionDescriptors.Values>()
             .Add<ApiMemberSectionDescriptors.TypeParameters>()
             .Add<ApiMemberSectionDescriptors.TypeInterfaces>()
@@ -679,13 +798,27 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.SemanticsOverlay>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.ILBody>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.Facts>()
-            .AddCategory(SectionCategoryNames.Source,
-                SectionNames.DecompiledSource,
-                SectionNames.AnnotatedSource,
-                SectionNames.PdbSource,
-                SectionNames.SourceDiff,
-                SectionNames.IL);
+            .Add<ApiMemberSectionDescriptors.Facts>();
+
+        return ApiMemberSectionPipelines.AddCatalogCategories(
+            pipeline,
+            [
+                SectionNames.Values,
+                SectionNames.TypeParameters,
+                SectionNames.TypeInterfaces,
+                SectionNames.Baseclass,
+                SectionNames.Constructors,
+                SectionNames.Finalizer,
+                SectionNames.Fields,
+                SectionNames.Properties,
+                SectionNames.Signature,
+                SectionNames.Methods,
+                SectionNames.Operators,
+                SectionNames.ExplicitInterfaceImplementations,
+                SectionNames.ExtensionMethods,
+                SectionNames.Events,
+                SectionNames.CustomAttributes,
+            ]);
     }
 
     private static bool HasSingleBodyBackedMember(ApiType model)
@@ -725,7 +858,9 @@ public static class ApiMemberDetailSectionDescriptors
                     member,
                     selectedBodyOrdinal));
 
-        return new SectionPipeline<ApiType>()
+        var pipeline = new SectionPipeline<ApiType>()
+            .UseCuratedCatalog()
+            .WithoutComputedPoles()
             .Add<Summary>()
             .Add<Signature>()
             .Add<MethodAttributes>()
@@ -756,13 +891,17 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<ApiMemberSectionDescriptors.TopLeverage>()
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
             .Add<Facts>()
-            .Add<ILBody>()
-            .AddCategory(SectionCategoryNames.Source,
+            .Add<ILBody>();
+
+        return ApiMemberSectionPipelines.AddCatalogCategories(
+            pipeline,
+            [
+                SectionNames.Signature,
+                SectionNames.CustomAttributes,
                 SectionNames.DecompiledSource,
-                SectionNames.AnnotatedSource,
                 SectionNames.PdbSource,
-                SectionNames.SourceDiff,
-                SectionNames.IL);
+                SectionNames.IL,
+            ]);
     }
 
     public sealed class Summary : ISectionDescriptor<ApiType>
@@ -795,7 +934,6 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.DecompiledSource;
         public static bool IsExpensive => false;
-        public static bool Info => true;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
@@ -884,6 +1022,7 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.PdbSource;
         public static bool IsExpensive => true;
+        public static SectionCost Cost => SectionCost.Moderated;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         // A property/event resolves through the accessor the selected ordinal addresses, whose

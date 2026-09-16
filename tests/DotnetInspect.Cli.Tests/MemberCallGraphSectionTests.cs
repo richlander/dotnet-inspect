@@ -1109,7 +1109,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             OverloadIndex = 1,
             TipLevel = TipLevel.Quiet,
-            Discover = [],
+            Discover = [SectionCategoryNames.Calls],
             Verbosity = Verbosity.Normal,
             Tabular = true,
             Tsv = true,

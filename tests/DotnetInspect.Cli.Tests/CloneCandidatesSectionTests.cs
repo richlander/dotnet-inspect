@@ -238,7 +238,7 @@ public sealed class CloneCandidatesSectionTests
     }
 
     [Fact]
-    public async Task Member_BroadSectionSelectionDoesNotRunCloneCandidates()
+    public async Task Member_BaseCategoryDoesNotRunCloneCandidates()
     {
         var result = await Run(
             "member",
@@ -248,7 +248,7 @@ public sealed class CloneCandidatesSectionTests
             "-m",
             "Raise",
             "-S",
-            "@All",
+            SectionCategoryNames.Member,
             "--json");
 
         Assert.Equal(0, result.ExitCode);

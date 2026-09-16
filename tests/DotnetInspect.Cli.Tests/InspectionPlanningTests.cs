@@ -1339,7 +1339,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task ApiStaticSchema_PreservesCategoryDoorsAndCostAnnotations()
+    public async Task ApiStaticSchema_PreservesCategoryDoorsWithoutLegacyAnnotations()
     {
         var result = await RunAppAsync(
             "type",
@@ -1353,14 +1353,17 @@ public sealed class InspectionPlanningTests
             "q");
 
         Assert.Equal(0, result.Exit);
-        Assert.Contains("@All", result.Output);
+        Assert.Contains(SectionCategoryNames.Member, result.Output);
         Assert.Contains("@Audit", result.Output);
-        Assert.Contains("(verbose)", result.Output);
+        Assert.DoesNotContain("@All", result.Output);
+        Assert.DoesNotContain("@Default", result.Output);
+        Assert.DoesNotContain("@Hidden", result.Output);
+        Assert.DoesNotContain("(verbose)", result.Output);
         Assert.Empty(result.Error);
     }
 
     [Fact]
-    public async Task CommandlessStaticSchema_PreservesAlternativeMetadata()
+    public async Task CommandlessStaticSchema_PreservesCuratedAlternativeMetadata()
     {
         var result = await RunAppAsync(
             "Missing.Type.Run",
@@ -1372,9 +1375,9 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
-            "[member/member-target/ApiMemberOverload] @All",
+            "[member/member-target/ApiMemberOverload] @Member",
             result.Output);
-        Assert.Contains(
+        Assert.DoesNotContain(
             "section (verbose)",
             result.Output);
         Assert.Empty(result.Error);
@@ -1546,7 +1549,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task EffectiveDiscovery_AllSelectionRetainsExactDemand()
+    public async Task EffectiveDiscovery_MemberSelectionRetainsExactDemand()
     {
         var result = await RunAppAsync(
             "member",
@@ -1556,7 +1559,7 @@ public sealed class InspectionPlanningTests
             "--platform",
             "System.Private.CoreLib",
             "-S",
-            SelectResolver.AllSelector,
+            SectionCategoryNames.Member,
             "-D",
             SectionNames.Signature,
             "--markdown",
@@ -1888,7 +1891,7 @@ public sealed class InspectionPlanningTests
                 "-S",
                 SectionNames.Signature,
                 "-D",
-                SelectResolver.AllSelector,
+                SectionCategoryNames.Member,
                 "--schema",
                 "--table",
                 "--tips",
@@ -1902,7 +1905,7 @@ public sealed class InspectionPlanningTests
                 "-S",
                 SectionNames.Signature,
                 "-D",
-                SelectResolver.AllSelector,
+                SectionCategoryNames.Member,
                 "--schema",
                 "--table",
                 "--tips",
@@ -2984,12 +2987,12 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task CommandlessStaticAll_RetainsExactDiscoveryDemand()
+    public async Task CommandlessStaticMemberCategory_RetainsExactDiscoveryDemand()
     {
         var result = await RunAppAsync(
             "Missing.Type.Run",
             "-S",
-            SelectResolver.AllSelector,
+            SectionCategoryNames.Member,
             "-D",
             SectionNames.Signature,
             "--schema",

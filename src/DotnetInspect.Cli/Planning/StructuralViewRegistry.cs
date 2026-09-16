@@ -909,6 +909,10 @@ public static class StructuralViewRegistry
                 defaultSections = pipeline.FixedOverviewSectionNames;
                 annotations = pipeline.GetCostAnnotations();
                 categories = pipeline.GetCategoryMap();
+                listedCategoryDoors =
+                    pipeline.GetListedCategoryDoors();
+                catalogHiddenSections =
+                    pipeline.GetCatalogHiddenSections();
                 break;
             }
             case InspectionCatalogIdentity.ApiMember:
@@ -934,6 +938,10 @@ public static class StructuralViewRegistry
                             .DefaultSectionNames;
                 annotations = pipeline.GetCostAnnotations();
                 categories = pipeline.GetCategoryMap();
+                listedCategoryDoors =
+                    pipeline.GetListedCategoryDoors();
+                catalogHiddenSections =
+                    pipeline.GetCatalogHiddenSections();
                 break;
             }
             default:
@@ -1211,6 +1219,13 @@ public static class StructuralViewRegistry
         var categories =
             new Dictionary<string, string[]>(
                 StringComparer.OrdinalIgnoreCase);
+        var catalogHiddenSections =
+            new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase);
+        var listedCategoryDoors =
+            new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase);
+        bool hasCuratedCatalog = false;
         foreach (StructuralAlternativeSelection alternative in
                  alternatives.Alternatives)
         {
@@ -1225,6 +1240,23 @@ public static class StructuralViewRegistry
                 alternative.CompleteCatalog
                     ? projection.Schema.SectionNames
                     : alternative.ResolvedSections;
+            if (alternative.CompleteCatalog
+                && projection.ListedCategoryDoors is not null)
+            {
+                hasCuratedCatalog = true;
+                foreach (string name in
+                         projection.CatalogHiddenSections)
+                {
+                    catalogHiddenSections.Add(
+                        $"[{alternative.Route.Label}] {name}");
+                }
+                foreach (string name in
+                         projection.ListedCategoryDoors)
+                {
+                    listedCategoryDoors.Add(
+                        $"[{alternative.Route.Label}] {name}");
+                }
+            }
             foreach (string name in sections)
             {
                 var section = projection.Schema.GetSection(name);
@@ -1296,7 +1328,14 @@ public static class StructuralViewRegistry
                 (int)request.Verbosity,
                 request.Projection),
             sectionCostAnnotations: annotations,
-            sectionCategories: categories);
+            sectionCategories: categories,
+            catalogHiddenSections: request.Schema
+                || !hasCuratedCatalog
+                ? null
+                : catalogHiddenSections,
+            listedCategoryDoors: hasCuratedCatalog
+                ? listedCategoryDoors
+                : null);
     }
 
     public static StructuralCatalogAlternatives CreateAlternatives(

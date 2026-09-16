@@ -97,6 +97,11 @@ type-forwarder inventories, and `Inspection Failures`. Exact-type inspection
 uses the shared type/member-list catalog and is curated with the `member`
 command.
 
+The `member` command and exact-type inspection use `@Member` as their sole
+base category. Its membership follows the resolved view: member-kind summaries
+for a type, the matching inventory for a member name, and signature plus local
+implementation evidence for one selected overload.
+
 ### Domain categories
 
 Domain categories are separate conceptual lenses. They are explicit doors and
@@ -121,6 +126,11 @@ At package scope, `@Dependencies` groups direct and runtime-specific package
 dependencies, while `@Audit` cross-lists package signals, artifact-text concern
 locations, signing, vulnerabilities, and SourceLink integrity evidence.
 `@SourceLink` remains a separate provenance domain.
+
+At type/member scope, `@Audit`, `@Calls`, `@Decompiler`, `@Performance`,
+`@Source`, and `@SourceLink` are explicit lenses. The same category names span
+the broad type view, overload inventory, and exact-member detail view, while
+each resolved catalog exposes only the sections it can render.
 
 ### Category doors
 
@@ -564,6 +574,25 @@ The package command's current authored ownership is:
 `@Package` and `@Files` are base categories. The remaining categories are
 domains.
 
+## Member category map
+
+The member command's current authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Member` | Route-specific ordinary evidence: type/member-kind summaries, overload inventory, or selected-overload signature and local implementation |
+| `@Audit` | `Unsafe Members`, `Unsafe Operations`, `Safety Facts`, `Semantics Overlay` |
+| `@Calls` | `Called Types`, `Calls`, `Callers`, `Call Graph` |
+| `@Decompiler` | `Decompiled Source`, `Annotated Source`, `Annotated Source Document`, `Fidelity Causes`, `Applied Taste`, `Cost Overlay`, `Semantics Overlay`, `Facts`, `Exception Regions`, `IL` |
+| `@Performance` | `Allocation Facts`, `Cost Facts`, `Cost Overlay`, `Body Shapes`, `Body Shape Summary`, `Clone Candidates`, `Top Leverage`, `Performance Triage` |
+| `@Source` | `Decompiled Source`, `Annotated Source`, `PDB Source`, `Source Diff`, `IL` |
+| `@SourceLink` | `Source Files`, `Source Locations` |
+
+`@Member` is the base category; the remaining categories are domains.
+`Member Index` and `Finding Census` remain exact-name sections: their focused
+selector and indivisible-document contracts are not coherent promises for a
+broader category.
+
 ## Registration invariants
 
 The section pipeline and derived catalog gates enforce these invariants:
@@ -574,9 +603,11 @@ The section pipeline and derived catalog gates enforce these invariants:
 4. Every selectable package section has authored category ownership. Every
    selectable library section is categorized except the explicitly pinned
    standalone `Unsafe Members` and coordinate-gated `Body Shapes` sections.
-   Gates:
+   Every selectable member section is categorized except the explicitly pinned
+   `Member Index` and `Finding Census` sections. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
-   `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`.
+   `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
+   `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
 6. Every query binding resolves, and a descriptor cannot understate effective
@@ -591,9 +622,10 @@ sets so stale and missing entries both fail.
 
 ## Migration
 
-The library model is the reference implementation. Package uses the same
-size/cost axes, base-category scope, authored category model, and curated
-discovery. Type, member, project, and API commands should migrate incrementally.
+The library model is the reference implementation. Package, type listing, and
+member inspection use the same size/cost axes, base-category scope, authored
+category model, and curated discovery. Project and remaining API commands
+should migrate incrementally.
 
 During migration:
 
