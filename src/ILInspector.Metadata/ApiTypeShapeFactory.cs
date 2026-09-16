@@ -23,13 +23,8 @@ internal static class ApiTypeShapeFactory
                     primitive.Name,
                     out ApiPrimitiveType primitiveType) =>
                 ApiTypeShape.PrimitiveType(primitiveType),
-            NamedTypeNode named
-                when named.AssemblyIdentity is { } assembly =>
-                ApiTypeShape.Named(new(
-                    assembly,
-                    named.Name,
-                    StructuredName(named.MetadataName)),
-                    isValueType: !named.IsReferenceType),
+            NamedTypeNode named =>
+                FromNamed(named),
             GenericTypeNode generic
                 when generic.DefinitionAssemblyIdentity is { } assembly =>
                 FromGeneric(generic, assembly, depth),
@@ -60,6 +55,17 @@ internal static class ApiTypeShapeFactory
         ApiAssemblyIdentity assembly,
         int depth)
     {
+        if (generic.MetadataName is not { } metadataName
+            || generic.Arguments.Length == 0
+            || !MetadataNameArity.MatchesArgumentCount(
+                metadataName.Segments,
+                generic.Arguments.Length,
+                metadataName.IntroducedTypeParameterCounts)
+            || StructuredName(metadataName) is not { } definitionName)
+        {
+            return null;
+        }
+
         var arguments = ImmutableArray.CreateBuilder<ApiTypeShape>(
             generic.Arguments.Length);
         foreach (TypeNode argument in generic.Arguments)
@@ -70,13 +76,32 @@ internal static class ApiTypeShapeFactory
             arguments.Add(shape);
         }
 
-        return ApiTypeShape.GenericInstance(
+        return ApiTypeShape.GenericInstanceWithVerifiedArity(
             new(
                 assembly,
                 generic.DefinitionName,
-                StructuredName(generic.MetadataName)),
+                definitionName),
             arguments.MoveToImmutable(),
             isValueType: !generic.IsReferenceType);
+    }
+
+    static ApiTypeShape? FromNamed(NamedTypeNode named)
+    {
+        if (named.AssemblyIdentity is not { } assembly
+            || named.MetadataName is not { } metadataName
+            || !MetadataNameArity.MatchesArgumentCount(
+                metadataName.Segments,
+                argumentCount: 0,
+                introducedTypeParameterCounts:
+                    metadataName.IntroducedTypeParameterCounts)
+            || StructuredName(metadataName) is not { } definitionName)
+        {
+            return null;
+        }
+
+        return ApiTypeShape.Named(
+            new(assembly, named.Name, definitionName),
+            isValueType: !named.IsReferenceType);
     }
 
     static ApiTypeShape? FromElement(

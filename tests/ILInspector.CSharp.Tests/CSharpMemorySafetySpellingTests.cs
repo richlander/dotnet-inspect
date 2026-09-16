@@ -621,6 +621,85 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Theory]
+    [InlineData("Referenced")]
+    [InlineData("Referenced`1")]
+    public void SingleDeclarationOutcomeRejectsGenericArityMismatch(
+        string metadataName)
+    {
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    [metadataName]))
+            .Name;
+        var identity = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "ContractAssembly",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            $"Samples.{metadataName}",
+            definitionName);
+        ApiTypeShape shape = ApiTypeShape.GenericInstance(
+            identity,
+            [
+                ApiTypeShape.PrimitiveType(ApiPrimitiveType.Int32),
+                ApiTypeShape.PrimitiveType(ApiPrimitiveType.String),
+            ],
+            isValueType: false);
+
+        AssertUnrepresentablePropertyTypeShape(
+            $"Samples.{metadataName}<int, string>",
+            shape);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsNestedGenericArityMismatch()
+    {
+        MetadataTypeDefinitionName innerName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    ["Referenced"]))
+            .Name;
+        ApiTypeShape inner = ApiTypeShape.GenericInstance(
+            new ApiTypeReferenceIdentity(
+                new ApiAssemblyIdentity(
+                    "ContractAssembly",
+                    new Version(1, 0, 0, 0),
+                    culture: null,
+                    publicKeyToken: null),
+                "Samples.Referenced",
+                innerName),
+            [
+                ApiTypeShape.PrimitiveType(ApiPrimitiveType.Int32),
+                ApiTypeShape.PrimitiveType(ApiPrimitiveType.String),
+            ],
+            isValueType: false);
+        MetadataTypeDefinitionName outerName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    ["Container`1"]))
+            .Name;
+        ApiTypeShape shape = ApiTypeShape.GenericInstance(
+            new ApiTypeReferenceIdentity(
+                new ApiAssemblyIdentity(
+                    "ContractAssembly",
+                    new Version(1, 0, 0, 0),
+                    culture: null,
+                    publicKeyToken: null),
+                "Samples.Container`1",
+                outerName),
+            [inner],
+            isValueType: false);
+
+        AssertUnrepresentablePropertyTypeShape(
+            "Samples.Container<Samples.Referenced<int, string>>",
+            shape);
+    }
+
+    [Theory]
     [InlineData("sealed-virtual")]
     [InlineData("concrete-abstract")]
     [InlineData("static-class-instance")]

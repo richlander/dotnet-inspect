@@ -1695,6 +1695,7 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
         int genericParameterIndex = -1,
         bool isMethodGenericParameter = false,
         bool? isValueType = null,
+        bool? definitionArityMatchesTypeArguments = null,
         int arrayRank = 0,
         ImmutableArray<int> arraySizes = default,
         ImmutableArray<int> arrayLowerBounds = default)
@@ -1707,6 +1708,8 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
         GenericParameterIndex = genericParameterIndex;
         IsMethodGenericParameter = isMethodGenericParameter;
         IsValueType = isValueType;
+        DefinitionArityMatchesTypeArguments =
+            definitionArityMatchesTypeArguments;
         ArrayRank = arrayRank;
         ArraySizes = arraySizes.IsDefault ? [] : arraySizes;
         ArrayLowerBounds = arrayLowerBounds.IsDefault
@@ -1735,6 +1738,14 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? IsValueType { get; }
+
+    /// <summary>
+    /// Whether metadata-owned definition evidence exactly accounts for every
+    /// generic-instance argument. Null means the shape producer did not retain
+    /// that evidence.
+    /// </summary>
+    [JsonIgnore]
+    public bool? DefinitionArityMatchesTypeArguments { get; }
 
     public int ArrayRank { get; }
 
@@ -1781,6 +1792,17 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
             definition: definition,
             typeArguments: typeArguments,
             isValueType: isValueType);
+
+    internal static ApiTypeShape GenericInstanceWithVerifiedArity(
+        ApiTypeReferenceIdentity definition,
+        ImmutableArray<ApiTypeShape> typeArguments,
+        bool? isValueType) =>
+        new(
+            ApiTypeShapeKind.GenericInstance,
+            definition: definition,
+            typeArguments: typeArguments,
+            isValueType: isValueType,
+            definitionArityMatchesTypeArguments: true);
 
     public static ApiTypeShape GenericParameter(
         int index,

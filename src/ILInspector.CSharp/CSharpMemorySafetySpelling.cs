@@ -512,6 +512,26 @@ internal static class CSharpMemorySafetySpelling
 
     static bool PropertyTypeShapeIsRepresentable(ApiTypeShape shape)
     {
+        if (shape.Kind is
+            ApiTypeShapeKind.Named or ApiTypeShapeKind.GenericInstance)
+        {
+            if (shape.Definition?.DefinitionName is not { } definitionName)
+                return false;
+            int argumentCount = shape.Kind == ApiTypeShapeKind.GenericInstance
+                ? shape.TypeArguments.Length
+                : 0;
+            bool arityMatches =
+                shape.DefinitionArityMatchesTypeArguments
+                ?? MetadataNameArity.MatchesArgumentCount(
+                    definitionName.Segments,
+                    argumentCount);
+            if (!arityMatches
+                || shape.Kind == ApiTypeShapeKind.GenericInstance
+                    && shape.TypeArguments.IsEmpty)
+            {
+                return false;
+            }
+        }
         if (shape.Kind == ApiTypeShapeKind.Array
             && (shape.ArrayRank < 2
                 || !shape.ArraySizes.IsEmpty

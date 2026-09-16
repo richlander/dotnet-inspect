@@ -38,6 +38,9 @@ public class PropertyAccessorSignatureConsistencyTests
     [InlineData(AccessorMismatch.OutOfRangeTypeGenericParameter, true)]
     [InlineData(AccessorMismatch.ArrayOutOfRangeTypeGenericParameter, true)]
     [InlineData(AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter, true)]
+    [InlineData(AccessorMismatch.GenericArityAbsent, true)]
+    [InlineData(AccessorMismatch.GenericArityMismatch, true)]
+    [InlineData(AccessorMismatch.GenericArityTrustedNoSuffix, false)]
     public void PropertyAccessorRetainsWhetherItsSignatureCorresponds(
         AccessorMismatch mismatch,
         bool expectedMismatch)
@@ -139,6 +142,18 @@ public class PropertyAccessorSignatureConsistencyTests
                     property.SignatureModel.ReturnTypeShape!.TypeArguments)
                     .IsMethodGenericParameter);
         }
+        if (mismatch is
+            AccessorMismatch.GenericArityAbsent
+            or AccessorMismatch.GenericArityMismatch)
+        {
+            Assert.Null(property.SignatureModel.ReturnTypeShape);
+        }
+        if (mismatch == AccessorMismatch.GenericArityTrustedNoSuffix)
+        {
+            Assert.True(
+                property.SignatureModel.ReturnTypeShape!
+                    .DefinitionArityMatchesTypeArguments);
+        }
     }
 
     static bool ExpectedSignatureMatch(
@@ -171,7 +186,10 @@ public class PropertyAccessorSignatureConsistencyTests
                 or AccessorMismatch.GenericArgumentMethodGenericParameter
                 or AccessorMismatch.OutOfRangeTypeGenericParameter
                 or AccessorMismatch.ArrayOutOfRangeTypeGenericParameter
-                or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter =>
+                or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter
+                or AccessorMismatch.GenericArityAbsent
+                or AccessorMismatch.GenericArityMismatch
+                or AccessorMismatch.GenericArityTrustedNoSuffix =>
                 "get",
             _ => "set",
         });
@@ -224,7 +242,10 @@ public class PropertyAccessorSignatureConsistencyTests
             or AccessorMismatch.TypeGenericParameter
             or AccessorMismatch.OutOfRangeTypeGenericParameter
             or AccessorMismatch.ArrayOutOfRangeTypeGenericParameter
-            or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter;
+            or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter
+            or AccessorMismatch.GenericArityAbsent
+            or AccessorMismatch.GenericArityMismatch
+            or AccessorMismatch.GenericArityTrustedNoSuffix;
         bool getOnly = voidProperty
             || encodedReturn
             || mismatch is
@@ -252,7 +273,14 @@ public class PropertyAccessorSignatureConsistencyTests
         metadata.AddTypeReference(
             contractAssembly,
             metadata.GetOrAddString("Samples"),
-            metadata.GetOrAddString("Referenced"));
+            metadata.GetOrAddString(
+                mismatch is
+                    AccessorMismatch.GenericClassValueType
+                    or AccessorMismatch.GenericArgumentMethodGenericParameter
+                    or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter
+                    or AccessorMismatch.GenericArityMismatch
+                    ? "Referenced`1"
+                    : "Referenced"));
         byte[] propertyReturnType = mismatch switch
         {
             AccessorMismatch.NamedClassValueType => [0x12, 0x05],
@@ -272,6 +300,11 @@ public class PropertyAccessorSignatureConsistencyTests
                 [0x1D, 0x13, 0x00],
             AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter =>
                 [0x15, 0x12, 0x05, 0x01, 0x13, 0x00],
+            AccessorMismatch.GenericArityAbsent
+                or AccessorMismatch.GenericArityMismatch =>
+                [0x15, 0x12, 0x05, 0x02, 0x08, 0x0E],
+            AccessorMismatch.GenericArityTrustedNoSuffix =>
+                [0x15, 0x12, 0x0C, 0x02, 0x08, 0x0E],
             _ =>
             [
                 voidProperty
@@ -371,6 +404,26 @@ public class PropertyAccessorSignatureConsistencyTests
                 GenericParameterAttributes.None,
                 metadata.GetOrAddString("T"),
                 index: 0);
+        }
+        if (mismatch == AccessorMismatch.GenericArityTrustedNoSuffix)
+        {
+            TypeDefinitionHandle referenced = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("ReferencedTypes"),
+                metadata.GetOrAddString("Referenced"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
+            metadata.AddGenericParameter(
+                referenced,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("TFirst"),
+                index: 0);
+            metadata.AddGenericParameter(
+                referenced,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("TSecond"),
+                index: 1);
         }
         if (mismatch == AccessorMismatch.ExplicitInterfaceGetter)
         {
@@ -535,5 +588,8 @@ public class PropertyAccessorSignatureConsistencyTests
         OutOfRangeTypeGenericParameter,
         ArrayOutOfRangeTypeGenericParameter,
         GenericArgumentOutOfRangeTypeGenericParameter,
+        GenericArityAbsent,
+        GenericArityMismatch,
+        GenericArityTrustedNoSuffix,
     }
 }

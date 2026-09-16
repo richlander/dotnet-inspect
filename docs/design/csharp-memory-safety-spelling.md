@@ -210,6 +210,10 @@ narrower:
   definition shape, and in-range declaring-type generic parameters. An
   out-of-range declaring-type generic parameter and every method generic
   parameter are unavailable because no property declaration can bind them.
+  Each generic instance's encoded argument count must exactly match the
+  metadata-verified introduced parameter counts where present, and otherwise
+  the canonical arity suffixes of its complete definition name. Missing or
+  contradictory generic arity is unavailable rather than display-normalized.
   Array shapes are recursively admitted only when C# type syntax preserves
   their complete identity: vectors remain supported, multidimensional arrays
   require rank two or greater, and retained sizes or lower bounds are
