@@ -980,6 +980,108 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task PacketRoute_RejectsGroupConstructionIntent()
+    {
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            """
+            {
+              "f": 1,
+              "t": [[":Platform", "10.0.10", "net10.0", null]],
+              "g": [[0]],
+              "a": 0,
+              "x": 0,
+              "v": "api"
+            }
+            """,
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = WorkspaceSharePacketCodec.Encode(packet),
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains("group subscriptions", captured.Error);
+    }
+
+    [Fact]
+    public async Task VerbosePacketRows_DistinguishPackageContextTargets()
+    {
+        const string olderFramework = "net8.0";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(WorkspaceCommandTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ($"lib/{olderFramework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            $$"""
+            {
+              "f": 1,
+              "t": [
+                ["{{PackageId}}", "{{Version}}", "{{olderFramework}}", null],
+                ["{{PackageId}}", "{{Version}}", "{{Framework}}", null]
+              ],
+              "g": [[0], [1]],
+              "a": 0,
+              "x": 0,
+              "v": "api"
+            }
+            """,
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = WorkspaceSharePacketCodec.Encode(packet),
+                    Verbose = true,
+                    Format = OutputFormat.Table,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Contains($"requested {olderFramework}", captured.Output);
+        Assert.Contains($"requested {Framework}", captured.Output);
+    }
+
+    [Fact]
+    public async Task ShareCannotBeCombinedWithPackageNavigation()
+    {
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [$"{PackageId}@{Version}"],
+                    Tfm = Framework,
+                    ActivePackage = 1,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--share reports top-level Workspace inventory",
+            captured.Error);
+    }
+
+    [Fact]
     public async Task FilteredPacket_ContentRemainsAvailableButShareDoesNot()
     {
         var store = new InMemoryPackageStore();

@@ -1127,7 +1127,7 @@ public static class WorkspaceCommand
             case OutputFormat.Table:
             case OutputFormat.Tsv:
                 MarkoutSerializer.Serialize(
-                    CreateInventoryView(document, entries),
+                    CreateInventoryView(document, entries, options.Verbose),
                     Console.Out,
                     new TableFormatter(!options.NoHeader),
                     WorkspaceViewContext.Default,
@@ -1137,14 +1137,14 @@ public static class WorkspaceCommand
                 break;
             case OutputFormat.PlainText:
                 MarkoutSerializer.Serialize(
-                    CreateInventoryView(document, entries),
+                    CreateInventoryView(document, entries, options.Verbose),
                     Console.Out,
                     new PlainTextFormatter(),
                     WorkspaceViewContext.Default);
                 break;
             default:
                 MarkoutSerializer.Serialize(
-                    CreateInventoryView(document, entries),
+                    CreateInventoryView(document, entries, options.Verbose),
                     Console.Out,
                     WorkspaceViewContext.Default);
                 break;
@@ -1154,7 +1154,8 @@ public static class WorkspaceCommand
 
     static WorkspaceTopLevelInventoryView CreateInventoryView(
         WorkspaceTopLevelInventoryDocument document,
-        IReadOnlyList<WorkspaceTopLevelInventoryEntry> entries)
+        IReadOnlyList<WorkspaceTopLevelInventoryEntry> entries,
+        bool verbose)
     {
         string? description = document.Filter is null
             ? entries.Count == 0
@@ -1168,10 +1169,10 @@ public static class WorkspaceCommand
             Description = description,
             Entries =
             [
-                .. entries.Select(static entry =>
+                .. entries.Select(entry =>
                     new WorkspaceTopLevelInventoryRow(
                         KindText(entry.Kind),
-                        LocationText(entry),
+                        LocationText(entry, verbose),
                         StateText(entry))),
             ],
         };
@@ -1190,11 +1191,13 @@ public static class WorkspaceCommand
                 "Unknown Workspace inventory entry kind."),
         };
 
-    static string LocationText(WorkspaceTopLevelInventoryEntry entry) =>
+    static string LocationText(
+        WorkspaceTopLevelInventoryEntry entry,
+        bool verbose) =>
         entry switch
         {
             WorkspaceTopLevelPackageEntry package =>
-                $"{package.PackageId}@{package.PackageVersion}",
+                PackageLocation(package, verbose),
             WorkspaceTopLevelExactLibraryEntry library =>
                 ExactLibraryLocation(library.Coordinate),
             WorkspaceTopLevelPackagePrefixEntry prefix =>
@@ -1203,6 +1206,26 @@ public static class WorkspaceCommand
             _ => throw new InvalidOperationException(
                 "Unknown Workspace inventory entry arm."),
         };
+
+    static string PackageLocation(
+        WorkspaceTopLevelPackageEntry package,
+        bool verbose)
+    {
+        string location = $"{package.PackageId}@{package.PackageVersion}";
+        if (!verbose)
+            return location;
+
+        string[] details =
+        [
+            $"producer {package.Producer}",
+            $"requested {package.RequestedTargetFramework ?? "(none)"}",
+            $"selected {package.SelectedTargetFramework ?? "(none)"}",
+            $"effective {package.EffectiveTargetFramework ?? "(none)"}",
+            $"rid {package.RuntimeIdentifier ?? "(none)"}",
+            $"assets {package.AssetSelectionStatus}",
+        ];
+        return $"{location} ({string.Join("; ", details)})";
+    }
 
     static string ExactLibraryLocation(
         WorkspaceTopLevelExactLibraryCoordinate coordinate) =>
@@ -1352,6 +1375,12 @@ public static class WorkspaceCommand
             || options.Type is not null
             || options.Member is not null
             || options.Lens is not null;
+        if (options.ShareFormat is not null
+            && (options.ActivePackage is not null || hasNavigationSelector))
+        {
+            return "--share reports top-level Workspace inventory and cannot "
+                + "be combined with Package Navigation options.";
+        }
         if (options.Packet is not null
             && (options.ActivePackage is not null || hasNavigationSelector))
         {

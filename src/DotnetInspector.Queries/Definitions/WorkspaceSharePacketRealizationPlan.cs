@@ -200,6 +200,16 @@ public static class WorkspaceSharePacketRealization
                     "A Workspace packet must resolve one Workspace definition."),
             _ => throw new UnreachableException(),
         };
+        if (workspace.Contexts.Any(static context =>
+                !string.IsNullOrWhiteSpace(context.Subscribe)
+                || context.Members.Any(static member =>
+                    member is not DefinitionMemberCoordinate
+                        .PackageCoordinate)))
+        {
+            throw new InspectionDefinitionException(
+                "Workspace inventory packet restoration currently supports direct Package context members only; group subscriptions and non-Package members require complete Workspace restoration.");
+        }
+
         var plan = new WorkspacePlan(
             [],
             [

@@ -59,6 +59,11 @@ duplicate roots. Both routes complete, activate, and admit the same realization
 before calling
 `WorkspaceTopLevelInventoryOperation`.
 
+The focused packet route accepts direct Package context members only. Group
+subscriptions and non-Package context members are rejected visibly until the
+complete Workspace restoration owner can realize them without discarding
+construction intent.
+
 The CLI does not read current Scope and registration collections separately.
 It lowers the shared typed document through Markout as compact `Kind`,
 `Location`, and `State` rows. JSON and JSONL retain the shared polymorphic
@@ -77,7 +82,10 @@ The existing `--active-package` path resolves Package source order through the
 operation's selection receipt, validates the exact occurrence identity, and
 then enters Navigation. Packet-restored Navigation refinement and filtered
 inventory Navigation are rejected rather than silently changing either
-contract.
+contract. Share is likewise top-level-inventory output and is rejected with
+Package Navigation instead of being silently skipped. Human output remains
+compact by default; verbose lowering appends the Package producer, distinct
+target fields, runtime identifier, and asset-selection status.
 
 ### Stateless Workspace navigation
 

@@ -216,6 +216,21 @@ public sealed class WorkspaceSharePacketTransposerTests
     }
 
     [Fact]
+    public void RealizationPlan_RejectsGroupConstructionIntent()
+    {
+        InspectionDefinitionException exception =
+            Assert.Throws<InspectionDefinitionException>(
+                () => WorkspaceSharePacketRealization.Prepare(
+                    CanonicalVector,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "group subscriptions",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Transpose_CanonicalPacket_RoundTripsByteForByte()
     {
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(

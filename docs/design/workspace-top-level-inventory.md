@@ -152,7 +152,10 @@ routes:
    plan through strict format dispatch. The plan retains the exact packet and
    every direct Package member from every context. The CLI acquires those
    members in plan order, logically coalesces exact duplicate roots, and
-   publishes that complete Package membership before operation admission.
+   publishes that complete Package membership before operation admission. A
+   packet containing a group subscription or non-Package context member is
+   rejected visibly rather than certified after dropping construction intent;
+   complete restoration of those packets remains #7027.
 
 Both routes populate and admit one ephemeral realized Workspace through the
 same owner operations before calling
@@ -549,8 +552,9 @@ Implementation proceeds as independently reviewable slices:
    exact Package occurrence drill-down through the receipt. The CLI spells the
    controls as `--packet`, `--register-library`,
    `--register-package-prefix`, `--register-ecosystem`, and repeatable
-   `--kind`; packet-restored Navigation refinement remains rejected under the
-   focused deferral above.
+   `--kind`; verbose human rows disclose Package-specific detail, while Share,
+   kind filtering, and packet restoration remain top-level-inventory controls
+   that reject Package Navigation under the focused deferral above.
 3. **Inspect Web adoption.** Consume the admitted operation from
    `BrowserWorkspaceRealizationHost`, render the same semantic document in the
    existing Workspace surface, and bind actions through retained managed
