@@ -176,10 +176,10 @@ public sealed class TypeDeclarationVisibilityPlan
             RowQueryPredicateIntent predicate = predicates[index];
             ArgumentNullException.ThrowIfNull(predicate);
             TypeDeclarationVisibilityFacetDescriptor? descriptor = Facets.FirstOrDefault(
-                facet => string.Equals(facet.Facet.ToString(), predicate.FieldKey,
+                facet => string.Equals(facet.Facet.ToString(), predicate.Key,
                     StringComparison.OrdinalIgnoreCase));
             if (descriptor is null)
-                return Failed(index, null, RowQueryFailureReason.UnknownField);
+                return Failed(index, null, RowQueryFailureReason.UnknownKey);
             if (!descriptor.Operators.Contains(predicate.Operator))
                 return Failed(index, descriptor.Facet, RowQueryFailureReason.UnsupportedPredicateOperator);
 

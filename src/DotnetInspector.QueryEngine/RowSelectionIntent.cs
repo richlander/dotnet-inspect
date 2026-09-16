@@ -173,7 +173,7 @@ public sealed class RowSelectionIntent<TOrderOperand>
 
     public static RowSelectionIntent<TOrderOperand> Empty { get; } =
         new(
-            SectionContractSnapshot.Empty<
+            QueryEngineSnapshot.Empty<
                 RowSelectionIntentOperation<TOrderOperand>>());
 
     public IReadOnlyList<RowSelectionIntentOperation<TOrderOperand>>
@@ -198,7 +198,7 @@ public sealed class RowSelectionIntent<TOrderOperand>
 
         return copy.Length == 0
             ? Empty
-            : new(SectionContractSnapshot.Own(copy));
+            : new(QueryEngineSnapshot.Own(copy));
     }
 
     public RowSelectionIntent<TOrderOperand> Append(
@@ -212,6 +212,6 @@ public sealed class RowSelectionIntent<TOrderOperand>
         for (int index = 0; index < Operations.Count; index++)
             copy[index] = Operations[index];
         copy[^1] = operation;
-        return new(SectionContractSnapshot.Own(copy));
+        return new(QueryEngineSnapshot.Own(copy));
     }
 }

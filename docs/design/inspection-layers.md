@@ -37,12 +37,12 @@ consumer picks a depth instead of re-deriving a rule.
 ## The layers
 
 ```text
-dotnet-inspect L3
-  |
-  v
-DotnetInspector.Sections --+----> DotnetInspector.RowSelection
-  L2                       |       shared typed leaf
+dotnet-inspect L3 ---------+
   |                        |
+  v                        v
+DotnetInspector.Sections -> DotnetInspector.QueryEngine
+  L2                       dependency-free physical carrier
+  |                        ^
   v                        |
 DotnetInspector.Queries ---+
   L1
@@ -62,14 +62,17 @@ Each layer is a separate component. A consumer decides how far up it comes:
 A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
 
-`DotnetInspector.RowSelection` is an orthogonal leaf utility rather than a new
-layer. L3 does not reach the leaf directly; its boundary output is typed
-operation intent. L2 owns resolution into the executable plan and typed source
-request. L1 or source owners may analyze that request for equivalent execution
-and return a typed result with completion evidence through the
+`DotnetInspector.QueryEngine` is an orthogonal, dependency-free physical
+carrier rather than a new layer or architectural owner. It carries the portable
+query intent and codec, generic row-vocabulary resolution and execution, and
+semantic row selection; their focused designs retain authority. L2 owns
+resolution into the executable plan and typed source request. L1 or source
+owners may analyze that request for equivalent execution and return a typed
+result with completion evidence through the
 [source delegation](source-delegation.md) pattern. The
 [composition map](item-and-line-limits.md#composition) owns the exact sequence.
-L2 and L1/source owners reach the leaf without depending on one another.
+L3, L2, and L1/source owners consume the carrier without depending on one
+another.
 
 ## Implementation status
 
@@ -325,7 +328,7 @@ that surface it, the disclosure ladder that decides when it appears, and the
 are integrated with Markout serialization.
 
 L2 binds declared typed row sets to the consumer-neutral
-`DotnetInspector.RowSelection` leaf component.
+semantic row-selection contract carried by `DotnetInspector.QueryEngine`.
 [Semantic row selection](semantic-row-selection.md) defines that component's
 ordered stage plan, strictness, stage-local positions, and pure output. At this
 boundary, L3 supplies typed operation intent. L2 owns its resolution into the

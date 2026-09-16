@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/DotnetInspector.RowSelection/DotnetInspector.RowSelection.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.QueryEngine/DotnetInspector.QueryEngine.csproj" />
     <ProjectReference Include="../DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
   </ItemGroup>
 
