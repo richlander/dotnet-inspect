@@ -1119,6 +1119,8 @@ public sealed class CSharpTypePrinter
         {
             Kind = accessor.Kind,
             Accessibility = accessor.Accessibility,
+            AccessibilityIsRepresentable =
+                accessor.AccessibilityIsRepresentable,
             ReturnAttributes = returnAttributes?.ToList()!,
             IsReadOnly = accessor.IsReadOnly,
             IsExplicitInterfaceImplementation =

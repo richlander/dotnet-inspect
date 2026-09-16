@@ -231,6 +231,20 @@ internal static class CSharpMemorySafetySpelling
                 return Refuse(
                     "an accessor callable signature does not correspond to the property signature.");
             }
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.AccessibilityIsRepresentable is not true))
+            {
+                return Refuse(
+                    "an accessor accessibility is unavailable or not representable in C#.");
+            }
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.IsExplicitInterfaceImplementation is not false))
+            {
+                return Refuse(
+                    "the structured property contains an unsupported explicit-interface accessor.");
+            }
             if (accessors.Any(static accessor => accessor.IsReadOnly))
             {
                 return Refuse(

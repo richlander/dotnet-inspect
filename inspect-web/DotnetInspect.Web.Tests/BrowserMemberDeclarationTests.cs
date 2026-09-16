@@ -56,8 +56,13 @@ public sealed class BrowserMemberDeclarationTests
                     candidate => candidate.Name == propertyName);
                 Assert.All(
                     property.SignatureModel!.Accessors,
-                    accessor => Assert.True(
-                        accessor.SignatureMatchesProperty));
+                    accessor =>
+                    {
+                        Assert.True(accessor.AccessibilityIsRepresentable);
+                        Assert.False(
+                            accessor.IsExplicitInterfaceImplementation);
+                        Assert.True(accessor.SignatureMatchesProperty);
+                    });
             }
             ApiMember restrictedProperty = Assert.Single(
                 extractedType.Members,

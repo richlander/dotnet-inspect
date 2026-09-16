@@ -306,6 +306,69 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    public void SingleDeclarationOutcomeRejectsUnavailableAccessorAccessibility(
+        bool? accessibilityIsRepresentable)
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.SignatureModel!.Accessors
+            .Single(accessor => accessor.Kind == "get")
+            .AccessibilityIsRepresentable = accessibilityIsRepresentable;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "accessor accessibility",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(true)]
+    public void SingleDeclarationOutcomeRejectsExplicitInterfaceAccessor(
+        bool? isExplicitInterfaceImplementation)
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.SignatureModel!.Accessors
+            .Single(accessor => accessor.Kind == "get")
+            .IsExplicitInterfaceImplementation =
+                isExplicitInterfaceImplementation;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "explicit-interface accessor",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData("public", "protected internal")]
     [InlineData("public", "protected")]
     [InlineData("public", "internal")]
@@ -2341,6 +2404,8 @@ public sealed class CSharpMemorySafetySpellingTests
             accessorModels.Add(new ApiAccessor
             {
                 Kind = kind,
+                AccessibilityIsRepresentable = true,
+                IsExplicitInterfaceImplementation = false,
                 SignatureMatchesProperty = true,
             });
             accessorFacts.Add(

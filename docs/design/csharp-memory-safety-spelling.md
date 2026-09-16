@@ -209,13 +209,16 @@ narrower:
   accessor signatures must use ordinary non-generic headers. Metadata retains
   correspondence as an explicit accessor fact; absent or negative evidence is
   not renderable. The structured accessor list preserves each accessor's exact
-  relative accessibility, and the C# boundary accepts only a property/accessor
-  accessibility combination representable by the C# accessibility lattice.
-  Explicit- and extended-layout owners, body-owned unsafe contexts, readonly
-  accessors, init-only or otherwise structurally modified accessor returns,
-  unsupported or ambiguous accessor shapes, accessor contracts, and
-  unavailable evidence remain unavailable. This selected declaration does not
-  enable direct accessor or whole-type property spelling.
+  relative accessibility and whether its MethodDef access mask has an exact C#
+  representation. The C# boundary requires affirmative representability,
+  accepts only a property/accessor accessibility combination supported by the
+  C# accessibility lattice, and requires every represented accessor to be
+  affirmatively non-explicit. Reserved signature-header flags, explicit- and
+  extended-layout owners, body-owned unsafe contexts, readonly accessors,
+  init-only or otherwise structurally modified accessor returns, unsupported
+  or ambiguous accessor shapes, accessor contracts, and unavailable evidence
+  remain unavailable. This selected declaration does not enable direct
+  accessor or whole-type property spelling.
 
 A caller can select the supported members or supply the product-selected
 explicit-field and ordinary-constructor shape. The printer does not silently

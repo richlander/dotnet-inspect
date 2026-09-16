@@ -159,6 +159,7 @@ public static class ApiSurfaceExtractor
 {
     private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
+    private const byte ReservedSignatureFlag = 0x80;
     private static readonly ConditionalWeakTable<
         MetadataReader,
         PrimitiveDefinitionClassification>
@@ -4922,9 +4923,10 @@ public static class ApiSurfaceExtractor
             }
             else if (hasPublicGetter && hasSetter)
             {
-                string setterAccessibility =
-                    GetAccessibility(setterAccess) ?? "private";
-                accessorStr = $"{{ get; {setterAccessibility} set; }}";
+                string? setterAccessibility =
+                    GetAccessibility(setterAccess);
+                accessorStr =
+                    $"{{ get; {setterAccessibility ?? "private"} set; }}";
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "get",
@@ -4960,9 +4962,10 @@ public static class ApiSurfaceExtractor
             }
             else if (hasPublicSetter && hasGetter)
             {
-                string getterAccessibility =
-                    GetAccessibility(getterAccess) ?? "private";
-                accessorStr = $"{{ {getterAccessibility} get; set; }}";
+                string? getterAccessibility =
+                    GetAccessibility(getterAccess);
+                accessorStr =
+                    $"{{ {getterAccessibility ?? "private"} get; set; }}";
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "get",
@@ -5292,6 +5295,9 @@ public static class ApiSurfaceExtractor
             if (!handle.IsNil)
             {
                 MethodDefinition method = reader.GetMethodDefinition(handle);
+                accessor.AccessibilityIsRepresentable =
+                    IsRepresentableMethodAccessibility(
+                        method.Attributes & MethodAttributes.MemberAccessMask);
                 MethodSignature<TypeNode> signature = GuardedProviderDecode.Method(
                     reader,
                     method,
@@ -5356,11 +5362,13 @@ public static class ApiSurfaceExtractor
         if (property.Header.Kind != SignatureKind.Property
             || property.Header.HasExplicitThis
             || property.Header.IsGeneric
+            || (property.Header.RawValue & ReservedSignatureFlag) != 0
             || property.GenericParameterCount != 0
             || property.RequiredParameterCount != property.ParameterTypes.Length
             || accessor.Header.Kind != SignatureKind.Method
             || accessor.Header.HasExplicitThis
             || accessor.Header.IsGeneric
+            || (accessor.Header.RawValue & ReservedSignatureFlag) != 0
             || accessor.GenericParameterCount != 0
             || accessor.Header.CallingConvention != SignatureCallingConvention.Default
             || accessor.Header.IsInstance != property.Header.IsInstance
@@ -6107,7 +6115,8 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// Maps MethodAttributes access level to C# keyword. Returns null for public.
+    /// Maps MethodAttributes access level to a C# keyword.
+    /// Returns null for public or unrepresentable access.
     /// </summary>
     private static string? GetAccessibility(MethodAttributes access) => access switch
     {
@@ -6118,6 +6127,16 @@ public static class ApiSurfaceExtractor
         MethodAttributes.FamORAssem => "protected internal",
         _ => null // Public
     };
+
+    private static bool IsRepresentableMethodAccessibility(
+        MethodAttributes access) =>
+        access is
+            MethodAttributes.Private
+            or MethodAttributes.FamANDAssem
+            or MethodAttributes.Assembly
+            or MethodAttributes.Family
+            or MethodAttributes.FamORAssem
+            or MethodAttributes.Public;
 
     /// <summary>
     /// Maps FieldAttributes access level to C# keyword. Returns null for public.

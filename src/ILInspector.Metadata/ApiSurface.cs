@@ -691,6 +691,14 @@ public class ApiAccessor
 {
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
+
+    /// <summary>
+    /// Whether the accessor's MethodDef access mask has an exact C# accessibility
+    /// representation. Null on older serialized surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AccessibilityIsRepresentable { get; set; }
+
     public List<string> ReturnAttributes { get; set; } = [];
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsReadOnly { get; set; }
