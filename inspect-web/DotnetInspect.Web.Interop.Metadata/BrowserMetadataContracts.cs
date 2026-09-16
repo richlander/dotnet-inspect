@@ -284,6 +284,9 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserMemberDeclaration))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<JsonElement>),
+    TypeInfoPropertyName = "JsonInspectionEnvelope")]
 [JsonSerializable(typeof(BrowserLibraryApiDiffRequest))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffResult))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffCancellation))]
