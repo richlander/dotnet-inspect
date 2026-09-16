@@ -115,13 +115,24 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
     /// </remarks>
     public static AssemblyIntegrationOpportunitiesEntry ExecuteParticipant(
         AssemblyContextGroup group,
-        AssemblyContextParticipant participant)
+        AssemblyContextParticipant participant) =>
+        ExecuteParticipantWithPrerequisite(
+            group,
+            participant).Opportunities;
+
+    internal static (
+        AssemblyIntegrationsEntry Integrations,
+        AssemblyIntegrationOpportunitiesEntry Opportunities)
+        ExecuteParticipantWithPrerequisite(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant)
     {
         AssemblyIntegrationsEntry integrations =
             AssemblyContextIntegrationsQuery.ExecuteParticipant(
                 group,
                 participant);
-        return integrations switch
+        AssemblyIntegrationOpportunitiesEntry opportunities =
+            integrations switch
         {
             AssemblyIntegrationsEntry.Rejected rejected =>
                 new AssemblyIntegrationOpportunitiesEntry.Rejected(
@@ -136,6 +147,7 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
             _ => throw new InvalidOperationException(
                 $"Unknown assembly integrations entry '{integrations.GetType().Name}'."),
         };
+        return (integrations, opportunities);
     }
 
     /// <summary>

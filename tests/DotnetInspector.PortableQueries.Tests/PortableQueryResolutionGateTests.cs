@@ -14,8 +14,9 @@ public sealed class PortableQueryResolutionGateTests
 {
     /// <summary>
     /// <c>IntentResolutionIsAtomic</c> — an invalid vocabulary, key, operator,
-    /// value, bound, stage, or order reference returns one structured failure
-    /// with no plan and no partial binding.
+    /// value, required family, bound, required dimension, stage, or order
+    /// reference returns one structured failure with no plan and no partial
+    /// binding.
     /// </summary>
     [Fact]
     public void IntentResolutionIsAtomic()
@@ -29,17 +30,34 @@ public sealed class PortableQueryResolutionGateTests
                 PortableQueryFailureReason.OperatorNotAdmitted),
             (Intent(terms: [Term(TestVocabulary.ToolKey, "v3")]),
                 PortableQueryFailureReason.ValueRejected),
+            (Intent(), PortableQueryFailureReason.RequiredTermFamilyMissing),
             (Intent(bounds: [new PortableQueryBound("nope", 1)]),
                 PortableQueryFailureReason.UnknownDimension),
             (Intent(bounds: [new PortableQueryBound(TestVocabulary.CandidatesDimension, 10_000)]),
                 PortableQueryFailureReason.MaximumOutsideRange),
+            (Intent(terms: [Term(TestVocabulary.DependenciesKey, "none")]),
+                PortableQueryFailureReason.RequiredDimensionMissing),
             (Intent(order: [Named(PortableQueryOrderRole.Baseline, "nope")]),
                 PortableQueryFailureReason.UnknownOrderReference),
         ];
 
         foreach ((PortableQueryIntent intent, PortableQueryFailureReason expected) in cases)
         {
-            PortableQueryResolution<TestPlan> resolution = Resolve(vocabulary, intent);
+            TestVocabulary subject = expected switch
+            {
+                PortableQueryFailureReason.RequiredTermFamilyMissing =>
+                    new TestVocabulary
+                    {
+                        RequiredFamilies = ["dependency"],
+                    },
+                PortableQueryFailureReason.RequiredDimensionMissing =>
+                    new TestVocabulary
+                    {
+                        RequiredBounds = [TestVocabulary.CandidatesDimension],
+                    },
+                _ => vocabulary,
+            };
+            PortableQueryResolution<TestPlan> resolution = Resolve(subject, intent);
 
             Assert.False(resolution.IsResolved);
             Assert.Equal(expected, resolution.Failure.Reason);
@@ -101,13 +119,50 @@ public sealed class PortableQueryResolutionGateTests
                 Intent(terms: [Term(TestVocabulary.ToolKey, "v3", PortableQueryOperator.AtLeast)]))
                 .Failure.Reason);
 
-        // Bounds outrank the baseline, which outranks the stages.
+        // A missing required family follows present terms and outranks every
+        // later part.
+        var requiredFamily = new TestVocabulary
+        {
+            RequiredFamilies = ["population"],
+        };
+        Assert.Equal(
+            PortableQueryFailureReason.UnknownKey,
+            Resolve(
+                requiredFamily,
+                Intent(
+                    terms: [Term("nope", "v")],
+                    bounds: [new PortableQueryBound("nope", 1)]))
+                .Failure.Reason);
+        Assert.Equal(
+            PortableQueryFailureReason.RequiredTermFamilyMissing,
+            Resolve(
+                requiredFamily,
+                Intent(
+                    bounds: [new PortableQueryBound("nope", 1)],
+                    stages: [PortableQueryStage.Top(5)],
+                    order: [Named(PortableQueryOrderRole.Baseline, "nope")]))
+                .Failure.Reason);
+
+        // Bounds outrank their missing requirements, the baseline, and stages.
+        var requiredBound = new TestVocabulary
+        {
+            RequiredBounds = [TestVocabulary.CandidatesDimension],
+        };
         Assert.Equal(
             PortableQueryFailureReason.UnknownDimension,
             Resolve(
-                vocabulary,
+                requiredBound,
                 Intent(
                     bounds: [new PortableQueryBound("nope", 1)],
+                    stages: [PortableQueryStage.Top(5)],
+                    order: [Named(PortableQueryOrderRole.Baseline, "nope")]))
+                .Failure.Reason);
+
+        Assert.Equal(
+            PortableQueryFailureReason.RequiredDimensionMissing,
+            Resolve(
+                requiredBound,
+                Intent(
                     stages: [PortableQueryStage.Top(5)],
                     order: [Named(PortableQueryOrderRole.Baseline, "nope")]))
                 .Failure.Reason);
@@ -163,6 +218,69 @@ public sealed class PortableQueryResolutionGateTests
         Assert.False(resolution.IsResolved);
         Assert.Equal(PortableQueryFailureReason.UnknownKey, resolution.Failure.Reason);
         Assert.Equal("gone", resolution.Failure.Offender);
+    }
+
+    /// <summary>
+    /// <c>RequiredQueryPartsFailVisibly</c> — a vocabulary may require one
+    /// member of a term family and one execution-bound dimension; absence
+    /// fails after present elements in that part validate and before a plan or
+    /// acquisition exists.
+    /// </summary>
+    [Fact]
+    public void RequiredQueryPartsFailVisibly()
+    {
+        var acquisition = new AcquisitionCapability();
+        var vocabulary = new TestVocabulary(acquisition)
+        {
+            RequiredFamilies = ["z-population", "dependency"],
+            RequiredBounds = ["z-work", TestVocabulary.CandidatesDimension],
+        };
+
+        PortableQueryFailure missingFamily = Resolve(
+            vocabulary,
+            Intent(
+                terms: [Term(TestVocabulary.DependsKey, "Serilog")],
+                bounds: [new PortableQueryBound(TestVocabulary.CandidatesDimension, 20)]))
+            .Failure;
+
+        Assert.Equal(
+            PortableQueryFailureReason.RequiredTermFamilyMissing,
+            missingFamily.Reason);
+        Assert.Equal(PortableQueryPart.Terms, missingFamily.Location.Part);
+        Assert.Equal(1, missingFamily.Location.Index);
+        Assert.Equal("dependency", missingFamily.Offender);
+        Assert.Equal(0, vocabulary.PlansCreated);
+        Assert.Equal(0, acquisition.Invocations);
+
+        PortableQueryFailure missingDimension = Resolve(
+            new TestVocabulary
+            {
+                RequiredFamilies = ["dependency"],
+                RequiredBounds = ["z-work", TestVocabulary.CandidatesDimension],
+            },
+            Intent(
+                terms: [Term(TestVocabulary.DependenciesKey, "none")],
+                bounds: [new PortableQueryBound(TestVocabulary.CandidatesDimension, 20)]))
+            .Failure;
+
+        Assert.Equal(
+            PortableQueryFailureReason.RequiredDimensionMissing,
+            missingDimension.Reason);
+        Assert.Equal(PortableQueryPart.Bounds, missingDimension.Location.Part);
+        Assert.Equal(1, missingDimension.Location.Index);
+        Assert.Equal("z-work", missingDimension.Offender);
+
+        var satisfied = new TestVocabulary
+        {
+            RequiredFamilies = ["dependency"],
+            RequiredBounds = [TestVocabulary.CandidatesDimension],
+        };
+        Assert.True(Resolve(
+            satisfied,
+            Intent(
+                terms: [Term(TestVocabulary.DependenciesKey, "none")],
+                bounds: [new PortableQueryBound(TestVocabulary.CandidatesDimension, 20)]))
+            .IsResolved);
     }
 
     /// <summary>
@@ -671,8 +789,17 @@ public sealed class PortableQueryResolutionGateTests
             Term(TestVocabulary.DependenciesKey, "none"),
             Term(TestVocabulary.DependenciesKey, "any"),
         ]));
+        Reach(
+            new TestVocabulary { RequiredFamilies = ["population"] },
+            Intent());
         Reach(withRanking, Intent(bounds: [new PortableQueryBound("gone", 1)]));
         Reach(withRanking, Intent(bounds: [new PortableQueryBound(TestVocabulary.CandidatesDimension, 10_000)]));
+        Reach(
+            new TestVocabulary
+            {
+                RequiredBounds = [TestVocabulary.CandidatesDimension],
+            },
+            Intent());
         Reach(packageLike, Intent(stages: [PortableQueryStage.Top(5)]));
         Reach(withRanking, Intent(order: [Named(PortableQueryOrderRole.Baseline, "gone")]));
         Reach(withRanking, Intent(order:

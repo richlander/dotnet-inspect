@@ -258,7 +258,7 @@ jobs:
 
       - name: Run decompiler unit tests (fast)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run NuGetFetch tests (offline)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -703,7 +703,7 @@ jobs:
         run: dotnet build dotnet-inspect.slnx -c Release --no-restore
 
       - name: Run unsafe decompiler tests with nightly SDK
-        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-restore -- --filter-query "/*/*/UnsafeEmitterTests/*"
 
       - name: Gate net11 opt-in feature corpus
         shell: bash

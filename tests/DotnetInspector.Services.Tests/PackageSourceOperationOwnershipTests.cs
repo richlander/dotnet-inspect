@@ -247,7 +247,7 @@ public sealed class PackageSourceOperationOwnershipTests
             .GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
             .Select(method => method.GetCustomAttribute<AsyncStateMachineAttribute>())
             .OfType<AsyncStateMachineAttribute>().ToArray();
-        Assert.Equal(8, machines.Length);
+        Assert.Equal(9, machines.Length);
         Assert.All(machines, machine =>
         {
             FieldInfo[] fields = machine.StateMachineType.GetFields(

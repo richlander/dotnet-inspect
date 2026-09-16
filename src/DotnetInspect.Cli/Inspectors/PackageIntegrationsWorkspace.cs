@@ -1,6 +1,7 @@
 using DotnetInspector.Queries;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
 
@@ -380,17 +381,52 @@ internal sealed class PackageIntegrationsWorkspace : IAsyncDisposable
                 AssemblyIntegrationOpportunitiesEntry?,
                 Task<TResult>> consumer) =>
             _includeIntegrationOpportunities
-                ? AssemblyContextIntegrationOpportunitiesQuery
-                    .ExecuteParticipantAsync(
-                        group,
-                        queryParticipant,
-                        consumer)
+                ? ExecuteOpportunitiesAsync(
+                    group,
+                    queryParticipant,
+                    consumer)
                 : AssemblyContextIntegrationsQuery
                     .ExecuteParticipantAsync(
                         group,
                         queryParticipant,
                         (retained, integrations) =>
                             consumer(retained, integrations, null));
+
+        static async Task<TResult> ExecuteOpportunitiesAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            Func<
+                ResolvedAssemblyReference?,
+                AssemblyIntegrationsEntry?,
+                AssemblyIntegrationOpportunitiesEntry?,
+                Task<TResult>> consumer)
+        {
+            TResult result = default!;
+            bool hasResult = false;
+            await AssemblyIntegrationOpportunitiesInspection
+                .ExecuteAndReleaseAsync(
+                    group,
+                    participant,
+                    async (retained, inspection) =>
+                    {
+                        AssemblyIntegrationOpportunitiesInspectionResult
+                            content = inspection.Content;
+                        result = await consumer(
+                                retained,
+                                content.Integrations,
+                                content.Opportunities)
+                            .ConfigureAwait(false);
+                        hasResult = true;
+                    })
+                .ConfigureAwait(false);
+            if (!hasResult)
+            {
+                throw new InvalidOperationException(
+                    "The package Integration Opportunities consumer did not run.");
+            }
+
+            return result;
+        }
     }
 
     internal bool TryGetPreflightFailure(

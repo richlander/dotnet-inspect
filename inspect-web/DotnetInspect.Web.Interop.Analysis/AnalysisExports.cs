@@ -4,6 +4,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILAnalysis = ILInspector.Analysis;
 using DotnetInspect.Web;
@@ -346,16 +347,17 @@ public static partial class AnalysisExports
 
         BrowserWorkspaceParticipant participant =
             scope.LibraryParticipant(coordinate, assemblyName);
-        AssemblyIntegrationOpportunitiesEntry result =
+        InspectionEnvelope<
+            AssemblyIntegrationOpportunitiesInspectionResult> inspection =
             scope.UseMetadataParticipant(
                 participant,
-                AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant);
+                AssemblyIntegrationOpportunitiesInspection.Execute);
 
         return CreateOpportunities(
             coordinate.PackageId,
             coordinate.Version,
             coordinate.Framework,
-            [result],
+            [inspection.Content.Opportunities],
             compileLibrary);
     }
 

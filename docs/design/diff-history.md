@@ -6,7 +6,7 @@ Status: **proposed; not implemented**. This specification is tracked by
 [#6987](https://github.com/richlander/dotnet-inspect/issues/6987), with the
 subject-specific Count revision in
 [#7229](https://github.com/richlander/dotnet-inspect/issues/7229), under
-[Compare delivery #5083](https://github.com/richlander/dotnet-inspect/issues/5083)
+[Compare delivery #7213](https://github.com/richlander/dotnet-inspect/issues/7213)
 and [multi-part document adoption #6980](https://github.com/richlander/dotnet-inspect/issues/6980).
 
 The **Diff History inspection** owner defines temporal inspection and the
