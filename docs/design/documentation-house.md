@@ -850,9 +850,10 @@ Implementation and adoption slices own these Release gates:
 `CompiledXmlDocumentationHouseTests` is the Release gate for the implemented
 slice. It exercises the real `System.Text.Json` 10.0.0 assembly and XML
 companion, equal-ID cross-Library substitution, readable absence, unavailable
-and partial selection, explicit precedence, malformed and bounded XML,
-deadline, cancellation, in-flight owner retirement, and the resource-free
-result closure.
+and partial selection, distinct-content precedence with duplicate
+observations, malformed and bounded XML, stage-boundary deadline and
+cancellation, in-flight owner retirement, and the resource-free result
+closure.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.

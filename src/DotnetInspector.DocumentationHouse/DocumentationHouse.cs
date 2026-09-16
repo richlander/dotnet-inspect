@@ -106,6 +106,13 @@ public static class DocumentationHouse
 
         IReadOnlyList<DocumentationCompiledXmlRejection> rejections =
             ValidateContributions(request, contributions);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (DateTimeOffset.UtcNow >= plan.Deadline)
+        {
+            return new IncompleteOutcome(
+                DocumentationIncompleteBoundary.Deadline,
+                selectionWork);
+        }
         if (rejections.Count > 0)
         {
             return new CompletedOutcome(
@@ -115,10 +122,18 @@ public static class DocumentationHouse
                 selectionWork);
         }
 
-        if (contributions.Any(
+        bool selectionIsPartial = contributions.Any(
                 static contribution =>
                     contribution.Kind
-                        == CompiledXmlContributionKind.Partial))
+                        == CompiledXmlContributionKind.Partial);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (DateTimeOffset.UtcNow >= plan.Deadline)
+        {
+            return new IncompleteOutcome(
+                DocumentationIncompleteBoundary.Deadline,
+                selectionWork);
+        }
+        if (selectionIsPartial)
         {
             return new CompletedOutcome(
                 new DocumentationCompiledXmlAttempt.Incomplete(
@@ -136,6 +151,17 @@ public static class DocumentationHouse
                         contribution.Kind
                             == CompiledXmlContributionKind.Candidate)
                 .ToArray();
+        CompiledXmlContribution? selected =
+            candidates.Length == 0
+                ? null
+                : SelectCandidate(candidates);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (DateTimeOffset.UtcNow >= plan.Deadline)
+        {
+            return new IncompleteOutcome(
+                DocumentationIncompleteBoundary.Deadline,
+                selectionWork);
+        }
         if (candidates.Length == 0)
         {
             DocumentationCompiledXmlAttempt attempt =
@@ -151,8 +177,6 @@ public static class DocumentationHouse
             return new CompletedOutcome(attempt, selectionWork);
         }
 
-        CompiledXmlContribution? selected =
-            SelectCandidate(candidates);
         if (selected is null)
         {
             return new CompletedOutcome(
@@ -191,6 +215,16 @@ public static class DocumentationHouse
                 or InvalidOperationException
                 or ArgumentException)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (DateTimeOffset.UtcNow >= plan.Deadline)
+            {
+                return new CompletedOutcome(
+                    new DocumentationCompiledXmlAttempt.Incomplete(
+                        DocumentationIncompleteBoundary.Deadline,
+                        selected,
+                        contributions),
+                    selectionWork);
+            }
             return new FailedOutcome(
                 new(
                     DocumentationHouseFailureStage
@@ -204,6 +238,16 @@ public static class DocumentationHouse
             contributionCount,
             snapshot.Length,
             ParsedCompiledXml: false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (DateTimeOffset.UtcNow >= plan.Deadline)
+        {
+            return new CompletedOutcome(
+                new DocumentationCompiledXmlAttempt.Incomplete(
+                    DocumentationIncompleteBoundary.Deadline,
+                    selected,
+                    contributions),
+                snapshotWork);
+        }
         if (snapshot.Bytes is null)
         {
             return new CompletedOutcome(
@@ -214,16 +258,6 @@ public static class DocumentationHouse
                     contributions),
                 snapshotWork);
         }
-        if (DateTimeOffset.UtcNow >= plan.Deadline)
-        {
-            return new CompletedOutcome(
-                new DocumentationCompiledXmlAttempt.Incomplete(
-                    DocumentationIncompleteBoundary.Deadline,
-                    selected,
-                    contributions),
-                snapshotWork);
-        }
-
         XmlDocumentationEntry? documentation;
         try
         {
@@ -238,6 +272,16 @@ public static class DocumentationHouse
         catch (Exception failure) when (
             failure is XmlException or IOException)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (DateTimeOffset.UtcNow >= plan.Deadline)
+            {
+                return new CompletedOutcome(
+                    new DocumentationCompiledXmlAttempt.Incomplete(
+                        DocumentationIncompleteBoundary.Deadline,
+                        selected,
+                        contributions),
+                    snapshotWork);
+            }
             return new CompletedOutcome(
                 new DocumentationCompiledXmlAttempt.Failed(
                     selected,
@@ -346,14 +390,33 @@ public static class DocumentationHouse
         {
             return candidates[0];
         }
-        if (candidates.Any(
-                static candidate => candidate.Precedence is null))
+
+        var candidatesByContent =
+            new Dictionary<
+                LibraryContentReference,
+                CompiledXmlContribution>(
+                    ReferenceEqualityComparer.Instance);
+        foreach (CompiledXmlContribution candidate in candidates)
         {
-            return null;
+            if (candidate.Precedence is null)
+                return null;
+
+            LibraryContentReference content =
+                candidate.CompiledXmlContent!;
+            if (candidatesByContent.TryGetValue(
+                    content,
+                    out CompiledXmlContribution? observed))
+            {
+                if (observed.Precedence != candidate.Precedence)
+                    return null;
+                continue;
+            }
+
+            candidatesByContent.Add(content, candidate);
         }
 
         CompiledXmlContribution[] ordered =
-            candidates
+            candidatesByContent.Values
                 .OrderBy(static candidate => candidate.Precedence)
                 .ToArray();
         return ordered[0].Precedence == ordered[1].Precedence

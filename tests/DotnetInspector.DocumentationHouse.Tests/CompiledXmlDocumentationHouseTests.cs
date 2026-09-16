@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -267,6 +268,53 @@ public sealed class CompiledXmlDocumentationHouseTests
     }
 
     [Fact]
+    public async Task
+        DuplicateWinningCompanionObservations_DoNotMaskUniquePrecedence()
+    {
+        byte[] preferred = Xml(DeserializeIdentity, "preferred");
+        byte[] other = Xml(DeserializeIdentity, "other");
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync([1], preferred, other);
+        DocumentationSubjectReference subject = Subject(library);
+        LibraryContentReference preferredContent =
+            library.XmlContents[0];
+
+        DocumentationHouseOutcome.Completed completed =
+            await ExecuteCompletedAsync(
+                library,
+                Request(
+                    subject,
+                    [
+                        CompiledXmlContribution.Candidate(
+                            subject,
+                            library.Reference,
+                            library.Reference.ApiAssembly,
+                            Source("package"),
+                            preferredContent,
+                            precedence: 0),
+                        CompiledXmlContribution.Candidate(
+                            subject,
+                            library.Reference,
+                            library.Reference.ApiAssembly,
+                            Source("direct"),
+                            preferredContent,
+                            precedence: 0),
+                        Candidate(
+                            library,
+                            subject,
+                            xmlIndex: 1,
+                            precedence: 1),
+                    ]));
+
+        DocumentationCompiledXmlAttempt.Available available =
+            Assert.IsType<
+                DocumentationCompiledXmlAttempt.Available>(
+                    completed.CompiledXmlAttempt);
+        Assert.Equal("preferred", available.Documentation.Summary);
+        Assert.Equal(3, available.Contributions.Count);
+    }
+
+    [Fact]
     public async Task PartialSelection_IsIncompleteWithoutReadingCandidate()
     {
         byte[] xml = Xml(DeserializeIdentity, "selected");
@@ -435,6 +483,49 @@ public sealed class CompiledXmlDocumentationHouseTests
     }
 
     [Fact]
+    public async Task
+        DeadlineReachedDuringSelection_PreventsContentSnapshot()
+    {
+        const int contributionCount = 4_000_000;
+        byte[] xml = Xml(DeserializeIdentity, "selected");
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync([1], xml);
+        DocumentationSubjectReference subject = Subject(library);
+        CompiledXmlContribution candidate =
+            Candidate(library, subject, xmlIndex: 0, precedence: 0);
+        CompiledXmlContribution[] contributions =
+            Enumerable.Repeat(candidate, contributionCount).ToArray();
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(1);
+        DocumentationHouseRequest request = Request(
+            subject,
+            contributions,
+            maximumContributions: contributionCount,
+            deadline: deadline);
+
+        while (deadline - DateTimeOffset.UtcNow
+            > TimeSpan.FromMilliseconds(50))
+        {
+            Thread.SpinWait(10_000);
+        }
+
+        DocumentationHouseOutcome.Incomplete incomplete =
+            Assert.IsType<DocumentationHouseOutcome.Incomplete>(
+                await DocumentationHouse.ExecuteAsync(
+                    request,
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            DocumentationIncompleteBoundary.Deadline,
+            incomplete.Boundary);
+        Assert.Equal(
+            contributionCount,
+            incomplete.Work.ContributionsObserved);
+        Assert.Equal(0, incomplete.Work.CompiledXmlBytesObserved);
+        Assert.False(incomplete.Work.ParsedCompiledXml);
+    }
+
+    [Fact]
     public async Task Cancellation_SettlesTransferredLeaseBeforePropagating()
     {
         byte[] xml = Xml(DeserializeIdentity, "selected");
@@ -459,6 +550,73 @@ public sealed class CompiledXmlDocumentationHouseTests
 
         Assert.Equal(cancellation.Token, failure.CancellationToken);
         AssertOperationSettled(operation, library.Reference.ApiAssembly);
+    }
+
+    [Fact]
+    public async Task
+        CancellationDuringSnapshot_IsObservedBeforeParsing()
+    {
+        const int xmlSize = 48 * 1024 * 1024;
+        byte[] xml = LargeXml(xmlSize);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync([1], xml);
+        DocumentationSubjectReference subject = Subject(library);
+        DocumentationHouseRequest request = Request(
+            subject,
+            [Candidate(library, subject, xmlIndex: 0)],
+            maximumXmlBytes: xml.Length + 1,
+            xmlReadLimits:
+                XmlDocumentationReadLimits.Default with
+                {
+                    MaxCharactersInDocument = xml.Length + 1024L,
+                    MaxRetainedTextCharacters = xml.Length + 1024L,
+                });
+
+        using LibraryOperationLease calibration =
+            library.IssueOperation();
+        Stopwatch snapshotTime = Stopwatch.StartNew();
+        calibration.Snapshot(
+            library.XmlContents[0],
+            static (view, _) => view.Content.ToArray(),
+            TestContext.Current.CancellationToken);
+        snapshotTime.Stop();
+
+        using var cancellation = new CancellationTokenSource();
+        Stopwatch executionTime = Stopwatch.StartNew();
+        using var cancelThreadStarted = new ManualResetEventSlim();
+        Thread cancelThread = new(
+            () =>
+            {
+                cancelThreadStarted.Set();
+                while (executionTime.Elapsed
+                    < snapshotTime.Elapsed / 2)
+                {
+                    Thread.SpinWait(10_000);
+                }
+
+                cancellation.Cancel();
+            });
+        cancelThread.IsBackground = true;
+        cancelThread.Start();
+        cancelThreadStarted.Wait(
+            TestContext.Current.CancellationToken);
+
+        OperationCanceledException failure =
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                async () =>
+                    await DocumentationHouse.ExecuteAsync(
+                        request,
+                        library.IssueOperation(),
+                        cancellation.Token));
+        executionTime.Stop();
+        cancelThread.Join();
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.True(
+            executionTime.Elapsed
+                < snapshotTime.Elapsed * 5
+                    + TimeSpan.FromMilliseconds(100),
+            $"Cancellation took {executionTime.Elapsed.TotalMilliseconds:F1} ms after a {snapshotTime.Elapsed.TotalMilliseconds:F1} ms snapshot.");
     }
 
     [Fact]
@@ -686,6 +844,25 @@ public sealed class CompiledXmlDocumentationHouseTests
                </members>
              </doc>
              """);
+
+    private static byte[] LargeXml(int size)
+    {
+        byte[] prefix = Encoding.UTF8.GetBytes(
+            """
+            <?xml version="1.0"?>
+            <doc><members><!--
+            """);
+        byte[] suffix = Encoding.UTF8.GetBytes(
+            $"""
+             --><member name="{DeserializeIdentity}">
+             <summary>selected</summary></member></members></doc>
+             """);
+        byte[] bytes = GC.AllocateUninitializedArray<byte>(size);
+        Array.Fill(bytes, (byte)' ');
+        prefix.CopyTo(bytes, 0);
+        suffix.CopyTo(bytes, bytes.Length - suffix.Length);
+        return bytes;
+    }
 
     private static string RealAsset(string fileName) =>
         Path.Combine(
