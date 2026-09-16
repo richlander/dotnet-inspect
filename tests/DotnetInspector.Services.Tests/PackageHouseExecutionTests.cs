@@ -195,6 +195,59 @@ public sealed class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task PreparedExecutionRequiresExactHouseRequest()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0"]));
+        PackageHouseVersionPopulationRequest populationRequest =
+            PopulationRequest("1.0.0..1.0.0");
+        PackageHouse house = environment.CreateHouse();
+        var population = Assert.IsType<
+            PackageHouseVersionPopulationResult.Available>(
+                await house.SettleVersionPopulationAsync(
+                    populationRequest,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        populationRequest.Operation.RequestTimeout,
+                        populationRequest.Operation.OperationTimeout)));
+        PackageHouseVersionPopulationCell cell =
+            population.SelectCell(population.Vector.Addresses[0]);
+        PackageHouseOperation operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Settle);
+        PackageHouseVersionPopulationCellExecution execution =
+            cell.PrepareExecution(operation);
+        var demand = Assert.IsType<PackageHouseDemand.Candidate>(
+            execution.Request.Demand);
+
+        PackageHouseSettlement exact = await house.ExecuteAsync(
+            execution.Request,
+            environment.IssueOperation(
+                execution.Request,
+                TestContext.Current.CancellationToken));
+        PackageHouseRequest substitutedRequest = cell.CreateRequest(
+            operation,
+            targetContext: null,
+            assetSelection: null,
+            libraryHandoff:
+                PackageHouseLibraryHandoffMode.PackageOnly);
+        PackageHouseSettlement substituted = await house.ExecuteAsync(
+            substitutedRequest,
+            environment.IssueOperation(
+                substitutedRequest,
+                TestContext.Current.CancellationToken));
+
+        Assert.Same(cell, execution.Cell);
+        Assert.Same(cell.Candidate, demand.Value);
+        Assert.Same(cell.Association, execution.Request.Association);
+        Assert.True(execution.Accepts(exact));
+        Assert.False(execution.Accepts(substituted));
+        Assert.Same(
+            execution.Request.Association,
+            substituted.Result.Request.Association);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task VersionPopulationCellAcquiresOnlyFromItsReporters()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(

@@ -41,6 +41,7 @@ readonly record struct AuthenticatedMappingNames(
 static class TsTypeMapper
 {
     const int MaximumDelegateParameterCount = 3;
+    internal const string InertStringFullName = "InertText.InertString";
 
     public static bool IsAsyncReturnType(string csharpType)
     {
@@ -305,11 +306,6 @@ static class TsTypeMapper
         TsJsonUnionMappingContext? unionContext = null)
     {
         string trimmed = csharpType.Trim();
-        if (mappingContext == TsTypeMappingContext.JsonWire
-            && trimmed is "InertText.InertString" or "InertString")
-        {
-            return "string";
-        }
 
         if (typeShape is null
             && IsBlockedType(trimmed, blockedAliases))

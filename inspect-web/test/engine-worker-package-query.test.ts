@@ -85,7 +85,10 @@ const progressEvent: EngineWorkerPackageQueryDurableEvent = {
   assessment: null,
 };
 
-const matchEvent: EngineWorkerPackageQueryDurableEvent = {
+const matchEvent: Extract<
+  EngineWorkerPackageQueryDurableEvent,
+  { readonly kind: "Match" }
+> = {
   kind: "Match",
   row: {
     packageId: "Contoso.Library",
@@ -99,6 +102,7 @@ const matchEvent: EngineWorkerPackageQueryDurableEvent = {
         count: 2,
         preview: ["first", "second"],
       },
+      term: null,
     }],
     totalDownloads: 42,
     verified: true,
@@ -543,10 +547,10 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
     },
     runPackageQuery: (...args) => {
       runs.push(args);
-      emit(args[7], progressEvent);
-      emit(args[7], matchEvent);
-      emit(args[7], failureEvent);
-      emit(args[7], assessmentEvent);
+      emit(args[8], progressEvent);
+      emit(args[8], matchEvent);
+      emit(args[8], failureEvent);
+      emit(args[8], assessmentEvent);
       return terminal.promise;
     },
   };
@@ -559,6 +563,20 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
       key: "package.query.source-verified",
       label: "Verified",
       tier: "nuspec",
+    }],
+    terms: [{
+      descriptor: {
+        key: "depends",
+        label: "Direct dependency",
+        summary: "Matches a direct dependency in any group.",
+        weight: 10,
+        tier: "nuspec",
+        operators: ["eq"],
+        valueKind: "package-id",
+        example: "Microsoft.Extensions.Hosting",
+      },
+      operator: "eq",
+      value: "Microsoft.Extensions.Hosting",
     }],
     includePrerelease: true,
   };
@@ -620,16 +638,17 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
       .map(event => event.durable.value),
     [progressEvent, matchEvent, failureEvent, assessmentEvent],
   );
-  assert.deepEqual(runs[0]?.slice(0, 7), [
+  assert.deepEqual(runs[0]?.slice(0, 8), [
     "package-query-operation",
     "Contoso.*",
     '["package.query.source-verified"]',
+    '[{"key":"depends","operator":"eq","value":"Microsoft.Extensions.Hosting"}]',
     200,
     100,
     true,
     20,
   ]);
-  assert.equal(runs[0]?.length, 8);
+  assert.equal(runs[0]?.length, 9);
 
   const start = harness.worker.receivedMessages.find(message =>
     typeof message === "object"
@@ -645,6 +664,11 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
     kind: "query",
     searchText: "Contoso.*",
     facetIds: ["package.query.source-verified"],
+    terms: [{
+      key: "depends",
+      operator: "eq",
+      value: "Microsoft.Extensions.Hosting",
+    }],
     maximumCandidates: 200,
     maximumMatches: 100,
     includePrerelease: true,
@@ -676,7 +700,7 @@ test("Package Query Worker accepts escaped owner-valid manifest callbacks", asyn
       additionalMatchCredit: null,
     }),
     runPackageQuery(...args) {
-      emitSerialized(args[7], serialized);
+      emitSerialized(args[8], serialized);
       return Promise.resolve(inspected([
         expandedMatch,
         failureEvent,
@@ -716,7 +740,7 @@ test("Package Query Worker rejects callbacks above the encoded wire bound", asyn
       additionalMatchCredit: null,
     }),
     runPackageQuery(...args) {
-      emitSerialized(args[7], " ".repeat(8 * 1_024 * 1_024));
+      emitSerialized(args[8], " ".repeat(8 * 1_024 * 1_024));
       return Promise.resolve(succeeded());
     },
   };
@@ -768,6 +792,7 @@ test("Package Query binding preserves caller identity and expected diagnostics",
     "caller-package-query",
     "Contoso.",
     "[]",
+    "[]",
     20,
     10,
     false,
@@ -805,6 +830,7 @@ test("Package Query binding preserves the inspection envelope", async () => {
   const result = await binding.runPackageQuery(
     "envelope-package-query",
     "Contoso.",
+    "[]",
     "[]",
     20,
     10,
@@ -897,7 +923,7 @@ test("Package Query terminal callback rejection fails the Worker epoch", async (
       additionalMatchCredit: null,
     }),
     async runPackageQuery(...args) {
-      emit(args[7], completionEvent);
+      emit(args[8], completionEvent);
       return succeeded();
     },
   };
@@ -937,6 +963,28 @@ test("Package Query codecs reject terminal callbacks, malformed descriptors, and
       () => "Contoso.Package@1.0.0"),
     targetFramework: "net10.0",
     initialMatchCredit: 20,
+  }).kind, "rejected");
+  const queryInput = {
+    kind: "query",
+    searchText: "Contoso.*",
+    facetIds: [],
+    maximumCandidates: 200,
+    maximumMatches: 100,
+    includePrerelease: false,
+    initialMatchCredit: 20,
+  } as const;
+  const terms = Array.from({ length: 24 }, (_unused, index) => ({
+    key: "depends",
+    operator: "eq",
+    value: `Contoso.Dependency.${index}`,
+  }));
+  assert.equal(engineWorkerPackageQueryInput.decode({
+    ...queryInput,
+    terms,
+  }).kind, "decoded");
+  assert.equal(engineWorkerPackageQueryInput.decode({
+    ...queryInput,
+    terms: [...terms, terms[0]],
   }).kind, "rejected");
   assert.equal(engineWorkerPackageQueryDurableEvent.decode({
     ...matchEvent,

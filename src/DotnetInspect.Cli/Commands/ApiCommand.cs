@@ -2247,12 +2247,12 @@ public class ApiCommand
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                checksumVerification = PdbSourceHouse.VerifyChecksum(
+                checksumVerification = SourceLinkService.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     localBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(localBytes));
+                    SourceLinkService.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -2262,12 +2262,12 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                checksumVerification = PdbSourceHouse.VerifyChecksum(
+                checksumVerification = SourceLinkService.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     repoBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(repoBytes));
+                    SourceLinkService.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {

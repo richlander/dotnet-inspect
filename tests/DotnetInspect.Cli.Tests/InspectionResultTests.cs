@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Views;
 using DotnetInspect.Cli;
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -357,6 +358,22 @@ public class InspectionResultTests
     }
 
     [Fact]
+    public void PackageInfo_OwnerVocabularyDrivesDiscoverySchema()
+    {
+        SectionSchema section = Assert.IsType<SectionSchema>(
+            PackageCommand.PackageDiscoverySchema()
+                .GetSection(PackageSections.PackageInfo));
+
+        string[] names = [.. InspectionResultView.PackageInfoFieldNames];
+
+        Assert.Equal(names.Order(StringComparer.OrdinalIgnoreCase), names);
+        Assert.Equal(names.Length, names.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(
+            names,
+            section.Items.Select(item => item.Name));
+    }
+
+    [Fact]
     public void Manifest_RendersManifestVersionWhenPresent()
     {
         var result = new InspectionResult
@@ -501,16 +518,15 @@ public class InspectionResultTests
     }
 
     [Theory]
-    [InlineData(true, false, false, true, "Verified")]
-    [InlineData(false, true, false, true, "Verified")]
-    [InlineData(false, false, true, false, "Unsigned")]
-    [InlineData(false, false, false, null, null)]
+    [InlineData(true, false, false, true)]
+    [InlineData(false, true, false, true)]
+    [InlineData(false, false, true, false)]
+    [InlineData(false, false, false, null)]
     public void Signed_PreservesUnestablishedVerificationState(
         bool authorVerified,
         bool repositoryVerified,
         bool isUnsigned,
-        bool? expected,
-        string? expectedValue)
+        bool? expected)
     {
         var result = new InspectionResult
         {
@@ -523,9 +539,6 @@ public class InspectionResultTests
         };
 
         Assert.Equal(expected, result.Signed);
-        Assert.Equal(
-            expectedValue,
-            Commands.PackageCommand.GetPackageSignedValue(result));
     }
 
     [Theory]

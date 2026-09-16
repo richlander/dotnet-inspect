@@ -409,7 +409,7 @@ public partial class CommandExecutionTests
                 "library",
                 "member",
                 "package",
-                "package changes",
+                "package activity",
                 "package query",
                 "project",
                 "timeline",

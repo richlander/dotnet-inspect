@@ -161,7 +161,7 @@ public class StringSlotMaterializationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void StringMaterializationPreservesStructuralFoldBoundaries(bool crossBlock)
+    public void StringMaterializationKeepsSingleLoadFoldsButAllowsCrossBlockMultiUse(bool crossBlock)
     {
         var first = new Block(0);
         first.Add(new StoreStackSlot(0, new Constant("first", StringType)));
@@ -184,10 +184,22 @@ public class StringSlotMaterializationTests
             [], body);
 
         Assert.Equal(crossBlock
-            ? SlotMaterializationVeto.CrossBlockStoreFold
+            ? SlotMaterializationVeto.None
             : SlotMaterializationVeto.MultiStoreSingleLoadFold,
             Assert.Single(SlotMaterializationPass.Analyze(function)).Vetoes);
-        AssertRetained(function);
+        if (!crossBlock)
+        {
+            AssertRetained(function);
+            return;
+        }
+
+        var invariant = SlotMaterializationInvariant.Capture(function);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        invariant.Check();
+        Assert.Equal(StringType, Assert.Single(function.Locals));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Theory]

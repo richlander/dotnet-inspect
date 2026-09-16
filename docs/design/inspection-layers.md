@@ -84,6 +84,11 @@ type/member search, extension reachability, progressive member call-graph
 slices, seeded structural-clone retrieval, group-scoped
 PDB-mapped-or-decompiled type/member source, immutable package-manifest facts,
 bounded package-prefix profiles, and product-owned nuspec package-query facets.
+The optional `DotnetInspector.PackageQueries` companion also implements
+[package version-cell Metadata inspection](package-version-cell-metadata-inspection.md):
+one exact host-executed PackageHouse cell realization, one bounded ephemeral
+Workspace Root, existing assembly-context Metadata inspection, and one detached
+resource-free outcome after awaited close.
 Package dependency selection, package-prefix profiles, and package-query facets
 consume the same validated manifest-facts query. The package-query contract
 owns ordered opaque facet descriptors, typed selection validation, ANDed

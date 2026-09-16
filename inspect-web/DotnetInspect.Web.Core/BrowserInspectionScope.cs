@@ -366,6 +366,27 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         Func<AssemblyContextGroup, AssemblyContextParticipant, TResult> query) =>
         Surface.UseParticipant(participant, query);
 
+    /// <summary>
+    /// Hands one retained package Root and the exact role realization that
+    /// contains it to a package-scoped product operation.
+    /// </summary>
+    public TResult UsePackageAssemblyRoles<TResult>(
+        BrowserPackageCoordinate coordinate,
+        Func<
+            PackageRootBinding,
+            PackageAssemblyContextRealization,
+            TResult> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        BrowserPackageCoordinate retained = Coordinate(coordinate);
+        if (retained.Binding is not { } binding)
+        {
+            throw new InvalidOperationException(
+                "The package-scoped operation requires an acquisition-bound Root.");
+        }
+        return operation(binding, _realization);
+    }
+
     /// <summary>Hands the implementation group to a body-backed product query.</summary>
     public TResult UseImplementation<TResult>(Func<AssemblyContextGroup, TResult> query) =>
         Implementation.Use(query);

@@ -62,6 +62,7 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
         Assert.Contains("T:ILInspector.Metadata.ApiMemberMetadataAnchor", banned);
         Assert.Contains("T:ILInspector.Metadata.ApiSurfaceExtractor", banned);
+        Assert.Contains("T:ILInspector.Metadata.ApiDeclarationCorrespondence", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyIdentityScanner", banned);
         Assert.Contains("T:ILInspector.Metadata.ExtensionMethodScanner", banned);
         Assert.Contains("T:ILInspector.Metadata.MethodClassificationScanner", banned);

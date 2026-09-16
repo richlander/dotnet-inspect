@@ -6,13 +6,23 @@ namespace DotnetInspect.Cli.Models;
 /// <summary>
 /// The kind of match for a type search result.
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<MatchKind>))]
-public enum MatchKind
+[JsonConverter(typeof(JsonStringEnumConverter<TypeFindMatchKind>))]
+public enum TypeFindMatchKind
 {
-    Exact,
+    Direct,
     Glob,
     Partial,
     NotFound
+}
+
+/// <summary>
+/// The kind of match for a member-name search result.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<MemberFindMatchKind>))]
+public enum MemberFindMatchKind
+{
+    Exact,
+    Glob
 }
 
 /// <summary>
@@ -26,10 +36,10 @@ public record TypeFindResult
     public string Pattern { get; init; } = "";
 
     [JsonPropertyName("match")]
-    public MatchKind Match { get; init; }
+    public TypeFindMatchKind Match { get; init; }
 
     /// <summary>
-    /// Match quality score (0.0-1.0). Exact/glob matches = 1.0, fuzzy matches = similarity score.
+    /// Match quality score (0.0-1.0). Direct/glob matches = 1.0, fuzzy matches = similarity score.
     /// </summary>
     [JsonPropertyName("similarity")]
     public double? Similarity { get; init; }
@@ -74,7 +84,7 @@ public record MemberFindResult
     public string Pattern { get; init; } = "";
 
     [JsonPropertyName("match")]
-    public MatchKind Match { get; init; }
+    public MemberFindMatchKind Match { get; init; }
 
     // ─── Member Identity ────────────────────────────────────────────────
     [JsonPropertyName("member")]

@@ -2104,6 +2104,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
     "multi-facade-canary/facades/beta.ts",
     "managed-operation-bridge-canary/facades/bridge.ts",
   ].join(", ");
+  const generatedDeclarationScope = "src/facades/*.d.ts";
   const publishedFacadeScope = publishedFacadeModules.join(", ");
 
   const relaxed = Object.entries(printed.rules)
@@ -2130,11 +2131,11 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       .sort(),
   ]);
 
-  // The scoped exceptions are the generated TypeScript handoffs and the production
-  // facade's compiler-derived publish artifact. The TypeScript sources are compiled
-  // separately against the SDK-owned runtime declaration; the JavaScript import resolves
-  // only after Wasm publish. Authored source keeps the complete rule set held by the
-  // gates above.
+  // The scoped exceptions are the generated TypeScript handoffs, compiler-emitted
+  // declaration module markers, and the production facade's compiler-derived publish
+  // artifact. The TypeScript sources are compiled separately against the SDK-owned
+  // runtime declaration; the JavaScript import resolves only after Wasm publish.
+  // Authored source keeps the complete rule set held by the gates above.
   assert.deepEqual(scopedRelaxations, [
     ["scripts/*.ts, test/**/*.ts, **/vite.config.ts", []],
     [publishedFacadeScope, [
@@ -2153,6 +2154,9 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       "typescript/no-unsafe-member-access",
       "typescript/no-unsafe-return",
       "typescript/no-unsafe-type-assertion",
+    ]],
+    [generatedDeclarationScope, [
+      "unicorn/require-module-specifiers",
     ]],
   ], "an override is the other place a rule can be turned off, and the top-level list "
     + "above cannot see it");
@@ -2245,6 +2249,10 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       globals: {},
     },
     [generatedTypeScriptFacadeScope]: {
+      env: {},
+      globals: {},
+    },
+    [generatedDeclarationScope]: {
       env: {},
       globals: {},
     },

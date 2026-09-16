@@ -44,10 +44,7 @@ public class LibraryCommand
     }
 
     internal static void AddCloneCandidateSchema(DocumentSchema schema)
-        => schema.Add(
-            SectionNames.CloneCandidates,
-            "column",
-            CloneCandidatesCommand.CandidateColumnNames);
+        => CloneCandidatesCommand.AddStructuralSchema(schema);
 
     internal static StructuralSectionInput GetStructuralSectionInput(
         string section)

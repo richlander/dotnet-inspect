@@ -583,19 +583,23 @@ does not add:
 The first complex per-Workspace proof is the 44-package
 `Microsoft.Extensions` set from the
 [Package Set Registry](package-set-registry.md). The scope owner therefore
-needs atomic multi-Package edits, visible failures, and a capacity above the
-current 12-package Browser limit. The retained Workspace collection remains a
-host concern, not a Scope composition primitive.
+needs atomic multi-Package edits and visible failures. Artifact Acquisition
+must independently admit the complete candidate and any charged predecessor;
+the retained Workspace collection remains a host concern, not a Scope
+composition primitive.
 
 The [2026-09-15 Workspace budget census](../data/inspect-web-workspace-budget-census-2026-09-15.tsv)
 measures that exact shipped set through product package acquisition, compile
 asset selection, and Workspace role realization. Its 44 archives total
 12.87 MiB, and its shared 44-assembly role retains 5.47 MiB. One realization
 uses one Browser Workspace slot. The current byte, 256-assembly-per-role, and
-four-slot limits therefore admit the scenario independently; the
-12-package-entry limit refuses it before construction. This evidence does not
-choose a replacement entry limit because atomic replacement may need old and
-new coordinate sets to coexist while protected work settles.
+four-slot limits admit the scenario independently. The Browser package cache
+now derives its 256-entry ceiling from this owner's 64-package logical maximum
+and the retained-realization owner's four charged slots. At the measured
+demand, an atomic replacement uses 88 entries and 25.74 MiB of archives; four
+non-sharing charged realizations use 176 entries and 51.47 MiB. Artifact
+Acquisition still owns admission and visible refusal at both the count and byte
+boundaries.
 
 ## Design demo
 

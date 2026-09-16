@@ -199,6 +199,62 @@ Subject-owned Diff preserves those distinctions as an explicit operation and
 mode, not a `History` output section. Its native temporal evidence remains
 owned by [Diff History inspection](diff-history.md).
 
+### Subject-owned API coordinate match
+
+`--match` on `type` and `member` is an explicit pairwise operation over the
+already selected API subject. It changes operation arity without changing
+focus:
+
+```bash
+dotnet-inspect type System.Text.Json.Schema.JsonSchemaExporter \
+  --package System.Text.Json@9.0.0..8.0.6 --match
+dotnet-inspect member System.Text.Json.JsonSerializer Deserialize:1 \
+  --package System.Text.Json@9.0.0..10.0.0 --match
+```
+
+The package range supplies exactly two literal endpoints in caller order.
+`--match` authorizes acquisition of those two payload cells only; it does not
+resolve an intermediate version population, run History, or change the default
+unary behavior when omitted. `--tfm` selects one API surface, and `--all`
+widens source selection from the public API to the existing IncludeAll scope.
+An optional `--library` narrows the source Library only; destination Library
+selection is owned by coordinate-library pairing.
+
+The source Type query is exact. Member focus adds one source selector using the
+existing name, `Name:N`, `Name~digest`, or `--index N` grammar. Generic arity,
+such as `RegisterAttached<TOwner,THost,TValue>:1`, remains part of that selector
+when CLI admission forms the shared request. A bare name may resolve only when
+unique. This operation matches declarations, not accessor
+bodies: `Foo:1`, `Foo~digest:1`, or `Foo --index 1` is refused when it selects
+an accessor of a singleton Property or Event. Omit that accessor ordinal to
+match the Property/Event declaration. An ordinal that selects among overloaded
+indexer declarations remains valid.
+
+`ApiCoordinateMatchCommandTests.Avalonia_GenericArityPreservesTheSelectedSource`
+gates the two- and three-type-parameter Avalonia overloads through the CLI in
+Release; the focused cases are PR-fast, measured below the two-second threshold
+in isolation.
+
+The source selector is not independently replayed at the destination: the
+destination coordinate comes from the established Metadata correspondence and
+forwarding contracts. `--all` does not filter the destination: strict native
+declaration matching remains independent of ordinary accessibility changes.
+The
+[coordinate-library pairing](coordinate-library-pairing.md) and
+[forwarded API coordinate correspondence](forwarded-api-coordinate-correspondence.md)
+owners define those semantics; this section owns only CLI admission and
+placement.
+
+Admission rejects `--at`, Type/member populations, Count and row projections,
+projection filters, sections, body/source/Analysis requests,
+platform/project/local sources, and other rendering modes before package
+acquisition. Markdown and plain text lower the typed result through its
+host-neutral presentation. `--json` emits the unprojected Content, while
+`--envelope` emits that identical Content with Share and diagnostics. This
+operation does not reuse or relocate the root `match` command, whose subject is
+implementation-clone comparison rather than cross-version API-coordinate
+correspondence.
+
 ## Subject-owned Diff
 
 ### Claim and scope
@@ -218,7 +274,7 @@ navigation, state, and transport mechanics remain with their focused owners.
 CLI envelope framing and output-option interaction remain with #6719 and
 [output shapes](output-shapes.md).
 
-`package query` and `package changes` are existing subject-owned operation
+`package query` and `package activity` are existing subject-owned operation
 precedents. The Browser's
 [Compare experience](inspect-web-compare-experience.md) already scopes Diff
 to Library, Type, and Member. These are evidence for consistent placement, not
@@ -360,7 +416,7 @@ decision.
 
 Update help, discovery, completion, replay/probe generation, README, shipped
 skills, and active examples with the executable cutover. Do not change current
-product guidance in this specification PR. `package query`, `package changes`,
+product guidance in this specification PR. `package query`, `package activity`,
 and other non-Diff operations retain their behavior.
 
 1. Lock this placement and envelope-adoption specification.

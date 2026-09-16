@@ -1,328 +1,337 @@
-# Markout Schema Query: Object Query Mapper for view models
+# Schema query
 
-The section-model doc describes the UX: `-D` discovers, `-S` selects, `--fields`/`--columns` project, and renderers format. This doc describes the system beneath that UX — query operations over view model schemas that live in Markout alongside the rendering system.
+## Status
 
-The uppercase `-D`/`-S` spellings are part of the query design. They create a distinct cross-command query namespace for discovery and selection, avoiding common lowercase option collisions while signaling that these flags do more than format output.
+This document is the normative owner for dotnet-inspect's structural document
+discovery and projection-diagnostic contract.
 
-Markout already owns the schema through its attributes (`[MarkoutSection]`, `[MarkoutField]`, etc.) and its source generator. Rather than defining a parallel schema in a separate library, the query system extends Markout. One schema definition, two uses: rendering and querying.
+The Markout `DocumentSchema` model, generated-schema projection,
+product-authored composition, CLI discovery, effective filtering, projection
+validation, and rendered-manifest filtering are implemented. Some older
+post-render projection paths still use Markout's rendered-string diagnostic;
+that nonconforming path does not own section-scoped rendered truth and its
+removal is tracked by
+[#7138](https://github.com/richlander/dotnet-inspect/issues/7138).
+The earlier [auto-generated schema note](auto-schema.md) records the first
+generated-schema migration but is not a current owner.
 
-## The problem
+The production consumer is the CLI `-D`/`--discover` surface and the
+field/column projections that use the same schema. This design does not add a
+parallel browser query language; browser adoption requires its own product
+consumer and host contract.
 
-Today, discovery and selection are implemented inline in each command handler. `SectionSchemaMap` is hand-rolled per command. Diagnostics (field not found, no data) are ad-hoc or missing. The knowledge about what a view model contains is split across three places:
+## Authority and exact claim
 
-1. **Markout attributes** on the view model classes (`[MarkoutSection]`, `[MarkoutField]`, etc.)
-2. **SectionSchemaMap** in each command's section descriptors (manual, can drift)
-3. **SectionPipeline** descriptors (verbosity, backpressure, `CanRender`)
+**Schema query** owns:
 
-This means adding a new section or field requires touching all three. And the diagnostic model — which should be consistent ("queries that don't hit get a diagnostic") — is implemented differently at each level or not at all.
+> Given an owner-issued structural document schema and an explicit discovery or
+> projection request, resolve names against that schema, preserve the caller's
+> requested order and output shape, and diagnose structural misses separately
+> from valid shapes that produced no rendered data. Generated Markout schema is
+> the default structural source; product-owned composition or augmentation is
+> required when one product document merges multiple generated views or
+> contains dynamic structure that attributes cannot express. Schema query does
+> not execute domain work, decide section applicability, or infer rendered
+> content from structural declarations.
 
-## The idea
+This is one product contract over an upstream owner-issued model. Markout owns
+`DocumentSchema`, `SectionSchema`, `SchemaItem`, generated
+`MarkoutSchemaInfo`, and `ToDocumentSchema()`. dotnet-inspect owns how its
+commands compose those values, present discovery, validate projections, and
+compare structural requests with actual rendering.
 
-A narrow library that owns the query model over view model schemas. No rendering. No data fetching. Just: "given this schema, answer questions about it."
+## Model
+
+A structural schema describes the stable addressable vocabulary of one
+document:
 
 ```text
-SchemaQuery (library)
-  Schema:       what sections/fields/columns exist, and their kinds
-  Discovery:    enumerate what's available
-  Selection:    resolve a section name (with fuzzy matching, suggestions)
-  Projection:   validate field/column names against the schema
-  Diagnostics:  report what was requested but didn't hit
-  Effective:    filter schema to what has data (via callback)
+DocumentSchema
+  ordered Sections
+    stable section name
+    item kind
+    ordered item names
 ```
 
-The library doesn't know about Markout, NuGet, assemblies, or any domain. It operates on an abstract schema that describes a document's structure.
+The item kind identifies the projection vocabulary, currently `field` or
+`column`. A section may have no item-level vocabulary and still be a valid
+discoverable section.
 
-## Schema model
+The schema is descriptive. It says that a section or item can be addressed by
+the document contract; it does not say that one request will render it, that
+its producer is authorized, or that data exists for the current subject.
 
-A document has sections. Each section has items. Items have a kind. These types live in Markout alongside the existing rendering types.
+Names use the product's stable section, field, and column vocabulary. Schema
+owners must not derive identity from a rendered heading after formatting or
+invent item names that do not correspond to an addressable projection.
+Composition preserves the owner-issued schema sequence. Final section
+presentation follows Markout's default order or an explicit presentation-owner
+override. Resolution uses ordinal, case-insensitive name matching.
+
+## Structural schema construction
+
+### Generated schema is the default
+
+For a Markout view whose structure is fully declared by attributes, the
+generated schema is the structural source:
 
 ```csharp
-namespace Markout;
-
-public record struct ItemSchema(string Name, string Kind);
-
-public record struct SectionSchema(string Name, ItemSchema[] Items)
-{
-    public string ItemKind => Items.Length > 0 ? Items[0].Kind : "field";
-}
-
-public class DocumentSchema
-{
-    public string[] SectionNames { get; }
-    public SectionSchema? GetSection(string name);
-    public IEnumerable<SectionSchema> Sections { get; }
-}
+DocumentSchema schema = InspectionContext.Default
+    .GetSchemaInfo<LibraryInspectionView>()!
+    .ToDocumentSchema();
 ```
 
-Kinds are strings by design: `"field"`, `"column"`, `"tree"`, `"list"`. This is extensible without enum changes. The rendering system interprets the kind; the query system just carries it.
+The same attribute walk supplies rendering metadata and structural query
+metadata. Adding, removing, or renaming a statically declared section, field,
+or table column therefore updates both surfaces from one declaration.
 
-## How schema gets populated
+Generated schema is a default, not a requirement to force every product shape
+into one view model. A generated schema describes the structure visible to that
+one generated context; it does not discover neighboring views or
+runtime-authored rows.
 
-Two paths:
+### Product composition is explicit
 
-### 1. Manual map (current, interim)
+The command or section owner composes or augments generated schema when its
+product document has structure outside one generated view:
 
-```csharp
-var schema = new DocumentSchema()
-    .Add("Package Info", "field", "Version", "Type", "Size", "Highest TFM", "TFM Count", "Built", ...)
-    .Add("Package README file", "column", "Path", "Size")
-    .Add("Target Frameworks", "column", "TFM")
-    .Add("Package skill files", "column", "Path", "Size")
-    .Add("Dependencies", "column", "Target Framework", "Id", "Version")
-    .Add("Files", "column", "Path", "Size");
-```
+| Product shape | Required construction |
+| --- | --- |
+| One statically attributed view | Use its generated schema directly. |
+| One document rendered from several first-class views | Merge the owner-issued generated schemas in product order. |
+| Generated structure plus product sections or columns | Augment the generated schema with the exact product vocabulary. |
+| Runtime-shaped rows or a dynamic field table | Build the schema from the product owner's stable item vocabulary. Prefer one shared definition; otherwise enforce complete equivalence. |
+| A narrower catalog over a larger structural document | Filter the complete product schema by the catalog's authored section identities. |
 
-This is `SectionSchemaMap` today, migrated to Markout's `DocumentSchema` type. It works. It drifts.
+Current examples include the API document merging type, member-summary,
+member-detail, operator, explicit-implementation, extension-method, event, and
+code schemas; package discovery adding runtime-shaped items; and library
+discovery augmenting generated sections with metadata and the generated
+clone-candidate table schema. `Clone Candidates` is row-oriented: its summary
+is presentation context, its candidate columns are the sole addressable
+projection items, and `--fields` is rejected. These are examples of the
+composition forms, not a normative call-site inventory.
 
-### 2. Source-generated (target)
+An augmentation must have a reason the generated view cannot express. It must
+reuse the renderer's owner-issued names and order rather than creating a
+parallel approximation. A new dynamic shape with independently maintained
+render and schema vocabularies requires a complete equivalence gate. Manual
+composition is not an interim defect when the product document itself is
+composed or dynamic.
 
-Markout's source generator already walks `[MarkoutSection]` and `[MarkoutField]` attributes to emit `Serialize()`. A small extension emits schema metadata alongside it:
+## Three levels of truth
 
-```csharp
-// Generated by Markout.SourceGeneration alongside Serialize()
-partial class InspectionResultContext
-{
-    public static DocumentSchema Schema { get; } = new DocumentSchema()
-        .Add("Package Info", "field", "Version", "Type", "Size", ...)
-        .Add("Dependencies", "column", "Target Framework", "Id", "Version")
-        ...;
-}
-```
+Structural, effective, and rendered evidence answer different questions:
 
-Same data as the manual map, but derived from the attributes the generator already processes. Can't drift. One source of truth for both rendering and querying.
+| Level | Question | Owner |
+| --- | --- | --- |
+| Structural schema | What can this document address? | Markout-generated schema plus product-owned composition |
+| Effective schema | Which structural sections are applicable and have evidence for this request? | Section and operation planning owners |
+| Rendered manifest | Which fields and columns did this exact render emit? | Markout formatter events captured by the product host |
 
-## Query operations
+### Structural discovery
 
-### Discovery
+Given an owner-issued schema, structural discovery is resource-free. It lists
+sections, or lists the addressable items of a resolved section, without
+acquiring a package, opening an assembly, invoking a scanner, fetching source,
+or probing producer-backed effectiveness merely to prove that a declared shape
+exists.
 
-Discovery answers "what's here?" at two levels:
-
-```csharp
-// Bare discovery: what sections exist?
-var result = schema.Discover();
-// → [("Package Info", "section"), ("Statistics", "section"), ...]
-
-// Deep discovery: what items are in this section?
-var result = schema.Discover("Package Info");
-// → [("Version", "field"), ("Type", "field"), ...]
-```
-
-The result is a list of `(Name, Kind)` pairs. The consumer renders them however it wants — table, TSV, markdown, tree, JSON.
-
-The CLI must honor the resolved discovery presentation request without replacing
-an explicit output shape. Explicit `--tree` selects the tree; eligible implicit
-table or Markdown discovery may still promote to a tree, while explicit
-`--table`, TSV, JSONL, JSON, and plaintext retain their requested shapes.
-`--no-header` suppresses a tabular header when that format has one, and `--out`
-routes the complete discovery artifact to the requested destination instead of
-also writing it to stdout.
-
-### Selection
-
-Selection resolves a user query to a section:
-
-```csharp
-var result = schema.Select("Packa");
-// → SelectResult.Miss { Value = "Packa", Suggestions = ["Package Info"] }
-
-var result = schema.Select("Package Info");
-// → SelectResult.Hit { Section = SectionSchema("Package Info", ...) }
-
-var result = schema.Select("Stat*");
-// → SelectResult.Hit { Section = SectionSchema("Statistics", ...) }
-```
-
-This subsumes what `SelectResolver.ResolveSelectAsSections` does today, but with the schema as the source of truth instead of pipeline section names.
-
-### Projection validation
-
-Validates that requested field/column names exist in the active schema:
-
-```csharp
-var projection = schema.ValidateProjection("Package", fields: ["Authors", "Ownrs", "License"]);
-// → ProjectionResult {
-//     Resolved: ["Authors", "License"],
-//     Unresolved: [{ Name: "Ownrs", Suggestions: ["Owners"] }]
-//   }
-```
-
-This catches typos before rendering. Today, a typo in `--fields` silently produces empty output.
-
-### Diagnostics
-
-After rendering, compare what was requested against what appeared:
-
-```csharp
-var diag = schema.DiagnoseProjection(
-    requested: ["Authors", "Owners", "License"],
-    rendered: ["Authors", "License"]);
-// → ["Owners"]  (requested, valid, but no data)
-```
-
-The consumer writes: `Note: 1 field has no data: Owners.`
-
-This is the same pattern as `WarnEmptySections` but at field/column granularity:
-
-| Level | Existing diagnostic | SchemaQuery equivalent |
-| ----- | ------------------- | ---------------------- |
-| Section | "Select value 'Symb' not found. Did you mean: Symbols" | `schema.Select("Symb")` → miss with suggestions |
-| Section | "This section (Statistics) produced no output." | `schema.Effective(probe)` filters to sections with data |
-| Field | _(missing)_ | `schema.ValidateProjection(...)` → unresolved with suggestions |
-| Field | _(missing)_ | `schema.DiagnoseProjection(...)` → valid but empty |
-| Column | _(missing)_ | Same as field, different kind |
+Command owners decide whether a particular CLI request uses structural
+discovery, a cheap target-aware catalog, or full effective discovery. That
+binding is intentionally not uniform schema-query policy. Where a command
+offers `--schema`, it explicitly requests the complete structural view.
 
 ### Effective filtering
 
-The "effective" operation needs data awareness. The library can't know if a section or field has data — that's domain logic. So it takes a callback:
+`-D --effective` is a separate request. The relevant section or operation owner
+may perform its bounded applicability or evidence work, then filter the
+structural schema to the effective section and item set.
 
-```csharp
-// Section-level effective
-var effective = schema.Effective(sectionName => pipeline.CanRender(model, sectionName));
-// → DocumentSchema with only sections that have data
+Schema query does not define that work, promote structural declarations to
+evidence, or treat a missing effective row as proof that the structural schema
+was invalid. Effective filtering consumes owner-issued outcomes.
 
-// Field-level effective (stretch goal)
-var effective = schema.EffectiveFields("Package",
-    fieldName => model.GetFieldValue(fieldName) != null);
-// → SectionSchema with only fields that have values
-```
+### Rendered manifest
 
-The section-level callback maps directly to `SectionEntry.CanRender`. The field-level callback is harder — it requires mapping field display names to model properties. This is where the source generator helps: it can emit the mapping.
+A valid structural field or column may still produce no row in one render.
+Post-render diagnosis uses formatter events, not text search over the final
+Markdown, table, or JSON artifact.
 
-**Realized approach.** Effective discovery serializes targeted sections at the user's actual verbosity/options through a render-manifest formatter. Type/member discovery keeps only the table columns emitted in the typed `RenderedSectionManifest` (`DiscoverOutput.FilterSchemaToRenderedColumns`). Package and library discovery use the same manifest's structured field rows to narrow their field schemas (`DiscoverOutput.FilterSchemaToRenderedFields`). This keeps discovery faithful to what the user would actually see — e.g. the historical `Select` column is dropped, and Minimal-verbosity summary columns (`Return Type`/`Accessors`) replace the Detailed `Signature` column. The manifest consumes Markout's structured heading, field, and table events; it does not format and reparse Markdown, so field values, member names, and signatures cannot be mistaken for schema items. Sections the member renderer does not produce in that context (e.g. member-detail code sections) retain their full schema columns.
+`RenderedSectionManifest` records section-scoped fields and table columns from
+the actual Markout render. A heading event establishes section scope only at
+the configured section level; the heading text is not recorded as a field.
+Cell values, nested headings, and unrelated sections do not become evidence
+that a requested item rendered.
 
-The manifest treats only level-2 headings as section boundaries, so nested
-subheadings cannot steal subsequent tables from their owning section. It
-identifies field-layout tables from the active section schema's `field` kind,
-not from display headers such as `Field`; renamed headers therefore cannot hide
-fields, and an ordinary table with a coincidental `Field` column cannot create
-field rows.
+The manifest is render evidence, not a replacement schema. It cannot advertise
+an item that was not structurally addressable, and one empty render must not
+erase that item from future structural discovery.
 
-Cached surfaces serialized before degraded signature decode status existed carry
-a null status. Diffing one of those old surfaces against a fresh inspection of
-the same malformed assembly may report a one-time `MemberSignatureChanged`
-because the fresh row is now explicitly `Degraded`.
+Some retained projection paths call Markout's
+`DocumentSchema.DiagnoseRendered` over a rendered string. They preserve the
+structural-miss versus valid-but-empty distinction, but they are not authority
+for section-scoped field or column identity. New section-scoped work must use a
+render manifest or typed projected identities. #7138 deletes the string path;
+it is not an alternate or fallback contract.
 
-**Effective sections are restricted to the active schema.** The `type`/member-list pipeline and the selected-overload member-detail pipeline expose different section sets. Type/member-list discovery drops member-detail implementation sections such as `Decompiled Source`, `PDB Source`, and `IL`. Selected-overload effective discovery uses the detail schema. Effective discovery for both the `type` and `member` commands runs through one shared helper (`ApiCommand.ExecuteEffectiveDiscovery`), so the section restriction and render-probe column narrowing apply uniformly. Library discovery now has a separate probe-budget contract: structural named discovery is the default, while `--effective` requests producer-backed applicability.
+## Discovery behavior
 
-**Empty sections are dropped via a render-probe.** Some schema sections have a coarse `CanRender` proxy that over-reports. For example, `Custom Attributes` (`MethodAttributes` descriptor) returns true for any type with methods, but its data (`TypeView.MethodAttributeRows`) is only populated on the member-detail/index path — the type-level renderer produces no table for it. To avoid advertising sections that would render nothing, `DiscoverOutput.RestrictToRenderedSections` reads the same typed render manifest used for column discovery and drops any _tabular_ schema section that emitted no table. No formatted output is produced or parsed. Non-tabular sections are left untouched.
+The CLI presents schema query results through `DiscoverOutput`.
 
-**Index-backed sections are explicit-only and listed structurally, not content-probed.** A few member-detail sections (`Calls`, `Callers`, `Call Graph`, `Unsafe Operations`, and `Facts`) derive their data from method-body indexes or hidden-fact analysis, and can legitimately render no rows. Running the render-probe on them can be expensive, so their descriptors set `ProbeEffectiveness = false` and `ExplicitOnly = true`. Effective discovery lists them by their structural `CanRender` gate and skips the render-probe (`SectionPipeline.GetUnprobedSections` drives both the exclusion from the probe render-set and the structural re-add in `ApiCommand.ExecuteEffectiveDiscovery`). `ExplicitOnly` is execution policy and is not emitted as a user-facing section annotation.
+| Request | Result |
+| --- | --- |
+| `-D` | Ordered section rows |
+| `-D "Section"` | Ordered item rows for the resolved section |
+| `-D` at eligible detailed presentation | A section/item tree |
+| `-D --count` | The count of discovered rows, not the inspected subject document |
+| `-D` with row selection | The selected discovery rows in their stable order |
+| `-D` with a payload projection | The requested projection over discovery rows |
 
-**Explicitly-selected empty sections render an empty-state note.** When an explicit-only section with structurally valid but empty content is named through `-S <Section>` or a category such as `@Audit`, it would otherwise vanish and leave the reader unsure whether the section is empty or the query was wrong. Instead the heading renders with a short fallback paragraph such as `No callers found in this assembly.`. This is driven by Markout's `[MarkoutSection(EmptyText = …)]`: a non-null empty collection renders the fallback, while `null` omits the section.
+Discovery preserves explicit output intent. An explicit table, TSV, JSONL,
+JSON, or plaintext request is not replaced by an automatic tree. `--no-header`
+applies to formats with headers, and `--out` routes the complete discovery
+artifact to its destination instead of also writing it to standard output.
+Only eligible implicit table presentation or Markdown may promote to a tree.
 
-**Cross-assembly callers expand the scan to additional assemblies.** By default `-S Callers` finds inbound callers only within the selected member's own assembly. Same-assembly matching uses exact operand tokens where available plus a structural `MemberPattern` built from the selected identity for MemberRef-form calls; that pattern includes the exact retained return shape that distinguishes conversion operators. The same discriminator participates when the caller-tree map resolves a local MemberRef fallback. `CallerEdges_ConversionSelectionRetainsFunctionPointerShape`, `MemberPattern_ConversionReturnUsesExactRetainedIdentity`, and `MethodDefinitionMap_ConversionFallbackUsesReturnType` gate the retained conversion identity. With an explicit member source (`--package`, `--library`, or `--platform`), the `member` command also accepts `--bin <dir>` (alias `--directory`) and `--project <proj>` — the same scope flags `find` uses — to widen the search: each additional assembly is opened via `LibraryBodyIndex` and matched through complete catalog member correspondence, because operand tokens are assembly-local. Supplying any caller-scope flag implies `-S Callers`, so the section renders (with the empty-state note when nothing matches) even at low verbosity. `CallerScopeResolver` expands `--project` via existing `project.assets.json` restored dependency assemblies (mirroring `find`; restore/build first if dependencies changed) and `--bin`/`--directory` via top-level `*.dll`, de-duplicating and excluding the member's own assembly. Windows de-duplication uses `GetFileInformationByHandleEx` volume serial plus the complete 128-bit file ID, including in 32-bit processes. On 64-bit Linux and macOS, it uses the .NET runtime's normalized `SystemNative_FStat` device/inode projection, avoiding host-specific `stat` layouts and libc symbol versions. This CLI-only native path is the approved platform exception for #3578: Browser/Wasm, 32-bit Unix processes, and other operating systems do not use it. If the host or filesystem cannot provide a stable identity, verbose output reports the degradation and the resolver falls back to ordinal normalized paths; that fallback may retain aliases, including an alternate spelling of the own assembly, but never merges two distinct path spellings. `CallerScopeResolverTests.ResolveAsync_HardLinkedAssembliesAreScannedOnce`, `ResolveAsync_HardLinkedOwnAssemblyIsExcluded`, and `ResolveAsync_CaseDistinctWindowsAssembliesRemainDistinct` gate Windows behavior; the hard-link gates run in Linux CI as well. They are written to run on macOS, but this repository has no macOS test lane, so that host remains unverified. When no explicit source is supplied, the first `--project` is instead the member source context; any additional repeated `--project` values remain caller scopes. Results stay in a single `Callers` table; a `Source` column is added to attribute each caller to its assembly and is hidden automatically when every caller shares one assembly (the default single-assembly case), keeping that output unchanged.
+Section patterns and category doors are resolved against the complete
+owner-issued section vocabulary. Categories, costs, and visibility remain
+section-catalog metadata; they do not become `DocumentSchema` item kinds.
+Bare catalog presentation groups category doors before regular sections and
+opt-in sections, with alphabetical order inside each group.
 
-`member <Type> <Member>:N -S "Call Graph"` renders one bounded, bidirectional graph centred on the selected member — inbound callers and outbound callees in a single section — index-backed by `LibraryBodyIndex`. `BuildCallTree` and `BuildCallerTree` each walk their direction (`rootToken`, `maxDepth` 3, `maxNodes` 25), staying within the current assembly unless a caller scope widens it; callees in other assemblies are recorded as `(external)`, and a boundary reached at the node or depth limit is marked `…`. `CallGraphProjection` merges the two walks into a format-neutral node/edge set, deduplicating the shared focus member, and `CallGraphSectionAdapter` lowers that to a Markout `Graph`. Because the section is a graph rather than a fixed rendering, each sink chooses its own projection: an edge table in Markdown by default, a standalone tree under `--tree`, an edge table under `--table`/`--tsv`/`--jsonl`, a standalone flowchart under `--mermaid`, or an embedded flowchart under `--markdown --mermaid`. Machine edge rows use `from`, `from_group`, `to`, `to_group`, and `label`; Markdown and pretty-table output retain the corresponding human headings `From`, `From Group`, `To`, `To Group`, and `Label`. The descriptor is `ExplicitOnly`, so it never auto-renders by verbosity; discovery lists the normal section name without exposing that policy. When the selected member has neither callers nor callees, explicit selection renders the empty-state note (`No inbound callers or outbound calls found for this method.`).
+## Projection behavior
 
-**Valid-but-empty sections report "no data" (not "not found").** When `-D <Section>` names a section that exists in the full schema but was dropped as empty (e.g. `-D "Custom Attributes"` for a type with no attributes), `DiscoverOutput.FilterEmptyEffectiveSections` emits `note: section '<X>' has no data for this query` on stderr and exits `0`, rather than the misleading `Error: Section '<X>' not found`. A genuinely unknown section still falls through to the resolver's `not found` error (with suggestions) and exit `1`.
+Projection has two checks.
 
-**Discovery semantics are migrating by command.** Library is the reference model: bare `-D` performs a cheap target-aware probe, named `-D <Section|@Category>` is structural, and `--effective` requests the full producer budget. `--schema` exposes the complete structural graph without resolving a target. Type, member, and package still retain legacy effective-by-default paths where noted in their command implementation. Bare `-S` is not discovery; it renders a curated high-density view.
+### Structural validation
 
-**Curated bare discovery leads with category doors.** Library and package curated catalogs list applicable authored category doors first, then the flat section scope, alphabetically within each group. Explicit-only execution policy does not create a separate output group.
+Before rendering, fields and columns resolve against the selected structural
+schema:
 
-**Plain (static schema) discovery.** Static single-type discovery (`<Type> -D <Section> --schema`, or bare `<Type> -D` with no resolvable source) lists the static schema, but deprecated columns are dropped so that what is listed matches what the user can actually project. This is centralized in `ApiCommand.ToQueryableSchema`, the option/contract-level queryability gate (data-independent, the counterpart to the data-level effective gate). The historical `Select` overload-index column is hidden; member selectors now live in the dedicated `Member Index` section with `Selector`, `Stable`, and `Canonical Signature` columns.
+- a name valid in any selected section is valid for the multi-section request;
+- a mixed request warns for unresolved names but may continue when at least one
+  requested name resolves;
+- a request with no resolved names fails before rendering;
+- diagnostics identify the requested kind and section and direct the user to
+  `-D "Section"` for the available vocabulary; and
+- pattern resolution preserves the user's requested order.
 
-**Projection diagnostics (type path).** When `--columns`/`--fields` are combined with a section selection on the type/member path, the requested names are validated and diagnosed, mirroring the package path:
-- Pre-render (`ProjectionDiagnostics.ValidateProjection`): an unknown name (typo) warns `column '<name>' not found in section '<Section>'` with prefix suggestions.
-- Across multiple selected sections, a name is accepted when it resolves in **at least one** of them (the others simply don't project it); it is only an error — warned per section, then `No <kind>s matched projection` — when it resolves in **none**. This keeps graph-field projection over `-S "Call Graph"`/`"Call Graph"` working even when a scope flag (`--bin`/`--project`/`--caller-package`) implies the companion `-S Callers` table that lacks those fields.
-- Post-render (`ProjectionDiagnostics.DiagnoseRendered`): a name valid in the schema but absent from the rendered output (e.g. `Signature` below Detailed verbosity) emits `note: N field(s) have no data: <names>`.
-All columns are still shown (warn, don't suppress) and the exit code stays `0`. To capture the rendered output for the post-render check, `ApiCommand.WriteTypeOutput` accepts an optional `TextWriter`.
+This validation catches structural mistakes such as misspellings. It does not
+claim the resolved item has data.
 
-## Schema and rendering: same library, two concerns
+### Render diagnosis
 
-The source generator is the single point of truth. It reads the attributes once and emits both rendering code and schema metadata. The two concerns never diverge because they're generated from the same walk.
+After rendering or typed projection, the product compares the resolved request
+with rendered evidence or the projected item set. A structurally valid item
+that produced no data is reported as a no-data note, not reclassified as an
+unknown field or column. Section-scoped conclusions require the render manifest
+or typed identities. The rendered-string path is a current violation scheduled
+for removal under #7138, not a supported diagnostic alternative.
 
-```text
-View Model (attributes)
-    │
-    └── Markout.SourceGeneration
-        ├── Serialize()        → renders the view model
-        └── Schema (property)  → exposes the schema for querying
-```
+Pattern diagnosis uses the concrete names selected by the pattern. One rendered
+concrete name satisfies that pattern; a cell value that merely contains the
+same text does not.
 
-Rendering consumes the schema implicitly (through generated code). Querying consumes it explicitly (through `DocumentSchema`). Both are Markout operations on the same underlying model.
+## Ownership boundaries
 
-## Relationship to SectionPipeline
+| Concern | Owner and boundary |
+| --- | --- |
+| Structural schema types and generated projection | Markout; dotnet-inspect consumes the public owner-issued model. |
+| Product schema composition | The command or section owner whose document merges views or adds dynamic structure. |
+| Section order | Markout's default order plus explicit presentation-owner overrides; schema composition retains owner-issued sequence but does not own final presentation order. |
+| Categories, verbosity, explicit-only policy, costs, applicability, and execution | [Progressive disclosure](progressive-disclosure.md), section-pipeline, and operation owners; schema query consumes their section identities and effective outcomes. |
+| Discovery request binding and presentation | The CLI host; `DiscoveryOutputRequest` preserves the chosen format, tree eligibility, projection, row selection, and destination. |
+| Rendering and format lowering | Markout and [output shapes](output-shapes.md). Schema query supplies structural vocabulary, not serialized output. |
+| Row predicates and row ordering | [Row query and order](row-query-order.md) and row-selection owners; discovery may consume their selected row window without redefining their semantics. |
+| Domain acquisition and analysis | Package, Workspace, Metadata, Source, Analysis, and other operation owners; structural discovery does not invoke them. |
 
-`SectionPipeline` today handles:
-- Verbosity-based section visibility
-- Backpressure (which scanners to run)
-- `CanRender` data probing
-- Include/exclude filtering
+The Markout dependency is existing shared product substrate. This reconciliation
+does not change Markout, introduce a host-specific renderer, add a broad
+rendering domain, or alter Browser/Wasm behavior.
 
-The schema query system doesn't replace this. The pipeline is about execution — deciding what work to do. Schema querying is about introspection — answering questions about what exists and validating what was asked for.
+## Pathological cases
 
-They compose: the pipeline computes effective sections, then schema query validates the projection within those sections.
+### One product document spans several views
 
-```text
-User input: -S Package --fields Authors,Owners
+A type/member document is not required to collapse all first-class views into
+one generated model. The product owner merges those generated schemas and
+tests that sections absent from an individual view appear in the complete
+document schema.
 
-1. SelectResolver   → IncludeSections = {"Package"}
-2. SectionPipeline  → backpressure: only run Package scanner
-3. Data collection   → InspectionResult populated
-4. Schema query     → validate Authors, Owners against Package schema
-5. Markout          → render with IncludeFields = ["Authors", "Owners"]
-6. Schema query     → diagnose: Owners requested but not rendered
-```
+### Dynamic structure has no static attribute source
 
-Steps 4 and 6 are what schema querying adds. Steps 1-3 and 5 are unchanged.
+Runtime field tables, alternate row shapes, or product-defined columns use the
+product owner's stable vocabulary. One shared typed definition is preferred.
+An independently maintained duplicate is a defect, not a compatibility
+contract: remove it or replace it with one owner-issued definition. Do not add
+aliases, fallback inference, or forwarding members to preserve the duplicate
+shape.
 
-## The help tree view as second consumer
+### A field exists in only one selected section
 
-The help tree view (triggered by `dotnet-inspect -v`) already displays command structure as a tree. It has its own schema — commands have arguments and options. Using Markout's schema query:
+Multi-section projection validates across the selected set. A graph field can
+remain valid when a companion table lacks it; only a name missing from every
+selected section is a complete miss.
 
-```csharp
-var cliSchema = new DocumentSchema()
-    .Add("package", "option", "--source", "--tfm", "--versions", ...)
-    .Add("type", "option", "--platform", "--docs", "--shape", ...)
-    .Add("diff", "option", "--from", "--to", "--breaking", ...);
-```
+### Structural shape exists but renders empty
 
-Then `-D`, `-S`, `--fields`, and diagnostics would work identically for CLI introspection:
+The request is structurally valid. The rendered manifest reports no data
+without deleting the shape, claiming success-shaped content, or treating the
+empty render as a misspelling.
 
-```bash
-dotnet-inspect -v -D              # list commands (sections)
-dotnet-inspect -v -D package      # list options for package command
-```
+### Display text resembles structural identity
 
-The schema is different (commands instead of data sections), but the query operations are the same. Both consumers reference Markout — which they already do for rendering.
+A title, cell value, nested heading, or field in another section does not
+satisfy a section-scoped request. Only section-scoped formatter events or typed
+projected items count as section-scoped rendered evidence.
 
-## Prior art
+### Explicit format competes with tree promotion
 
-This is conceptually similar to an ORM's schema introspection layer, but for hierarchical documents instead of relational tables. ORMs map classes to tables and provide query operators over them. Markout's schema query maps view model attributes to document schemas and provides query operators over those.
+Explicit output intent wins. Automatic tree presentation is permitted only for
+the eligible implicit formats named above.
 
-| Concept | ORM | Markout Schema Query |
-| ------- | --- | -------------------- |
-| Schema source | Class → Table mapping | Class → Section/Field mapping |
-| Schema discovery | `DbContext.Model.GetEntityTypes()` | `DocumentSchema.Sections` |
-| Column discovery | `entityType.GetProperties()` | `SectionSchema.Items` |
-| Projection validation | Compile-time (LINQ) | Runtime (name matching) |
-| Query execution | SQL generation | Callback to consumer |
+## Required gates
 
-The key difference is that ORMs generate queries against a database, while Markout's query system generates nothing — it validates and diagnoses queries that the consumer executes. It's an Object Query Mapper without the M: the mapping is in the source generator, the querying is in the library, and execution stays with the consumer.
+The current Release CLI suite owns the executable contract:
 
-kubectl's `--field-selector` and `explain` commands are the closest CLI analog. `kubectl explain pod.spec.containers` walks a schema tree and describes what's available. `kubectl get pods --field-selector status.phase=Running` validates the field path against the API schema. `Discover("Package")` is our version of `explain`, and `ValidateProjection` is our version of field-selector validation.
+| Gate | Required observation |
+| --- | --- |
+| `OutputFormatterTests.TypeViewSchema_DoesNotOwnFirstClassMemberRows` and `TypeDocumentSchema_MergesFirstClassMemberViews` | One generated view is not mistaken for the complete composed product document. |
+| `OutputFormatterTests.RenderManifestFormatter_CapturesStructuredSectionsColumnsAndFields` and `RenderManifestFormatter_DoesNotTreatTitleTextAsAField` | Render evidence is section-scoped and comes from formatter events rather than coincidental display text. |
+| `ProjectionDiagnosticsTests.ValidateProjection_FieldResolvingInOneSection_SucceedsWithoutWarning` | Multi-section validation accepts a name owned by any selected section. |
+| `ProjectionDiagnosticsTests.ValidateProjection_FieldResolvingInNoSection_FailsWithError` and `ValidateProjection_MixedValidAndUnknown_WarnsOnUnknownButSucceeds` | Complete structural misses fail; partial requests preserve valid work and report only unresolved names. |
+| `ProjectionDiagnosticsTests.DiagnoseRendered_WildcardUsesResolvedNames` and `DiagnoseRendered_OverlappingPatternsUseResolvedNames` | Post-render pattern diagnosis follows resolved structural names. |
+| `CommandExecutionTests.Project_Discover_ExplicitTableDoesNotPromoteToTree`, `Project_Discover_TsvNoHeaderOmitsHeader`, and `Project_Discover_JsonOutWritesOnlyToFile` | Discovery preserves explicit format, header, and destination intent. |
+| `CommandExecutionTests.Member_DiscoverEffective_ListsCategoriesBeforeSections` | Bare effective discovery presents category doors before regular sections. |
+| `PackageQueryCliTests.DataDiscovery_UsesPackageQuerySchemaWithoutAcquisition` and `LibraryIntegrationQueryTests.StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget` | Structural discovery uses owner-issued schema without triggering domain acquisition or scanner execution. |
+| `InspectionResultTests.PackageInfo_OwnerVocabularyDrivesDiscoverySchema` | The complete package-info discovery vocabulary is derived from the same typed descriptor catalog that drives rendering, with stable order and no duplicate names. |
+| `CloneCandidatesSectionTests.StructuralSchemaUsesGeneratedCandidateColumns`, `FieldsAreRejectedAcrossOutputFormats`, and `SummaryFieldNamesAreRejectedWithoutAliases` | Clone-candidate discovery is generated from the row view, columns remain projectable, and field projection fails visibly without stale-name aliases. |
 
-## Implementation path
+New schema composition forms require a focused gate that proves their generated,
+merged, augmented, or dynamic vocabulary matches the product document. A
+documentation-only change to this owner requires Markdown validation and
+verification that every named gate still exists.
 
-1. **Add schema types to Markout**. `DocumentSchema`, `SectionSchema`, `ItemSchema`, and query methods (discover, select, validate, diagnose). These are runtime types with no generator dependency.
+## Non-claims and required removals
 
-2. **Migrate manual maps** from dotnet-inspect's `SectionSchemaMap` to Markout's `DocumentSchema`. The API is nearly identical — mostly a rename and package move.
+This design does not:
 
-3. **Implement diagnostics** using the schema. Validation (typo detection with suggestions) and post-render diagnosis (requested but not rendered).
+- make structural schema an execution plan or evidence of nonempty data;
+- require every document schema to be generated;
+- move section policy, row query, acquisition, analysis, or rendering into
+  `DocumentSchema`;
+- define a Browser/Wasm discovery experience;
+- guarantee item-level discovery for a dynamic shape whose owner exposes only
+  a section boundary; or
+- authorize parsing rendered output to recover structural identity.
 
-4. **Extend source generator** to emit `DocumentSchema` from view model attributes. This replaces the manual maps with generated ones. Same generator, same attribute walk, new output.
-
-5. **Wire help tree view** as second consumer. Validates the abstraction.
-
-Steps 1-3 can ship together as a Markout release. Step 4 is a follow-up generator enhancement. Step 5 is a proof point.
-
-## Open questions
-
-- **Field-level effective**: Should `Effective` work at field granularity? This requires a callback that can probe individual field values, which means either reflection or a generated accessor. Worth doing in step 4 but not before.
-
-- **Glob support**: `-S "Stat*"` uses glob matching today. Should SchemaQuery own glob resolution, or should the consumer resolve globs and pass exact names? Leaning toward SchemaQuery owning it — globs are a query concept.
-
-- **Projection ordering**: `--fields Version,Authors` should output fields in that order. Today Markout handles this via `IncludeFields` ordering. SchemaQuery should preserve request order in its results so the consumer can pass it through.
-
-- **Cross-section projection**: `--fields Name` without `-S` could match fields in multiple sections. Should this be an error, a warning, or silently apply to all matching sections? Today it applies globally. SchemaQuery could validate and warn about ambiguous names.
+Generated schema, product composition, structural discovery, effective
+filtering, and rendered-manifest effective discovery are current behavior.
+Replacing the remaining rendered-string projection diagnostics with manifest
+or typed identity evidence is required by
+[#7138](https://github.com/richlander/dotnet-inspect/issues/7138); no stronger
+section-scoped claim rests on the string path. Any new cross-host query
+language, generated accessor model, schema serialization contract, or
+additional pattern semantics requires a focused issue and owner; the retired
+proposal checklist is not standing authorization.
