@@ -1323,6 +1323,13 @@ public static class WorkspaceCommand
 
     static string? NavigationOptionError(WorkspaceOptions options)
     {
+        if (options.RootRequest is not null
+            && (options.Packages.Length != 0 || options.Tfm is not null))
+        {
+            return "--root-request opens the exact Root its token names and "
+                + "cannot be combined with --package or --tfm.";
+        }
+
         bool hasDirectConstruction =
             options.Packages.Length != 0
             || options.Tfm is not null
