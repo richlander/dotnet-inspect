@@ -2786,15 +2786,38 @@ test("catalog-only Platform retains its Workspace identity and canonical URL acr
   await expect(page).toHaveURL(platformLocation);
 });
 
-test("retained Workspace switching preserves a real Platform Library parent", async ({ page }) => {
+test("Platform descendant history and retained switching preserve the real parent", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(() => localStorage.setItem(
     "inspect-recent-packages",
     JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
   ));
   await openPlatform(page);
-  await page.getByRole("button", { name: /System.Facade Facade/ }).click();
+  await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
   await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("Widget");
+  await page.locator('[data-sl-type*="Example.Widget"]:not([data-sl-member])').first().click();
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+
+  await page.getByRole(
+    "button",
+    { name: "Search types, members, packages", exact: true },
+  ).click();
+  await page.locator("#spotlight-input").fill("Run");
+  await page.locator('[data-sl-member][data-sl-type*="Example.Widget"]').first().click();
+  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
 
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
@@ -2802,9 +2825,9 @@ test("retained Workspace switching preserves a real Platform Library parent", as
   await page.locator('[data-application-scope="workspace"]').click();
   await page.locator("[data-workspace-switch]").click();
 
-  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel h1")).toContainText("Run");
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
-  await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
 });
 
 test("restored Platform failure retries its own Library request", async ({ page }) => {

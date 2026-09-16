@@ -2186,7 +2186,7 @@ function captureView(): WorkspaceView | null {
       : null,
     platformRootParent:
       state.rootKind === "platform"
-      && state.atLibraryRoot
+      && !state.atPackageRoot
       && historyHasPlatformRootParent(history.state),
   };
 }
