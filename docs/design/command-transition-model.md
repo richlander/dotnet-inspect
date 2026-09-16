@@ -322,14 +322,21 @@ dotnet-inspect type diff Markout.MarkoutWriterOptions \
 
 # Count versions without acquiring inspection payloads
 dotnet-inspect package Markout@0.33.0..0.35.2 --count --envelope
+
+# Count changed destination versions for the selected Member
+dotnet-inspect member diff System.Text.Json.JsonSerializer Deserialize:1 \
+  --package System.Text.Json@9.0.0..10.0.0 --history --at all --count
 ```
 
 Source ranges consumed by subject Diff require `--endpoints` or an admitted
 `--history`; the selectors are mutually exclusive and neither is the default.
-Count on a source-range Diff request reduces its selected comparison or History
-rows and does not choose the missing mode. Only the Package version-population
-request uses Count alone as its consumer. `--envelope` selects output, not an
-operation.
+Count on a source-range Diff request reduces its owner's admitted cohort and
+does not choose the missing mode. Type/Member History consumes the History
+owner's [Changed Versions cohort](diff-history.md#subject-specific-history-count),
+including its evidence and section-selection rules. Only the Package
+version-population request uses Count alone as its consumer. `--envelope`
+selects output, not an operation. The History owner's recorded future Package
+version-row counting intent does not admit a `package diff` command here.
 
 The [population-range rule](population-range-selection.md) is unchanged:
 creating a population needs a consumer; filtering declared rows does not
@@ -412,7 +419,10 @@ leaf and owner-issued Result, Document, or Outcome. Preserve supported outcomes
 and explicit cost gates. Missing replacement coverage blocks the cutover; it is
 not silently reclassified as an unsupported command. Any deliberate capability
 retirement beyond the approved command/default removals requires a separate
-decision.
+decision. The separately approved #7229
+[History Count revision](diff-history.md#subject-specific-history-count)
+supersedes arbitrary selected-cohort Timeline counts for Type/Member History;
+its changed count unit is disclosed with this cutover.
 
 Update help, discovery, completion, replay/probe generation, README, shipped
 skills, and active examples with the executable cutover. Do not change current

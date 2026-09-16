@@ -3,7 +3,9 @@
 ## Status, owner, and claim
 
 Status: **proposed; not implemented**. This specification is tracked by
-[#6987](https://github.com/richlander/dotnet-inspect/issues/6987), under
+[#6987](https://github.com/richlander/dotnet-inspect/issues/6987), with the
+subject-specific Count revision in
+[#7229](https://github.com/richlander/dotnet-inspect/issues/7229), under
 [Compare delivery #5083](https://github.com/richlander/dotnet-inspect/issues/5083)
 and [multi-part document adoption #6980](https://github.com/richlander/dotnet-inspect/issues/6980).
 
@@ -32,6 +34,12 @@ consumer for population-creating ranges, and admits Count as a consumer.
 This is the first adoption of
 [population range selection](population-range-selection.md), under its bounded
 first-adopter scope.
+
+The 2026-09-16 decision in #7229 makes Type/Member History Count answer
+"how many versions saw changes", not "how many Finding rows were produced".
+[Subject-specific History Count](#subject-specific-history-count) owns that
+cohort and its evidence requirements. Package version-population counts and
+future Package History version-row counts remain distinct.
 
 This owner defines the semantic requests and terminal content.
 It consumes package version resolution, Finding correlation, acquisition,
@@ -85,9 +93,11 @@ format, `--at`, and row-filter options do not supply a missing operation.
 History is not inferred from the range or its number of versions.
 
 Count on source-range Diff requires an explicit mode and reduces that
-operation's selected result rows; it does not select version counting. A range in
-`--rows` filters those declared rows and needs no additional consumer.
-It does not excuse a missing consumer for the source range.
+operation's declared Count cohort. Type/Member History uses
+[changed-version rows](#subject-specific-history-count), not arbitrary
+evaluation or Finding rows. A range in `--rows` filters the admitted cohort
+and needs no additional consumer. It does not excuse a missing consumer for
+the source range.
 
 This is an intentionally breaking change to range invocations, not a new
 default. Admitted source-range shorthands obey the same rule. Platform ranges
@@ -121,6 +131,10 @@ dotnet-inspect type diff Markout.MarkoutWriterOptions \
 
 # Count package versions, not changes or successful evaluations
 dotnet-inspect package Markout@0.33.0..0.35.2 --count
+
+# Count changed destination versions for one selected API Member
+dotnet-inspect member diff System.Text.Json.JsonSerializer Deserialize:1 \
+  --package System.Text.Json@9.0.0..10.0.0 --history --at all --count
 ```
 
 These are target invocations, not currently supported syntax.
@@ -191,6 +205,14 @@ multiple filters or ambiguous matches are rejected, not merged. A discovery-
 only Document retains the requested selector without claiming that the Type
 was resolved or absent.
 
+Resolve the selected subject through the admitted focus/correspondence policy.
+A display ordinal such as `Deserialize:1` selects a source Member; it is not
+independently replayed at every version. Preserve native correspondence and
+non-success rather than substituting an overload that occupies the same
+display position. Exact correspondence alone does not establish unchanged
+implementation, and strict non-correspondence alone is not a general change
+verdict; the selected comparison owns that evidence.
+
 | Finding | Focus |
 | --- | --- |
 | `api.member` (default) | Members of the selected Type, or one exact selected Member. |
@@ -225,7 +247,9 @@ preserves:
 - each completed evaluation's version address, provenance, resolved subject,
   producer, and native Finding inspection;
 - native census correlation and, when requested, exact-identity tracks;
-- native comparison evidence joined to its exact evaluated endpoints; and
+- native comparison evidence joined to its exact evaluated endpoints;
+- the Type/Member Changed Versions cohort, with its destination/predecessor
+  association and Count-sufficiency evidence; and
 - coverage, limits, and per-evaluation failures needed to interpret the
   Document.
 
@@ -261,6 +285,80 @@ Failed and inapplicable evaluations remain distinct from absent subjects or
 empty, complete censuses. A failed cell does not abort or discard independent
 evaluations; comparisons involving it retain the native failure outcome.
 
+### Subject-specific History Count
+
+Count remains reduction of a declared cohort under
+[section-row shaping](section-row-shaping.md#count-semantics). This owner
+defines the History rows and the evidence needed to establish their membership,
+not another counting algorithm.
+
+| Request | Count cohort and unit |
+| --- | --- |
+| Package range `--count` | Selected Versions: package-version population rows, using metadata only. |
+| Future `package diff ... --history --count` | Selected Package History rows: package versions, including the baseline when selected. |
+| Type/Member Diff `--history --count` | Changed Versions: destination versions with an established change to the selected subject under the selected comparison, once per version. |
+
+The Package History row records intended counting semantics only. Package
+History admission, comparison domain, acquisition, and content require their
+own focused adoption; this specification does not add that operation.
+Type/Member baseline exclusion and change-evaluation requirements do not apply
+to Package version-row counting.
+
+For Type/Member History, each destination version is compared with its
+immediate predecessor in the selected population's caller-directed order,
+including reversed ranges. The first population version is the baseline and
+does not contribute a changed-version row. Result-row selection cannot replace
+that predecessor with the previous displayed row or rebase the population.
+
+A destination contributes one row when the selected native comparison
+establishes at least one change. Multiple changed Findings, members, attributes,
+or detail rows in the same version still contribute one row. Each row retains
+the destination and predecessor addresses, resolved subject/comparison context,
+and the native evidence establishing the change. Its order is population order;
+labels, display ordinals, and detail-row positions are not version identity.
+Legitimate endpoint absence retains its comparison-owned meaning; it is not a
+failed acquisition or a guessed change.
+
+An exact whole-population change count requires established changed or
+unchanged evidence for every adjacent population transition. A sparse comparison
+across a gap remains useful endpoint evidence, but cannot identify a changed
+destination version within that gap. Failed, missing, inapplicable, or
+unevaluated evidence cannot become unchanged, zero, or a successful count of
+the observed prefix. Discovery-only and baseline-only History do not establish
+an unchanged History and are Count-insufficient for this Type/Member question.
+
+Admitted row selection applies to the Changed Versions cohort before Count.
+Exactness remains relative to that logical request under the existing Count
+contract: a proven semantic prefix may suffice without complete later evidence,
+but a work limit is not a prefix selection. Unknown earlier membership cannot
+be skipped to fill a requested prefix or strict window with later known changes.
+If the requested count is not established, return typed non-success with the
+completion evidence, not a scalar or count table. Preserve independently
+available History transitions and coverage in the shared baseline; requested
+evaluation failures retain their existing nonzero behavior.
+
+Count never broadens `--at`. In particular, requesting the full change count
+without sufficient explicit evaluations fails rather than inspecting more
+versions. Equal first and last endpoints are insufficient: a change followed
+by a reversion contributes two changed destination versions.
+
+These illustrative sequences describe the contract, not measured package data:
+
+| Evidence in population order | Type/Member whole-population change count |
+| --- | --- |
+| `A -> A -> A`, every adjacent comparison established | `0` |
+| `A -> B -> A`, every adjacent comparison established | `2`, even when the middle version has many changed detail rows |
+| Only first and last evaluated in `A -> ? -> A` | Non-success; the gap may contain a change and reversion |
+| `A -> failed -> B` | Non-success; preserve the usable evaluations and failure |
+| Discovery only, or only the baseline evaluated | Non-success; no established transition evidence |
+
+This follows the existing Count convention of counting logical cohort rows,
+while endpoint Diff and identity-track/detail counts answer different
+questions. The shared History owner constructs Changed Versions and its
+completion evidence. Both hosts consume that same typed cohort and shared
+Count outcome through the existing envelope boundary; neither derives a
+separate count from rendered rows or transport-array length.
+
 ### Failure and Share
 
 An invalid request or an unavailable version population yields typed non-success
@@ -269,6 +367,8 @@ evaluations retain their evidence beside usable points. Unselected points are
 not failures. The CLI returns nonzero for a failed requested evaluation,
 unfulfilled work bound, or invalid/unavailable request, while preserving any
 usable document output; deliberate sparse or discovery-only work may succeed.
+Such a History result does not imply an exact change count: an insufficient
+Count request follows the non-success rule above.
 
 The existing [inspection envelope](inspection-envelope.md) owns Share and
 diagnostics. Until its Share owner can faithfully represent this range,
@@ -278,14 +378,24 @@ portable replay identity.
 
 ## Sections and rendering
 
-History declares **Evaluations** and **Transitions** as separate result
-cohorts. Evaluations is its single high-value default section at `-v:m`,
-including for discovery-only work. Transitions is explicitly selectable;
-`-S "*"` selects both through the existing wildcard grammar. The
+Type/Member History declares **Evaluations**, **Transitions**, and
+**Changed Versions** as separate result cohorts. For ordinary row output,
+Evaluations remains its single high-value default section at `-v:m`, including
+for discovery-only work. Transitions and Changed Versions are explicitly
+selectable; `-S "*"` selects all three through the existing wildcard grammar. The
 [section model](section-model.md#category-doors) remains authoritative; no
-computed `@All` category is introduced. Bare `-S` selects the History default,
-not pairwise Changes. The terminal's authoritative temporal evidence is not
-reduced to whichever cohort a renderer selects.
+computed `@All` category is introduced. Bare `-S` without Count selects
+Evaluations, not pairwise Changes. The terminal's authoritative temporal
+evidence is not reduced to whichever cohort a renderer selects.
+
+For Type/Member History Count, Changed Versions is the only admitted cohort.
+With no section selector, or with bare `-S`, Count selects that cohort rather
+than the ordinary Evaluations default. An explicit selector must resolve only
+to Changed Versions; selectors including Evaluations or Transitions, including
+`-S "*"`, are rejected before acquisition, not ignored or reduced with another
+unit. This deliberately replaces the standalone Timeline's arbitrary
+selected-cohort counts at the subject-owned cutover. Ordinary row selection
+continues to expose Evaluations and Transitions without Count.
 
 The section/query catalog is mode-aware before acquisition. Pairwise Changes,
 Analysis Diff, Implementation Diff, and Finding Transitions cannot be mixed
@@ -296,12 +406,13 @@ the selected cohorts; it cannot renumber version addresses or erase coverage.
 
 Markout lowers typed row projections to Markdown, tables, TSV, and JSONL.
 Table/TSV/JSONL require one selected cohort; structured document JSON can carry
-both. With `--history`, `--count` counts the selected History rows, not
-successful inspections or implicitly evaluated versions. It never falls back
-to the count-only Versions cohort if an inspection fails. With `--endpoints`,
-Count reduces the declared comparison rows. Row, field, and column selection
-preserve their existing host contracts. Host JSON is a typed content
-projection, not an envelope transport.
+all cohorts. Count consumes the typed reduction outcome through the
+[Count presentation contract](output-shapes.md#count-results), not a rendered
+row count. Type/Member History never falls back to Package Versions or another
+History cohort when change evidence is insufficient. With `--endpoints`, Count
+still reduces the declared comparison rows. Row, field, and column selection
+preserve their existing host contracts. Host JSON is a typed content projection,
+not an envelope transport.
 
 The public envelope mode tracked by #6719 remains a separately owned
 transport, but is now required by the subject-owned CLI adoption. It serializes
@@ -323,6 +434,8 @@ owning designs decide controls, applicability, result installation, navigation,
 and retained mode state. This specification does not add a tab, alter sticky
 navigation, or create another Workspace lifecycle. Unevaluated versions, gaps,
 and failed points must remain distinguishable in that host's projection.
+Changed Versions and its Count-sufficiency evidence reach that host in the same
+shared baseline as the CLI, even when the current view hides that cohort.
 
 ## Future population construction
 
@@ -363,6 +476,15 @@ second parallel migration. History and population-count work contribute to the
 shared-terminal step and both host adoptions. The generic envelope type is
 already implemented and is reused, not rebuilt.
 
+The #7229 revision locks the subject-specific Count contract in step 1.
+Step 2 constructs Changed Versions and its completion evidence in the shared
+History result and consumes the existing Count reduction. Steps 4 and 5 adopt
+that same result and Count outcome in CLI and Browser/Wasm, respectively.
+The CLI cutover in #7126 retires the old selected-cohort Timeline count
+behavior and discloses the changed unit under the existing breaking-change
+policy; there is no compatibility alias or second host counting algorithm.
+Issue #7229 continues to track the unimplemented Count adoption and its evidence.
+
 Call Graph/canvas, Library-wide History, and the future duration example remain
 outside that path. The new envelope requirement does not hold already-shipped
 pairwise Compare work hostage to this migration.
@@ -372,6 +494,12 @@ The real scenario is `Markout@0.33.0..0.35.2` focused on
 examples. A second real scenario is `System.Text.Json@8.0.0..9.0.0` focused
 on `System.Text.Json.JsonSerializer`. Adoption must retain real-package evidence,
 not only synthetic temporal cells.
+
+The changed-version Count scenario is the proposed
+`System.Text.Json@9.0.0..10.0.0` Member invocation above. Implementation must
+record actual changed and unchanged package-backed witnesses and the resolved
+Member identity; this design does not assume that `Deserialize:1` changed or
+claim a measured count for that range.
 
 Existing `PackageVersionVectorTests` and `TimelineCommandTests` provide baseline
 evidence, including `ZeroEvaluationVector_RemainsUnevaluatedAndRecommendsProbe`,
@@ -392,6 +520,16 @@ The implementation slices must supply Release gates for:
   that cannot supply the missing source-range consumer;
 - count-only versions, filtered version counts, and Count after an explicit
   operation, retaining the declared unit and rejecting insufficient evidence;
+- Type/Member changed-version counts for unchanged adjacent versions, several
+  changed details in one version, multiple changed versions, and a change
+  followed by reversion;
+- Count-insufficient discovery-only, baseline-only, sparse-gap, and failed
+  evaluation cases, retaining useful independent History evidence;
+- Changed Versions section/default binding, incompatible Count cohort
+  rejection before acquisition, and row shaping without predecessor rebasing
+  or silently skipping unknown earlier membership;
+- exact semantic-prefix Count evidence versus work-bound truncation, preserving
+  the existing Count-sufficiency distinction;
 - metadata-only counts without package payload acquisition or a Type focus;
 - unchanged endpoint content under subject Diff with `--endpoints`, equivalent
   non-range local pair content, Type/Member History, and rejected retired
