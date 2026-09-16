@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
+  discoveries emit `Direct` instead of `Exact` in unprojected JSON. Direct
+  member discovery remains case-insensitive and one-to-many across overloads,
+  declaring Types, and sources; the `this[]` alias continues to match indexer
+  metadata names. Glob matching and rendered output are unchanged.
 - **Breaking:** Renames `package changes` to `package activity` and removes the
   old spelling with direct replacement guidance. Inspect Web now presents the
   same report as **Package Activity** while retaining the existing
@@ -10,7 +15,7 @@
 - **Breaking:** Corrects Type `find` match vocabulary so direct non-glob
   discoveries emit `Direct` in typed JSON and `direct` in rendered output
   instead of the misleading `Exact`. Matching remains lenient and one-to-many;
-  member discovery retains its separately owned `Exact`/`Glob` vocabulary
+  this change did not alter the separately owned Member discovery vocabulary
   (#7173).
 - Records Package Source-issued portable producer tokens in fresh package Root
   coordinates, enabling configured HTTP and local Roots to round-trip through

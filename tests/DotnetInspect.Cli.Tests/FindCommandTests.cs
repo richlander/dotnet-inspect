@@ -109,6 +109,34 @@ public class FindCommandTests
     }
 
     [Fact]
+    public void MemberMatchVocabulary_UsesDirectInTypedJson()
+    {
+        var results = new List<MemberFindResult>
+        {
+            new()
+            {
+                Pattern = "this[]",
+                Match = MemberFindMatchKind.Direct,
+                Member = "Item",
+                Kind = "property",
+                DeclaringType = "System.Collections.Generic.List`1",
+                Namespace = "System.Collections.Generic",
+                Signature = "T this[int index] { get; set; }",
+                Library = "System.Collections",
+                Source = "runtime",
+            },
+        };
+
+        string typedJson = JsonSerializer.Serialize(
+            results,
+            MemberFindResultCompactJsonContext.Default.ListMemberFindResult);
+        using var typedDocument = JsonDocument.Parse(typedJson);
+        Assert.Equal(
+            "Direct",
+            typedDocument.RootElement[0].GetProperty("match").GetString());
+    }
+
+    [Fact]
     public void TableFormatter_VisiblyEncodesTabsAndNewlinesInTsvCells()
     {
         var results = new List<TypeFindResult>
@@ -151,7 +179,7 @@ public class FindCommandTests
                 new MemberFindResult
                 {
                     Pattern = hostile,
-                    Match = MemberFindMatchKind.Exact,
+                    Match = MemberFindMatchKind.Direct,
                     Member = hostile,
                     Kind = hostile,
                     DeclaringType = hostile,
