@@ -346,6 +346,111 @@ public sealed class ApiDeclarationCorrespondenceTests
     }
 
     [Fact]
+    public void ApiCorrespondence_CompleteCandidates_DegradedRelevantMethodFailsClosed()
+    {
+        ResolvedAssemblyReference destination =
+            Reference(BuildDegradedMethodCandidateImage(badNeighborName: null));
+        MetadataTypeDefinitionName typeName = Name("N", "C");
+
+        foreach (string? badNeighborName in new string?[] { null, "Bad" })
+        {
+            ResolvedAssemblyReference source =
+                Reference(BuildDegradedMethodCandidateImage(
+                    badNeighborName));
+            MemberAnchor anchor =
+                SelectProductionMethodAnchor(
+                    source,
+                    typeName,
+                    "M");
+            ApiDeclarationBindingResult binding =
+                ApiDeclarationCorrespondence.BindSource(
+                    source,
+                    typeName,
+                    new ApiDeclarationMemberSelection(
+                        ApiDeclarationKind.Method,
+                        anchor),
+                    TestContext.Current.CancellationToken);
+            Assert.True(
+                binding.IsExact,
+                $"{badNeighborName ?? "none"}: "
+                + $"{binding.Status}/{binding.Reason}/{binding.Stage}");
+            ApiDeclarationCorrespondenceResult match =
+                ApiDeclarationCorrespondence.Match(
+                    source,
+                    Assert.IsType<ApiDeclarationReference>(
+                        binding.Declaration),
+                    destination,
+                    TestContext.Current.CancellationToken);
+            Assert.Equal(
+                ApiDeclarationCorrespondenceStatus.Exact,
+                match.Status);
+        }
+
+        ResolvedAssemblyReference incompleteSource =
+            Reference(BuildDegradedMethodCandidateImage(
+                badNeighborName: "M"));
+        MemberAnchor selected =
+            SelectProductionMethodAnchor(
+                incompleteSource,
+                typeName,
+                "M");
+        ApiDeclarationBindingResult incomplete =
+            ApiDeclarationCorrespondence.BindSource(
+                incompleteSource,
+                typeName,
+                new ApiDeclarationMemberSelection(
+                    ApiDeclarationKind.Method,
+                    selected),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStatus.Failed,
+            incomplete.Status);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceReason.MalformedMetadata,
+            incomplete.Reason);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStage.SourceProjection,
+            incomplete.Stage);
+
+        ResolvedAssemblyReference completeSource =
+            Reference(BuildDegradedMethodCandidateImage(
+                badNeighborName: null));
+        ApiDeclarationBindingResult completeBinding =
+            ApiDeclarationCorrespondence.BindSource(
+                completeSource,
+                typeName,
+                new ApiDeclarationMemberSelection(
+                    ApiDeclarationKind.Method,
+                    SelectProductionMethodAnchor(
+                        completeSource,
+                        typeName,
+                        "M")),
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            completeBinding.IsExact,
+            $"{completeBinding.Status}/{completeBinding.Reason}/"
+            + $"{completeBinding.Stage}");
+        ApiDeclarationCorrespondenceResult incompleteDestination =
+            ApiDeclarationCorrespondence.Match(
+                completeSource,
+                Assert.IsType<ApiDeclarationReference>(
+                    completeBinding.Declaration),
+                incompleteSource,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStatus.Failed,
+            incompleteDestination.Status);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceReason.MalformedMetadata,
+            incompleteDestination.Reason);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStage.DestinationCandidateScan,
+            incompleteDestination.Stage);
+    }
+
+    [Fact]
     public void ApiCorrespondence_ExactEndpointAssociation()
     {
         ResolvedAssemblyReference source = Reference(Pair.OldAssemblyPath());
@@ -974,6 +1079,57 @@ public sealed class ApiDeclarationCorrespondenceTests
                 MetadataTokens.ParameterHandle(1));
         }
         return Serialize(metadata);
+    }
+
+    static byte[] BuildDegradedMethodCandidateImage(
+        string? badNeighborName)
+    {
+        MetadataBuilder metadata =
+            CreateMetadata("DegradedMethodCandidate");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x01, 0x01, 0x08 }),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        if (badNeighborName is not null)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(badNeighborName),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x00, 0x01, 0x01, 0x08, 0xFF }),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata);
+    }
+
+    static MemberAnchor SelectProductionMethodAnchor(
+        ResolvedAssemblyReference source,
+        MetadataTypeDefinitionName typeName,
+        string memberName)
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(source);
+        ApiType type = session.ApiSurface(includeAll: true)
+            .Types
+            .Single(candidate => candidate.DefinitionName == typeName);
+        ApiMember member = type.Members.Single(
+            candidate =>
+                candidate.Name == memberName
+                && candidate.SignatureDecodeStatus is null);
+        return ApiMemberIdentity.GetMemberAnchor(type, member);
     }
 
     static MemberAnchor CreateFirstMethodAnchor(byte[] image)

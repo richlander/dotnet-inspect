@@ -1718,6 +1718,11 @@ public static class ApiDeclarationCorrespondence
                     _typeNullableContext,
                     _budget.Charge,
                     _budget.Charge);
+            if (signature.IsDegraded)
+            {
+                throw new BadImageFormatException(
+                    "A relevant method signature could not be completely decoded.");
+            }
             bool isFinalizer =
                 string.Equals(
                     methodName,
