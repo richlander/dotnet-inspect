@@ -20,7 +20,8 @@ This contract is implemented by
 [`ILInspector.Instructions` substrate](instruction-substrate.md), tracked by
 that issue. Analysis adopts the facts in step 4. Decompiler import and EH
 structuring adopt them in step 5, and protected-region control-flow policy
-adopts them in step 6; later Decompiler consumers remain separately staged.
+adopts them in step 6. Classic async exception-context correspondence adopts
+them in step 7; return timing remains separately staged.
 
 Instructions is the right owner because these facts become true only after
 joining decoded opcodes and branch targets with the declared exception
@@ -228,6 +229,16 @@ ancestry only to locate the current structured projection and do not reconstruct
 EH membership. Instructions does not expose a Decompiler-specific `CanRaise`
 answer.
 
+The step-7 classic async adapter queries `LocationAt` for every
+provenance-bearing planning node and compares the returned region identities
+with exact associations on its structured `TryCatch`, `CatchClause`, and
+`TryFinally` ancestors. Raw and planning indexes must retain the same
+`InstructionExceptionFlowFacts` observation. The shared owner supplies
+membership and identity only; the classic inverse continues to own completion
+protocol, recipe admission, physical and semantic accounting, reconstruction,
+and visible decline policy. Explicit non-Metadata Layer 0 requests retain
+range-based compatibility.
+
 ## Analogous implementations
 
 The architecture comparison was performed on 2026-09-10 and transfers
@@ -292,6 +303,11 @@ transfers, exact candidate-relative association, visible missing-correlation
 refusal, same-range foreign-body rejection, and the explicit synthetic
 compatibility path. `ProtectedContinueRecoveryTests` gate the consuming
 `ForLoopPass` outcome.
+`ClassicInverseCoreExceptionTests` gate shared production catch/finally
+contexts, exact structured clause and region association, same-range
+foreign-body rejection, same-observation raw/planning correlation, and visible
+missing-evidence decline. The full `ClassicInverseCoreTests` population gates
+unchanged classic recipe and accounting policy.
 
 The .NET runtime's
 [`TextReader.Read(Span<char>)`](https://github.com/dotnet/runtime/blob/f9b470a5ae7dccd67a1d3fb21aea39c3c8410c7c/src/libraries/System.Private.CoreLib/src/System/IO/TextReader.cs#L96-L114)
