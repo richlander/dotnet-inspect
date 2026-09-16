@@ -9988,6 +9988,33 @@ public partial class CommandExecutionTests
             && count > 0);
     }
 
+    [Theory]
+    [InlineData("--table", "Target Library", "Kind    Type")]
+    [InlineData("--tsv", "target_library\ttypes", "kind\ttype")]
+    [InlineData("--jsonl", "\"target_library\":", "\"kind\":")]
+    public async Task Type_Listing_MixedSurfaceProjectsForwardersInTabularFormats(
+        string format,
+        string expected,
+        string unexpected)
+    {
+        var (_, output, _) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Drawing",
+            "-S",
+            SectionNames.TypeForwarders,
+            format,
+            "--tips",
+            "q");
+
+        Assert.Contains(expected, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(unexpected, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Drawing.ColorConverter",
+            output,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Type_Listing_ComputedAllSelectorIsRejected()
     {
