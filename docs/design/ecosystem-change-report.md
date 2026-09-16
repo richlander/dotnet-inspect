@@ -15,9 +15,10 @@ The CLI production host adopts those contracts through
 `package changes --ecosystem <name>`; its focused Release gates are in
 `tests/DotnetInspect.Cli.Tests/PackageChangesCommandTests.cs`. Browser/Wasm
 adopts the shared inspection boundary and progressive Worker transport through
-[#7068](https://github.com/richlander/dotnet-inspect/issues/7068); Browser query
-state and rendering remain a later delivery step. Historical security changes
-remain unsupported because no owner supplies the required before/after
+[#7068](https://github.com/richlander/dotnet-inspect/issues/7068), and the
+[Package Activity experience](package-activity-experience.md) owns
+`/activity` state and rendering. Historical security changes remain unsupported because no
+owner supplies the required before/after
 evidence. The CLI placement correction is tracked by
 [#7009](https://github.com/richlander/dotnet-inspect/issues/7009).
 
@@ -48,62 +49,6 @@ The report is package activity, not a complete current inventory, a list of
 only newly published versions, or a complete independent advisory timeline.
 Saved baselines, notifications, continuous monitoring, and a full NuGet
 inventory service are separate proposals.
-
-## This is not a mode of Package Query
-
-Two experiences sit next to each other and are easy to mistake for variations
-on one theme. They are not.
-
-| | Package Query | This report |
-| --- | --- | --- |
-| Question | what is true now | what happened, and does it matter |
-| Grain | one row per package, at its leading edge | one row per activity event in a window |
-| Cadence | ad-hoc and iterative | periodic |
-| Shape | a filtered list you refine | a digest you skim |
-| Done when | you found the package | you have triaged the highlights |
-
-*"Do we depend on EvilPackage anywhere?"* is the first. *"Were there Aspire
-releases we need to react to?"* is the second. Refining facets until a package
-surfaces does not resemble reading a six-week briefing.
-
-What the two **do** share is the request model, not the surface: a population
-selection, terms, and execution bounds, which
-[portable query intent](portable-query-intent.md) owns for both. Two of this
-report's request fields — the security overlay and the interval — are ordinary
-terms in that model, and the interval is the product's first real use of the
-`gte` and `lte` operators. Sharing a model is a reason to share code, not a
-reason to share a surface.
-
-The CLI already places them as siblings: `package query` and `package
-activity`, one noun with two verbs. **Browser placement follows the CLI.** The
-`Packages | Changes` mode toggle that
-[#7132](https://github.com/richlander/dotnet-inspect/pull/7132) delivered puts a
-digest behind a toggle on a search page, which is the one shape this section
-rules out. The Catalog change feed is an acquisition mechanism — a NuGet API —
-not an experience, and rendering its grain directly is how the API's shape
-reaches the product.
-
-## The command is `activity`, not `changes`
-
-`changes` is the wrong word for this report, and the reason is specific to this
-product rather than a matter of taste. **dotnet-inspect is substantially an
-API-diff tool**, and `changes` is what a diff produces: nine focused designs
-carry `diff` in their names, and
-[CLI change classification](cli-change-classification.md) claims the word a
-third time for breaking-versus-compatible command-line changes. Beside a
-package, `changes` reads as *what changed in this API* rather than *new
-versions appeared*.
-
-`activity` is this document's own word — its evidence section, its rows, and
-the issue that placed the command all say activity — and nothing else in the
-product claims it. It also covers what the report actually carries, which is
-more than releases: catalog activity, package receipts, and a security overlay.
-
-`releases` is narrower than the payload, `updates` collides with dependency
-upgrading, and `feed` or `digest` names the shape rather than the subject.
-
-The rename is a corrective but breaking CLI change and discloses under
-[CLI change classification](cli-change-classification.md).
 
 ## Request and coverage
 
@@ -316,9 +261,9 @@ Browser acquisition uses the full NuGet V3 Catalog source and GitHub reviewed
 advisories only through the fixed same-origin public-evidence bridge. The
 operation has a 120-second Browser deadline, a 115-second source/advisory
 deadline, and a 25-second per-request timeout, leaving terminal classification
-to the existing managed-operation and Browser deadline owners. Query-state
-adoption and `/query` presentation intentionally remain outside this transport
-slice.
+to the existing managed-operation and Browser deadline owners. Browser state
+adoption and `/activity` presentation belong to the focused
+[Package Activity experience](package-activity-experience.md).
 
 Illustrative rendering, using synthetic package/evidence records:
 
@@ -368,8 +313,9 @@ executable scope. Browser transport adoption demonstrates package-set lookup,
 paired interval validation, strict bounded wire decoding, ordered progressive
 publication before terminal settlement, semantic partial completion inside a
 physically successful envelope, managed cancellation, and the fixed Catalog
-source/deadline composition. Browser query state, rendering, and measured
-publication timing remain to be demonstrated by the focused UI adoption.
+source/deadline composition. The focused Package Changes experience gates
+query state, terminal reconciliation, typed rendering, bounded DOM, and
+real-Wasm publication.
 
 The shared-presentation Release gates run the real query over controlled NuGet
 Catalog and GitHub-reviewed-advisory responses, including

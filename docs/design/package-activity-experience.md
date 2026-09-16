@@ -1,11 +1,11 @@
-# The Package Changes experience
+# The Package Activity experience
 
-This document owns the inspect-web interaction contract for Package Changes.
-The production consumer is the **Changes** peer mode on `/query`.
+This document owns the inspect-web interaction contract for Package Activity.
+The production consumer is the routed `/activity` surface.
 [Ecosystem Change Report](ecosystem-change-report.md) owns report meaning,
 evidence categories, ordering, and typed completion.
 [Inspect Web Surface Composition](inspect-web-surface-composition.md) owns the
-route and placement beside Package Query.
+route and its placement among the working surfaces.
 [Inspect Web Worker Runtime](inspect-web-worker-runtime.md) and the
 [Browser async event stream](engine-browser-async-event-stream.md) own
 transport, cancellation, and physical settlement.
@@ -16,23 +16,35 @@ adoption steps are product catalog projection, startup discovery, progressive
 controller/source adaptation, bounded typed rendering, and real-Wasm
 publication evidence. This owner introduces no replacement architecture.
 
-**Normative claim.** The `/query` Changes mode preserves the product-issued
+**Normative claim.** The `/activity` surface preserves the product-issued
 package scope, requested interval, progressive event sequence, and typed
 terminal completion without deriving report semantics from display strings.
-The managed and frontend Package Changes suites, generated-facade inventory,
+The managed and frontend Package Activity suites, generated-facade inventory,
 Worker startup tests, and package-adoption Browser scenario are the enforcing
 gates.
 
 ## Placement and lifetime
 
-`/query` presents **Packages** and **Changes** as keyboard-operable peer modes.
-Changing mode does not change the route. A direct load or document refresh
-starts in Packages mode with a fresh Package Query state; mode and both modes'
-states are session-local and may survive ordinary in-memory navigation.
-Neither mode is encoded into the URL.
+Package Activity is its own route, `/activity`, beside `/query` rather than
+inside it. The two answer different questions at different grain: Package
+Query returns one row per package at its leading edge, and this returns one row
+per activity event within a window, so five releases in six weeks is one row
+there and five rows here. What they share is the request model — a population
+selection, terms, and execution bounds, owned by
+[portable query intent](portable-query-intent.md) — and sharing a model is a
+reason to share code rather than a surface. The CLI already places them as
+siblings, `package query` and `package activity`, and this follows it.
 
-Leaving a mode cancels its active Worker operation. Leaving `/query`,
-replacement by a newer run, and route disposal do the same. A generation owns
+An earlier revision of this document made Activity a peer **mode** on `/query`,
+switched by a toggle. That is reversed. A toggle put a periodic digest behind a
+control on an exploratory search page, and it made the Catalog change feed's
+grain — a NuGet API's shape — the product's shape. The reversal also leaves the
+`/query` search bar free for a population control, which a competing mode
+toggle beside it would have muddled.
+
+Report state is session-local and may survive ordinary in-memory navigation;
+it is not encoded into the URL. Leaving `/activity`, replacement by a newer
+run, and route disposal each cancel the active Worker operation. A generation owns
 every callback and terminal settlement. Events from an older generation cannot
 enter the current state.
 
