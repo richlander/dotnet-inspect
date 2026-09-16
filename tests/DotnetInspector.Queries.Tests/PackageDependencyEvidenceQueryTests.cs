@@ -11,6 +11,51 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class PackageDependencyEvidenceQueryTests
 {
     [Fact]
+    public void CreatePackageInput_PreservesOwnerIssuedCompatibleSelection()
+    {
+        PackageManifestFacts manifest = Manifest(
+            """
+            <group targetFramework="net8.0">
+              <dependency id="Example.Dependency" version="[2.0.0]" />
+            </group>
+            """);
+        PackageDependencyGroups groups =
+            PackageDependencyGroupsQuery.ProjectDependencyGroups(
+                manifest,
+                "net11.0",
+                allowCompatibleFallbackForRequestedTfm: true);
+        var available = new PackageDependencyGroupsResult.Available(
+            manifest,
+            groups);
+
+        PackageDependencyEvidenceRoot root = Assert.Single(
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest(
+                    [
+                        PackageDependencyEvidenceQuery.CreatePackageInput(
+                            available,
+                            PackageDependencyEvidenceAcquisitionForm
+                                .PackageArchive),
+                    ])).Roots);
+
+        Assert.Equal(
+            PackageDependencyEvidenceSelectionStatus.Selected,
+            root.Selection.Status);
+        Assert.Equal(
+            "net11.0",
+            root.Selection.RequestedFramework?.ToString());
+        Assert.Equal(
+            "net8.0",
+            root.Selection.SelectedFramework?.ToString());
+        Assert.Equal(
+            Assert.Single(
+                Assert.IsType<
+                    PackageDependencyEvidenceDeclarationResult.Available>(
+                    root.Declaration).Groups).Identity,
+            root.Selection.SelectedGroup);
+    }
+
+    [Fact]
     public void Execute_PackageAndDirectNuspecRetainDistinctProvenanceAndCompareEqual()
     {
         PackageManifestFacts selfAttested = Manifest(

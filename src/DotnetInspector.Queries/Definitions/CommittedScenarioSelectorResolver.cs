@@ -457,6 +457,7 @@ public static class CommittedScenarioSelectorResolver
         switch (request)
         {
             case null:
+                context = new NavigationRetainedSubjectContext(packageSubject);
                 return true;
             case PortableRetainedSubjectContext.Package:
                 context = new NavigationRetainedSubjectContext(packageSubject);

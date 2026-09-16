@@ -172,7 +172,6 @@ public sealed class OptimizationOpportunityAnalysisTests
                 MetadataToken: 0x06000001,
                 IsStatic: true),
             instructions,
-            [],
             loopRegions ?? [],
             []);
     }

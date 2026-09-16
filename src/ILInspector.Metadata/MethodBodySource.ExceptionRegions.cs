@@ -10,6 +10,37 @@ namespace ILInspector.Metadata;
 public sealed partial class MethodBodySource
 {
     /// <summary>
+    /// Reads one complete method body from a caller-owned PE reader.
+    /// </summary>
+    /// <remarks>
+    /// The caller retains ownership of <paramref name="peReader"/> and must keep
+    /// it alive for the duration of this call. The returned evidence is detached.
+    /// </remarks>
+    public static MethodBodyReadResult Read(
+        PEReader peReader,
+        int methodToken) =>
+        Read(peReader, methodToken, int.MaxValue);
+
+    /// <summary>
+    /// Reads one complete method body from a caller-owned PE reader under a
+    /// hard IL-byte limit.
+    /// </summary>
+    /// <remarks>
+    /// The caller retains ownership of <paramref name="peReader"/> and must keep
+    /// it alive for the duration of this call. The returned evidence is detached.
+    /// </remarks>
+    public static MethodBodyReadResult Read(
+        PEReader peReader,
+        int methodToken,
+        int maxILBytes)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        return new MethodBodySource(
+            peReader,
+            static () => { }).Read(methodToken, maxILBytes);
+    }
+
+    /// <summary>
     /// Reads one complete method body and its physical exception clauses.
     /// </summary>
     public MethodBodyReadResult Read(int methodToken) =>

@@ -149,6 +149,7 @@ internal static class BrowserPackageWireProjection
             snapshot.MaxPackageEntries,
             snapshot.Workspaces,
             snapshot.MaxWorkspaces,
+            snapshot.MaxWorkspaceAssembliesPerRole,
             snapshot.ResidentBytes,
             snapshot.MaxResidentBytes,
             snapshot.MaxWorkspaceRetainedImageBytes);

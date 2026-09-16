@@ -624,7 +624,6 @@ public static class OutputFormatter
         var includesMetadata = MetadataLensRenderer.IsSelected(writerOpts.IncludeSections);
         if (!includesMetadata)
         {
-            writerOpts.SectionOrder = pipeline.AlphabeticalSectionOrder;
             writerOpts.RowWindow = RowWindow.ToMarkout(rows);
         }
 

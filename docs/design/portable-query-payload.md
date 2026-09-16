@@ -34,13 +34,14 @@ produce it identically or sharing does not work. Every rule below serves that
 claim; anything that does not is not this document's.
 
 [Workspace definitions](workspace-definitions.md) packet format 2 defines its
-`q` table as `[queryId, payload]`, where the payload is "the closed JSON object
-emitted by that query owner's version-2 packet codec" and must "round-trip its
-payload byte-for-byte through parse and canonical write." It delegates property
-order, string and numeric grammar, selector encodings, and limits to that codec.
-This document is that codec's contract. It does not redefine the packet family,
-its outer bounds, its base64url and JSON hardening, or any coordinate-bearing
-arm.
+`q` table as `[queryId, payload]`, where `queryId` names the exact portable
+vocabulary and `payload` is the closed JSON object emitted by
+`PortableQueryPayloadCodec`. The payload must round-trip byte-for-byte through
+parse and canonical write. Workspace Definitions delegates property order,
+string and numeric grammar, identity spelling, and nested limits to this
+document's shared codec contract; vocabulary owners retain semantic binding
+and execution. This document does not redefine the packet family, its outer
+bounds, its base64url and JSON hardening, or any coordinate-bearing arm.
 
 ## Where the rules live
 
@@ -223,10 +224,12 @@ limits must be enforced before any vocabulary binder runs; and semantically
 identical query states deduplicate on the `(queryId, payload bytes)` pair, never
 on payload bytes alone — matching the packet's stated table ordering.
 
-Format 2 permits a query reference only from a per-coordinate view entry,
-requires one view state per coordinate tuple, and rejects empty contexts. A
-package query has no coordinate, so a payload that satisfies this contract still
-has nowhere valid to attach. **That coordinate-free attachment is owned by
+Format 2 permits query references from its leading coordinate-free Workspace
+entry and from per-coordinate view entries, requires one view state per
+coordinate tuple, and rejects empty contexts. The leading entry can carry only
+a Workspace-compatible query because it must request the Workspace subject. A
+package query has no coordinate, so it still has nowhere valid to attach.
+**That coordinate-free Package attachment is owned by
 [Workspace definitions](workspace-definitions.md)** and is a counted step in
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971); this document
 supplies only the payload it would carry.
@@ -267,7 +270,7 @@ vocabularies, and that cancellation is observed before any binder runs.
   and whether two values are equivalent are never this codec's to decide.
 - No change to the packet's coordinate arms, outer bounds, hardening, escaping
   rules, or record family, and no new packet format. The coordinate-free
-  attachment a query needs remains owned by
+  Package attachment remains owned by
   [Workspace definitions](workspace-definitions.md).
 - No transport. Base64url framing, URL shape, and storage are the adopting
   host's, under the packet owner's existing rules.

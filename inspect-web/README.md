@@ -873,14 +873,41 @@ and stale-result behavior follow under #5517 rather than entering this
 transport operation.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
-group in manifest order and an exact-framework selection outcome. A missing
-exact group remains visible while the UI permits inspecting the groups that were
-actually declared. The dependency list and graph both follow that explicit UI
-selection for the active package; other open packages use their product-selected
-groups. The selected compile participant's direct references come from the
-assembly-context query; the browser neither parses the nuspec nor opens an
-assembly session. Package Dependencies shows only NuGet dependency groups;
-Library References shows only the selected Library's assembly references.
+group in manifest order and its compatible target-framework selection, then
+passes that exact owner-issued result through
+`PackageDependencyEvidenceQuery`. The Browser projects its groups and source
+spellings from the normalized evidence rather than parsing the nuspec or
+creating another dependency model. A missing matching group remains visible
+while the UI permits inspecting the groups that were actually declared.
+Typed normalization failures also cross the boundary, so conflicting or
+invalid declarations remain visible instead of becoming successful empty
+groups. The
+dependency list and graph both follow that explicit UI selection for the active
+package; other open packages use their product-selected groups. The selected
+compile participant's direct references come from the assembly-context query;
+the browser does not open another assembly session. Package Dependencies shows
+only NuGet dependency groups; Library References shows only the selected
+Library's assembly references.
+
+`QueryPackagePruning` is a separate explicit operation on Package Dependencies.
+It evaluates only the normalized active group against one exact platform target
+and selected runtime or ASP.NET Core supply family. JavaScript transports the
+validated platform-index inventory; managed candidate resolution and
+`PackageHouseDependencyPruningQuery` own version selection and policy. Opening
+Dependencies does not start candidate discovery. Selecting **Evaluate** may
+query nuget.org for non-exact ranges, but it does not acquire dependency
+payloads, mutate the dependency graph, or load PlatformHouse content. Each
+explicit evaluation starts a new request after the prior request settles, and
+the result keeps the evaluated normalized group plus the exact platform
+framework, family, and version visible.
+
+The result keeps the selected candidate and platform-supplied version in
+separate fields. `PlatformDelegation` means the platform supplies that candidate
+or a newer version; an older supplied version leaves the candidate retained.
+Candidate failure and non-evaluation remain visible rows, and operation-level
+inventory or manifest failures remain visible failures rather than
+success-shaped empty results.
+
 For open-package navigation, JavaScript supplies the loaded coordinates and
 their typed package-versus-platform provenance to
 `PackageDependencyCoordinateMatchQuery`. The product returns `NoMatch`,
@@ -1128,7 +1155,8 @@ the main thread.
 
 That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
 the Worker-only adoption host. Its facade-grouped `client` provides Promise
-results for build identity, vocabulary, home demos, and Package Query facets.
+results for build identity, vocabulary, home demos, Package Query facets, and
+the product-issued Package Changes package-set catalog.
 Concurrent reads share one bootstrap without replacing one
 another, and disposal rejects outstanding reads. Generated JSON-shaped results
 use a bounded transport string (1,048,576 UTF-16 code units per result) and
@@ -1322,6 +1350,18 @@ failures remain distinct. **Open in workspace** passes the owner's exact Root
 request and reacquires under current source authorization; it does not retain
 the query candidate in the Workspace cache. RID selection and ecosystem-wide
 candidate discovery are outside this first assembly-pattern gesture.
+
+The same `/query` route exposes **Packages** and **Changes** as peer modes.
+Changes discovers product-owned package sets from the managed startup catalog,
+submits the default 42-day interval or one validated paired UTC interval, and
+streams the existing `package-changes` Worker operation. Its bounded row window
+renders typed current-advisory, fixed-version, receipt, security-release,
+provider-failure, source-coverage, and completion evidence without inferring
+meaning from formatted text. Mode changes, route exit, replacement, and
+explicit cancellation stop active work; explicit cancellation retains already
+admitted rows. Saved reports and notifications are not part of this surface.
+The focused contract is
+[The Package Changes experience](../docs/design/package-changes-experience.md).
 
 The Package Query scenarios in `browser/package-adoption.spec.ts` drive the published
 production page through the existing real-Wasm package-adoption harness.

@@ -491,8 +491,36 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    unproven element-store identity recovery, incomplete
    slot-copy components, and nested `Lambda`/`LocalFunctionStatement` scopes.
    The nested-name prerequisite #2275 landed in #2356. Lambda and local-function
-   raising already run the default pipeline, including materialization, on
-   imported bodies before embedding them. Late re-materialization of residual
+   raising complete the default pipeline, including materialization, on
+   imported bodies before embedding them. For a capturing lambda whose captures
+   are outer argument/`this` reads and whose imported body contains no further
+   lambda or local-function scope, capture substitution precedes the final
+   slots-only inlining and storage-finalization tail. This lets the existing
+   effect, single-use, type-witness, and evaluation-order rules see the recovered
+   argument reads rather than potentially throwing environment-field reads.
+   It does not inline user locals, invent a second inliner, or simplify in the
+   printer. Outer-local captures and further nested bodies retain their prior
+   finalization order so foreign local pools do not enter this opportunity.
+   The motivating witness is Newtonsoft.Json 13.0.4,
+   `JsonContract.CreateSerializationCallback`: its captured `MethodInfo` receiver
+   becomes an argument read, allowing the single-use `object[]` spill to return
+   to the invocation argument. `CapturingLambdaStorageFinalizationTests` gates
+   the compiler-produced positive and the retained ordering/storage boundaries.
+   The same existing live-range rules can remove a pure captured-argument alias
+   across an intervening call, as in `GenericContext.ForMethod` from
+   dotnet-inspect.any 0.14.0; the captured-reader fixture preserves that neighbor.
+   `CapturingLambdaCoupledBodyTests` compiles the unchanged product-issued RTS
+   artifact and compares both the factory and its actual `ldftn` target with the
+   existing IL contract. The compiler-produced callback's factory remains Exact
+   while its generated body improves from OpcodeDiff to Exact; this gate
+   therefore detects a body change that a factory-only comparison misses.
+   This slow test runs in Deep Inspect and as a focused pre-merge gate.
+   Native RTS for the pinned Newtonsoft witness cannot currently produce a donor
+   because its reconstructed context is missing `SerializationCallback`; the
+   fixture result is not transferred as a real-witness generated-body verdict.
+   This host-neutral pass is used by the default pipeline in both CLI and
+   Browser/Wasm; no host or rendering changes are required.
+   Late re-materialization of residual
    nested webs remains deferred; it is not a missing first materialization
    step. Direct slot-copy components now
    materialize atomically when every member clears the same type, scope, and
@@ -589,13 +617,17 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    producer already has the testified type. This does not expand the coercion
    domain or infer reference conversions: an object-typed null cannot testify
    to string storage, and a string-typed producer cannot testify to object
-   storage. Exact single-dimensional, zero-based arrays of core-library
-   `System.Byte` or `System.String` use the same admission: the array itself,
-   not merely its element representation, must already have the testified
-   type. Signed-byte, other-element, rectangular, and jagged arrays remain
-   deferred. Existing explicit casts are preserved; array conversions are not
-   inferred. In particular, covariance does not make `string[]` and `object[]`
-   the same storage type. A covariant consumer may receive an explicitly
+   storage. Exact single-dimensional, zero-based arrays use the same admission
+   across element families when their complete array type passes the shared
+   explicit-type spelling gate. The array itself, not merely its element
+   representation, must already have the testified type. Jagged arrays,
+   generic elements, and in-scope generic parameters use that same gate;
+   unsupported constituents, unspellable names, unbound generic shapes, and
+   top-level non-SZ arrays remain deferred. The spelling gate is not a
+   universal binding or generic-constraint proof. Existing explicit casts are
+   preserved; array conversions are not inferred. In particular, covariance
+   does not make `string[]` and `object[]` the same storage type.
+   A covariant consumer may receive an explicitly
    string-array-typed load without widening its storage identity.
    Other non-exact producers and reference types remain
    deferred. Every observer still supplies
@@ -668,6 +700,27 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    allocations, initializers, mutation through a covariant alias, covariant
    returns, and swaps. Array aliases and runtime element-store checks remain
    unchanged; storage materialization neither moves writes nor narrows values.
+
+   The element-family admission replaces the former Byte/String allow-list,
+   not the exact producer requirement. It consumes
+   `CSharpSpellability.CanSpellSzArrayStorageType`, which shares the existing
+   by-value explicit-parameter type grammar and host-name checks rather than
+   introducing a second type walker. Motivating pinned witnesses include
+   Newtonsoft.Json 13.0.4 `StringUtils.FormatWith`,
+   `DynamicUtils.BinderWrapper.Init`, and `JsonTextReader.ReadStringIntoBuffer`,
+   plus dotnet-inspect.any 0.14.0 `TypeViewContext.get_TypeShapeViewSchema`.
+   `ExactSzArraySlotMaterializationTests` gates element families, whole-array
+   identity, generic scope and constituent-shape boundaries, atomic copies,
+   retained producers, and pending swaps. Compiler-produced retained reads,
+   allocations, covariant aliases, and generic/jagged arrays supply the
+   compile-back fixtures. `SlotMaterializationInvariant` checks each completed
+   rewrite under the existing validation policy; admission and later rendering
+   still need their separate gates. The mixed SZ/rectangular-element fixture
+   has IR coverage but not exact compile-back coverage: unchanged base tools
+   also reverse its array ranks during C# composition
+   ([#7103](https://github.com/richlander/dotnet-inspect/issues/7103)).
+   The neighboring scalar, generic, jagged, pointer, and function-pointer
+   fixtures require exact compile-back.
 
    `MaterializesSingleStoreConditionalWithSingleRead` and
    `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate

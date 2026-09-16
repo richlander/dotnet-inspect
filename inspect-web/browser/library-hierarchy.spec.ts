@@ -490,9 +490,21 @@ async function installFacades(
           maxPackageEntries: 12,
           workspaces: 1,
           maxWorkspaces: 4,
+          maxWorkspaceAssembliesPerRole: 256,
           residentBytes: 0,
           maxResidentBytes: 134217728,
           maxWorkspaceRetainedImageBytes: 67108864,
+        };
+      }
+      export function listPackageChangesPackageSets() {
+        return {
+          version: 1,
+          packageSets: [{
+            id: "package-set.fixture",
+            title: "Fixture packages",
+            summary: "Browser fixture package set.",
+            order: 10,
+          }],
         };
       }
       export function listPackageQueryFacets() { return { facets: [] }; }
@@ -513,7 +525,7 @@ async function installFacades(
         if (scenario === "query-error") throw new Error("Reference query unavailable.");
         return {
           package: id, version, activeFramework: framework, assembly: selected.name,
-          dependencyGroups: [], dependencyGroupError: null,
+          dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
           assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
             : { references: scenario === "empty" ? [] : scenario === "long"
             ? Array.from({ length: 80 }, (_, index) => ({
@@ -1571,6 +1583,7 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
   await expect(storageCard).toContainText("12");
   await expect(storageCard).toContainText("0 B of 128 MB");
   await expect(storageCard).toContainText("1 of 4");
+  await expect(storageCard).toContainText("256 per role");
   await expect(storageCard).toContainText("64 MB each");
   await expect(page.locator(".data-bar")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Back to previous page" }))

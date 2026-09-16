@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using Inspector.Findings;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -211,13 +212,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         ILibraryMethodAnalysisInfrastructure.CreateMethodAnalysisResolver(
             GenericScope scope,
             MethodIdentity caller,
-            byte[] il,
-            IReadOnlyCollection<ExceptionRegion> exceptionRegions) =>
+            MethodInstructions instructions) =>
         _primaryMetadataResolver.CreateMethodAnalysisResolver(
             scope,
             caller,
-            il,
-            exceptionRegions);
+            instructions);
 
     IMethodCallResolver
         ILibraryMethodAnalysisInfrastructure.CreateCallResolver(

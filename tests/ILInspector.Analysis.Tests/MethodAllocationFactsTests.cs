@@ -330,7 +330,6 @@ public sealed class MethodAllocationFactsTests
         return new MethodBodyAnalysisContext(
             Method(),
             instructions,
-            [],
             loopRegions ?? [],
             []);
     }
