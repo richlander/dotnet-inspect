@@ -225,6 +225,8 @@ interface DiagnosticsFixture {
   buildIdentity?: "ready" | "pending" | "failed";
   cacheFailure?: boolean;
   cachePending?: boolean;
+  libraryApiFailure?: boolean;
+  libraryApiIncomplete?: boolean;
 }
 
 interface PackageLoadingFixture {
@@ -361,6 +363,7 @@ async function installFacades(
       let packageFrameworkFailed = false;
       let packageVersionFailed = false;
       let warmupAttempts = 0;
+      let libraryApiAttempts = 0;
       export async function getPlatformVersions(tfm) {
         document.documentElement.dataset.platformVersionsRequest = tfm;
         if (platformOptions.discoveryFailure) throw new Error("Version discovery offline");
@@ -510,6 +513,62 @@ async function installFacades(
       export function listPackageQueryCatalog() { return { facets: [], terms: [] }; }
       export async function queryMemberDocumentation() {
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
+      }
+      export async function queryLibraryApi(id, version, framework, asset) {
+        document.documentElement.dataset.libraryApiAttempts =
+          String(++libraryApiAttempts);
+        if (diagnosticsOptions.libraryApiFailure) {
+          throw new Error("Library API inspection failed.");
+        }
+        const surface = surfaceFor(id, version, framework);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        const types = surface.types.filter(type => type.assemblyId === asset);
+        const typeKinds = [...new Set(types.map(type => type.kind))].map((kind, index) => ({
+          id: kind.toLowerCase(), singularLabel: kind, pluralLabel: kind + "s",
+          weight: index, count: types.filter(type => type.kind === kind).length,
+          isDefault: true,
+        }));
+        const namespaces = [...new Set(types.map(type => type.namespace))].map(name => ({
+          name, count: types.filter(type => type.namespace === name).length,
+        }));
+        return {
+          content: {
+            outcome: 0, packageId: id, packageVersion: version,
+            requestedTargetFramework: framework, requestedLibrary: asset,
+            source: { packageId: id, packageVersion: version, producer: "fixture", framework },
+            asset: {
+              id: selected.id, path: selected.asset, assemblyName: selected.name,
+              targetFramework: framework, kind: 0,
+            },
+            assembly: {
+              identity: {
+                name: selected.name, version: selected.version,
+                culture: selected.culture, publicKeyToken: selected.publicKeyToken,
+              },
+              moduleVersionId: "00000000-0000-0000-0000-000000000001",
+            },
+            inventory: {
+              publicTypeCount: selected.publicTypes,
+              publicMemberCount: selected.publicMembers,
+              publicMethodCount: selected.publicMembers,
+              publicPropertyCount: 0,
+              typeKinds,
+              namespaces,
+            },
+            truncation: null,
+            failures: diagnosticsOptions.libraryApiIncomplete
+              ? [{ kind: 6, detail: "TypeDefinitions: BadImageFormat: invalid row", subjectAssembly: null }]
+              : [],
+            isComplete: !diagnosticsOptions.libraryApiIncomplete,
+            isAvailable: true,
+          },
+          share: {
+            kind: "Available", fullUrl: "https://dotnet-inspect.net/",
+            packet: "fixture", path: null, reason: null,
+          },
+          diagnostics: [],
+        };
       }
       export async function queryPackageDependencies(id, version, framework, asset) {
         document.documentElement.dataset.referenceRequest = asset;
@@ -4189,6 +4248,63 @@ for (const subject of ["Package", "Library"]) {
     }
   });
 }
+
+test("Library Overview discloses incomplete exact-Library inspection", async ({ page }) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { libraryApiIncomplete: true });
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+
+  const warning = page.locator(".library-overview-surface .metadata-warning");
+  await expect(warning).toContainText(
+    "This library could not be inspected completely");
+  await expect(warning).toContainText(
+    "TypeDefinitions: BadImageFormat: invalid row");
+  await expect(page.locator(".overview-surface-head p"))
+    .toHaveText("1 type · 1 member");
+});
+
+test("Library Overview retries a failed exact-Library request only on demand", async ({ page }) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { libraryApiFailure: true });
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+
+  await expect(page.getByRole("heading", { name: "Public API unavailable" }))
+    .toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-library-api-attempts",
+    "1");
+  await page.waitForTimeout(100);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-library-api-attempts",
+    "1");
+
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-library-api-attempts",
+    "2");
+  await expect(page.getByRole("heading", { name: "Public API unavailable" }))
+    .toBeVisible();
+});
 
 for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"]] as const) {
   test(`narrow Library navigation returns to ${selectedLibrary.name} details with ${activation}`, async ({ page }) => {

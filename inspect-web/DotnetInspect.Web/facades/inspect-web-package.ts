@@ -6,6 +6,14 @@ export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Am
 
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
 
+export type BrowserExactLibraryApiAssetKind = number;
+
+export type BrowserExactLibraryApiInspectionFailureKind = number;
+
+export type BrowserExactLibraryApiInspectionOutcome = number;
+
+export type BrowserExactLibraryApiProjectionLimit = number;
+
 export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
 
 export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
@@ -96,6 +104,97 @@ export interface BrowserDependencyCoordinateCandidate {
 export interface BrowserDependencyCoordinateMatch {
   readonly outcome: BrowserDependencyCoordinateMatchOutcome;
   readonly candidateKey: string | null;
+}
+
+export interface BrowserExactLibraryApiAssemblyIdentity {
+  readonly identity: BrowserExactLibraryApiAssemblyReferenceIdentity;
+  readonly moduleVersionId: string;
+}
+
+export interface BrowserExactLibraryApiAssemblyReferenceIdentity {
+  readonly name: string;
+  readonly version: string | null;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
+}
+
+export interface BrowserExactLibraryApiAsset {
+  readonly id: string;
+  readonly path: string;
+  readonly assemblyName: string;
+  readonly targetFramework: string;
+  readonly kind: BrowserExactLibraryApiAssetKind;
+}
+
+export interface BrowserExactLibraryApiFacet {
+  readonly id: string;
+  readonly singularLabel: string;
+  readonly pluralLabel: string;
+  readonly weight: number;
+  readonly count: number;
+  readonly isDefault: boolean;
+}
+
+export interface BrowserExactLibraryApiInspection {
+  readonly content: BrowserExactLibraryApiInspectionResult;
+  readonly share: BrowserInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserExactLibraryApiInspectionFailure {
+  readonly kind: BrowserExactLibraryApiInspectionFailureKind;
+  readonly detail: string;
+  readonly subjectAssembly: BrowserExactLibraryApiAssemblyReferenceIdentity | null;
+}
+
+export interface BrowserExactLibraryApiInspectionResult {
+  readonly outcome: BrowserExactLibraryApiInspectionOutcome;
+  readonly packageId: string;
+  readonly packageVersion: string;
+  readonly requestedTargetFramework: string;
+  readonly requestedLibrary: string;
+  readonly source: BrowserExactLibraryApiSourceCoordinate | null;
+  readonly asset: BrowserExactLibraryApiAsset | null;
+  readonly assembly: BrowserExactLibraryApiAssemblyIdentity | null;
+  readonly inventory: BrowserExactLibraryApiInventory | null;
+  readonly truncation: BrowserExactLibraryApiProjectionTruncation | null;
+  readonly failures: ReadonlyArray<BrowserExactLibraryApiInspectionFailure>;
+  readonly isComplete: boolean;
+  readonly isAvailable: boolean;
+}
+
+export interface BrowserExactLibraryApiInventory {
+  readonly publicTypeCount: number;
+  readonly publicMemberCount: number;
+  readonly publicMethodCount: number;
+  readonly publicPropertyCount: number;
+  readonly typeKinds: ReadonlyArray<BrowserExactLibraryApiFacet>;
+  readonly namespaces: ReadonlyArray<BrowserExactLibraryApiNamespace>;
+}
+
+export interface BrowserExactLibraryApiNamespace {
+  readonly name: string;
+  readonly count: number;
+}
+
+export interface BrowserExactLibraryApiProjectionTruncation {
+  readonly limit: BrowserExactLibraryApiProjectionLimit;
+  readonly bound: number;
+  readonly projectedParticipants: number;
+  readonly omittedParticipants: number;
+  readonly projectedTypes: number;
+  readonly projectedMembers: number;
+  readonly projectedInspectionFailures: number;
+  readonly projectedTypeForwarders: number;
+  readonly inspectedMetadataRows: number;
+  readonly projectedRetainedTextCharacters: number;
+}
+
+export interface BrowserExactLibraryApiSourceCoordinate {
+  readonly packageId: string;
+  readonly packageVersion: string;
+  readonly producer: string;
+  readonly framework: string | null;
 }
 
 export interface BrowserExceptionSurface {
@@ -770,6 +869,7 @@ type $ManagedExports = {
             readonly "MatchPackageDependencyCoordinate.1537767637": (packageId: string, declaredRange: string | null, candidatesJson: string) => string;
             readonly "PackageCacheStats.1310674786": () => string;
             readonly "PrefetchPlatformPacks.1782598084": (targetFramework: string, platformVersion: string) => Promise<void>;
+            readonly "QueryLibraryApi.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
             readonly "QueryMemberDocumentation.1330709314": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>;
             readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
             readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
@@ -1008,6 +1108,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "PrefetchPlatformPacks.1782598084");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.PrefetchPlatformPacks.1782598084\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "QueryLibraryApi.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryLibraryApi.1579276339\u0027 is not callable.");
     }
   }
   {
@@ -1259,6 +1371,12 @@ export function packageCacheStats(): BrowserPackageCacheStats {
 
 export async function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void> {
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["PrefetchPlatformPacks.1782598084"](targetFramework, platformVersion);
+}
+
+export async function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserExactLibraryApiInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryLibraryApi.1579276339"](packageId, version, targetFramework, assemblyId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserExactLibraryApiInspection;
 }
 
 export async function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation> {
