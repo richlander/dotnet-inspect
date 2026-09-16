@@ -171,7 +171,7 @@ stderr rather than mixed into structured output.
 | Command | Purpose |
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
-| `package changes --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
+| `package activity --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
 | `type X` | Discover types or render a single type shape. |
@@ -225,7 +225,7 @@ no source work; a later bounded operation that selects the ecosystem may resolve
 those concrete packages and follow their ordinary dependencies. Package-prefix
 matches remain discovery scope and are not substituted for those roots.
 
-Use `package changes --ecosystem` to report package activity in one named
+Use `package activity --ecosystem` to report package activity in one named
 ecosystem's exact product-owned package set. The ecosystem option selects where
 to look; `ecosystem` itself remains the acquisition-free vocabulary command.
 This network-backed query defaults to the interval
@@ -234,10 +234,10 @@ source horizon, and overlays current GitHub-reviewed advisory context and
 evidenced security releases:
 
 ```bash
-dotnet-inspect package changes --ecosystem aspire
-dotnet-inspect package changes --ecosystem aspnetcore --security-only
-dotnet-inspect package changes --ecosystem microsoft-extensions -n 25 --json
-dotnet-inspect package changes --ecosystem aspire \
+dotnet-inspect package activity --ecosystem aspire
+dotnet-inspect package activity --ecosystem aspnetcore --security-only
+dotnet-inspect package activity --ecosystem microsoft-extensions -n 25 --json
+dotnet-inspect package activity --ecosystem aspire \
   --from 2026-02-01T00:00:00Z \
   --through 2026-03-01T00:00:00Z
 ```
@@ -249,7 +249,7 @@ Unavailable evidence is not treated as a negative. Human output uses the shared
 report view; `--json` emits the lossless schema-versioned report, with
 `--compact` for minified JSON. Use `--verbose` for bounded acquisition progress
 on stderr. Single-table formats and catalog-only section projections are not
-available with `package changes`.
+available with `package activity`.
 
 `ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the

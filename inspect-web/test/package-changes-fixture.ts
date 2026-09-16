@@ -153,7 +153,7 @@ export function inspection(
       fullUrl: null,
       packet: null,
       path: "package-changes/share",
-      reason: "Package Changes reports are not shareable yet.",
+      reason: "Package Activity reports are not shareable yet.",
     },
     diagnostics: [],
   };
