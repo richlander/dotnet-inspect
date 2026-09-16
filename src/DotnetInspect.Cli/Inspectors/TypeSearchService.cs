@@ -206,8 +206,8 @@ internal static class TypeSearchService
                 classified,
                 pattern,
                 TypeMatcher.IsTypeGlobPattern(pattern)
-                    ? MatchKind.Glob
-                    : MatchKind.Exact,
+                    ? TypeFindMatchKind.Glob
+                    : TypeFindMatchKind.Direct,
                 candidates);
             primaryResults[index] = classified;
         }
@@ -308,7 +308,7 @@ internal static class TypeSearchService
                 AddClassifiedResults(
                     classified,
                     prefixPattern,
-                    MatchKind.Glob,
+                    TypeFindMatchKind.Glob,
                     selected);
                 primaryResults[patternIndex] = classified;
                 continue;
@@ -343,7 +343,7 @@ internal static class TypeSearchService
                         deferredResults.Add(
                             ToFindResult(
                                 pattern,
-                                MatchKind.Partial,
+                                TypeFindMatchKind.Partial,
                                 similarities[candidate.FullName],
                                 candidate));
                     }
@@ -373,7 +373,7 @@ internal static class TypeSearchService
                     new TypeFindResult
                     {
                         Pattern = pattern,
-                        Match = MatchKind.NotFound,
+                        Match = TypeFindMatchKind.NotFound,
                     });
             }
         }
@@ -567,7 +567,7 @@ internal static class TypeSearchService
     private static void AddClassifiedResults(
             List<TypeFindResult> results,
             string pattern,
-            MatchKind match,
+            TypeFindMatchKind match,
             IEnumerable<TypeSearchResult> candidates)
     {
         foreach (TypeSearchResult candidate in candidates)
@@ -583,7 +583,7 @@ internal static class TypeSearchService
 
     private static TypeFindResult ToFindResult(
             string pattern,
-            MatchKind match,
+            TypeFindMatchKind match,
             double? similarity,
             TypeSearchResult candidate) =>
             new()
@@ -653,13 +653,13 @@ internal static class TypeSearchService
         [
             .. results
                 .Where(static result =>
-                    result.Match == MatchKind.NotFound)
+                    result.Match == TypeFindMatchKind.NotFound)
                 .Select(static result => result.Pattern),
         ];
         return new(
             [
                 .. results.Where(static result =>
-                    result.Match != MatchKind.NotFound),
+                    result.Match != TypeFindMatchKind.NotFound),
             ],
             hasFailures,
             unmatchedPatterns)
@@ -840,7 +840,9 @@ internal static class TypeSearchService
                 results.Add(new TypeFindResult
                 {
                     Pattern = pattern,
-                    Match = isGlob ? MatchKind.Glob : MatchKind.Exact,
+                    Match = isGlob
+                        ? TypeFindMatchKind.Glob
+                        : TypeFindMatchKind.Direct,
                     Similarity = 1.0,
                     Type = t.TypeName,
                     Namespace = t.Namespace ?? "",
@@ -863,7 +865,7 @@ internal static class TypeSearchService
                 results.Add(new TypeFindResult
                 {
                     Pattern = pattern,
-                    Match = MatchKind.Partial,
+                    Match = TypeFindMatchKind.Partial,
                     Similarity = similarity,
                     Type = t.TypeName,
                     Namespace = t.Namespace ?? "",
@@ -882,7 +884,7 @@ internal static class TypeSearchService
             results.Add(new TypeFindResult
             {
                 Pattern = pattern,
-                Match = MatchKind.NotFound,
+                Match = TypeFindMatchKind.NotFound,
                 Similarity = null
             });
         }
