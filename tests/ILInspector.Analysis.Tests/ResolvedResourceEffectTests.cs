@@ -1012,6 +1012,9 @@ public sealed partial class DirectCallDefinitionResolutionTests
     [Theory]
     [InlineData("unsupported")]
     [InlineData("incomplete")]
+    [InlineData("malformed-interface-only")]
+    [InlineData("malformed-interface")]
+    [InlineData("malformed-method")]
     public void InterfaceFailuresRemainVisibleWithoutInterfaceCall(
         string failure)
     {
@@ -1024,6 +1027,15 @@ public sealed partial class DirectCallDefinitionResolutionTests
             "incomplete" => CreateInterfaceParticipant(
                 unresolvedInterfaceImpl: true,
                 includeInterfaceCall: false),
+            "malformed-interface-only" => CreateInterfaceParticipant(
+                includeInterfaceCall: false,
+                invalidOnlyInterfaceImpl: true),
+            "malformed-interface" => CreateInterfaceParticipant(
+                includeInterfaceCall: false,
+                malformedInterfaceImpl: true),
+            "malformed-method" => CreateInterfaceParticipant(
+                includeInterfaceCall: false,
+                malformedMethodImpl: true),
             _ => throw new InvalidOperationException(
                 $"Unknown failure '{failure}'."),
         };
@@ -1047,7 +1059,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
 
         ResourceEffectResolutionGapKind expected = failure switch
         {
-            "unsupported" =>
+            "unsupported"
+                or "malformed-interface-only"
+                or "malformed-interface"
+                or "malformed-method" =>
                 ResourceEffectResolutionGapKind
                     .InterfaceApplicationUnsupported,
             _ =>

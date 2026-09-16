@@ -2307,7 +2307,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
         bool includeInterfaceCall = true,
         bool methodGeneric = false,
         bool callerGenericTypeArgument = false,
-        bool addSwappedGenericDecoy = false)
+        bool addSwappedGenericDecoy = false,
+        bool malformedInterfaceImpl = false,
+        bool malformedMethodImpl = false,
+        bool invalidOnlyInterfaceImpl = false)
     {
         const string AssemblyName = "InterfaceDirectCalls";
         addPublicDecoy |= addSwappedGenericDecoy;
@@ -2417,7 +2420,13 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     2
                     + implementationMethodCount
                     + (addNonImplementer ? 1 : 0)));
-        if (unresolvedInterfaceImpl)
+        if (invalidOnlyInterfaceImpl)
+        {
+            metadata.AddInterfaceImplementation(
+                implementation,
+                MetadataTokens.TypeSpecificationHandle(9999));
+        }
+        else if (unresolvedInterfaceImpl)
         {
             AssemblyReferenceHandle missing =
                 metadata.AddAssemblyReference(
@@ -2469,6 +2478,12 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 implementation,
                 contract);
         }
+        if (malformedInterfaceImpl)
+        {
+            metadata.AddInterfaceImplementation(
+                implementation,
+                MetadataTokens.TypeSpecificationHandle(9999));
+        }
         if (!unrelatedInterface.IsNil)
         {
             metadata.AddInterfaceImplementation(
@@ -2492,7 +2507,9 @@ public sealed partial class DirectCallDefinitionResolutionTests
         byte[] implementationMethodSignature = methodGeneric
             ? genericImplementation
                 ? [0x30, 0x01, 0x02, 0x01, 0x13, 0x00, 0x1E, 0x00]
-                : [0x30, 0x01, 0x01, 0x01, 0x1E, 0x00]
+                : fixedGenericInterface
+                    ? [0x30, 0x01, 0x02, 0x01, 0x08, 0x1E, 0x00]
+                    : [0x30, 0x01, 0x01, 0x01, 0x1E, 0x00]
             : genericImplementation
                 ? [0x20, 0x01, 0x01, 0x13, 0x00]
                 : fixedGenericInterface
@@ -2568,6 +2585,13 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     implementationMethod,
                     interfaceMethod);
             }
+        }
+        if (malformedMethodImpl)
+        {
+            metadata.AddMethodImplementation(
+                implementation,
+                implementationMethod,
+                MetadataTokens.MemberReferenceHandle(9999));
         }
         MethodDefinitionHandle nonImplementerMethod = default;
         if (addNonImplementer)

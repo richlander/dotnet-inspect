@@ -19,24 +19,9 @@ public sealed partial class DirectCallDefinitionResolutionTests
         SyntheticParticipant participant = CreateInterfaceParticipant(
             generic: true, methodGeneric: true, includeInterfaceCall: false,
             callerGenericTypeArgument: true, addSwappedGenericDecoy: decoy);
-        AssemblyReferenceIdentity assembly = participant.Participant.Assembly.Identity;
-        var typeVariable = new ResourceTypeExpression.Variable(
-            new(ResourceEffectGenericVariableKind.Type, 0));
-        var methodVariable = new ResourceTypeExpression.Variable(
-            new(ResourceEffectGenericVariableKind.Method, 0));
-        var target = new ResourceEffectTargetSelector.Member(new ResourceEffectMemberSelector(
-            new ResourceTypeExpression.Named(new ResourceAssemblySelector(
-                assembly.Name, assembly.PublicKeyToken,
-                ResourceAssemblyVersionPolicy.Exact(assembly.Version!)),
-                "N", [new ResourceTypeNameSegment("IContract", 1)], [typeVariable]),
-            "Target", ResourceEffectMemberKind.Method, isStatic: false, genericArity: 1,
-            ResourceEffectCallingConvention.Default, hasThis: true, explicitThis: false,
-            [new(typeVariable, ResourceEffectRefKind.Value), new(methodVariable, ResourceEffectRefKind.Value)],
-            CoreType("Void")));
-        ResourceEffectAdmission admission = AdmitModels(Model(
-            "example.caller-generic-frame", target,
-            new ResourceEffect.Operation(ResourceOperationBoundary.Ordinary,
-                ResourceOperationThrows.Possible, Guard: null)));
+        ResourceEffectAdmission admission = InterfaceIndependentAdmission(
+            participant,
+            "example.caller-generic-frame");
 
         var complete = Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
             ResourceEffectResolver.Resolve(participant.Policy, admission, [participant.Participant],
@@ -48,10 +33,57 @@ public sealed partial class DirectCallDefinitionResolutionTests
         Assert.NotNull(typeBinding.Value.GenericScope);
         Assert.Equal("String", Assert.Single(effect.GenericBindings,
             binding => binding.Variable.Kind == ResourceEffectGenericVariableKind.Method).Value.Type.Name);
+        Assert.Collection(
+            effect.Binding.Locations,
+            location =>
+            {
+                Assert.Equal(
+                    TypeRefKind.MethodGenericParameter,
+                    location.Type.Type.Kind);
+                Assert.Equal(
+                    typeBinding.Value.GenericScope,
+                    location.Type.GenericScope);
+            },
+            location => Assert.Equal("String", location.Type.Type.Name));
         ResourceEffectClosedInterfaceSlot slot = Assert.Single(effect.InterfaceApplications).ClosedSlot;
         Assert.Equal(2, slot.ParameterGenericScopes.Length);
         Assert.Equal(typeBinding.Value.GenericScope, slot.ParameterGenericScopes[0]);
         Assert.Null(slot.ParameterGenericScopes[1]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ClosedAndFixedImplementationsRetainConcreteLocations(
+        bool fixedImplementation)
+    {
+        SyntheticParticipant participant = CreateInterfaceParticipant(
+            generic: !fixedImplementation,
+            fixedGenericInterface: fixedImplementation,
+            includeInterfaceCall: false,
+            methodGeneric: true);
+        ResourceEffectAdmission admission = InterfaceIndependentAdmission(
+            participant,
+            fixedImplementation
+                ? "example.fixed-interface-location"
+                : "example.closed-interface-location",
+            fixedImplementation ? "IFixed" : "IContract");
+
+        var complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    participant.Policy,
+                    admission,
+                    [participant.Participant],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        ResolvedResourceEffect effect =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.Collection(
+            effect.Binding.Locations,
+            location => Assert.Equal("Int32", location.Type.Type.Name),
+            location => Assert.Equal("String", location.Type.Type.Name));
     }
 
     [Fact]
@@ -380,6 +412,49 @@ public sealed partial class DirectCallDefinitionResolutionTests
         Assert.Equal(1, interfaceGap.Limit);
         Assert.True(
             interfaceGap.RequiredWork > interfaceGap.Limit);
+    }
+
+    static ResourceEffectAdmission InterfaceIndependentAdmission(
+        SyntheticParticipant participant,
+        string modelId,
+        string interfaceName = "IContract")
+    {
+        AssemblyReferenceIdentity assembly =
+            participant.Participant.Assembly.Identity;
+        var typeVariable = new ResourceTypeExpression.Variable(
+            new(ResourceEffectGenericVariableKind.Type, 0));
+        var methodVariable = new ResourceTypeExpression.Variable(
+            new(ResourceEffectGenericVariableKind.Method, 0));
+        var target = new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                new ResourceTypeExpression.Named(
+                    new ResourceAssemblySelector(
+                        assembly.Name,
+                        assembly.PublicKeyToken,
+                        ResourceAssemblyVersionPolicy.Exact(
+                            assembly.Version!)),
+                    "N",
+                    [new ResourceTypeNameSegment(interfaceName, 1)],
+                    [typeVariable]),
+                "Target",
+                ResourceEffectMemberKind.Method,
+                isStatic: false,
+                genericArity: 1,
+                ResourceEffectCallingConvention.Default,
+                hasThis: true,
+                explicitThis: false,
+                [
+                    new(typeVariable, ResourceEffectRefKind.Value),
+                    new(methodVariable, ResourceEffectRefKind.Value),
+                ],
+                CoreType("Void")));
+        return AdmitModels(
+            Model(
+                modelId,
+                target,
+                new ResourceEffect.Independent(
+                    new ResourceEffectLocation.Parameter(0),
+                    new ResourceEffectLocation.Parameter(1))));
     }
 
     static ResourceEffectAdmission DualInterfaceApplicationAdmission(

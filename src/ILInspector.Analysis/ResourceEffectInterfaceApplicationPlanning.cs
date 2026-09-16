@@ -410,7 +410,8 @@ internal sealed partial class ResourceEffectInterfaceApplicationPlan
         declaration.Target is ResourceEffectTargetSelector.Member target
         && target.Selector.Kind != ResourceEffectMemberKind.Field
         && _orderedConcreteTypes.Any(concrete =>
-            concrete.Interfaces.Any(path =>
+            concrete.GlobalGap is not null
+            || concrete.Interfaces.Any(path =>
                 CouldTargetInterface(
                     target.Selector.DeclaringType,
                     path.ClosedInterfaceType)));

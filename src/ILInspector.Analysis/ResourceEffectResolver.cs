@@ -495,10 +495,9 @@ public static class ResourceEffectResolver
                                     if (binding is not ResourceEffectSelectorBinding.Resolved selected)
                                         throw new InvalidOperationException("An applied interface selector lost its binding.");
                                     var concrete = applied.ImplementationCall;
-                                    var bindingCall = new DirectCallDefinitionResolution.Resolved(
-                                        concrete.Catalog, concrete.Generation, concrete.Participant,
-                                        concrete.Call, concrete.Definition, concrete.GenericScopes,
-                                        concrete.TypeResolutions.With(selected.DirectCall.TypeResolutions));
+                                    var bindingCall = CreateApplicationBindingCall(
+                                        concrete,
+                                        selected.DirectCall);
                                     var concreteBinding = new ResourceEffectSelectorBinding.Resolved(
                                         declaration, bindingCall,
                                         selected.GenericBindings, selected.ResourceKinds,
@@ -626,6 +625,57 @@ public static class ResourceEffectResolver
             new ResourceEffectResolutionSnapshot(effects),
             completeReceipt,
             resultEvaluations);
+    }
+
+    static DirectCallDefinitionResolution.Resolved
+        CreateApplicationBindingCall(
+            DirectCallDefinitionResolution.Resolved concrete,
+            DirectCallDefinitionResolution.Resolved selector)
+    {
+        MemberRef open = concrete.Definition.Member;
+        MemberRef original = concrete.Call.Callee;
+        ImmutableArray<TypeRef> typeArguments =
+            original.DeclaringType.Kind
+                == TypeRefKind.GenericInstance
+                    ? original.DeclaringType.TypeArguments
+                    : [];
+        ImmutableArray<TypeRef> methodArguments =
+            original.TypeArguments;
+        ImmutableArray<TypeRef> parameters =
+        [
+            .. open.OpenSignatureParameters.Select(
+                (parameter, index) =>
+                {
+                    TypeRef instantiated = parameter.Instantiate(
+                        typeArguments,
+                        methodArguments);
+                    // Keep equivalent occurrence nodes addressable through
+                    // the already-frozen type-resolution snapshot.
+                    return index < original.ParameterTypes.Length
+                        && instantiated.Equals(
+                            original.ParameterTypes[index])
+                            ? original.ParameterTypes[index]
+                            : instantiated;
+                }),
+        ];
+        TypeRef returnType = open.OpenSignatureReturn.Instantiate(
+            typeArguments,
+            methodArguments);
+        if (returnType.Equals(original.ReturnType))
+            returnType = original.ReturnType;
+        MemberRef normalized = original with
+        {
+            ParameterTypes = parameters,
+            ReturnType = returnType,
+        };
+        return new DirectCallDefinitionResolution.Resolved(
+            concrete.Catalog,
+            concrete.Generation,
+            concrete.Participant,
+            concrete.Call with { Callee = normalized },
+            concrete.Definition,
+            concrete.GenericScopes,
+            concrete.TypeResolutions.With(selector.TypeResolutions));
     }
 
     static ResourceEffectResolutionGap SelectorGap(
