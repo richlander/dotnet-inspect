@@ -37,7 +37,10 @@ public sealed class NavigationDetachmentTests
     public void ArtifactBackedStateTicketsAndExactResults_DoNotRetainAcquisitionAuthority()
     {
         ArtifactSpecimen specimen = CreateArtifactSpecimen();
-        Collect();
+        Collect(
+            specimen.Registration,
+            specimen.Artifact,
+            specimen.Error);
 
         Assert.False(specimen.Registration.IsAlive);
         Assert.False(specimen.Artifact.IsAlive);
@@ -217,11 +220,15 @@ public sealed class NavigationDetachmentTests
         return Assert.IsType<ArtifactRootResult<ArtifactSpecimen>.Available>(result).Value;
     }
 
-    static void Collect()
+    static void Collect(params WeakReference[] references)
     {
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
+        for (int attempt = 0;
+            attempt < 10 && references.Any(reference => reference.IsAlive);
+            attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
     }
 
     sealed record ArtifactSpecimen(
