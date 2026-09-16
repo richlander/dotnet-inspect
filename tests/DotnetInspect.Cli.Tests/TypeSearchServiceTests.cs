@@ -529,7 +529,7 @@ public class TypeSearchServiceTests
     }
 
     [Fact]
-    public async Task FindTypesAsync_NullableGenericPatternIsClassifiedAsExact()
+    public async Task FindTypesAsync_NullableGenericPatternIsClassifiedAsDirect()
     {
         const string pattern = "NullablePatternTarget<string?>";
         using var httpClient = new HttpClient();
@@ -556,7 +556,7 @@ public class TypeSearchServiceTests
                 candidate.FullName
                 == typeof(NullablePatternTarget<>).FullName);
         Assert.Equal(pattern, result.Pattern);
-        Assert.Equal(MatchKind.Exact, result.Match);
+        Assert.Equal(TypeFindMatchKind.Direct, result.Match);
     }
 
     static string SinglePatternRequest(
