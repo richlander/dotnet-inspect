@@ -38,7 +38,29 @@ public sealed partial class InspectionWorkspace
         CancellationToken cancellationToken = default) =>
         MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
             requirePublicationBase: false, packages, deadline,
-            WorkspaceScopeOperationKind.Replace, cancellationToken);
+            WorkspaceScopeOperationKind.Replace, realizationOptions: null,
+            cancellationToken);
+
+    internal ValueTask<WorkspaceScopeOperationResult>
+        ReplaceScopeWithRealizationOptionsAsync(
+            WorkspaceScopeRevision expectedRevision,
+            ImmutableArray<PackageRootBinding> packages,
+            PackageAssemblyContextRealizationOptions realizationOptions,
+            DateTimeOffset deadline,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(realizationOptions);
+        realizationOptions.Validate();
+        return MutateScopeAsync(
+            expectedRevision,
+            expectedPublicationBase: null,
+            requirePublicationBase: false,
+            packages,
+            deadline,
+            WorkspaceScopeOperationKind.Replace,
+            realizationOptions,
+            cancellationToken);
+    }
 
     /// <summary>
     /// Commits a fresh empty closed revision and supersedes current preparation
@@ -50,7 +72,8 @@ public sealed partial class InspectionWorkspace
         CancellationToken cancellationToken = default) =>
         MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
             requirePublicationBase: false, [], deadline,
-            WorkspaceScopeOperationKind.Clear, cancellationToken);
+            WorkspaceScopeOperationKind.Clear, realizationOptions: null,
+            cancellationToken);
 
     /// <summary>
     /// Appends one all-or-failure batch of distinct already-acquired Packages,
@@ -64,7 +87,8 @@ public sealed partial class InspectionWorkspace
         CancellationToken cancellationToken = default) =>
         MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
             requirePublicationBase: false, packages, deadline,
-            WorkspaceScopeOperationKind.Add, cancellationToken);
+            WorkspaceScopeOperationKind.Add, realizationOptions: null,
+            cancellationToken);
 
     /// <summary>
     /// Appends one all-or-failure batch against an exact current Scope
@@ -78,7 +102,8 @@ public sealed partial class InspectionWorkspace
         CancellationToken cancellationToken = default) =>
         MutateScopeAsync(expectedRevision, expectedPublicationBase,
             requirePublicationBase: true, packages, deadline,
-            WorkspaceScopeOperationKind.Add, cancellationToken);
+            WorkspaceScopeOperationKind.Add, realizationOptions: null,
+            cancellationToken);
 
     /// <summary>
     /// Removes one exact current occurrence without choosing a successor or
@@ -91,7 +116,8 @@ public sealed partial class InspectionWorkspace
         CancellationToken cancellationToken = default) =>
         MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
             requirePublicationBase: false, [], deadline,
-            WorkspaceScopeOperationKind.Remove, cancellationToken, occurrence);
+            WorkspaceScopeOperationKind.Remove, realizationOptions: null,
+            cancellationToken, occurrence);
 
     /// <summary>
     /// Requests cancellation of the exact preparing operation and awaits its
@@ -138,6 +164,7 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<PackageRootBinding> packages,
         DateTimeOffset deadline,
         WorkspaceScopeOperationKind kind,
+        PackageAssemblyContextRealizationOptions? realizationOptions,
         CancellationToken cancellationToken,
         WorkspacePackageOccurrenceIdentity? occurrence = null)
     {
@@ -252,14 +279,19 @@ public sealed partial class InspectionWorkspace
             }
         }
 
-        Task<WorkspaceScopeOperationResult> execution = ExecuteScopeMutationAsync(operation, requested);
+        Task<WorkspaceScopeOperationResult> execution =
+            ExecuteScopeMutationAsync(
+                operation,
+                requested,
+                realizationOptions);
         operation.Started.SetResult(execution);
         return await execution.ConfigureAwait(false);
     }
 
     async Task<WorkspaceScopeOperationResult> ExecuteScopeMutationAsync(
         ScopePreparation operation,
-        ImmutableArray<ScopeRequestedPackage> requested)
+        ImmutableArray<ScopeRequestedPackage> requested,
+        PackageAssemblyContextRealizationOptions? realizationOptions)
     {
         ArtifactRootPreparationReceipt? receipt = null;
         WorkspaceScopeOperationResult? result = null;
@@ -271,7 +303,9 @@ public sealed partial class InspectionWorkspace
             if (!unmatched.IsEmpty)
             {
                 var prepared = await PreparePackageArtifactRootsAsync(
-                    operation.Authority, unmatched).ConfigureAwait(false);
+                    operation.Authority,
+                    unmatched,
+                    realizationOptions).ConfigureAwait(false);
                 if (prepared is ArtifactRootResult<ArtifactRootPreparationReceipt>.Rejected failed)
                     physicalFailure = failed.Failure;
                 else
