@@ -205,6 +205,13 @@ Type and member discovery use separate match-kind types because this document
 does not own member classification. The member route retains its existing
 `Exact` and `Glob` vocabulary.
 
+`Direct` is local to Type discovery grammar classification. It does not rename
+separately owned uses of exactness for terminal selection or relational
+equality, or `Matched`/`NoMatch` outcomes that report whether an explicit
+predicate was satisfied. In particular, Package Query exact-ID input selects
+one package identity, while assembly-semantic Find classifies candidate
+evaluation rather than coordinate-grammar quality.
+
 The real platform `System.Action` family demonstrates the boundary:
 
 | Request | Discovery or selection result |
