@@ -12,7 +12,6 @@ public enum SlotMaterializationVeto
     OutsideCoercionDomain = 1 << 6,
     UnrenderableStoreType = 1 << 7,
     MultiStoreSingleLoadFold = 1 << 8,
-    CrossBlockStoreFold = 1 << 9,
     BooleanSinkIdentityRecovery = 1 << 10,
     ElementStoreIdentityRecovery = 1 << 11,
     IncompleteCopyComponent = 1 << 12,
@@ -172,9 +171,6 @@ public sealed class SlotMaterializationPass : IIrPass
 
             if (candidate.Stores.Count > 1 && candidate.Loads.Count == 1)
                 candidate.Vetoes |= SlotMaterializationVeto.MultiStoreSingleLoadFold;
-            if (candidate.Stores.Count > 1
-                && candidate.Stores.Select(static store => store.Parent).Distinct().Count() > 1)
-                candidate.Vetoes |= SlotMaterializationVeto.CrossBlockStoreFold;
 
             if (candidate.Type is not { } slotType)
                 continue;

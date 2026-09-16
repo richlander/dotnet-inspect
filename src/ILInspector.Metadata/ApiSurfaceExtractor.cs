@@ -1200,20 +1200,10 @@ public static class ApiSurfaceExtractor
                 var member = new ApiMember
                 {
                     Name = methodName,
-                    Kind = methodName switch
-                    {
-                        ".ctor" => "constructor",
-                        _ when isOperator => "operator",
-                        // A finalizer compiles to a `Finalize` method carrying an
-                        // explicit `.override System.Object::Finalize` MethodImpl,
-                        // so it also lands in `explicitImplementationBodies`. Classify
-                        // it as its own kind before the explicit-interface arm so it
-                        // is not filed under Explicit Interface Implementations; the
-                        // MethodImpl still (correctly) suppresses its accessibility.
-                        _ when isFinalizer => "finalizer",
-                        _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
-                        _ => "method"
-                    },
+                    Kind = ClassifyMethodKind(
+                        methodName,
+                        isFinalizer,
+                        isExplicitInterfaceImplementation),
                     MethodSemantics = accessorAssociationsAvailable
                         ? accessorMethods.GetValueOrDefault(
                             methodHandle,
@@ -2603,12 +2593,16 @@ public static class ApiSurfaceExtractor
                 | ApiMethodSemanticsKind.EventAdder
                 | ApiMethodSemanticsKind.EventRemover)) != 0;
 
-    private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
-        MetadataReader reader, TypeDefinition typeDef)
+    internal static HashSet<MethodDefinitionHandle>
+        GetExplicitImplementationBodies(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            Action<int>? beforeDecodeWork = null)
     {
         HashSet<MethodDefinitionHandle> handles = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
+            beforeDecodeWork?.Invoke(16);
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition)
                 handles.Add((MethodDefinitionHandle)implementation.MethodBody);
@@ -2658,10 +2652,19 @@ public static class ApiSurfaceExtractor
     /// text. The <c>Finalize</c> name gate keeps the MethodImpl enumeration off the hot path for
     /// every other method.
     /// </summary>
-    internal static bool IsFinalizerMethod(MetadataReader reader, MethodDefinitionHandle methodHandle)
+    internal static bool IsFinalizerMethod(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle,
+        Action<int>? beforeDecodeWork = null)
     {
         var method = reader.GetMethodDefinition(methodHandle);
-        if (!string.Equals(reader.GetString(method.Name), "Finalize", StringComparison.Ordinal))
+        if (!string.Equals(
+                DecodeString(
+                    reader,
+                    method.Name,
+                    beforeDecodeWork),
+                "Finalize",
+                StringComparison.Ordinal))
             return false;
         if (method.GetGenericParameters().Count != 0)
             return false;
@@ -2673,14 +2676,21 @@ public static class ApiSurfaceExtractor
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
                 && (MethodDefinitionHandle)implementation.MethodBody == methodHandle
-                && ReferencesObjectFinalize(reader, implementation.MethodDeclaration))
+                && ReferencesObjectFinalize(
+                    reader,
+                    implementation.MethodDeclaration,
+                    beforeDecodeWork))
             {
                 return true;
             }
         }
 
         // No MethodImpl: fall back to the implicit-slot shape the VB.NET compiler emits.
-        return IsImplicitObjectFinalizeOverride(reader, typeHandle, method);
+        return IsImplicitObjectFinalizeOverride(
+            reader,
+            typeHandle,
+            method,
+            beforeDecodeWork);
     }
 
     // A malformed or adversarial base-type chain can be arbitrarily long or cyclic; the visited-set
@@ -3051,6 +3061,22 @@ public static class ApiSurfaceExtractor
 
         return false;
     }
+
+    internal static string ClassifyMethodKind(
+        string methodName,
+        bool isFinalizer,
+        bool isExplicitInterfaceImplementation)
+        => methodName switch
+        {
+            ".ctor" => "constructor",
+            _ when IsOperatorMethodName(methodName) => "operator",
+            // A finalizer's MethodImpl also makes it look explicit. Preserve
+            // production precedence so its ordinary selector remains stable.
+            _ when isFinalizer => "finalizer",
+            _ when isExplicitInterfaceImplementation =>
+                "explicit-interface-implementation",
+            _ => "method",
+        };
 
     private static bool IsOperatorMethodName(string methodName) =>
         methodName.StartsWith(
@@ -3720,6 +3746,25 @@ public static class ApiSurfaceExtractor
             targetType.DerivedTypes = derivedTypes;
         }
     }
+
+    internal static (string Text, ApiSignature Model, bool IsDegraded)
+        GetMethodSignatureForIdentity(
+            MetadataReader reader,
+            GenericContext typeContext,
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition method,
+            byte typeNullableContext,
+            Action<string>? beforeRetainText = null,
+            Action<int>? beforeDecodeWork = null)
+        => GetMethodSignature(
+            reader,
+            typeContext,
+            methodHandle,
+            method,
+            typeNullableContext,
+            beforeRetainText: beforeRetainText,
+            beforeDecodeWork: beforeDecodeWork,
+            beforeAttributeMaterialize: beforeDecodeWork);
 
     private static (string Text, ApiSignature Model, bool IsDegraded) GetMethodSignature(
         MetadataReader reader,

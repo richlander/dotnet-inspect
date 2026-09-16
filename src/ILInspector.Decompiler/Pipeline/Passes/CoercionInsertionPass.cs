@@ -204,19 +204,20 @@ public static class CoercionSinks
 
     /// <summary>
     /// The semantic target that can recover a typed slot load's identity.
-    /// Property stores join the ordinary testimony sinks here because their
-    /// setter parameter is available even when the load still carries its
-    /// evaluation-stack storage type.
+    /// Property setters and boxing operands expose their semantic type even
+    /// when the load still carries its evaluation-stack storage type.
     /// </summary>
     public static TypeRef? SemanticLoadSinkTargetType(
         LoadStackSlot load,
         TypeRef? returnType,
         IReadOnlyDictionary<TypeRef, TypeShape> shapes)
-        => load.Parent is StoreProperty store
-            && ReferenceEquals(store.Value, load)
-            && store.Accessor.ParameterTypes is { IsDefault: false, Length: > 0 } setter
-                ? setter[^1]
-                : LoadSinkTargetType(load, returnType, shapes);
+        => load.Parent switch
+        {
+            StoreProperty store when ReferenceEquals(store.Value, load)
+                && store.Accessor.ParameterTypes is { IsDefault: false, Length: > 0 } setter => setter[^1],
+            Box box when ReferenceEquals(box.Operand, load) => box.Type,
+            _ => LoadSinkTargetType(load, returnType, shapes),
+        };
 
     internal static TypeRef? BooleanSlotLoadType(
         LoadStackSlot load,
