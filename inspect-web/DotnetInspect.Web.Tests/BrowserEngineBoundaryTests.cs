@@ -2220,10 +2220,10 @@ public sealed partial class BrowserEngineBoundaryTests
             AssemblyMemberSourceRequest.From(type, member),
             new AssemblyMemberSource.Decompiled(
                 "void M() {}",
-                new MemberRenderResult(
-                    MemberBodyProductionStatus.Complete,
-                    "void M() {}",
-                    []),
+                new CSharpDecompilationAttempt(
+                    CSharpDecompilationStatus.Available,
+                    DecompilerResult.Success("void M() {}"),
+                    [], [], false, DecompilerSymbolSource.None, 0),
                 memberAttempt));
 
         BrowserSource memberSource =
@@ -2244,10 +2244,10 @@ public sealed partial class BrowserEngineBoundaryTests
             AssemblyTypeSourceRequest.From(type),
             new AssemblyTypeSource.Decompiled(
                 "class C {}",
-                new DecompilerResult(
-                    "class C {}",
-                    DecompilationFidelity.Full,
-                    []),
+                new CSharpDecompilationAttempt(
+                    CSharpDecompilationStatus.Available,
+                    DecompilerResult.Success("class C {}"),
+                    [], [], false, DecompilerSymbolSource.None, 0),
                 typeAttempt));
 
         BrowserSource typeSource =
@@ -2315,10 +2315,12 @@ public sealed partial class BrowserEngineBoundaryTests
             new AssemblySourceFailure(
                 AssemblySourceFailureKind.PdbAndDecompiledUnavailable,
                 "Neither source form is available."),
-            DecompiledAttempt: new MemberRenderResult(
-                MemberBodyProductionStatus.Failed,
-                DecompilerDetail,
-                []));
+            DecompiledAttempt: new CSharpDecompilationAttempt(
+                CSharpDecompilationStatus.Failed,
+                DecompilerResult.Failure(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    "module memory-safety rules are Unsupported"),
+                [], [], false, DecompilerSymbolSource.None, 0));
 
         var memberError = Assert.Throws<InvalidOperationException>(
             () => DotnetInspect.Web.Interop.Source.SourceExports.Adapt(
@@ -2338,7 +2340,10 @@ public sealed partial class BrowserEngineBoundaryTests
             new AssemblySourceFailure(
                 AssemblySourceFailureKind.PdbAndDecompiledUnavailable,
                 "Neither source form is available."),
-            DecompiledAttempt: decompiledAttempt);
+            DecompiledAttempt: new CSharpDecompilationAttempt(
+                CSharpDecompilationStatus.Failed,
+                decompiledAttempt,
+                [], [], false, DecompilerSymbolSource.None, 0));
 
         var error = Assert.ThrowsAny<InvalidOperationException>(
             () => DotnetInspect.Web.Interop.Source.SourceExports.Adapt(

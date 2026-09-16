@@ -37,7 +37,10 @@ public sealed class NavigationDetachmentTests
     public void ArtifactBackedStateTicketsAndExactResults_DoNotRetainAcquisitionAuthority()
     {
         ArtifactSpecimen specimen = CreateArtifactSpecimen();
-        Collect();
+        Collect(
+            specimen.Registration,
+            specimen.Artifact,
+            specimen.Error);
 
         Assert.False(specimen.Registration.IsAlive);
         Assert.False(specimen.Artifact.IsAlive);
@@ -54,6 +57,13 @@ public sealed class NavigationDetachmentTests
         Assert.Equal(StructuralSubjectKind.Member, specimen.Completions[2].State.Snapshot.ActiveSubject.Kind);
         Assert.NotNull(specimen.Completions[1].Result!.LensResolution!.DescendantRequest);
         Assert.NotNull(specimen.Completions[2].Result!.LensResolution!.DescendantRequest);
+
+        Assert.Equal(
+            NavigationOutcomeKind.Failed,
+            specimen.RetainedTypeFailure.Outcome.Kind);
+        Assert.IsType<NavigationInventoryEvidence.DetachedParticipantFailed>(
+            Assert.Single(
+                specimen.RetainedTypeFailure.IncompleteInventory!.Evidence));
 
         var evidence = Assert.IsType<NavigationInventoryEvidence.DetachedParticipantFailed>(
             Assert.Single(specimen.Failed.State.InstalledSnapshot.Inventory!.Types.Evidence));
@@ -167,11 +177,36 @@ public sealed class NavigationDetachmentTests
                             new AssemblyContextSubject(libraries[0].Library.Participant.Assembly), error),
                     ]), [], Truncation: null);
                 var failedPackage = new NavigationPackageEvaluation(occurrence, binding, libraries, failure);
-                NavigationOperationInitialization failed = NavigationTransitions.Initialize(
-                    workspace.Identity, new(scope, failedPackage, (_, _) => availability), registry);
+                var failedFacts = new NavigationEvaluationFacts(
+                    scope,
+                    failedPackage,
+                    (_, _) => availability);
+                NavigationOperationInitialization failed =
+                    NavigationTransitions.Initialize(
+                        workspace.Identity,
+                        failedFacts,
+                        registry);
+                StructuralSubjectIdentity.TypeSubject retainedType =
+                    Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
+                        typeResult.State.InstalledSnapshot.ActiveSubject);
+                NavigationTransition publication =
+                    NavigationTransitions.PublishRetainedTypeAction(
+                        memberResult.State,
+                        memberResult.State.Publication,
+                        retainedType);
+                NavigationTransition retainedTypeBegin =
+                    NavigationTransitions.Begin(
+                        publication.State,
+                        publication.ActionPublication!.Action!);
+                NavigationEvaluationResult retainedTypeFailure =
+                    NavigationTransitions.Evaluate(
+                        retainedTypeBegin.Work!,
+                        new NavigationPreparation.Ready(failedFacts),
+                        registry);
                 return ValueTask.FromResult(new ArtifactSpecimen(
                     initialized, [libraryBegin, typeBegin, memberBegin],
-                    evaluations.ToImmutable(), [libraryResult, typeResult, memberResult], failed,
+                    evaluations.ToImmutable(), [libraryResult, typeResult, memberResult],
+                    retainedTypeFailure, failed,
                     new(registration), new(registration.ArtifactRegistration.Artifact), new(error)));
 
                 NavigationTransition Complete(NavigationTransition begun)
@@ -185,11 +220,15 @@ public sealed class NavigationDetachmentTests
         return Assert.IsType<ArtifactRootResult<ArtifactSpecimen>.Available>(result).Value;
     }
 
-    static void Collect()
+    static void Collect(params WeakReference[] references)
     {
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
+        for (int attempt = 0;
+            attempt < 10 && references.Any(reference => reference.IsAlive);
+            attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
     }
 
     sealed record ArtifactSpecimen(
@@ -197,6 +236,7 @@ public sealed class NavigationDetachmentTests
         ImmutableArray<NavigationTransition> Beginnings,
         ImmutableArray<NavigationEvaluationResult> Evaluations,
         ImmutableArray<NavigationTransition> Completions,
+        NavigationEvaluationResult RetainedTypeFailure,
         NavigationOperationInitialization Failed,
         WeakReference Registration,
         WeakReference Artifact,
