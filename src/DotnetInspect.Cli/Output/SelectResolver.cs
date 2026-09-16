@@ -137,36 +137,39 @@ public static class SelectResolver
             return (sections, null);
         }
 
-        bool hasNonExactSectionSelector =
+        bool hasDirectSectionSelector =
             select?.Any(selector =>
             {
                 if (selector.StartsWith('@'))
                     return false;
-                var (matches, _) = ResolveSingle(selector, knownSections);
-                return matches.Count == 1
+                var (matches, _, isExact) =
+                    ResolveSingleWithProvenance(selector, knownSections);
+                return isExact
+                       && matches.Count == 1
                        && matches[0].Equals(
                            exactOnlySection,
                            StringComparison.OrdinalIgnoreCase);
             }) == true;
-        if (hasNonExactSectionSelector)
+        if (hasDirectSectionSelector)
         {
             return (
                 sections,
                 $"section '{exactOnlySection}' requires an exact -S selector.");
         }
 
-        bool hasBroadSectionSelector =
+        bool hasWildcardSectionSelector =
             select?.Any(selector =>
             {
                 if (selector.StartsWith('@'))
                     return false;
-                var (matches, _) = ResolveSingle(selector, knownSections);
-                return matches.Count > 1
+                var (matches, _, isExact) =
+                    ResolveSingleWithProvenance(selector, knownSections);
+                return !isExact
                        && matches.Contains(
                            exactOnlySection,
                            StringComparer.OrdinalIgnoreCase);
             }) == true;
-        if (!IsAllSelector(select) && !hasBroadSectionSelector)
+        if (!IsAllSelector(select) && !hasWildcardSectionSelector)
         {
             return (
                 sections,

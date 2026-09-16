@@ -1125,6 +1125,30 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("Clone*", "Clone Candidates")]
+    [InlineData("Implementation*", "Implementation Profiles")]
+    public async Task Member_SingleMatchGlob_DoesNotSelectExactOnlySection(
+        string selector,
+        string exactOnlySection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.String",
+            "Contains",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            $"{selector},{SectionCategoryNames.Member}",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Methods", output);
+        Assert.DoesNotContain($"## {exactOnlySection}", output);
+    }
+
+    [Theory]
     [InlineData("@Calls")]
     [InlineData("@Source")]
     [InlineData("@Audit")]
@@ -2472,9 +2496,8 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData()]
-    [InlineData("--count")]
     [InlineData("--json")]
-    public async Task Member_FindingCensusGlob_RequiresExactSelector(
+    public async Task Member_FindingCensusGlob_DoesNotSelectExactOnlySection(
         params string[] format)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2487,27 +2510,32 @@ public partial class CommandExecutionTests
             "--tips", "q",
         ]);
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "section 'Finding Census' requires an exact -S selector",
-            error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Finding Census", output);
     }
 
-    [Fact]
-    public async Task Member_AllPlusFindingCensusGlob_RequiresExactSelector()
+    [Theory]
+    [InlineData()]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task Member_CategoryPlusFindingCensusGlob_RetainsCategorySections(
+        params string[] format)
     {
         var (exit, output, error) = await RunAppAsync(
+        [
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", "@All,Finding*", "--json", "--compact", "--tips", "q");
+            "-S", $"{SectionCategoryNames.Member},Finding*",
+            .. format,
+            "--tips", "q",
+        ]);
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "section 'Finding Census' requires an exact -S selector",
-            error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.NotEmpty(output);
+        Assert.DoesNotContain("Finding Census", output);
     }
 
     [Fact]
