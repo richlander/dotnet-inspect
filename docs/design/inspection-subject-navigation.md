@@ -1118,6 +1118,51 @@ evidence. The same rule applies to a completed Registry or policy `Failed`
 outcome. A non-success result shares the unchanged-snapshot outcome class only
 when the complete snapshot is unchanged.
 
+#### Exact Type selection in another retained Package
+
+Issue [#7243](https://github.com/richlander/dotnet-inspect/issues/7243)
+adds one direct-selection action for
+[Inspect Web Type Find](inspect-web-type-find.md), whose end-to-end adoption is
+tracked by [#6851](https://github.com/richlander/dotnet-inspect/issues/6851).
+The action allows a person to choose an exact discovered Type in any ready
+Package occurrence already retained by the same Workspace. It does not add,
+replace, or correspond Package membership.
+
+The managed consumer supplies one complete
+`StructuralSubjectIdentity.TypeSubject`. Its ancestry binds the exact
+Workspace, Package occurrence, acquired Library registration, and structured
+Metadata Type name. Navigation publishes an opaque action only while that
+occurrence is ready in the current complete Scope snapshot. Action publication
+is a state transition bound to the current Navigation publication; a stale
+publication, foreign Workspace, absent occurrence, or non-ready occurrence
+returns a typed non-success and publishes no action.
+
+Submitting the action validates its session, generation, source subject,
+Workspace, occurrence, and exact target before gathering destination facts.
+Navigation then evaluates the requested occurrence directly and requires the
+exact Library and Type to occur once in its trustworthy inventory. Display
+text, Package coordinate equality, assembly simple name, and locator result
+ordinals are not action identity or fallback inputs.
+
+| Destination result | Navigation result and state |
+| --- | --- |
+| Exact Library and exactly one Type are available | Install one complete snapshot with that occurrence and Type active; run recommendation only for that Type |
+| Occurrence or Type is absent with complete evidence | `Unavailable`; retain the installed snapshot |
+| Exact Type identity occurs more than once | `Ambiguous`; retain the installed snapshot |
+| Library ancestry does not match the destination occurrence | `Rejected`; retain the installed snapshot |
+| Inventory cannot establish absence | `Failed` with its evidence; retain the installed snapshot |
+| Action is stale, foreign, duplicated, or source-mismatched | `Rejected` before destination preparation; retain the installed snapshot |
+| Superseded by a newer explicit intent | `Superseded`; publish no visible effect |
+
+This is direct user selection, not retained-coordinate variation. Navigation
+does not inspect the prior subject for correspondence and does not publish a
+Package or recommended default-Type snapshot before the selected Type. One
+semantically changed successful completion advances the semantic revision once
+and uses the existing complete-snapshot installation and acknowledgement
+protocol. Selecting the already-active exact Type is an applied semantic no-op:
+it returns fresh effect authority without advancing the semantic revision,
+under the ordinary unchanged-snapshot rule.
+
 #### Atomic descendant subject and lens activation
 
 Issue [#6490](https://github.com/richlander/dotnet-inspect/issues/6490)
@@ -1940,6 +1985,31 @@ acknowledgement; this action introduces no second operation or partial
 publication protocol. The exact pair and descendant relationship remain
 **unverified** until these named Release gates land.
 
+The retained-Type publication gate
+`RetainedTypeAction_PublicationRequiresCurrentReadyExactOccurrence` varies the
+Navigation publication, Workspace, occurrence, and realization status before
+asserting that only the exact current basis publishes an action.
+`RetainedTypeAction_SelectsExactTypeAcrossOccurrencesWithoutIntermediateState`
+starts from one Type in occurrence A, publishes actions for exact Types in A
+and B, selects B, and requires one completion whose occurrence, Library, Type,
+and single revision advance are B's exact values.
+`RetainedTypeAction_SeparatesEqualCoordinateOccurrences` keeps
+equal-coordinate occurrences distinct.
+`RetainedTypeAction_MapsUnavailableRejectedAmbiguousAndFailed` covers a
+mismatched Library, missing Type, duplicate Type identity, and incomplete
+inventory, while existing action-authority gates cover stale generation and
+supersession.
+`RetainedTypeAction_DestinationRealizationChangeIsTyped` covers a destination
+that becomes Pending or Failed after publication, and
+`RetainedTypeAction_AlreadyActiveTypeIsSemanticNoOp` fixes the unchanged-snapshot
+revision behavior. The tests independently retain their input identities and
+require the prior complete snapshot for every non-applied result.
+`RetainedTypeAction_ActivatesRealSystemTextJsonObservation` exercises the same
+transition over Metadata projected from the real `System.Text.Json` assembly.
+These gates also use a throwing correspondence sentinel when that seam becomes
+injectable; until then, the direct evaluation path and exact outcome assertions
+gate the no-correspondence claim.
+
 The five ancestor-fallback and coordinate-inspector gates added for #7061 are
 also **unverified**. The missing-Type gate supplies another trustworthy Type
 in the same Library and requires Library fallback, for both ordinary refresh
@@ -1990,6 +2060,9 @@ must preserve the same typed outcomes and fresh destination content.
 | Workspace selected without an active occurrence, with zero, one, or many retained entries | Exact Workspace subject with no invented coordinate or lower context |
 | Package coordinate selected | Exact Workspace-bound Package ancestry; no tab or display identity participates |
 | Package subject activated | Exact Package with Package Overview recommendation after #5509 |
+| Exact Type selected in another ready retained occurrence | One complete result activates that occurrence, defining Library, and Type; no Package/default-Type intermediate snapshot |
+| Equal-coordinate retained occurrences contain the same Type name | Each published action retains its exact occurrence and selecting either activates only that observation |
+| Directly selected Type is missing, duplicated, mismatched to its Library, or lacks complete inventory | Typed non-success with the prior complete snapshot; no correspondence or name fallback |
 | Active coordinate is absent without a supplied replacement | Workspace with no active occurrence |
 | Active coordinate is absent with an exact supplied replacement | Occurrence-first correspondence and level-local fallback only inside that occurrence |
 | Current retained coordinate is Pending during non-invalidating re-realization | Exact logical occurrence, installed Package subject, descendant subject context, and typed owner evidence remain without fallback or truncation; no current artifact realization reference or Navigation activation action is exposed |

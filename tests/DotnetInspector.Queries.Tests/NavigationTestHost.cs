@@ -47,6 +47,22 @@ internal sealed class NavigationTestHost
         return FinishExplicitAsync(transition, cancellationToken);
     }
 
+    internal NavigationActionPublicationResult
+        PublishRetainedTypeAction(
+            StructuralSubjectIdentity.TypeSubject subject,
+            NavigationPublication? publication = null)
+    {
+        lock (_gate)
+        {
+            NavigationTransition transition = Commit(
+                NavigationTransitions.PublishRetainedTypeAction(
+                    _state,
+                    publication ?? _state.Publication,
+                    subject));
+            return transition.ActionPublication!;
+        }
+    }
+
     internal async ValueTask<NavigationConsumerResult> ActivateLensAsync(
         NavigationLensIdentity lens, CancellationToken cancellationToken) =>
         (await ActivateLensOperationAsync(lens, cancellationToken)).Consumer;

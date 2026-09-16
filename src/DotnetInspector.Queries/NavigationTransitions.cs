@@ -421,6 +421,98 @@ public static class NavigationTransitions
             new(action, next.Installed.ActiveSubject, request.Subject, request, Advertised: false));
     }
 
+    /// <summary>
+    /// Publishes one opaque action for an exact Type in any ready Package
+    /// occurrence already retained by this Navigation session.
+    /// </summary>
+    public static NavigationTransition PublishRetainedTypeAction(
+        NavigationState state,
+        NavigationPublication publication,
+        StructuralSubjectIdentity.TypeSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(publication);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        NavigationActionPublicationResult NonSuccess(
+            NavigationActionPublicationKind kind,
+            string message,
+            NavigationRejectionKind? rejection = null) =>
+            new(kind, Rejection: rejection, Message: message);
+
+        if (state.Publication != publication
+            || state.Data.Explicit is not null)
+        {
+            return new(
+                state,
+                state.Data,
+                actionPublication: NonSuccess(
+                    NavigationActionPublicationKind.Stale,
+                    "The Navigation publication is no longer current."));
+        }
+        if (subject.Workspace.Identity != state.Workspace)
+        {
+            return new(
+                state,
+                state.Data,
+                actionPublication: NonSuccess(
+                    NavigationActionPublicationKind.Rejected,
+                    "The Type belongs to another Workspace.",
+                    NavigationRejectionKind.ForeignWorkspace));
+        }
+
+        NavigationPackageDescriptor? package =
+            state.InstalledSnapshot.Packages.FirstOrDefault(
+                candidate =>
+                    ReferenceEquals(
+                        candidate.Occurrence,
+                        subject.Library.Package.Occurrence));
+        if (package is null)
+        {
+            return new(
+                state,
+                state.Data,
+                actionPublication: NonSuccess(
+                    NavigationActionPublicationKind.Unavailable,
+                    "The exact Package occurrence is no longer retained."));
+        }
+        if (package.State != NavigationDescriptorState.Available)
+        {
+            return new(
+                state,
+                state.Data,
+                actionPublication: NonSuccess(
+                    NavigationActionPublicationKind.Unavailable,
+                    "The exact Package occurrence is not ready."));
+        }
+
+        var projection =
+            new NavigationConsumerProjection(state.Data.Projection);
+        var action = new NavigationAction(
+            state.Id,
+            state.Snapshot.Generation,
+            projection.Token(),
+            state.Snapshot.ActiveSubject.Id,
+            NavigationOperationKind.RetainedType);
+        var target = new NavigationActionTarget(
+            action,
+            state.InstalledSnapshot.ActiveSubject,
+            subject,
+            Lens: null,
+            Advertised: false);
+        NavigationStateData next = state.Data with
+        {
+            Projection = projection.Freeze(),
+            Actions = state.Data.Actions.Add(action.Id, target),
+        };
+        return new(
+            state,
+            next,
+            actionPublication: new(
+                NavigationActionPublicationKind.Published,
+                action));
+    }
+
     static NavigationStateData BeginExplicit(NavigationStateData state) =>
         state with
         {
@@ -437,9 +529,17 @@ public static class NavigationTransitions
         NavigationConsumerRequest request = projection.Request(next.Installed, target.Subject, target.Lens);
         string attempt = projection.Token();
         next = next with { Projection = projection.Freeze() };
-        WorkspacePackageOccurrence? occurrence = target.Action.Kind == NavigationOperationKind.Package
-            ? ((StructuralSubjectIdentity.PackageSubject)target.Subject).Occurrence
-            : next.Installed.ActiveOccurrence;
+        WorkspacePackageOccurrence? occurrence =
+            target.Action.Kind switch
+            {
+                NavigationOperationKind.Package =>
+                    ((StructuralSubjectIdentity.PackageSubject)target.Subject)
+                        .Occurrence,
+                NavigationOperationKind.RetainedType =>
+                    ((StructuralSubjectIdentity.TypeSubject)target.Subject)
+                        .Library.Package.Occurrence,
+                _ => next.Installed.ActiveOccurrence,
+            };
         var work = new NavigationEvaluationRequest(identity, attempt, next, occurrence, target, request);
         return new(state, next with { Explicit = work }, identity, work);
     }
@@ -658,6 +758,19 @@ public static class NavigationTransitions
             return NavigationRejectionKind.InvalidAction;
         if (target.Subject.Workspace.Identity != state.Workspace)
             return NavigationRejectionKind.ForeignWorkspace;
+        if (action.Kind == NavigationOperationKind.RetainedType
+            && (target.Subject
+                    is not StructuralSubjectIdentity.TypeSubject type
+                || !state.InstalledSnapshot.Packages.Any(
+                    candidate =>
+                        ReferenceEquals(
+                            candidate.Occurrence,
+                            type.Library.Package.Occurrence)
+                        && candidate.State
+                            == NavigationDescriptorState.Available)))
+        {
+            return NavigationRejectionKind.ForeignOccurrence;
+        }
         if (action.Kind == NavigationOperationKind.DescendantLens
             && !NavigationDescendantLensEvaluation.IsEligibleDescendant(state.InstalledSnapshot, target.Source, target.Subject))
             return NavigationRejectionKind.NonDescendant;
