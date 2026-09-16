@@ -274,6 +274,19 @@ public class PdbContext : IDisposable
         return _peReader.GetEntireImage().GetContent();
     }
 
+    /// <summary>
+    /// Copies the currently loaded Portable PDB into independent immutable
+    /// content, or returns null when no Portable PDB is loaded.
+    /// </summary>
+    public unsafe ImmutableArray<byte>? GetPortablePdbImage()
+    {
+        EnsureAlive();
+        return _pdbReader is { } reader
+            ? ImmutableArray.Create(
+                new ReadOnlySpan<byte>(reader.MetadataPointer, reader.MetadataLength))
+            : null;
+    }
+
     // --- PE/Assembly ---
     public bool HasMetadata => MetadataFormatAdmission.AdmitImage(_peReader);
 

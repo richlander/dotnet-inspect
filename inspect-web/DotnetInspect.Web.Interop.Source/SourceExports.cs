@@ -334,12 +334,8 @@ public static partial class SourceExports
                     unavailable.PdbAttempt is { } pdb
                         ? PdbSourceLimitation(pdb.Lines)
                         : null,
-                    unavailable.DecompiledAttempt is
-                        {
-                            Status: MemberBodyProductionStatus.Failed,
-                            Text: { Length: > 0 } detail,
-                        }
-                            ? detail
+                    unavailable.DecompiledAttempt is { IsAvailable: false } attempt
+                            ? attempt.DiagnosticSummary
                             : null),
             _ => throw new InvalidOperationException(
                 "Unknown assembly member source result."),
@@ -361,11 +357,8 @@ public static partial class SourceExports
                     unavailable.PdbAttempt is { } pdb
                         ? PdbSourceLimitation(pdb.Lines)
                         : null,
-                    unavailable.DecompiledAttempt is { Succeeded: false } attempt
-                        ? string.Join(
-                            "; ",
-                            attempt.Diagnostics.Select(
-                                static diagnostic => diagnostic.ToString()))
+                    unavailable.DecompiledAttempt is { IsAvailable: false } attempt
+                        ? attempt.DiagnosticSummary
                         : null).Message, unavailable.Failure.Error),
             _ => throw new InvalidOperationException(
                 "Unknown assembly type source result."),
