@@ -25,6 +25,9 @@ public enum ResourceEffectResolutionGapKind
     OccurrenceIncomplete,
     DeferredEffect,
     DeferredInterfaceApplication,
+    InterfaceApplicationAmbiguous,
+    InterfaceApplicationUnsupported,
+    InterfaceApplicationIncomplete,
     WorkLimitExceeded,
 }
 
@@ -61,6 +64,7 @@ public enum ResourceEffectResolutionRejectionKind
     OccurrencePopulationRejected,
     AdmissionReceiptMismatch,
     OccurrencePopulationReceiptMismatch,
+    InterfaceApplicationGenerationMismatch,
 }
 
 public sealed record ResourceEffectResolutionGap(
@@ -71,6 +75,8 @@ public sealed record ResourceEffectResolutionGap(
     public GraphNodeStorageKey? PhysicalInvocation { get; init; }
     public ResourceEffectSelectorBindingGap? SelectorGap { get; init; }
     public ResourceEffectOccurrenceBindingGap? OccurrenceGap { get; init; }
+    public ResourceEffectInterfaceApplicationGap? InterfaceApplicationGap
+        { get; init; }
     public ResourceEffectDeferredKind? DeferredKind { get; init; }
     public ResourceEffectResolutionWorkDimension? WorkDimension
         { get; init; }
@@ -219,7 +225,9 @@ public sealed class ResourceEffectResolutionRequest
         ResourceEffectAdmission admission,
         ResourceEffectAdmissionReceipt admissionReceipt,
         DirectCallDefinitionResolutionOutcome.Completed directCalls,
-        ResourceEffectOccurrencePopulationReceipt populationReceipt)
+        ResourceEffectOccurrencePopulationReceipt populationReceipt,
+        ResourceEffectInterfaceApplicationIndex? interfaceApplications =
+            null)
     {
         Admission = admission
             ?? throw new ArgumentNullException(nameof(admission));
@@ -229,6 +237,7 @@ public sealed class ResourceEffectResolutionRequest
             ?? throw new ArgumentNullException(nameof(directCalls));
         PopulationReceipt = populationReceipt
             ?? throw new ArgumentNullException(nameof(populationReceipt));
+        InterfaceApplications = interfaceApplications;
     }
 
     public ResourceEffectAdmission Admission { get; }
@@ -236,6 +245,8 @@ public sealed class ResourceEffectResolutionRequest
     public DirectCallDefinitionResolutionOutcome.Completed DirectCalls
         { get; }
     public ResourceEffectOccurrencePopulationReceipt PopulationReceipt
+        { get; }
+    public ResourceEffectInterfaceApplicationIndex? InterfaceApplications
         { get; }
 }
 
@@ -658,7 +669,9 @@ public sealed class ResolvedResourceEffect
         ImmutableArray<ResolvedResourceKindReference> resourceKinds,
         ResolvedResourceEffectBinding binding,
         ImmutableArray<ResolvedResourceEffectSource> sources,
-        string canonicalEffect)
+        string canonicalEffect,
+        ResourceEffectInterfaceApplicationEvidence? interfaceApplication =
+            null)
     {
         AdmissionReceipt = admissionReceipt
             ?? throw new ArgumentNullException(nameof(admissionReceipt));
@@ -697,6 +710,7 @@ public sealed class ResolvedResourceEffect
             binding);
         CanonicalEffect = canonicalEffect
             ?? throw new ArgumentNullException(nameof(canonicalEffect));
+        InterfaceApplication = interfaceApplication;
     }
 
     public ResourceEffectAdmissionReceipt AdmissionReceipt { get; }
@@ -716,6 +730,8 @@ public sealed class ResolvedResourceEffect
     public ImmutableArray<ResolvedResourceEffectSource> Sources => _sources;
     public ImmutableArray<ResourceDeclarationProvenance> Provenances =>
         [.. _sources.SelectMany(source => source.Provenances)];
+    public ResourceEffectInterfaceApplicationEvidence? InterfaceApplication
+        { get; }
     internal string CanonicalEffect { get; }
 
     static ResourceEffectCompletion? EffectCompletion(

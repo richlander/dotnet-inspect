@@ -267,6 +267,18 @@ public abstract class DirectCallDefinitionResolutionOutcome
     }
 }
 
+internal interface IDirectCallDefinitionGenerationExtension
+{
+    IEnumerable<TypeResolutionRequest> Plan(
+        DirectCallDefinitionResolutionOutcome.Completed provisional,
+        CancellationToken cancellationToken);
+
+    void Complete(
+        TypeResolutionContext context,
+        DirectCallDefinitionResolutionOutcome.Completed completed,
+        CancellationToken cancellationToken);
+}
+
 internal sealed record DirectCallGenericScopeOwners(
     GraphNodeStorageKey Type,
     GraphNodeStorageKey Method);
@@ -318,7 +330,41 @@ public static class DirectCallDefinitionResolver
         IEnumerable<CatalogCallGraphParticipant> participants,
         DirectCallDefinitionResolutionLimits? limits = null,
         TypeResolutionContextOptions? options = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ResolveCore(
+            bindingPolicy,
+            participants,
+            limits,
+            options,
+            extension: null,
+            cancellationToken);
+
+    internal static DirectCallDefinitionResolutionOutcome
+        ResolveWithGenerationExtension(
+            IAssemblyBindingPolicy bindingPolicy,
+            IEnumerable<CatalogCallGraphParticipant> participants,
+            IDirectCallDefinitionGenerationExtension extension,
+            DirectCallDefinitionResolutionLimits? limits = null,
+            TypeResolutionContextOptions? options = null,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(extension);
+        return ResolveCore(
+            bindingPolicy,
+            participants,
+            limits,
+            options,
+            extension,
+            cancellationToken);
+    }
+
+    static DirectCallDefinitionResolutionOutcome ResolveCore(
+        IAssemblyBindingPolicy bindingPolicy,
+        IEnumerable<CatalogCallGraphParticipant> participants,
+        DirectCallDefinitionResolutionLimits? limits,
+        TypeResolutionContextOptions? options,
+        IDirectCallDefinitionGenerationExtension? extension,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(bindingPolicy);
         ArgumentNullException.ThrowIfNull(participants);
@@ -717,7 +763,7 @@ public static class DirectCallDefinitionResolver
                 requests.AddRange(candidate.Plan.Requests);
         }
 
-        using TypeResolutionContext context =
+        TypeResolutionContext context =
             catalog.CreateContextWithCancellation(
                 bindingPolicy,
                 population.Select(participant => participant.Assembly),
@@ -725,40 +771,110 @@ public static class DirectCallDefinitionResolver
                 requests.Distinct(
                     TypeResolutionRequestComparer.Instance),
                 cancellationToken);
-        ImmutableArray<DirectCallDefinitionResolution> results =
-            ResolveInvocations(
-                invocationPlans,
-                definitionCandidates,
-                context,
-                limits,
-                signatureNodes,
-                cancellationToken,
-                out WorkLimitObservation? resolutionLimit);
-        if (signatureNodes.IsExceeded)
+        try
         {
-            return CompleteWithWorkLimit(
+            ImmutableArray<DirectCallDefinitionResolution> results =
+                ResolveInvocations(
+                    invocationPlans,
+                    definitionCandidates,
+                    context,
+                    limits,
+                    signatureNodes,
+                    cancellationToken,
+                    out WorkLimitObservation? resolutionLimit);
+            if (signatureNodes.IsExceeded)
+            {
+                return CompleteWithWorkLimit(
+                    context,
+                    population,
+                    invocationPlans,
+                    DirectCallDefinitionWorkDimension.SignatureNodes,
+                    limits.MaxSignatureNodes,
+                    signatureNodes.RequiredWork);
+            }
+            if (resolutionLimit is not null)
+            {
+                return CompleteWithWorkLimit(
+                    context,
+                    population,
+                    invocationPlans,
+                    resolutionLimit.Dimension,
+                    resolutionLimit.Limit,
+                    resolutionLimit.RequiredWork);
+            }
+
+            var completed =
+                new DirectCallDefinitionResolutionOutcome.Completed(
+                    context.Catalog,
+                    context.Generation,
+                    population,
+                    results);
+            if (extension is null)
+                return completed;
+
+            TypeResolutionRequest[] extensionRequests =
+            [
+                .. extension.Plan(completed, cancellationToken)
+                    .Distinct(TypeResolutionRequestComparer.Instance),
+            ];
+            if (extensionRequests.Length > 0)
+            {
+                requests.AddRange(extensionRequests);
+                context.Dispose();
+                context = catalog.CreateContextWithCancellation(
+                    bindingPolicy,
+                    population.Select(
+                        participant => participant.Assembly),
+                    [],
+                    requests.Distinct(
+                        TypeResolutionRequestComparer.Instance),
+                    cancellationToken);
+                results = ResolveInvocations(
+                    invocationPlans,
+                    definitionCandidates,
+                    context,
+                    limits,
+                    signatureNodes,
+                    cancellationToken,
+                    out resolutionLimit);
+                if (signatureNodes.IsExceeded)
+                {
+                    return CompleteWithWorkLimit(
+                        context,
+                        population,
+                        invocationPlans,
+                        DirectCallDefinitionWorkDimension.SignatureNodes,
+                        limits.MaxSignatureNodes,
+                        signatureNodes.RequiredWork);
+                }
+                if (resolutionLimit is not null)
+                {
+                    return CompleteWithWorkLimit(
+                        context,
+                        population,
+                        invocationPlans,
+                        resolutionLimit.Dimension,
+                        resolutionLimit.Limit,
+                        resolutionLimit.RequiredWork);
+                }
+                completed =
+                    new DirectCallDefinitionResolutionOutcome.Completed(
+                        context.Catalog,
+                        context.Generation,
+                        population,
+                        results);
+            }
+
+            extension.Complete(
                 context,
-                population,
-                invocationPlans,
-                DirectCallDefinitionWorkDimension.SignatureNodes,
-                limits.MaxSignatureNodes,
-                signatureNodes.RequiredWork);
+                completed,
+                cancellationToken);
+            return completed;
         }
-        if (resolutionLimit is not null)
+        finally
         {
-            return CompleteWithWorkLimit(
-                context,
-                population,
-                invocationPlans,
-                resolutionLimit.Dimension,
-                resolutionLimit.Limit,
-                resolutionLimit.RequiredWork);
+            context.Dispose();
         }
-        return new DirectCallDefinitionResolutionOutcome.Completed(
-            context.Catalog,
-            context.Generation,
-            population,
-            results);
     }
 
     static DirectCallDefinitionResolutionOutcome.Completed
