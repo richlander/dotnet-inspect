@@ -5,6 +5,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using InertText;
 using NuGetFetch;
@@ -272,24 +273,52 @@ public partial class DependsCommand
                         composition,
                         options.SourceOptions,
                         context.Logger.Log);
-                foreach (PendingPruningDeclaration item in pending)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    PackageDependencyCandidateResult candidate =
-                        await PackageDependencyCandidateQuery.ExecuteAsync(
-                            new PackageDependencyCandidateRequest.Declared(
-                                item.Declaration),
+                var inspectionRequest =
+                    new PackageDependencyPruningInspectionRequest(
+                        pending.Select(
+                            item =>
+                                new PackageDependencyPruningInspectionSubject(
+                                    item.Root,
+                                    item.Declaration)),
+                        target,
+                        inventory);
+                InspectionEnvelope<PackageDependencyPruningInspectionResult>
+                    inspection =
+                        await PackageDependencyPruningInspection.ExecuteAsync(
+                            inspectionRequest,
                             candidateSource,
                             cancellationToken,
                             operationContext).ConfigureAwait(false);
-                    if (candidate
-                        is not PackageDependencyCandidateResult.Resolved
-                            resolved)
+                if (inspection.Content.Outcomes.Length != pending.Count)
+                {
+                    throw new InvalidOperationException(
+                        "Package dependency pruning inspection did not preserve the requested subject count.");
+                }
+
+                for (int index = 0; index < pending.Count; index++)
+                {
+                    PendingPruningDeclaration item = pending[index];
+                    PackageDependencyPruningInspectionOutcome outcome =
+                        inspection.Content.Outcomes[index];
+                    if (!ReferenceEquals(
+                            item.Root,
+                            outcome.Subject.Root)
+                        || !ReferenceEquals(
+                            item.Declaration,
+                            outcome.Subject.Declaration))
+                    {
+                        throw new InvalidOperationException(
+                            "Package dependency pruning inspection did not preserve subject order.");
+                    }
+
+                    if (outcome
+                        is PackageDependencyPruningInspectionOutcome
+                            .CandidateUnavailable candidateUnavailable)
                     {
                         rows.Add(
                             CreateCandidateUnavailableRow(
                                 item,
-                                candidate,
+                                candidateUnavailable,
                                 target,
                                 inventory));
                         failures.Add(
@@ -301,33 +330,25 @@ public partial class DependsCommand
                                     item.Declaration.CanonicalPackageId,
                                     item.Declaration
                                         .CanonicalVersionConstraint,
-                                    candidate)));
+                                    candidateUnavailable.Candidate)));
                         failed++;
                         continue;
                     }
 
-                    PackageHouseDependencyInput input =
-                        PackageHouseDependencyInputAdapter.Create(
-                            item.Root,
-                            resolved,
-                            PackageHouseOperation.Create(
-                                PackageHouseOperationProfile.Settle),
-                            target);
-                    PackageHouseDependencyPruningResult result =
-                        PackageHouseDependencyPruningQuery.Execute(
-                            input,
-                            inventory);
+                    PackageDependencyPruningInspectionOutcome.Evaluated
+                        evaluatedOutcome =
+                            outcome
+                                as PackageDependencyPruningInspectionOutcome
+                                    .Evaluated
+                            ?? throw new InvalidOperationException(
+                                "A pending package dependency pruning subject did not produce a candidate-bound outcome.");
                     rows.Add(
                         CreateEvaluatedRow(
                             item,
-                            resolved,
-                            result));
+                            evaluatedOutcome));
                     evaluated++;
-                    if (result
-                        is PackageHouseDependencyPruningResult.Evaluated
-                        {
-                            Pruning.Supply.DelegatesToPlatform: true,
-                        })
+                    if (evaluatedOutcome.Result.Pruning.Supply
+                        .DelegatesToPlatform)
                     {
                         delegated++;
                     }
@@ -478,7 +499,8 @@ public partial class DependsCommand
 
     private static DependsPruningRow CreateCandidateUnavailableRow(
         PendingPruningDeclaration item,
-        PackageDependencyCandidateResult candidate,
+        PackageDependencyPruningInspectionOutcome.CandidateUnavailable
+            outcome,
         PackageHouseTargetContext target,
         PlatformPruneInventory inventory) =>
         CreateRow(
@@ -495,7 +517,7 @@ public partial class DependsCommand
                 inventory,
                 item.Declaration.CanonicalPackageId),
             DependsPruningDisposition.CandidateUnavailable,
-            candidate switch
+            outcome.Candidate switch
             {
                 PackageDependencyCandidateResult.Failed failed =>
                     failed.Failure.GetType().Name,
@@ -504,7 +526,7 @@ public partial class DependsCommand
                 _ => throw new InvalidOperationException(
                     "A resolved candidate is not unavailable."),
             },
-            candidate,
+            outcome.Candidate,
             Result: null);
 
     private static string? PlatformProvidedVersion(
@@ -516,21 +538,16 @@ public partial class DependsCommand
 
     private static DependsPruningRow CreateEvaluatedRow(
         PendingPruningDeclaration item,
-        PackageDependencyCandidateResult.Resolved candidate,
-        PackageHouseDependencyPruningResult result)
+        PackageDependencyPruningInspectionOutcome.Evaluated outcome)
     {
-        PackageHouseDependencyPruningResult.Evaluated evaluated =
-            result as PackageHouseDependencyPruningResult.Evaluated
-            ?? throw new InvalidOperationException(
-                "A candidate-required pruning input must produce an evaluated result.");
-        PackageHousePruningReceipt pruning = evaluated.Pruning;
+        PackageHousePruningReceipt pruning = outcome.Result.Pruning;
         bool delegates = pruning.Supply.DelegatesToPlatform;
         return CreateRow(
             item.RootOccurrence,
             item.Root,
             item.Declaration,
-            item.Applicability,
-            candidate.Candidate.Coordinate.Version,
+            outcome.Applicability,
+            outcome.Candidate.Candidate.Coordinate.Version,
             pruning.Target.Family.ToString(),
             pruning.Target.TargetFramework.ToString(),
             pruning.Target.Version.Value,
@@ -539,8 +556,8 @@ public partial class DependsCommand
                 ? DependsPruningDisposition.PlatformDelegation
                 : DependsPruningDisposition.PackageRetained,
             pruning.Supply.Subsumption.ToString(),
-            candidate,
-            result);
+            outcome.Candidate,
+            outcome.Result);
     }
 
     private static DependsPruningRow CreateRow(

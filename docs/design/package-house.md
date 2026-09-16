@@ -35,6 +35,13 @@ relationship evidence without copying its authorship or processing semantics.
 `PackageHouseDependencyPruningQuery` preserves explicit non-evaluated states
 or creates one PackageHouse-issued policy receipt, and candidate-bound House
 execution applies that receipt before payload acquisition.
+`PackageDependencyPruningInspection` in `DotnetInspector.Sections` now owns the
+bounded host-neutral operation that resolves authorized declaration candidates,
+applies that pruning query, and returns the ordered outcomes through
+`InspectionEnvelope<PackageDependencyPruningInspectionResult>`. CLI `depends`
+and Inspect Web package pruning both consume that operation while retaining
+their own input scope, source and inventory authorization, completion policy,
+and presentation.
 `DesktopPackageSourceComposition` still owns desktop configuration,
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
