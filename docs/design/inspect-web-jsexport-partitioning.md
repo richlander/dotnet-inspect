@@ -588,7 +588,7 @@ and closed-shape validation remained at or below 1 ms.
 
 All other managed calls use the closed ordinary-operation catalog in
 [`engine-worker-ordinary.ts`](../../inspect-web/src/engine-worker-ordinary.ts).
-Its 49 entries are named at build time across Package (19), Metadata (8),
+Its 47 entries are named at build time across Package (17), Metadata (8),
 Analysis (7), Source (9), Call Graph (2), and Catalog (4). Callers cannot send a
 module, facade, or member name. Arguments and results cross as inert JSON trees
 only, bounded to 16,777,216 characters, 64 nesting levels, and 524,288
