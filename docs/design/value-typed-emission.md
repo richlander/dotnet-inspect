@@ -538,6 +538,31 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    in-domain webs in that residual therefore materialize normally; their
    declaration ordering may change, but no expression moves.
 
+   Multiple store blocks are not themselves a materialization veto for an
+   already-decided, multiply observed web. Every occurrence retains its place
+   in the ordered IR; the same typed local represents the complete web across
+   those blocks. This does not split live ranges, infer a join type, consume a
+   control-flow edge, or expand the coercion domain. The independent
+   storage-rewrite invariant checks that preservation. Multi-store webs with
+   only one load retain their separate fold boundary, and incomplete direct-copy
+   components still remain wholly on slots.
+
+   The motivating witness is Microsoft.CodeAnalysis.CSharp 5.0.0,
+   `SourcePropertyAccessorSymbol.GetAccessorName`: its string-prefix stores
+   and consumers already share one type across the raised branch arms.
+   `CrossBlockSlotMaterializationTests` gates compiler-produced branch,
+   repeated-condition and throwing-path cases, the real Roslyn witness, and
+   complete versus incomplete cross-block copy components. It also preserves
+   loop backedges and rejects conflicting or underivable cross-block testimony.
+   Its slow compile-back gate, owned by Deep Inspect and the focused pre-merge
+   selection, requires Exact for the throwing and repeated-condition fixtures.
+   The two branch-prefix fixtures retain their measured OpcodeDiff: earlier
+   structuring already duplicates the final return across the branch arms.
+   That difference is not introduced or repaired by materialization. The
+   ordinary admission gates are PR-fast; existing nested-scope and
+   single-load-fold gates remain in force.
+   Production adoption is the unchanged shared CLI and Browser/Wasm pipeline.
+
    At materialization, a slot whose stores are all Boolean-valued may recover
    the Boolean identity of an integer-typed load consumed by a Boolean sink
    or condition. Every load still testifies: a numeric use conflicts, and an
