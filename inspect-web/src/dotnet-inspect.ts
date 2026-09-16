@@ -958,6 +958,7 @@ const initialState = {
   platformIndex: null,
   rootKind: "package" as "package" | "platform",
   platformSelection: null,
+  platformPresentedAsRoot: false,
   platformSlot: -1,
   platformCatalogStatus: { loading: false, error: "" },
   platformOpeningStatus: { loading: false, error: "" },
@@ -2187,7 +2188,9 @@ function captureView(): WorkspaceView | null {
     platformRootParent:
       state.rootKind === "platform"
       && !state.atPackageRoot
-      && historyHasPlatformRootParent(history.state),
+      && pendingWorkspaceConstruction === null
+      && hasPlatformRootHistoryView(),
+    platformPresentedAsRoot: platformIsPresentedAsRoot(),
   };
 }
 
@@ -2240,6 +2243,8 @@ function applyView(view: WorkspaceView) {
     withPlatformRootParentHistory(
       history.state,
       view.platformRootParent === true));
+  state.platformPresentedAsRoot =
+    view.platformPresentedAsRoot === true;
   if (view.rootKind !== "platform" && view.platform) {
     const target = state.platformIndex?.target(
       view.platform.tfm,
@@ -3529,6 +3534,7 @@ function clearWorkspacePackages() {
   state.package = null;
   state.workspaceShareBasis = null;
   state.platformSelection = null;
+  state.platformPresentedAsRoot = false;
   state.platformSlot = -1;
   state.rootKind = "package";
   state.integrationMode = "integrations";
@@ -5234,11 +5240,15 @@ function inspectedSubjectPath(
       copyable: false,
     }];
   }
-  const path: SubjectPathSegment[] = [{
-    kind: state.rootKind,
-    label: state.rootKind === "platform" ? platformTargetLabel() : packageDisplayName(pkg),
-    copyable: true,
-  }];
+  const path: SubjectPathSegment[] = platformIsPresentedAsRoot()
+    ? [{
+        kind: state.rootKind,
+        label: state.rootKind === "platform"
+          ? platformTargetLabel()
+          : packageDisplayName(pkg),
+        copyable: true,
+      }]
+    : [];
   if (state.atPackageRoot) return path;
   const library = selectedLibraryName();
   if (library) {
@@ -5307,6 +5317,12 @@ function renderWorkspaceNavPane() {
 
 function hasPlatformRootHistoryView() {
   return historyHasPlatformRootParent(history.state);
+}
+
+function platformIsPresentedAsRoot() {
+  return state.rootKind !== "platform"
+    || state.platformPresentedAsRoot
+    || hasPlatformRootHistoryView();
 }
 
 function navigationSnapshotHasPlatformRootParent(
@@ -5502,6 +5518,11 @@ function renderLibraryView() {
 
 function renderWorkspaceView() {
   if (state.packages.some(item => !item.isRuntimePack)) ensureWorkspaceOccurrenceView();
+  const presentPlatform = platformIsPresentedAsRoot();
+  const frameworkLibrary = !presentPlatform
+    && state.package?.source.kind === "platform"
+    ? selectedLibrary()
+    : null;
   return renderWorkspaceViewPure({
     canAddPackage: state.engineReady && !state.loading && !state.error,
     savedWorkspaces: {
@@ -5511,7 +5532,15 @@ function renderWorkspaceView() {
     },
     occurrences: state.workspaceOccurrences?.occurrences ?? [],
     packages: state.packages,
-    platform: state.platformSelection,
+    platform: presentPlatform ? state.platformSelection : null,
+    frameworkLibraries: frameworkLibrary ? [{
+      name: frameworkLibrary.name,
+      version: state.package?.version ?? "",
+      framework: state.package?.activeFramework ?? "",
+      source: frameworkLibrary.platformPack === "aspnetcore.app"
+        ? "ASP.NET Core"
+        : ".NET",
+    }] : [],
     loading: state.workspaceOccurrenceLoading,
     error: state.workspaceOccurrenceError,
     escapeHtml,
@@ -8173,6 +8202,12 @@ function bindWorkspaceSubjectEvents() {
     onRemove: removeWorkspacePackageRow,
     onAddPackage: openWorkspacePackagePicker,
     onPlatform: showPlatformRoot,
+    onFrameworkLibrary: () => {
+      state.workspaceSubjectOpen = false;
+      state.atPackageRoot = false;
+      state.atLibraryRoot = true;
+      render();
+    },
   });
 }
 
@@ -8604,13 +8639,17 @@ async function ensurePlatformCatalog(tfm: string, version?: string): Promise<Pla
   return target;
 }
 
-function installPlatformTarget(target: PlatformCatalogTarget) {
+function installPlatformTarget(
+  target: PlatformCatalogTarget,
+  presentAsRoot = true,
+) {
   const capacityError = platformCoordinateCapacityError();
   if (capacityError) throw new Error(capacityError);
   const basis = state.workspaceShareBasis;
   const packageModel = retainPlatformPackageForTarget(target);
   const previous = state.platformSelection;
   state.rootKind = "platform";
+  state.platformPresentedAsRoot = presentAsRoot;
   state.platformSelection = {
     tfm: target.tfm, version: target.version,
     includeAllLibraries: previous?.includeAllLibraries ?? false,
@@ -9460,7 +9499,7 @@ async function openPlatformLibrary(
     if (libraries.length !== 1) throw new Error(`The Platform inspection did not return an exact descriptor for ${row.assembly}.`);
     const library = libraries[0]!;
     platformPackages.set(platformTargetKey(target), pkg);
-    if (deferPlatformPresentation) installPlatformTarget(target);
+    if (deferPlatformPresentation) installPlatformTarget(target, false);
     if (!state.packages.includes(pkg)) retainPackageModel(pkg);
     activatePackage(pkg, { resetAccessibility: true });
     state.libraryScope = new Set([library.id]);

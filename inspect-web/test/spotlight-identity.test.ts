@@ -1398,7 +1398,7 @@ test("the shell separates typed target and Subject navigation rows", () => {
     /<section class="detail-pane">\s*<header class="detail-head">/);
   assert.match(
     subjectPath,
-    /kind: state\.rootKind[\s\S]*label: state\.rootKind === "platform" \? platformTargetLabel\(\) : packageDisplayName\(pkg\)[\s\S]*kind: "type"[\s\S]*current\.namespace[\s\S]*kind: "member"[\s\S]*label: member\.name/);
+    /platformIsPresentedAsRoot\(\)[\s\S]*kind: state\.rootKind[\s\S]*label: state\.rootKind === "platform"[\s\S]*platformTargetLabel\(\)[\s\S]*packageDisplayName\(pkg\)[\s\S]*kind: "type"[\s\S]*current\.namespace[\s\S]*kind: "member"[\s\S]*label: member\.name/);
   assert.match(
     renderer,
     /segment\.label[\s\S]*segment\.copyable[\s\S]*data-subject-copy="\$\{index\}"[\s\S]*segment\.kind/);
@@ -4278,7 +4278,7 @@ test("Platform Library entry from demos publishes only after selection and resto
     /const rollbackSnapshot = construction\?\.rollbackSnapshot[\s\S]*if \(rollbackSnapshot\) \{\s*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,[\s\S]*focusWorkbenchSearchOrHeading\);\s*return undefined;/);
   assert.match(
     openLibrary,
-    /if \(deferPlatformPresentation\) installPlatformTarget\(target\);/);
+    /if \(deferPlatformPresentation\) installPlatformTarget\(target, false\);/);
   assert.doesNotMatch(openLibrary, /beginDemoNavigation|cancelDemoNavigation/);
 });
 

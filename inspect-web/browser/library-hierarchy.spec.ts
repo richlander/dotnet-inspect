@@ -2429,6 +2429,13 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+  await expect(page.locator(".inspected-target .subject-path")).toContainText("System.Text.Json");
+  await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
+  await expect(page.locator("[data-workspace-framework-library]")).toContainText("System.Text.Json");
+  await page.locator("[data-workspace-framework-library]").click();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await page.reload();
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
@@ -2846,6 +2853,7 @@ test("a fresh Spotlight Library preserves the predecessor Platform parent", asyn
   await page.locator('[data-sl-framework-lib="System.Facade"]').click();
   await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
 
   await page.goBack();
   await expect(page.locator("#inspector-panel h1")).toHaveText("System.Text.Json");

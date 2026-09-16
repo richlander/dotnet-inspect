@@ -36,6 +36,12 @@ export interface WorkspaceViewRenderOptions {
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
   packages: readonly PackageControlPackage[];
   platform?: PlatformNavigationState | null;
+  frameworkLibraries?: readonly {
+    name: string;
+    version: string;
+    framework: string;
+    source: ".NET" | "ASP.NET Core";
+  }[];
   loading: boolean;
   error: string;
   escapeHtml: (value: unknown) => string;
@@ -51,6 +57,7 @@ export interface WorkspaceSubjectBindingActions {
   onRemove?: (key: string) => void;
   onAddPackage?: () => void;
   onPlatform?: () => void;
+  onFrameworkLibrary?: () => void;
 }
 
 export interface WorkspaceOccurrenceVisibility {
@@ -152,9 +159,18 @@ export function renderWorkspaceView(
       <span>Platform</span><strong>.NET Platform</strong>
       <small>${escapeHtml(platform.version)} · ${escapeHtml(platform.tfm)}</small>
     </button></li>` : "";
+  const frameworkLibraryRows = (options.frameworkLibraries ?? []).map(library =>
+    `<li class="workspace-occurrence-row">
+      <button class="workspace-occurrence" type="button" data-workspace-framework-library aria-label="Inspect ${escapeHtml(library.name)}">
+        <span>${escapeHtml(library.source)} Library</span>
+        <strong>${escapeHtml(library.name)}</strong>
+        <small>${escapeHtml(library.version)} · ${escapeHtml(library.framework)}</small>
+      </button>
+    </li>`).join("");
   const rows = packageRows;
   const packageCount = packages.filter(item => !item.isRuntimePack).length;
-  const coordinateCount = packageCount + (platform ? 1 : 0);
+  const coordinateCount = packageCount + (platform ? 1 : 0)
+    + (options.frameworkLibraries?.length ?? 0);
   const status = loading
     ? `<p class="workspace-empty">Reading Workspace package occurrences…</p>`
     : error
@@ -182,6 +198,7 @@ export function renderWorkspaceView(
       <p>Choose a package to inspect it, or remove it with the adjacent close button.</p>
       ${content}
     </section>
+    ${frameworkLibraryRows ? `<section class="document-section workspace-section"><div class="section-title"><h2>Libraries</h2></div><ul class="workspace-detail-list loaded">${frameworkLibraryRows}</ul></section>` : ""}
     ${platformRows ? `<section class="document-section workspace-section"><div class="section-title"><h2>Platform</h2></div><ul class="workspace-detail-list loaded">${platformRows}</ul></section>` : ""}
   </div>`;
 }
@@ -221,6 +238,8 @@ export function bindWorkspaceSubject(
     ?.addEventListener("click", () => actions.onAddPackage?.());
   root.querySelector<HTMLElement>("[data-workspace-platform]")
     ?.addEventListener("click", () => actions.onPlatform?.());
+  root.querySelector<HTMLElement>("[data-workspace-framework-library]")
+    ?.addEventListener("click", () => actions.onFrameworkLibrary?.());
   root.querySelectorAll<HTMLElement>("[data-workspace-remove]").forEach(button =>
     button.addEventListener("click", () => {
       const key = button.dataset.workspaceRemove;
