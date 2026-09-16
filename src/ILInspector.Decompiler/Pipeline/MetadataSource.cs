@@ -242,7 +242,7 @@ public sealed class MetadataSource : IDisposable
     /// Invalid or inapplicable supplied content throws instead of silently
     /// retrying without symbols.
     /// </summary>
-    public static MetadataSource OpenWithSuppliedPortablePdb(
+    internal static MetadataSource OpenWithSuppliedPortablePdb(
         ResolvedAssemblyReference assembly,
         ImmutableArray<byte> pdbImage,
         IAssemblyBindingPolicy bindingPolicy,
