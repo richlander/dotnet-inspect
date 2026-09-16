@@ -84,6 +84,10 @@ substrates, and inspection producers that will extend that space.
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. Its
+  [Pairwise Library Direct-Use Clustering](design/pairwise-library-direct-use-clusters.md)
+  owns the deterministic connected-component partition of exact directed
+  source-method to target-method pair-use evidence, without assigning semantic
+  feature names or package-removal policy. Its
   proposed [coordinate Library pairing](design/coordinate-library-pairing.md)
   selects one exact destination API Library within an explicitly designated
   Package-occurrence pair, using a complete selected population and a

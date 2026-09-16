@@ -46,9 +46,19 @@ public static class InspectionGraphCommandDefinitions
         opts.AddOutputOptionsTo(command);
         opts.AddSectionOptionsTo(command);
         opts.AddCountOptionTo(command);
+        command.Options.Add(opts.RowWhere);
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
+            if (!LibraryCallUseQueryOptions.TryParse(
+                    parseResult.GetValue(opts.RowWhere) ?? [],
+                    out LibraryCallUseQueryOptions query,
+                    out OptionError error))
+            {
+                CommandError.Write(error);
+                return 1;
+            }
+
             string[] libraries =
                 parseResult.GetValue(libraryOption) ?? [];
 
@@ -56,6 +66,7 @@ public static class InspectionGraphCommandDefinitions
                 new LibraryCallUseOptions
                 {
                     Libraries = libraries,
+                    Cluster = query.Cluster,
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     Rows = opts.ParseRows(parseResult),
