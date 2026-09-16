@@ -13,19 +13,33 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Inspector.Artifacts.Workspaces\Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Platforms.Packages\DotnetInspector.Platforms.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PortableQueries\DotnetInspector.PortableQueries.csproj" />
+    <ProjectReference Include="..\DotnetInspector.SourceSelection\DotnetInspector.SourceSelection.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
-    <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
+    <ProjectReference Include="..\DotnetInspector.RowSelection\DotnetInspector.RowSelection.csproj" />
+    <ProjectReference Include="..\Inspector.Findings\Inspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
+    <ProjectReference Include="..\UntrustedDocuments\UntrustedDocuments.csproj" />
+    <PackageReference Include="NuGet.Frameworks" />
     <PackageReference Include="NuGet.Versioning" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Presentation.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Sections.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Sections" />
+    <InternalsVisibleTo Include="DotnetInspector.PackageQueries" />
     <!--
       The companion query assembly reuses the participant loop and the group's snapshot access so
       Research projections keep session and snapshot ownership inside the query layer. Keeping

@@ -16,13 +16,17 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspector.Packages" />
+    <InternalsVisibleTo Include="DotnetInspector.Presentation.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
     <InternalsVisibleTo Include="DotnetInspector.Services" />
-    <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
     <InternalsVisibleTo Include="NuGetFetch.Tests" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\InertText\InertText.csproj" />
+    <ProjectReference Include="..\NetworkAccess\NetworkAccess.csproj" />
   </ItemGroup>
 
   <ItemGroup>

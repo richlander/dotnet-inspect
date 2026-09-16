@@ -1,5 +1,4 @@
 using System.Reflection;
-using SLF = SourceLinkFetch;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -30,8 +29,8 @@ public class SourceLinkProvenanceTests
     private const string AzureItems = AzureRepositories + "repo/items?";
     private const string OtherSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-    private static SLF.SourceLinkProvenanceResult Determine(string map, params string[] documents)
-        => SLF.SourceLinkProvenance.Determine(SLF.SourceLinkResolver.Parse(map), documents);
+    private static SourceLinkProvenanceResult Determine(string map, params string[] documents)
+        => SourceLinkProvenance.Determine(SourceLinkDocumentMap.Parse(map), documents);
 
     /// <summary>
     /// Canonical GitHub SourceLink reports its repository.
@@ -63,12 +62,12 @@ public class SourceLinkProvenanceTests
         string otherRevision =
             $"{AzureItems}api-version=7.1&versionType=commit&version={OtherSha}&path=/A.cs";
 
-        var preserved = SLF.SourceLinkProvenance.ValidateFetchOrigin(requested, requested);
-        var changed = SLF.SourceLinkProvenance.ValidateFetchOrigin(requested, otherRevision);
+        var preserved = SourceLinkProvenance.ValidateFetchOrigin(requested, requested);
+        var changed = SourceLinkProvenance.ValidateFetchOrigin(requested, otherRevision);
 
-        Assert.Equal(SLF.SourceLinkFetchOriginStatus.Preserved, preserved.Status);
+        Assert.Equal(SourceLinkFetchOriginStatus.Preserved, preserved.Status);
         Assert.True(preserved.IsAllowed);
-        Assert.Equal(SLF.SourceLinkFetchOriginStatus.Changed, changed.Status);
+        Assert.Equal(SourceLinkFetchOriginStatus.Changed, changed.Status);
         Assert.False(changed.IsAllowed);
         Assert.Equal("the response URL names a different source origin", changed.Reason);
     }
@@ -81,9 +80,9 @@ public class SourceLinkProvenanceTests
         const string Final =
             "https://spsprodeus27.vssps.visualstudio.com/_signin?realm=dev.azure.com";
 
-        var result = SLF.SourceLinkProvenance.ValidateFetchOrigin(requested, Final);
+        var result = SourceLinkProvenance.ValidateFetchOrigin(requested, Final);
 
-        Assert.Equal(SLF.SourceLinkFetchOriginStatus.Changed, result.Status);
+        Assert.Equal(SourceLinkFetchOriginStatus.Changed, result.Status);
         Assert.False(result.IsAllowed);
         Assert.Equal("the response URL has no attributable origin", result.Reason);
     }
@@ -91,11 +90,11 @@ public class SourceLinkProvenanceTests
     [Fact]
     public void FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim()
     {
-        var result = SLF.SourceLinkProvenance.ValidateFetchOrigin(
+        var result = SourceLinkProvenance.ValidateFetchOrigin(
             "https://gitlab.example/project/raw/commit/A.cs",
             "https://cdn.example/content/A.cs");
 
-        Assert.Equal(SLF.SourceLinkFetchOriginStatus.Unattributed, result.Status);
+        Assert.Equal(SourceLinkFetchOriginStatus.Unattributed, result.Status);
         Assert.True(result.IsAllowed);
         Assert.Empty(result.Reason);
     }
@@ -577,11 +576,11 @@ public class SourceLinkProvenanceTests
         string map =
             $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&version={{{Sha}}}&{{{query}}}"}}""";
 
-        var resolver = SLF.SourceLinkResolver.Parse(map);
+        var resolver = SourceLinkDocumentMap.Parse(map);
 
         Assert.Equal(["/_/*"], resolver.RejectedKeys);
         Assert.Null(resolver.ResolveUrl("/_/A.cs"));
-        Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["/_/A.cs"]).IsEstablished);
+        Assert.False(SourceLinkProvenance.Determine(resolver, ["/_/A.cs"]).IsEstablished);
     }
 
     /// <summary>
@@ -654,12 +653,12 @@ public class SourceLinkProvenanceTests
     {
         string mapText =
             $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items??versionType=commit&version={{{Sha}}}&path=/*"}}""";
-        var resolver = SLF.SourceLinkResolver.Parse(mapText);
+        var resolver = SourceLinkDocumentMap.Parse(mapText);
 
         Assert.Empty(resolver.RejectedKeys);
         Assert.NotNull(resolver.ResolveUrl("/_/A.cs"));
 
-        var result = SLF.SourceLinkProvenance.Determine(resolver, ["/_/A.cs"]);
+        var result = SourceLinkProvenance.Determine(resolver, ["/_/A.cs"]);
 
         Assert.False(result.IsEstablished);
         Assert.Contains("?versionType", result.Reason, StringComparison.Ordinal);
@@ -714,14 +713,14 @@ public class SourceLinkProvenanceTests
         const string Map =
             $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/*"}}""";
 
-        var resolver = SLF.SourceLinkResolver.Parse(Map);
+        var resolver = SourceLinkDocumentMap.Parse(Map);
         Assert.True(resolver.TryResolve(document, out var resolution));
 
         // The request really does carry the redundant spelling; the host, not this reader,
         // resolves it.
         Assert.EndsWith(tail, resolution.Url, StringComparison.Ordinal);
 
-        var result = SLF.SourceLinkProvenance.Determine(resolver, [document]);
+        var result = SourceLinkProvenance.Determine(resolver, [document]);
         Assert.True(result.IsEstablished, result.Reason);
         Assert.Equal("repo", result.Origin?.Repository);
     }
@@ -789,7 +788,7 @@ public class SourceLinkProvenanceTests
         const string Map =
             $$$"""{"documents":{"*":"{{{AzureItems}}}api-version=*&versionType=commit&version={{{Sha}}}&path=/README.md"}}""";
 
-        var resolver = SLF.SourceLinkResolver.Parse(Map);
+        var resolver = SourceLinkDocumentMap.Parse(Map);
 
         // The two-probe check would pass: substituting '1.0' and '7.1' really does produce two
         // different request texts. Only the host's grammar says both fetch README.md.
@@ -797,8 +796,8 @@ public class SourceLinkProvenanceTests
         Assert.False(resolver.TryResolve("1.0", out _));
         Assert.False(resolver.TryResolve("7.1", out _));
 
-        Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["1.0", "7.1"]).IsEstablished);
-        Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["1.0"]).IsEstablished);
+        Assert.False(SourceLinkProvenance.Determine(resolver, ["1.0", "7.1"]).IsEstablished);
+        Assert.False(SourceLinkProvenance.Determine(resolver, ["1.0"]).IsEstablished);
     }
 
     /// <summary>
@@ -815,13 +814,13 @@ public class SourceLinkProvenanceTests
         const string Map =
             $$$"""{"documents":{"*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/fixed.cs?ignored=*"}}""";
 
-        var resolver = SLF.SourceLinkResolver.Parse(Map);
+        var resolver = SourceLinkDocumentMap.Parse(Map);
 
         Assert.Equal(["*"], resolver.RejectedKeys);
         Assert.False(resolver.TryResolve("A.cs", out _));
         Assert.False(resolver.TryResolve("B.cs", out _));
 
-        var result = SLF.SourceLinkProvenance.Determine(resolver, ["A.cs", "B.cs"]);
+        var result = SourceLinkProvenance.Determine(resolver, ["A.cs", "B.cs"]);
         Assert.False(result.IsEstablished);
     }
 
@@ -861,11 +860,11 @@ public class SourceLinkProvenanceTests
         const string Bare =
             $$$"""{"documents":{"*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/*"}}""";
 
-        var bare = SLF.SourceLinkProvenance.Determine(SLF.SourceLinkResolver.Parse(Bare), ["A.cs"]);
+        var bare = SourceLinkProvenance.Determine(SourceLinkDocumentMap.Parse(Bare), ["A.cs"]);
 
         string spelled = "{\"documents\":{\"*\":\"https://raw.githubusercontent.com" + separator
             + "/owner/repo/" + Sha + "/*\"}}";
-        var fqdn = SLF.SourceLinkProvenance.Determine(SLF.SourceLinkResolver.Parse(spelled), ["A.cs"]);
+        var fqdn = SourceLinkProvenance.Determine(SourceLinkDocumentMap.Parse(spelled), ["A.cs"]);
 
         Assert.True(bare.IsEstablished, bare.Reason);
         Assert.True(fqdn.IsEstablished, fqdn.Reason);
@@ -874,7 +873,7 @@ public class SourceLinkProvenanceTests
         // And the spelling buys nothing: the query-confined wildcard is refused either way.
         string hostile = "{\"documents\":{\"*\":\"https://raw.githubusercontent.com" + separator
             + "/o/r/" + Sha + "/fixed.cs?ignored=*\"}}";
-        var refused = SLF.SourceLinkResolver.Parse(hostile);
+        var refused = SourceLinkDocumentMap.Parse(hostile);
 
         Assert.Equal(["*"], refused.RejectedKeys);
         Assert.False(refused.TryResolve("A.cs", out _));
@@ -930,7 +929,7 @@ public class SourceLinkProvenanceTests
         foreach ((string valueless, string wildcarded) in
             new[] { ("path", "path"), ("scopePath", "scopePath"), ("%70ath", "path") })
         {
-            var shadowed = SLF.SourceLinkResolver.Parse(
+            var shadowed = SourceLinkDocumentMap.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + valueless + "&" + wildcarded + "=/*\"}}");
 
             Assert.Equal(["*"], shadowed.RejectedKeys);
@@ -939,12 +938,12 @@ public class SourceLinkProvenanceTests
 
         foreach (string valueless in new[] { "download", "scopePath" })
         {
-            var unrelated = SLF.SourceLinkResolver.Parse(
+            var unrelated = SourceLinkDocumentMap.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + valueless + "&path=/*\"}}");
 
             Assert.Empty(unrelated.RejectedKeys);
-            Assert.True(unrelated.TryResolve("A.cs", out SLF.SourceLinkResolution one));
-            Assert.True(unrelated.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+            Assert.True(unrelated.TryResolve("A.cs", out SourceLinkResolution one));
+            Assert.True(unrelated.TryResolve("B.cs", out SourceLinkResolution two));
             Assert.NotEqual(one.Url, two.Url);
         }
     }
@@ -999,12 +998,12 @@ public class SourceLinkProvenanceTests
             "path=%C2%A0&scopePath=/*",
         })
         {
-            var resolver = SLF.SourceLinkResolver.Parse(
+            var resolver = SourceLinkDocumentMap.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + query + "\"}}");
 
             Assert.Empty(resolver.RejectedKeys);
-            Assert.True(resolver.TryResolve("A.cs", out SLF.SourceLinkResolution one));
-            Assert.True(resolver.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+            Assert.True(resolver.TryResolve("A.cs", out SourceLinkResolution one));
+            Assert.True(resolver.TryResolve("B.cs", out SourceLinkResolution two));
             Assert.NotEqual(one.Url, two.Url);
         }
 
@@ -1016,7 +1015,7 @@ public class SourceLinkProvenanceTests
             "path&path=/*", "path&scopePath&path=/*", "path=%20&path=/*",
         })
         {
-            var resolver = SLF.SourceLinkResolver.Parse(
+            var resolver = SourceLinkDocumentMap.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + query + "\"}}");
 
             Assert.Equal(["*"], resolver.RejectedKeys);
@@ -1025,7 +1024,7 @@ public class SourceLinkProvenanceTests
 
         // Blank is emptiness, not trimming: the host answers 404 for a value with a space in
         // front of a real file, so a value that merely contains blank text still selects.
-        var padded = SLF.SourceLinkResolver.Parse(
+        var padded = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"*\":\"" + Prefix + "&path=%20/*\"}}");
 
         Assert.Empty(padded.RejectedKeys);
@@ -1065,24 +1064,24 @@ public class SourceLinkProvenanceTests
 
         // The host has no such parameter, so the wildcard is in nothing it reads and the real
         // scopePath alongside it selects one fixed file for every document.
-        var invented = SLF.SourceLinkResolver.Parse(
+        var invented = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"*\":\"" + Prefix + "&\u017FcopePath=/*&scopePath=/One.cs\"}}");
 
         Assert.Equal(["*"], invented.RejectedKeys);
         Assert.False(invented.TryResolve("A.cs", out _));
 
         // Nor may it shadow one: the host ignores it, so the map resolves and must not be refused.
-        var ignored = SLF.SourceLinkResolver.Parse(
+        var ignored = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"*\":\"" + Prefix + "&\u017FcopePath=/One.cs&path=/*\"}}");
 
         Assert.Empty(ignored.RejectedKeys);
-        Assert.True(ignored.TryResolve("A.cs", out SLF.SourceLinkResolution one));
-        Assert.True(ignored.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+        Assert.True(ignored.TryResolve("A.cs", out SourceLinkResolution one));
+        Assert.True(ignored.TryResolve("B.cs", out SourceLinkResolution two));
         Assert.NotEqual(one.Url, two.Url);
 
         // The ASCII fold the host does perform is untouched, so the rule above is not a blanket
         // return to ordinal comparison.
-        var ascii = SLF.SourceLinkResolver.Parse(
+        var ascii = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"*\":\"" + Prefix + "&PATH=/One.cs&path=/*\"}}");
 
         Assert.Equal(["*"], ascii.RejectedKeys);
@@ -1145,7 +1144,7 @@ public class SourceLinkProvenanceTests
             "[]p[]ath[]",
         })
         {
-            var shadowed = SLF.SourceLinkResolver.Parse(
+            var shadowed = SourceLinkDocumentMap.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + alias + "=/fixed.cs&path=/*\"}}");
 
             Assert.Equal(["*"], shadowed.RejectedKeys);
@@ -1164,12 +1163,12 @@ public class SourceLinkProvenanceTests
             "path.", "path.x", "pathX",
         })
         {
-            var unrelated = SLF.SourceLinkResolver.Parse(
+            var unrelated = SourceLinkDocumentMap.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + ignored + "=/fixed.cs&path=/*\"}}");
 
             Assert.Empty(unrelated.RejectedKeys);
-            Assert.True(unrelated.TryResolve("A.cs", out SLF.SourceLinkResolution one));
-            Assert.True(unrelated.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+            Assert.True(unrelated.TryResolve("A.cs", out SourceLinkResolution one));
+            Assert.True(unrelated.TryResolve("B.cs", out SourceLinkResolution two));
             Assert.NotEqual(one.Url, two.Url);
         }
 
@@ -1177,7 +1176,7 @@ public class SourceLinkProvenanceTests
         // wildcard is the value it carries.
         foreach (string spelling in new[] { "path[]", "[]path", "path[][]" })
         {
-            var suffixed = SLF.SourceLinkResolver.Parse(
+            var suffixed = SourceLinkDocumentMap.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + spelling + "=/*\"}}");
 
             Assert.Empty(suffixed.RejectedKeys);
@@ -1191,12 +1190,12 @@ public class SourceLinkProvenanceTests
         // #3599 is about -- so this row also proves the fold does not silently widen refusal.
         foreach (string spelling in new[] { "scopePath", "scopePath[]", "scopePath%5B%5D" })
         {
-            var scoped = SLF.SourceLinkResolver.Parse(
+            var scoped = SourceLinkDocumentMap.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + spelling + "=/fixed.cs&path=/*\"}}");
 
             Assert.Empty(scoped.RejectedKeys);
-            Assert.True(scoped.TryResolve("A.cs", out SLF.SourceLinkResolution scopedOne));
-            Assert.True(scoped.TryResolve("B.cs", out SLF.SourceLinkResolution scopedTwo));
+            Assert.True(scoped.TryResolve("A.cs", out SourceLinkResolution scopedOne));
+            Assert.True(scoped.TryResolve("B.cs", out SourceLinkResolution scopedTwo));
             Assert.NotEqual(scopedOne.Url, scopedTwo.Url);
         }
     }
@@ -1232,18 +1231,18 @@ public class SourceLinkProvenanceTests
             "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
             + "?api-version=1.0&versionType=commit&version=" + Sha;
 
-        var shadowed = SLF.SourceLinkResolver.Parse(
+        var shadowed = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"*\":\"" + Prefix + "&%70ath=/fixed.cs&path=/*\"}}");
 
         Assert.Equal(["*"], shadowed.RejectedKeys);
         Assert.False(shadowed.TryResolve("A.cs", out _));
 
-        var encoded = SLF.SourceLinkResolver.Parse(
+        var encoded = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"*\":\"" + Prefix + "&%70ath=/*\"}}");
 
         Assert.Empty(encoded.RejectedKeys);
-        Assert.True(encoded.TryResolve("A.cs", out SLF.SourceLinkResolution a));
-        Assert.True(encoded.TryResolve("B.cs", out SLF.SourceLinkResolution b));
+        Assert.True(encoded.TryResolve("A.cs", out SourceLinkResolution a));
+        Assert.True(encoded.TryResolve("B.cs", out SourceLinkResolution b));
         Assert.NotEqual(a.Url, b.Url);
     }
 
@@ -1610,7 +1609,7 @@ public class SourceLinkProvenanceTests
         // redundant one the comment used to claim: the map still resolves, so the URL is still
         // handed to a fetch path that admits http. If a later change makes the resolver refuse
         // http, this fails and the remarks have to be rewritten rather than quietly going stale.
-        var resolver = SLF.SourceLinkResolver.Parse(Map);
+        var resolver = SourceLinkDocumentMap.Parse(Map);
         Assert.True(resolver.TryResolve("/_/A.cs", out var resolution));
         Assert.StartsWith("http://", resolution.Url, StringComparison.Ordinal);
     }
@@ -1855,7 +1854,7 @@ public class SourceLinkProvenanceTests
     [InlineData("not a url", null)]
     [InlineData(null, null)]
     public void ABrowseLink_IsOnlyOfferedForAnAttributableGitHubOrigin(string? resolvedUrl, string? expected)
-        => Assert.Equal(expected, SLF.SourceLinkProvenance.BrowseUrl(resolvedUrl));
+        => Assert.Equal(expected, SourceLinkProvenance.BrowseUrl(resolvedUrl));
 
     /// <summary>
     /// The cache identity names the repository as well as the revision. A commit hash alone is
@@ -1887,8 +1886,8 @@ public class SourceLinkProvenanceTests
     public void TwoOriginsDifferingOnlyInWhereADelimiterFalls_DoNotShareOneIdentity(
         string leftRepository, string leftRevision, string rightRepository, string rightRevision)
     {
-        var left = new SLF.SourceLinkOrigin("h", "org", leftRepository, leftRevision, "u");
-        var right = new SLF.SourceLinkOrigin("h", "org", rightRepository, rightRevision, "u");
+        var left = new SourceLinkOrigin("h", "org", leftRepository, leftRevision, "u");
+        var right = new SourceLinkOrigin("h", "org", rightRepository, rightRevision, "u");
 
         Assert.NotEqual(left, right);
         Assert.NotEqual(left.Identity, right.Identity);
@@ -1940,10 +1939,10 @@ public class SourceLinkProvenanceTests
     [InlineData("\t\n")]
     public void APresentButBlankMap_SaysSoRatherThanLookingLikeNoSourceLink(string payload)
     {
-        var present = SLF.SourceLinkResolver.Parse(payload);
+        var present = SourceLinkDocumentMap.Parse(payload);
 
         Assert.NotNull(present.ParseError);
-        Assert.Null(SLF.SourceLinkResolver.Parse(null).ParseError);
+        Assert.Null(SourceLinkDocumentMap.Parse(null).ParseError);
     }
 
     /// <summary>
@@ -2198,7 +2197,7 @@ public class SourceLinkProvenanceTests
     {
         string url = urlTemplate.Replace("*", "A.cs", StringComparison.Ordinal);
 
-        if (!SLF.SourceLinkProvenance.TryReadOrigin(url, out var origin, out _))
+        if (!SourceLinkProvenance.TryReadOrigin(url, out var origin, out _))
         {
             return;
         }
@@ -2248,7 +2247,7 @@ public class SourceLinkProvenanceTests
     [Fact]
     public void ASourceLinkOrigin_CannotBeConstructedOrRewrittenOutsideItsOwnAssembly()
     {
-        Type type = typeof(SLF.SourceLinkOrigin);
+        Type type = typeof(SourceLinkOrigin);
 
         Assert.DoesNotContain(
             type.GetConstructors(BindingFlags.Public | BindingFlags.Instance),
@@ -2294,7 +2293,7 @@ public class SourceLinkProvenanceTests
             [
                 "DotnetInspector.Services/GitHubUrlResolver.cs",
                 "DotnetInspector.Services/LocalRepoSourceAcquisition.cs",
-                "SourceLinkFetch/SourceLinkProvenance.cs",
+                "ILInspector.SourceLink/SourceLinkProvenance.cs",
             ],
             readers);
     }

@@ -4,7 +4,9 @@ This document defines the output format conventions for `dotnet-inspect`. The pr
 
 ## Document structure
 
-All markdown output follows a consistent four-part structure:
+Document-form Markdown uses a subject heading, optional description, available
+context fields, and content sections. Focused projections may omit the header
+under [progressive disclosure](progressive-disclosure.md#section-selection).
 
 ```markdown
 # Title
@@ -23,9 +25,11 @@ Optional description paragraph.
 
 ### 1. H1 title
 
-Every output starts with a single H1 heading that names the **subject — and only the subject**:
+When a document header is present, its single H1 names the
+**subject — and only the subject**:
 
 - **Type view:** `# Namespace.TypeName`
+- **Selected member:** `# Namespace.TypeName.MemberName`
 - **Package view:** `# PackageName`
 - **Library view:** `# AssemblyName.dll`
 
@@ -59,9 +63,15 @@ Provides functionality to serialize objects or value types to JSON and deseriali
 
 ### 3. Key-value fields
 
-Structured metadata as `**Label:** value` pairs, one per line. These fields form the stable "header" that `--fields-only` preserves.
+Context is structured metadata with named fields, selectable with `--fields`.
+Markout controls inline versus stacked layout; type/member document headers
+use a compact `Label: value | Label: value` line.
 
-**Line break handling:** Each field line ends with two trailing spaces to force a `<br>` in rendered markdown. Without the double space, consecutive field lines would collapse into a single paragraph.
+Header presence follows the existing view and section-selection policy.
+Default type and member-group documents retain acquisition context outside the
+title in both Markdown and plaintext; an explicitly focused inventory does not
+gain a context row. Selected members retain their existing Summary context.
+The default type tree is a declaration-oriented shape, not a document header.
 
 **When to use fields vs tables:**
 
@@ -75,36 +85,56 @@ Fields describe "what this thing is"; tables list "what this thing contains".
 Provenance first — these answer "where did this metadata come from?" and carry what the title
 parenthetical used to (plus the version, TFM, and asset that a single parenthetical could not):
 
-- `**Package:** System.Text.Json 10.0.0` (package name and resolved version; omitted for local-file sources)
-- `**TFM:** net10.0` (the target framework the asset was selected for)
-- `**Library:** lib/net10.0/System.Text.Json.dll` (the exact assembly asset the metadata came from — the in-package path for package sources, or the file path for a local library)
+- `Package: System.Text.Json` (available package identity, not an assembly name)
+- `Version: 10.0.0` (available package or framework selection version)
+- `TFM: net10.0` (the available target framework selection)
+- `Library: lib/net10.0/System.Text.Json.dll` (the selected API input asset, package-relative when its acquisition root is retained; otherwise its acquired filesystem path)
+- `Source: NuGet` (acquisition context such as NuGet, Project, Platform, or Library; not a source-code URL)
+
+The fields describe the API input selected for the query, including a package
+resolved through project assets. For a forwarded type, `Library` remains the
+selected contract/facade asset; it is not silently replaced with the defining
+assembly. Source and implementation acquisition continue to use the retained
+defining-assembly descriptor under their existing owners. A header therefore
+does not claim that every displayed definition or IL body is physically in
+`Library`. [Platform assemblies](platform-assemblies.md#type-forwarders)
+explains this distinction. These are display projections, not new resolution
+authority.
 
 Then the subject's own facts:
 
-- `**Kind:** class` / `interface` / `struct` / `enum`
-- `**Modifiers:** static, sealed` (only if modifiers exist)
-- `**Source:** https://...`
-- `**Samples:** N available` (only with `--docs`, indicates samples exist)
+- `Kind: class` / `interface` / `struct` / `enum`
+- `Modifiers: static, sealed` (only if modifiers exist)
+- `Samples: N available` (when the view has sample-reference metadata)
 
 ```markdown
-**Package:** System.Text.Json 10.0.0
-**TFM:** net10.0
-**Library:** lib/net10.0/System.Text.Json.dll
-**Kind:** class
-**Modifiers:** sealed
-**Source:** https://github.com/.../JsonSerializer.cs
-**Samples:** 2 available
+Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.0/System.Text.Json.dll | Source: NuGet | Kind: class | Modifiers: static
 ```
 
 Fields always appear in a consistent order. Empty/null fields are omitted.
 
-The `**Samples:**` field is a count indicator. Sample URL tables belong in a
-dedicated `Samples` section when package/docs metadata can provide trustworthy
-links.
+`ApiHeaderProvenanceTests` gates subject-only headings, retained context,
+focused-inventory behavior, and acquired asset paths.
+`Member_OverloadInventory_TabularOutputContainsOnlyRows` and
+`Member_OverloadInventory_TabularWindowsRetainRows` gate the separate default
+tabular inventory shape and its row windows, without document provenance.
+`Type_SingleType_MarkdownQuiet_RendersCompactSectionView`,
+`Type_SingleType_PlaintextIncludesAcquisitionContext`,
+`Type_TypeInfoSection_RendersIdentityFactsRatherThanMembers`, and
+`Router_FullyQualifiedGenericPlatformType_PreservesContractSource` gate CLI
+header and contract-asset disclosure.
+`ApiServices_RetainsSelectedForwarderDescriptor` gates the separation from
+defining-assembly acquisition. Typed API JSON and declaration trees retain their separate
+output contracts; header presentation does not redefine them.
+
+The `**Samples:**` field is a count indicator, not a guarantee that a target
+exposes a `Samples` section. Discover the current section catalog before
+requesting sample output; do not invent URLs from the count.
 
 ### 4. H2 sections
 
-Tables and structured content appear under H2 headings. Section visibility is controlled by verbosity level.
+Tables and structured content appear under H2 headings. Section visibility is
+controlled by the command's verbosity preset and explicit section selection.
 
 ```markdown
 ## Members
@@ -118,22 +148,37 @@ When there is only a single table, the H2 heading may be omitted for brevity.
 
 ## Verbosity levels
 
-Verbosity controls which H2 sections appear, not which fields appear:
+The [progressive disclosure model](progressive-disclosure.md#verbosity) owns
+verbosity presets and explicit section selection. Verbosity can also change
+signature detail and documentation columns within a command's view:
 
 | Level | Description | Sections |
 | ----- | ----------- | -------- |
-| Quiet | Title and fields only | None |
-| Minimal | Compact section view (default) | Summary sections only |
-| Normal | Full output | All standard sections |
-| Detailed | Extended output | All sections including audit details |
+| Quiet | Compact identity/context, where supported | No automatic content sections |
+| Minimal | Compact view (default) | One high-value base section |
+| Normal | More detail about the same subject | Multiple base sections |
+| Detailed | Extended base output | All applicable base sections, not every domain |
 
 Note: The dotnet CLI uses minimal as the default verbosity level, not normal. This tool follows that convention.
 
-The H1, description, and fields are always present regardless of verbosity.
+Descriptions and optional fields depend on the view and available evidence.
+Focused section output may omit the identity header. For single-type section
+output, use `--markdown`; the default type tree supports `-v:m`, `-v:n`, and
+`-v:d`, not `-v:q`.
 
-### Verbosity-independent views
+### Documentation columns
 
-Some views use the same layout at all verbosity levels because differentiation would not be meaningful. The **types listing** (full-library view) is verbosity-independent: it always shows per-kind sections (`## Classes`, `## Structs`, etc.) with `Type | Members` columns. The only variation is `--docs` adding a Description column. Verbosity differentiation is reserved for the **member view** (per-type), where quiet groups by name, minimal abbreviates signatures, and normal/detailed show full signatures.
+Type listings, single-type views, member groups, and selected signatures have
+different schemas; they are not one verbosity-independent table. A selected
+member's `Signature` can include a `Description` from available XML
+documentation. Single-type Markdown views enable available XML summaries at
+normal verbosity and above. Columns follow the selected view and its available
+documentation, not a separate documentation switch.
+
+Use `-D` to discover section names and `-D <section>` to inspect a section's
+schema rather than assuming a standalone `Documentation` section.
+[Platform components](../platform-components.md#documentation-access) shows the
+package and platform invocations.
 
 ## Table formatting
 
@@ -154,7 +199,8 @@ Tables use pipe-delimited markdown:
 
 **Common table formats:**
 
-- Member tables: `| Member | Kind | Signature |` (+ `| Description |` with `--docs`)
+- Member tables: names/selectors and signatures, with `Description` where the
+  selected view includes available documentation
 - Metadata tables: `| Property | Value |`
 - Audit tables: `| File | Deterministic | SourceLink |`
 

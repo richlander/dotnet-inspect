@@ -75,6 +75,34 @@ public class OperatorNamesTests
         => Assert.Equal("op_SomeFutureOp", OperatorNames.FormatDisplayName("op_SomeFutureOp"));
 
     [Theory]
+    [InlineData("op_Addition", true)]
+    [InlineData("OP_ADDITION", true)]
+    [InlineData("op_CheckedAddition", true)]
+    [InlineData("op_CheckedExplicit", true)]
+    [InlineData("Op_Helpers", false)]
+    [InlineData("op_SomeFutureOp", false)]
+    public void Metadata_operator_recognition_uses_the_closed_supported_grammar(
+        string input,
+        bool expected)
+        => Assert.Equal(expected, OperatorNames.IsMetadataOperatorName(input));
+
+    [Fact]
+    public void Untreated_display_preserves_input_for_typed_presentation_boundary()
+    {
+        const string Hostile = "Name\u202E\nINJECTED";
+
+        Assert.Equal(
+            "operator +",
+            OperatorNames.FormatDisplayNameUntreated("op_Addition"));
+        Assert.Equal(
+            Hostile,
+            OperatorNames.FormatDisplayNameUntreated(Hostile));
+        Assert.NotEqual(
+            Hostile,
+            OperatorNames.FormatDisplayName(Hostile));
+    }
+
+    [Theory]
     [InlineData("op_CheckedAddition", "op_Addition")]
     [InlineData("op_CheckedSubtraction", "op_Subtraction")]
     [InlineData("op_CheckedMultiply", "op_Multiply")]

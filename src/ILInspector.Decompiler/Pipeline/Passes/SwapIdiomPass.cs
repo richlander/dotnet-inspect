@@ -59,59 +59,14 @@ public sealed class SwapIdiomPass : IIrPass
 
     static bool TryRaiseSwap(IrFunction function, Block block, int i, PassContext context)
     {
-        var children = block.Children;
-        var save = children[i];
-        var cross = children[i + 1];
-        var restore = children[i + 2];
-
-        // 1. save: `carrier = load(p)` — a stack slot or unnamed-local temp.
-        if (MatchCarrier(function, save) is not { } carrier
-            || MatchPlace(carrier.SavedValue) is not { } p)
-        {
+        if (MatchSwap(function, block, i) is not { } places)
             return false;
-        }
+        var (p, q) = places;
+        var save = block.Children[i];
+        var cross = block.Children[i + 1];
+        var restore = block.Children[i + 2];
 
-        // 2. cross: `p = load(q)` — assigns into the just-saved place p.
-        if (MatchStore(cross) is not { } crossStore
-            || !crossStore.Place.Equals(p)
-            || MatchPlace(crossStore.Value) is not { } q)
-        {
-            return false;
-        }
-
-        // 3. restore: `q = carrier` — writes the saved old-p value into q.
-        if (MatchStore(restore) is not { } restoreStore
-            || !restoreStore.Place.Equals(q)
-            || !carrier.Matches(restoreStore.Value))
-        {
-            return false;
-        }
-
-        // A swap exchanges two *distinct* places of the same type. Equal
-        // places, or a type mismatch, are not the swap idiom.
-        if (p.Equals(q) || !p.Type.Equals(q.Type))
-            return false;
-
-        // The exchanged places must be spellable, non-aliasing, by-value
-        // lvalues that are legal ValueTuple elements. Byref (`ref`
-        // parameters/locals — a byref reseat, not a value swap), pointers,
-        // function pointers, and ref-struct / stack-only value types either
-        // change meaning under tuple deconstruction (a `ref` reseat becomes a
-        // value write to the referent) or cannot appear as a tuple element at
-        // all (CS9244 / CS0306). Leave those in the flat three-statement form.
-        if (!IsSwappablePlaceType(function, p.Type))
-            return false;
-
-        // The carrier must be a genuine single-def/single-use temp: referenced
-        // only by this save and this restore. Any other read or write means it
-        // is not a throwaway swap slot and the sequence is not a swap.
-        if (!carrier.ReferencedOnlyWithin(function, save, restore))
-            return false;
-
-        // Emit `(q, p) = (p, q);`. The deconstruction evaluates the tuple
-        // (old p, old q) then assigns left-to-right: q := old p, p := old q —
-        // the swap. Targets list q first so the source lists p first, matching
-        // the natural declaration-order reading of the original code.
+        // List q first so Roslyn lowers the tuple to the same one-temp swap.
         var tupleType = TypeRef.GenericInstance(
             TypeRef.CoreLib("System", "ValueTuple"), [p.Type, q.Type]);
         var source = new TupleExpression(tupleType, [p.Load(), q.Load()]);
@@ -125,22 +80,101 @@ public sealed class SwapIdiomPass : IIrPass
         return true;
     }
 
+    internal static bool IsPendingStackSwap(IrFunction function, StoreStackSlot save)
+        => save.Parent is Block block
+            && save.ChildIndex + 2 < block.Children.Count
+            && MatchSwap(function, block, save.ChildIndex) is not null;
+
+    static (Place Saved, Place Other)? MatchSwap(IrFunction function, Block block, int i)
+    {
+        var children = block.Children;
+        var save = children[i];
+        var cross = children[i + 1];
+        var restore = children[i + 2];
+
+        // 1. save: `carrier = load(p)` — a stack slot or unnamed-local temp.
+        if (MatchCarrier(function, save) is not { } carrier
+            || MatchPlace(carrier.SavedValue) is not { } p)
+        {
+            return null;
+        }
+
+        // 2. cross: `p = load(q)` — assigns into the just-saved place p.
+        if (MatchStore(cross) is not { } crossStore
+            || !crossStore.Place.Matches(p)
+            || MatchPlace(crossStore.Value) is not { } q)
+        {
+            return null;
+        }
+
+        // 3. restore: `q = carrier` — writes the saved old-p value into q.
+        if (MatchStore(restore) is not { } restoreStore
+            || !restoreStore.Place.Matches(q)
+            || !carrier.Matches(restoreStore.Value))
+        {
+            return null;
+        }
+
+        // A swap exchanges two *distinct* places of the same type. Equal
+        // places, or a type mismatch, are not the swap idiom.
+        if (p.Matches(q) || !p.Type.Equals(q.Type))
+            return null;
+
+        // The exchanged places must be spellable, non-aliasing, by-value
+        // lvalues that are legal ValueTuple elements. Byref (`ref`
+        // parameters/locals — a byref reseat, not a value swap), pointers,
+        // function pointers, and ref-struct / stack-only value types either
+        // change meaning under tuple deconstruction (a `ref` reseat becomes a
+        // value write to the referent) or cannot appear as a tuple element at
+        // all (CS9244 / CS0306). Leave those in the flat three-statement form.
+        if (!IsSwappablePlaceType(function, p.Type))
+            return null;
+
+        // The carrier must be a genuine single-def/single-use temp: referenced
+        // only by this save and this restore. Any other read or write means it
+        // is not a throwaway swap slot and the sequence is not a swap.
+        if (!carrier.ReferencedOnlyWithin(function, save, restore))
+            return null;
+
+        return (p, q);
+    }
+
     /// <summary>A distinct by-value parameter or local lvalue in a swap.</summary>
     abstract record Place(TypeRef Type)
     {
+        public abstract bool Matches(Place other);
         public abstract IrExpression Load();
         public abstract DeconstructionTarget Target();
     }
 
-    sealed record ArgumentPlace(int Index, string PlaceName, TypeRef Type) : Place(Type)
+    sealed record ArgumentPlace(
+        int Index,
+        string PlaceName,
+        TypeRef Type,
+        Parameter? Parameter) : Place(Type)
     {
-        public override IrExpression Load() => new LoadArgument(Index, PlaceName, Type);
+        public override bool Matches(Place other)
+            => other is ArgumentPlace argument
+                && Type.Equals(argument.Type)
+                && PlaceIdentity.SameArgument(
+                    Index,
+                    Parameter,
+                    argument.Index,
+                    argument.Parameter);
+
+        public override IrExpression Load()
+            => new LoadArgument(Index, PlaceName, Type, Parameter);
         public override DeconstructionTarget Target()
-            => DeconstructionTarget.Argument(Index, PlaceName, Type);
+            => DeconstructionTarget.Argument(Index, PlaceName, Type, Parameter);
     }
 
     sealed record LocalPlace(int Index, TypeRef Type) : Place(Type)
     {
+        public override bool Matches(Place other)
+            => other is LocalPlace local
+                && Index == local.Index
+                && Type.Equals(local.Type);
+
         public override IrExpression Load() => new LoadLocal(Index, Type);
         public override DeconstructionTarget Target()
             => DeconstructionTarget.Local(Index, Type, isDeclared: false);
@@ -148,7 +182,12 @@ public sealed class SwapIdiomPass : IIrPass
 
     static Place? MatchPlace(IrExpression expression) => expression switch
     {
-        LoadArgument argument => new ArgumentPlace(argument.Index, argument.Name, argument.Type),
+        LoadArgument argument =>
+            new ArgumentPlace(
+                argument.Index,
+                argument.Name,
+                argument.Type,
+                argument.Parameter),
         LoadLocal local => new LocalPlace(local.Index, local.Type),
         _ => null,
     };
@@ -158,7 +197,12 @@ public sealed class SwapIdiomPass : IIrPass
     static StoreMatch? MatchStore(IrNode node) => node switch
     {
         StoreArgument argument => new StoreMatch(
-            new ArgumentPlace(argument.Index, argument.Name, argument.Type), argument.Value),
+            new ArgumentPlace(
+                argument.Index,
+                argument.Name,
+                argument.Type,
+                argument.Parameter),
+            argument.Value),
         StoreLocal local => new StoreMatch(
             new LocalPlace(local.Index, local.Type), local.Value),
         _ => null,
@@ -226,7 +270,9 @@ public sealed class SwapIdiomPass : IIrPass
     static bool IsHiddenLocal(IrFunction function, int index)
         => index >= 0
             && index < function.LocalNames.Length
-            && function.LocalNames[index] is null;
+            && function.LocalNames[index] is null
+            && (index >= function.SynthesizedLocalNames.Length
+                || function.SynthesizedLocalNames[index] is null);
 
     // A place type is swappable only when it is a spellable, boxable-or-plain
     // by-value type that is legal as a ValueTuple element. Mirrors the

@@ -29,11 +29,17 @@ public class FqnParserTests
 
     [Theory]
     [InlineData("List<T>", "List`1")]
+    [InlineData("Dictionary<,>", "Dictionary`2")]
+    [InlineData("Action<global :: System.String>", "Action`1")]
     [InlineData("Dictionary<TKey,TValue>", "Dictionary`2")]
     [InlineData("Span<T>", "Span`1")]
     [InlineData("ReadOnlySpan<T>", "ReadOnlySpan`1")]
     [InlineData("List`1", "List`1")]
     [InlineData("Dictionary`2", "Dictionary`2")]
+    [InlineData("Action<(int,string)>", "Action`1")]
+    [InlineData("Dictionary<string,(int,int)>", "Dictionary`2")]
+    [InlineData("Task<(bool ok,string msg)>", "Task`1")]
+    [InlineData("List<((int,string) pair,int value)>", "List`1")]
     public void GenericType_NormalizesToBacktickNotation(string input, string expectedType)
     {
         var result = FqnParser.Parse(input);
@@ -46,12 +52,63 @@ public class FqnParserTests
     [Theory]
     [InlineData("Dictionary<int,List<string>>", "Dictionary`2")]
     [InlineData("Action<Func<int,string>>", "Action`1")]
+    [InlineData("Dictionary<List<T>?,string>", "Dictionary`2")]
+    [InlineData("Dictionary<List<T>[],string>", "Dictionary`2")]
+    [InlineData("Dictionary<List<T>[,],string>", "Dictionary`2")]
+    [InlineData("Dictionary<List<T>[][],string>", "Dictionary`2")]
+    [InlineData("Dictionary<List<T>.Enumerator,string>", "Dictionary`2")]
     public void NestedGenericType_NormalizesCorrectly(string input, string expectedType)
     {
         var result = FqnParser.Parse(input);
 
         Assert.NotNull(result);
         Assert.Equal(expectedType, result.TypeName);
+    }
+
+    [Theory]
+    [InlineData("Dictionary<TKey,>")]
+    [InlineData("Dictionary<,TValue>")]
+    [InlineData("Dictionary<TKey,,TValue>")]
+    [InlineData("Dictionary<List<>,TValue>")]
+    [InlineData("List<Dictionary<,>>")]
+    [InlineData("Dictionary<TKey,<TValue>>")]
+    [InlineData("Dictionary<List<T>U,TValue>")]
+    [InlineData("Dictionary<List<T> U,TValue>")]
+    [InlineData("Dictionary<List<T>?U,TValue>")]
+    [InlineData("Dictionary<List<T><U>,TValue>")]
+    [InlineData("Dictionary<List<T> <U>,TValue>")]
+    [InlineData("Dictionary<List<T>[,TValue>")]
+    [InlineData("Dictionary<List<T>],TValue>")]
+    [InlineData("List<?>")]
+    [InlineData("List<.T>")]
+    [InlineData("List<T.>")]
+    [InlineData("List<T?*>")]
+    [InlineData("List<T U?>")]
+    [InlineData("Action<(int)>")]
+    [InlineData("Action<(,)>")]
+    [InlineData("Action<(int,)>")]
+    [InlineData("Action<(int,,string)>")]
+    [InlineData("Action<(int string)>")]
+    public void MalformedGenericType_IsNotNormalizedToValidMetadataIdentity(
+        string input) =>
+        Assert.Equal(input, FqnParser.NormalizeTypeName(input));
+
+    [Fact]
+    public void ExcessiveGenericNesting_IsRejectedWithinTheConfiguredBound()
+    {
+        const int acceptedDepth = 32;
+        var accepted =
+            string.Concat(Enumerable.Repeat("Outer<", acceptedDepth))
+            + "T"
+            + new string('>', acceptedDepth);
+        Assert.Equal("Outer`1", FqnParser.NormalizeTypeName(accepted));
+
+        const int rejectedDepth = 66;
+        var rejected =
+            string.Concat(Enumerable.Repeat("Outer<", rejectedDepth))
+            + new string('T', 30_000)
+            + new string('>', rejectedDepth);
+        Assert.Equal(rejected, FqnParser.NormalizeTypeName(rejected));
     }
 
     // ── Type.Member patterns ─────────────────────────────────────────────
@@ -217,6 +274,84 @@ public class FqnParserTests
         Assert.NotNull(result);
         Assert.Null(result.QualifiedPrefix);
         Assert.Equal("System.Collections.Generic.List`1", result.TypeName);
+    }
+
+    [Fact]
+    public void NormalizeMemberName_OverflowingMetadataArityPreservesMalformedSuffix()
+    {
+        const string malformed = "ToString`999999999999999999999";
+
+        Assert.Equal(malformed, FqnParser.NormalizeMemberName(malformed));
+    }
+
+    [Theory]
+    [InlineData("Clear`0")]
+    [InlineData("ConvertAll`01")]
+    public void NormalizeMemberName_NoncanonicalMetadataArityPreservesMalformedSuffix(
+        string malformed)
+    {
+        Assert.Equal(malformed, FqnParser.NormalizeMemberName(malformed));
+        Assert.Null(FqnParser.GetMemberGenericArity(malformed));
+    }
+
+    [Theory]
+    [InlineData("ConvertAll<TOutput><>")]
+    [InlineData("ConvertAll<<TOutput>>")]
+    public void NormalizeMemberName_MalformedGenericSuffixIsPreserved(
+        string malformed)
+    {
+        Assert.Equal(malformed, FqnParser.NormalizeMemberName(malformed));
+        Assert.Null(FqnParser.GetMemberGenericArity(malformed));
+    }
+
+    [Fact]
+    public void NormalizeMemberName_QualifiedExplicitInterfaceGenericMethodUsesTerminalArity()
+    {
+        const string selector = "IMap<T>.Map<U,V>";
+
+        Assert.Equal("IMap<T>.Map", FqnParser.NormalizeMemberName(selector));
+        Assert.Equal(2, FqnParser.GetMemberGenericArity(selector));
+    }
+
+    [Theory]
+    [InlineData("Map<T??>")]
+    [InlineData("Map<T*?>")]
+    [InlineData("Map<T&?>")]
+    [InlineData("Map<T&&>")]
+    [InlineData("Map<T><U>")]
+    public void NormalizeMemberName_InvalidPostfixOrAdjacentGenericSuffixIsPreserved(
+        string malformed)
+    {
+        Assert.Equal(malformed, FqnParser.NormalizeMemberName(malformed));
+        Assert.Null(FqnParser.GetMemberGenericArity(malformed));
+    }
+
+    [Theory]
+    [InlineData("Map<T?>")]
+    [InlineData("Map<T?[]?>")]
+    [InlineData("Map<T[][]>")]
+    [InlineData("Map<Outer<T>.Inner<U>>")]
+    public void NormalizeMemberName_ValidPostfixAndNestedGenericSuffixKeepsArity(
+        string selector)
+    {
+        Assert.Equal("Map", FqnParser.NormalizeMemberName(selector));
+        Assert.Equal(1, FqnParser.GetMemberGenericArity(selector));
+    }
+
+    [Fact]
+    public void NormalizeMemberName_UnboundGenericSuffixKeepsArity()
+    {
+        Assert.Equal("Map", FqnParser.NormalizeMemberName("Map<,>"));
+        Assert.Equal(2, FqnParser.GetMemberGenericArity("Map<,>"));
+    }
+
+    [Theory]
+    [InlineData("operatorApply")]
+    [InlineData("OperatorApply")]
+    public void NormalizeMemberName_UnrecognizedOperatorPrefixIsPreserved(
+        string memberName)
+    {
+        Assert.Equal(memberName, FqnParser.NormalizeMemberName(memberName));
     }
 
     // ── ParseMemberFilter tests ──────────────────────────────────────────

@@ -59,13 +59,13 @@ public static class MetadataTableProjector
         ArgumentNullException.ThrowIfNull(peReader);
         options ??= new MetadataProjectionOptions();
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return new MetadataTableProjection(ImmutableArray<MetadataTableView>.Empty);
 
         // MetadataReaderOptions.None keeps the projection raw: the default enables
         // Windows-Runtime projection, which would replace real table/heap values
         // with synthesized aliases and defeat structural losslessness.
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
 
         return MetadataTableProjectionEngine.Project(reader, options);
     }
@@ -101,11 +101,11 @@ public static class MetadataTableProjector
         ArgumentOutOfRangeException.ThrowIfLessThan(rowId, 1);
         options ??= new MetadataProjectionOptions();
 
-        if (!peReader.HasMetadata
+        if (!MetadataFormatAdmission.AdmitImage(peReader)
             || !MetadataTableProjectionEngine.TryGetTableSpec(table, out var spec))
             return null;
 
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
         return MetadataTableProjectionEngine.ProjectRow(reader, spec, rowId, options);
     }
 
@@ -171,11 +171,11 @@ public static class MetadataTableProjector
 
         var target = new MetadataRowLocation(targetTable, targetRowId);
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return new MetadataRowReferenceSet(
                 target, [], [], [], Truncated: false, TargetExists: false);
 
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
         return MetadataRowReferenceFinder.FindReferences(reader, target, maxReferences);
     }
 
@@ -211,10 +211,10 @@ public static class MetadataTableProjector
         ArgumentOutOfRangeException.ThrowIfNegative(address);
         options ??= new MetadataProjectionOptions();
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return null;
 
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
         return MetadataHeapProjector.ReadHeapValue(reader, heap, address, options);
     }
 
@@ -257,10 +257,10 @@ public static class MetadataTableProjector
         ArgumentNullException.ThrowIfNull(peReader);
         options ??= new MetadataProjectionOptions();
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return null;
 
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
         return MetadataHeapProjector.ReadHeapEntries(reader, heap, options);
     }
 

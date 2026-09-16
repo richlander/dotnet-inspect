@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Decompiler;
 
@@ -28,6 +28,7 @@ public static class DecompilerFindings
         if (function is null)
         {
             return new FindingInspection<DecompilerFidelityCause>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 "Method has no decompiler IR body.");
         }
 
@@ -87,7 +88,8 @@ public static class DecompilerFindings
     static bool IsOperationFailure(string id)
         => id is DiagnosticIds.InternalError
             or DiagnosticIds.ContextUnavailable
-            or DiagnosticIds.EmptyOutput;
+            or DiagnosticIds.EmptyOutput
+            or DiagnosticIds.MemorySafetyModeUnavailable;
 
     static ImmutableArray<PairFinding<DecompilerFidelityCause>> ClassifyFacetChanges(
         ImmutableArray<PairFinding<DecompilerFidelityCause>> pairs)

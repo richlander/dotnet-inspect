@@ -7,5 +7,5 @@ namespace DotnetInspector.Services;
 public static class SourceLinkUrls
 {
     public static bool IsImmutable(string url) =>
-        SourceLinkFetch.SourceLinkProvenance.IsImmutableContentUrl(url);
+        ILInspector.SourceLink.SourceLinkProvenance.IsImmutableContentUrl(url);
 }

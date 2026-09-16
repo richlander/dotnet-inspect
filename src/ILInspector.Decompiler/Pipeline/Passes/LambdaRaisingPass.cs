@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -298,9 +300,21 @@ public sealed class LambdaRaisingPass : IIrPass
         out IReadOnlyCollection<string> readFields)
     {
         readFields = [];
-        var body = RaisedBody(creation, context);
+        if (!context.TryEnterCrossMethodPipeline(creation.Method, out var scope))
+            return null;
+        using var pipelineScope = scope;
+        var body = scope.Import();
         if (body is null)
             return null;
+
+        scope.Run(body, IrPasses.CapturingLambdaPreparation);
+        bool allowLocals = CapturesAreArgumentOnly(captures.Values);
+        // The inliner indexes places within one function. Do not introduce outer
+        // local indices or another nested pool into this additional opportunity.
+        bool completeAfterSubstitution = allowLocals
+            && !body.Descendants.Any(node => node is Lambda or LocalFunctionStatement);
+        if (!completeAfterSubstitution)
+            scope.Run(body, IrPasses.CapturingLambdaCompletion);
 
         var thisReads = body.Descendants.OfType<LoadArgument>().Where(a => a.Index == 0).ToList();
         if (!thisReads.All(a => a.Parent is LoadField field
@@ -320,7 +334,15 @@ public sealed class LambdaRaisingPass : IIrPass
                 load.ReplaceWith(value.Clone());
         }
 
-        return Finish(creation, body, provenance, allowLocals: CapturesAreArgumentOnly(captures.Values));
+        if (completeAfterSubstitution)
+            scope.Run(body, IrPasses.CapturingLambdaCompletion);
+
+        return Finish(
+            creation,
+            body,
+            provenance,
+            allowLocals,
+            CapturedBinderNames(readFields, captures, RootFunction(creation)));
     }
 
     // A hoisted capture binds a variable, not an expression: a parameter/this load
@@ -335,6 +357,28 @@ public sealed class LambdaRaisingPass : IIrPass
 
     static bool CapturesAreArgumentOnly(IEnumerable<IrExpression> values)
         => values.All(value => value is LoadArgument);
+
+    static ImmutableArray<string> CapturedBinderNames(
+        IEnumerable<string> readFields,
+        IReadOnlyDictionary<string, IrExpression> captures,
+        IrFunction host)
+    {
+        var names = ImmutableArray.CreateBuilder<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string field in readFields.Order(StringComparer.Ordinal))
+        {
+            string? name = captures[field] switch
+            {
+                LoadArgument => null,
+                LoadLocal local when local.Index < host.LocalNames.Length
+                    => host.LocalNames[local.Index],
+                _ => null,
+            };
+            if (name is not null && seen.Add(name))
+                names.Add(name);
+        }
+        return names.ToImmutable();
+    }
 
     static IrFunction RootFunction(IrNode node)
     {
@@ -359,7 +403,12 @@ public sealed class LambdaRaisingPass : IIrPass
     // through a nested lambda scope. Capturing callers enable that only when all
     // substituted captures are argument/this loads, whose names are stable across
     // the nested print scope.
-    static RaisedLambda? Finish(DelegateCreation creation, IrFunction body, IrNode provenance, bool allowLocals)
+    static RaisedLambda? Finish(
+        DelegateCreation creation,
+        IrFunction body,
+        IrNode provenance,
+        bool allowLocals,
+        ImmutableArray<string> capturedBinderNames = default)
     {
         if (!allowLocals && !body.Locals.IsEmpty)
             return null;
@@ -410,6 +459,8 @@ public sealed class LambdaRaisingPass : IIrPass
         {
             ReturnsVoid = returnsVoid,
             ParameterRefKinds = hasByRefParameter ? creation.Method.ParameterRefKinds : [],
+            SynthesizedLocalNames = body.SynthesizedLocalNames,
+            CapturedBinderNames = capturedBinderNames.IsDefault ? [] : capturedBinderNames,
         };
         lambda.InheritSourceOffset(provenance);
         return new RaisedLambda(lambda, body);

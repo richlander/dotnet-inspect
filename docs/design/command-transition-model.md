@@ -6,16 +6,41 @@
   `member`;
 - operation-first commands such as `diff`.
 
-That split is useful, but only if transitions between commands follow an
-explicit model. A user should be able to predict whether a new gesture changes
-the subject, the observation, the operation, the lens, or only the rendering.
+That is the current grammar, not a requirement to put every distinct operation
+at the root. A user should be able to predict whether a new gesture changes
+the subject, observation, operation, lens, or only the rendering.
 
 The governing rule is:
 
-> One transition should change one axis. Change commands when the independently
-> navigable subject domain or operation arity changes; use selectors for points
-> within an established domain, and options or sections for context,
-> observations, lenses, and projection.
+> One transition should change one axis. Subject commands name independently
+> navigable domains; their selectors identify subjects. Distinct operations
+> are explicit and may be subcommands under that subject. A change in arity
+> requires a distinct request and outcome contract, not inherently another
+> top-level command. Options and sections select context, observations,
+> traversal, and projection without silently changing the subject.
+
+The proposed [subject-owned Diff](#subject-owned-diff) adoption is tracked by
+[#7046](https://github.com/richlander/dotnet-inspect/issues/7046), under
+[Compare delivery #5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+This document owns its command placement and completed-host-adoption boundary.
+It supersedes the top-level placement proposed in #6988; the
+[History owner](diff-history.md) retains temporal and population-count
+semantics, not CLI placement. The user also explicitly approved full shared
+envelopes, complete Browser delivery, and public CLI `--envelope` output as
+part of this adoption.
+
+The host-observable Result, Document, and owner-specific Outcome contract
+proposed in
+[#7055](https://github.com/richlander/dotnet-inspect/pull/7055)
+owns the names and semantic extents carried as `TContent`. This adoption
+consumes that contract; it does not define a competing Diff-specific content
+taxonomy.
+
+This is **specification only**. Existing top-level `diff` and `timeline` remain
+current until the cutover. Current examples elsewhere in this document are
+pre-cutover evidence; the target grammar is isolated below. Other root
+operations such as `match`, `find`, `depends`, and `graph` are not relocated
+by this adoption.
 
 Related docs:
 
@@ -32,13 +57,13 @@ Related docs:
 | Axis | Question | Examples | CLI shape |
 | --- | --- | --- | --- |
 | Source context | Where is the subject acquired from? | package, platform, local library, restored project, TFM | Named options such as `--package`, `--platform`, `--library`, `--project`, `--tfm` |
-| Focus / zoom | What structural subject is being addressed? | package artifact, library, type, member | Noun-first inspection command or an explicit focus selector on an operation-first command |
+| Focus / zoom | What structural subject is being addressed? | package artifact, library, type, member | Subject command and selector, or an existing operation-first command's focus selector |
 | Point selector / coordinate | Which exact instance or point is selected within that structural scope? | overload, MethodDef token, IL offset | Positional/named selector whose identity is complete within the current scope |
 | Observation / census | Which identities or facts are measured under that focus? | subject presence, child-member census, allocation sites, call sites | Section or producer descriptor such as `--finding` |
-| Operation / arity | What is being done, and across how many addresses? | inspect one cell, compare two cells, correlate N cells | Top-level operation when the acquisition lifecycle and outcome shape change |
+| Operation / arity | What is being done, and across how many addresses? | inspect one cell, compare two cells, correlate N cells | Explicit operation, at root or under its subject, and admitted modes; separate lifecycle and outcomes do not require root placement |
 | Lens / representation | Which view of the same subject and operation is wanted? | API, analysis, implementation, source, IL, versions | `-S` or focused mode options |
 | Traversal policy | Which addresses are evaluated, and in what order? | `--at`, endpoints, caller-directed probes, next-probe recommendation | Operation-owned options; never implicit payload acquisition |
-| Projection / rendering | How is the same result shaped for output? | fields, columns, count, URLs, printable payload, table, Markdown, JSON | Shape reducers, projectors, and writer options |
+| Projection / rendering | How is the same content shaped for output? | fields, columns, count, URLs, printable payload, table, Markdown, JSON | Shape reducers, projectors, and writer options |
 
 Source context is not focus. In:
 
@@ -119,16 +144,18 @@ A command transition is justified when either of these changes:
    `library --il-offset`, however, remains an option when the selector is
    complete within the established library scope and does not need an
    independent command surface.
-2. **Operation arity:** the acquisition topology and outcome envelope change.
+2. **Operation arity:** the acquisition topology and Outcome content change.
    Unary inspection, pairwise comparison, and N-address correlation have
-   different failure semantics, backpressure, and result shapes.
+   different failure semantics, backpressure, and content kinds. An explicit
+   subject-owned operation or mode can express that transition without moving
+   the operation to the root.
 
 Keep the current command when only an observation producer, lens, section,
 traversal choice, or output projection changes. A type-presence census and a
 type-scoped member census can both participate in `diff --type T`;
 `member -S IL` does not become an `il` command because it is the same member
 under another representation. `--json` does not become a command; it is another
-writer over the same result.
+writer over the same content.
 
 An execution lifecycle is different when at least one of these is true:
 
@@ -156,7 +183,8 @@ These commands are ergonomic spellings of the conceptual unary operation
 `inspect(package|type|member)`. There is no need to add a literal `inspect`
 command until it enables a concrete composition benefit.
 
-Multi-address operations are operation-first:
+Current multi-address operations are operation-first. Before the proposed
+subject-owned Diff cutover:
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@8.0.0..9.0.0 \
@@ -165,14 +193,207 @@ dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 \
   --type System.Text.Json.JsonSerializer --finding api.member --at all
 ```
 
-`timeline` belongs beside `diff`, not behind `type --timeline` or a
-`Timeline` section. It changes arity, acquisition, failure topology, and the
-top-level result from a subject document to an ordered history.
+The current `timeline` command changes arity, acquisition, failure topology,
+and the content from a subject Document to an ordered History Document.
+Subject-owned Diff preserves those distinctions as an explicit operation and
+mode, not a `History` output section. Its native temporal evidence remains
+owned by [Diff History inspection](diff-history.md).
 
-Operation-first commands carry source and focus as explicit selectors. Existing
-positional source shorthands, such as `diff Package@A..B`, may remain compatible,
-but documentation and new cross-operation examples should prefer the named form
-so the source/focus/operation axes stay visible.
+## Subject-owned Diff
+
+### Claim and scope
+
+The user-approved target is:
+
+> A subject-owned Diff request names what is compared before naming its
+> source. Each admitted operation consumes its owner's shared query and
+> delivers one complete `InspectionEnvelope<TContent>` to either host.
+> Placement does not change subject identity, comparison meaning, or content
+> merely to fit a command name.
+
+This section owns the CLI subject/operation mapping and its adoption boundary.
+It consumes, rather than redefines, the existing comparison, History,
+population-range, Count, envelope, and source contracts. Browser controls,
+navigation, state, and transport mechanics remain with their focused owners.
+CLI envelope framing and output-option interaction remain with #6719 and
+[output shapes](output-shapes.md).
+
+`package query` and `package changes` are existing subject-owned operation
+precedents. The Browser's
+[Compare experience](inspect-web-compare-experience.md) already scopes Diff
+to Library, Type, and Member. These are evidence for consistent placement, not
+donors of a universal query or comparison algorithm.
+
+### Subject and source are different
+
+| Subject surface | Meaning and initial boundary |
+| --- | --- |
+| `library diff` | Existing Library/API, admitted Analysis/Implementation, and filtered Library comparison work. Package and Platform options supply sources, not a different subject. |
+| `type diff <Type>` | Comparison of an exact Type, including its owned members; admitted Type History uses the existing Finding domain. |
+| `member diff <Type> <Member>` | Comparison of an exact Member's declaration or admitted body/Findings; admitted Member History retains that domain's focus requirements. |
+| `package P@A..B --count` | Metadata-only version-population reduction, not a Diff operation or package payload inspection. |
+| Future `package diff` | Must compare genuine package facts such as metadata, assets, or dependencies. This adoption does not invent that content or advertise an unsupported command. |
+
+Likewise, this does not add placeholder Project, Workspace, or every-other-
+subject Diff commands. A subject exposes Diff only when its comparison
+meaning, shared content, and supported modes are defined.
+
+Current `diff --package P@A..B` commonly compares Libraries acquired from
+packages. It therefore maps to `library diff`, not automatically `package
+diff`. Multiple Libraries must retain their owner-issued population and
+correspondence rather than being collapsed into one invented Library.
+Type and Member filters on a Library comparison remain filters; they do not
+become exact subject identities merely because one row survives.
+
+Subject-specific selectors keep their established grammar after the `diff`
+subcommand. Ambiguity is handled by the subject owner; legitimate absence at
+one endpoint remains comparison evidence. Source, TFM, visibility, and
+producer semantics retain their owners. No cross-source or cross-subject
+comparison capability is created by relocating the command.
+
+### Target requests
+
+These are proposed examples, not currently executable new syntax:
+
+```bash
+# Compare Libraries acquired from two package versions
+dotnet-inspect library diff --package System.Text.Json@9.0.0..10.0.0 \
+  --endpoints --envelope
+
+# Evaluate the selected Type across the version population
+dotnet-inspect type diff Markout.MarkoutWriterOptions \
+  --package Markout@0.33.0..0.35.2 --history --at all --envelope
+
+# Count versions without acquiring inspection payloads
+dotnet-inspect package Markout@0.33.0..0.35.2 --count --envelope
+```
+
+Source ranges consumed by subject Diff require `--endpoints` or an admitted
+`--history`; the selectors are mutually exclusive and neither is the default.
+Count on a source-range Diff request reduces its selected comparison or History
+rows and does not choose the missing mode. Only the Package version-population
+request uses Count alone as its consumer. `--envelope` selects output, not an
+operation.
+
+The [population-range rule](population-range-selection.md) is unchanged:
+creating a population needs a consumer; filtering declared rows does not
+need another. A `--rows` range cannot supply a missing source-range consumer.
+History still requires explicit `--at` for payload evaluation; an admitted
+History request without it discovers only.
+
+Initial History remains package-scoped Type/Member Findings. Library-wide,
+Platform, and local multi-version History remain unsupported. Existing
+non-range local Library pairs move under `library diff` without changing
+their pairwise argument meaning. The separately recorded single endpoint plus
+duration remains a future population-construction example, not a new flag.
+
+### Envelope-complete adoption
+
+`InspectionEnvelope<TContent>` already exists, and
+`LibraryApiDiffInspection.Execute` already returns
+`InspectionEnvelope<LibraryApiDiffOutcome>`. Its available case carries one
+`LibraryApiDiffDocument`, retaining endpoint summaries, the existing
+`ComparisonDocument<LibraryApiTypeDiff>`, verdicts, and evidence. Unavailable
+and rejected execution retain their typed cases. The
+[Library content adoption](library-api-diff-presentation.md#content-kind-adoption-in-both-hosts)
+settles those semantic extents without completing public CLI envelope output
+or full Browser baseline delivery.
+
+Reuse that terminal and complete missing terminals and host delivery; do not
+add another envelope, universal Diff content type, or host-specific semantic copy.
+
+The [envelope owner](inspection-envelope.md) requires one owner-issued Content
+value, required Share, and ordered typed diagnostics at the completed shared
+boundary. A subject projection is constructed by its content owner before
+that boundary. CLI and Browser requests with equal semantic plans receive
+equal baselines, including typed unavailable/rejected/partial outcomes.
+Hosts can render less information, but cannot discard it from the delivered
+baseline or move semantic failure into an empty value.
+
+Every adopted CLI leaf must consume that envelope internally and support the
+public `--envelope` projection tracked by
+[#6719](https://github.com/richlander/dotnet-inspect/issues/6719). It serializes
+the already constructed baseline without another inspection, Share projection,
+or host enrichment. The
+[CLI output boundary](output-shapes.md#content-shapes-and-service-envelopes)
+distinguishes content-layer shapes and `--json` from service-layer
+`--envelope`. Adopted leaves must satisfy its unprojected content-JSON
+equivalence and explicit machine-schema migration requirements; retaining a
+different legacy JSON view is not complete adoption. Other content rendering
+remains separate from service passthrough.
+Framing, schema/version, content-kind and owner-specific Outcome
+discrimination, serializer registration, option conflicts, output-stream
+handling, and serialization failures are settled by the CLI transport owner,
+not invented by each subject command.
+
+Browser adoption preserves Content, Share, and diagnostic identity/order in
+one identifiable received baseline. It may compose UI state and additional
+owner-issued content outside that envelope. An existing DTO that drops parts
+of the baseline is not complete adoption simply because the current view
+does not render them. Existing transport bounds and visible rejection remain
+in force; completeness is not permission to exceed them.
+
+Markout remains the default lowering for typed CLI content and Count.
+Structured content survives to the rendering boundary; envelope output uses
+the transport owner's typed serialization. Browser rendering remains a
+host-specific projection of the same baseline under its existing UI owner.
+
+### Cutover and production path
+
+This is an intentional CLI change, not a compatibility layer. The production
+cutover removes top-level `diff` and `timeline` and their argument rewriting;
+it does not retain forwarding aliases, hidden routes, or a legacy execution
+fallback. Obsolete-input handling must prevent silent package routing, while
+legitimate subject identifiers remain addressable through established named
+source/selector forms.
+Classify the route removals and explicit source-range consumer requirement as
+**intentionally breaking** under
+[CLI change classification](cli-change-classification.md).
+
+Before removal, map every existing API, multi-Library, Type/Member-filtered,
+Analysis, Implementation, and Finding Transitions route to an admitted subject
+leaf and owner-issued Result, Document, or Outcome. Preserve supported outcomes
+and explicit cost gates. Missing replacement coverage blocks the cutover; it is
+not silently reclassified as an unsupported command. Any deliberate capability
+retirement beyond the approved command/default removals requires a separate
+decision.
+
+Update help, discovery, completion, replay/probe generation, README, shipped
+skills, and active examples with the executable cutover. Do not change current
+product guidance in this specification PR. `package query`, `package changes`,
+and other non-Diff operations retain their behavior.
+
+1. Lock this placement and envelope-adoption specification.
+2. Complete the owner-specific shared enveloped comparison, History, and
+   population-count terminals, reusing already completed Library work.
+3. Implement the supported public CLI envelope transport through #6719,
+   including its owned output contract and more than one content kind.
+4. Adopt subject CLI routes and Package version counts with that transport;
+   atomically retire the old Diff/Timeline routes and update guidance.
+5. Adopt the same complete envelopes in Browser Compare and population-count
+   consumers through their existing owners.
+
+Total steps: **5**. Steps 2 and 3 may progress independently where existing
+enveloped operations provide transport evidence. Step 4 needs both; step 5
+needs the relevant shared content, not the CLI option. Delivery is not complete
+until both hosts consume the complete baseline. This deliberately supersedes
+the earlier decision to defer public envelope output for this migration;
+already-shipped Compare work and unrelated Call Graph/canvas work are not
+blocked by the plan.
+
+The real cases are Library Diff for `System.Text.Json@9.0.0..10.0.0`, Type
+History for `Markout.MarkoutWriterOptions` in `Markout@0.33.0..0.35.2`, and
+version counts for that same range. Implementation gates must cover unchanged
+endpoint content under the new placement, non-range local pairs, explicit
+mode/count units, sparse and failed History, retired-input rejection without
+misrouting valid identifiers, and absence of duplicate execution for output.
+They must compare complete cross-host envelopes and round-trip available and
+owner-issued non-success content, both Share arms, and ordered typed
+diagnostics through public CLI and Browser transports.
+
+These new Release gates are **unverified** in this specification-only change.
+Existing envelope and Library Diff evidence is a baseline, not proof that
+the new commands or complete host migration are implemented.
 
 ## A version range is an address space
 
@@ -208,17 +429,35 @@ many primary subject payloads may be acquired. Output shape controls how
 already-selected data is projected or reduced. These cardinalities are
 independent.
 
-`--versions` selects a version **Vector** while retaining package focus. For a
-range, resolving that Vector uses registry/cache metadata and acquires zero
-package payloads. Once selected, the normal output-shape rules apply:
+The result-limit gestures in this section describe historical
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target
+behavior, not a released or implementation-ready contract. [Item and line
+limits](item-and-line-limits.md) records the replacement composition and
+focused-owner gaps; it defines no product syntax, behavior, or gates.
+
+`--versions` selects a version **Vector** while retaining package focus. A bare
+package's Vector is newest-first. A `Package@A..B` Vector instead preserves the
+caller's endpoint direction, so `A` is row 1, `B` is the last row, and
+`--at #N|first|last` and result windows address that same order. Resolving
+either Vector uses registry/cache metadata and acquires zero package payloads.
+The merged metadata provider is ascending and therefore oldest-first.
+Both literal range endpoints must be found before any range result is returned;
+an item limit cannot turn a missing far endpoint into a valid prefix.
+Thereafter, selection may stop early only when provider order can determine the
+requested declared rows; a reversed declared order must be materialized through
+the applicable endpoint before selection. Once selected, the normal
+output-shape rules apply:
 
 | Gesture | Shape effect | Acquisition effect |
 | --- | --- | --- |
 | `--versions` | Select the version Vector. | Resolve version metadata; acquire zero package payloads. |
 | `--count` | Reduce the selected Vector to a Scalar count. | None. Count the bounded, prerelease-filtered addresses already selected. |
 | `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
-| `--print` | Resolve a printable payload already referenced by one selected row. | May fetch that declared payload at the same evaluated address; must not add or evaluate another source address. |
-| `-n N` / `--tail` | Clip rendered output lines after projection. | None. They do not select printable rows or limit payload fetches. |
+| `-n N` | Select the first N rows in declared Vector order. | May stop only when provider order delivers that declared prefix; bare newest-first input must exhaust before choosing rows. |
+| `-n N --tail` | Select the last N rows in declared Vector order. | May stop only when provider order delivers that declared suffix first; bare newest-first input may stop after N matching oldest rows. |
+| `--rows N..M` | Select an absolute range of stable declared-order version rows. | May stop only when provider order can assign those declared addresses without unseen rows. |
+| `--print` | Reject: the version row set declares no printable capability. | None. Reject during preflight without evaluating or acquiring a package payload. |
+| `-n N --lines` | Clip the rendered version report to its first N lines. | None. A line window does not bound version-metadata enumeration. |
 
 Shape reducers do not revise operation arity. In particular:
 
@@ -227,24 +466,18 @@ Shape reducers do not revise operation arity. In particular:
   payloads";
 - `--urls` may expose registry URLs if version rows gain such a field, but it
   must not download package contents to manufacture them;
-- `--print` is exactly-one, not implicit-first: one printable row prints
-  directly, multiple printable rows require `--row N|first|last`, and zero
-  printable rows reject. There is no fan-out gesture, so a single `--print`
-  authorizes at most one declared payload fetch;
-- `-n N` and `--tail` run after print selection and fetching, so
-  `--print -n 1` does not select the first printable row;
-- `--rows N`, `--rows N --tail`, and `--rows N..M` are table-row rendering
-  windows and remain incompatible with `--print`;
-  `--row N|first|last` selects exactly one printable row;
-- a plain version string has no printable document. `--print`
-  must report that the selected shape is not printable rather than silently
-  transition from version-address rows to package artifact inspection. The
-  explicit transition remains `package Package@version`.
+- a version row set declares no printable capability, so `--print` rejects it
+  once during preflight rather than producing one failure per version. It must
+  not silently transition from version-address rows to package artifact
+  inspection. The explicit transition remains `package Package@version`.
 
-The same rule applies to `timeline`. `--count` can reduce an already
-assembled Timeline table; it cannot probe additional cells. `--print` can print
-only payloads already carried or explicitly referenced by evaluated rows; it
-cannot turn unevaluated rows into implicit acquisition.
+The same rule applies to `timeline`. `--count` can reduce an already assembled
+Timeline table and cannot probe additional cells; semantic item/range
+composition follows
+[Section-row shaping](section-row-shaping.md#count-semantics), while final CLI
+conflicts remain L3-owned. `--print` can print only payloads already carried or
+explicitly referenced by evaluated rows; it cannot turn unevaluated rows into
+implicit acquisition.
 
 The current package `--versions` path is implemented as a specialized early-exit
 list writer, so some shared reducers and projectors are not yet honored
@@ -356,30 +589,272 @@ a type-focused collection census.
 
 ### Operation / arity
 
+The current command split is:
+
 ```text
 inspect -> diff -> timeline
+```
+
+The approved target retains the subject while selecting the operation:
+
+```text
+library -> library diff --endpoints
+type    -> type diff (--endpoints | --history)
+member  -> member diff (--endpoints | --history)
+package range -> package range --count
 ```
 
 The user keeps the source and structural focus but changes the question:
 
 - inspect: what does the selected observation report at this address?
 - diff: how does the selected observation transition between these addresses?
-- timeline: what is known for the selected observation across this ordered
+- history: what is known for the selected observation across this ordered
   address space?
 
 A workflow may move on any axis, but one command transition should not hide
 multiple changes. For example:
 
 ```text
-diff type presence
-  -> diff type members  observation change, same type focus and operation
-  -> diff member        structural zoom to one member
-  -> timeline member    operation change, same member focus and observation
+type diff presence
+  -> type diff members    observation change, same Type and operation
+  -> member diff          structural zoom to one Member
+  -> member diff history  operation mode change, same Member
 ```
 
 Because the CLI is stateless, source and focus selectors must be repeated when
-changing operations. That repetition is not a reason to conflate the commands;
-it makes the transition explicit and reproducible.
+changing operations. In the target subject-owned Diff family, `--history`
+makes the mode change explicit without conflating endpoint and temporal
+content contracts. The diagram describes axes, not positional argument grammar.
+
+### Selection / discovery
+
+`match` carries a third transition on the same axis: whether the second operand
+is supplied or discovered.
+
+```text
+match A B            pairwise: how do these two methods relate?
+match A --similar    discovery: which methods should I match against A?
+```
+
+Both keep one source and one structural focus. `--similar` changes only the
+arity of the *candidate* side, from one named member to a bounded ranked
+population. It is not a different noun, so it stays under `match` rather than
+becoming a `clone` command that would split one identity-agnostic workflow
+between competing nouns.
+
+The two directions compose, and the transition runs one way:
+
+```text
+match A --similar          discover ranked candidates
+  -> match A B             pairwise relation for one selected candidate
+  -> match A B --body             C#/IL body drill-down for that pair
+```
+
+Discovery ranks; it does not decide. A rank is a selection step, so the output
+must disclose that it establishes no relation, no semantic equivalence, and no
+authorship or copying claim. `--implementation` is rejected in discovery mode:
+it is a pairwise drill-down and must not run for every ranked row.
+
+The disclosure names only the transition that is actually available, and names
+the image that transition must be given. A `--library` argument names exactly
+one image, so the seed and the candidate population coincide in the ordinary
+case: the transition is pairwise `match` against that same library, and the
+printed token is the promise that it will work. The ordinary same-image
+disclosure therefore retains that direct image's exact `--library` address
+rather than printing only a generic instruction
+(`Similar_SameImage_StillNamesThePairwiseTransition`).
+
+They come apart only through type forwarding. When the named library forwards
+the seed's type, the rows that retrieval ranks are defined by the forwarded-to
+image, not by the facade the caller typed. A MethodDef token addresses a row
+only in the image that owns it, so a disclosure that named the facade — or named
+no image at all — would hand back an address the caller cannot resolve. The
+disclosure therefore names the defining image and the exact `--library` value
+that resolves the printed tokens, which keeps the pairwise transition available
+rather than withdrawing it. Comparing candidates drawn from two *different*
+images remains outside this command: Analysis ranks by portable structural
+categories and establishes no cross-reader correspondence, and pairwise `match`
+compares two methods within one retained assembly. That capability is
+issue #5269, a separate effort under its own owner, not a disclosure this
+command may imply it already has. Discovery enforces this rather than relying on
+the shape of the ordinary case: when the seed and the candidate type resolve to
+different images, the run is refused before retrieval, naming both images
+(`Similar_RefusesACandidateTypeDefinedInAnotherImage`). Names are likewise
+projected only from the rows an image defines, so a forwarded type can never
+label a local row with a name from another assembly
+(`Names_DoNotLabelALocalRowWithAForwardedTypesName`).
+When a named seed addresses a forwarded type whose target is unavailable,
+selection reports the retained typed resolver failure and exact target assembly
+identity rather than misclassifying the valid `Type.Member` selector as
+malformed
+(`Similar_UnavailableForwardedSeed_ReportsTheTypedFailureAndTarget`).
+
+The disclosed address must also still exist once the command exits. Package
+extraction and cache paths are implementation details, so naming the extracted
+image can satisfy every rule above while still handing back a path the caller
+cannot replay. A candidate image drawn from a package is therefore disclosed as
+the resolved exact package coordinate, exact package-relative asset, and TFM.
+That includes the ordinary case where the package image is also the image the
+caller named: the original package spelling may float to another version, so it
+cannot be the replay address for a printed MethodDef token. The exact address
+survives package ranges and same-named assets in other TFMs. A caller-supplied
+local `.nupkg` is likewise disclosed by its canonical absolute path from the
+discovery working directory rather than by a relative spelling that another
+directory can reinterpret
+(`Similar_RelativeLocalPackageReplayIsIndependentOfTheNextWorkingDirectory`).
+User-supplied `--source`, `--add-source`, and `--nugetconfig` selectors are part
+of that address because they authorize which cached producer may serve the
+package offline. Explicit config paths are made absolute so the next command
+does not reinterpret them against another working directory. When package
+resolution used the ambient `NuGet.Config` hierarchy, the address also carries
+the absolute discovery directory through `--nugetconfig-directory`; replay
+discovers the same hierarchy rather than a hierarchy rooted at its later
+working directory. This context is captured for every discovery source shape
+that can resolve package dependencies, including a local `.nupkg` and a
+directly named library whose global-cache location supplies package context
+(`Similar_AmbientNuGetConfigReplayRetainsTheDiscoveryDirectory`,
+`Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy`).
+Relative
+local source paths are likewise disclosed as their canonical absolute paths
+from the discovery working directory
+(`ReplaySources_MakesRelativeLocalSourcesIndependentOfTheNextWorkingDirectory`).
+The disclosure names its shell dialect and uses POSIX-shell quoting on Unix or
+PowerShell quoting on Windows; it does not present one dialect as shell-neutral
+(`ShellCommandQuote_UsesTheDeclaredDialect`). A source value that the URL
+diagnostic policy would redact cannot be embedded in an executable disclosure;
+package-backed discovery rejects that transition and directs the caller to put
+the source in `nuget.config` instead of either omitting its authority or
+printing credential-bearing text. When version selection narrows a wider source
+set, a config-only replay remains sufficient only when package source mapping
+already restricts that package to the selected producers; otherwise the
+transition is rejected rather than printing the selected producer's protected
+URL
+(`Similar_ExactPackageReplayRetainsExplicitSourceAuthorityOffline`,
+`ReplaySources_RejectAValueThatDiagnosticsWouldRedact`,
+`ReplaySources_AcceptHarmlessUrlNormalization`,
+`ReplaySources_MakesTheConfigPathIndependentOfTheNextWorkingDirectory`).
+When range or floating resolution selects an exact version, only the sources
+that reported that selected version authorize its replay. The disclosure
+retains that selected producer set, not the wider source set that participated
+in discovery, while preserving the original config path or config-discovery
+directory for matching credentials, aliases, and mapping
+(`Similar_SelectedVersionProducer_ReplayReopensTheSamePayload`,
+`Similar_SelectedVersionReplayRetainsAmbientConfigDirectory`).
+That restriction belongs to the package identity whose version was selected.
+If a tool wrapper redirects acquisition to another package, the wrapper's
+reporting sources do not transfer to the target; replay of the final package
+uses its own package-specific ambient source policy
+(`Similar_RangeToolWrapperReplayUsesFinalPackageSourcePolicy`).
+Every exact replay selector -- package coordinate, library selector, TFM,
+source, additional source, config file, and config-discovery directory -- must
+also survive the output channel's required rendering containment without
+changing spelling. Discovery refuses the transition when containment would
+rewrite any selector, or when a selector contains the delimiter used by the
+disclosure's Markdown code span, rather than emitting a command that names
+another asset or renders as another command
+(`Similar_PackageAssetThatCannotBeDisclosedLosslessly_IsRefused`,
+`Similar_ReplaySourceContainingMarkdownDelimiter_IsRefused`).
+Package-coordinate replay and forwarded dependency discovery use package
+acquisition's same source-authorized, admitted cache selection. Product-owned
+app-cache payloads precede ordered global-package roots, inadmissible payloads
+fall through, and a global payload is eligible only when its retained producer
+is authorized. Cache lookup uses NuGet's case-insensitive package-version
+identity and the cache's canonical lowercase path spelling, so a mixed-case
+prerelease dependency resolves the same retained archive as its exact replay.
+Discovery therefore resolves forwarding against the same physical package
+image that the disclosed exact replay selects; an active `NUGET_PACKAGES`
+override also does not hide a retained target in the default secondary root
+(`ResolveAll_SourcePolicyUsesTheSameAdmittedCachePayloadAsPackageReplay`,
+`ListCachedPackageContent_UsesASecondaryGlobalPackagesRoot`,
+`Similar_PackageForwarderUsesOnlyAnAuthorizedDependencyPayload`,
+`Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy`,
+`Similar_PackageForwardedPopulation_DisclosesTheExactReplayAddress`,
+`Similar_PackageSameImage_DisclosesTheExactReplayAddress`). An image the caller
+supplied directly outlives the command and is disclosed by its canonical path
+(`ReplayableCandidateAddress_ForADirectlyNamedLibrary_KeepsThePathIntact`,
+`ReplayableCandidateAddress_ForAnImageOutsideTheExtraction_KeepsThePathIntact`).
+When a package-backed candidate came from a relative `NUGET_PACKAGES` override,
+the selected global-packages root depends on the discovery working directory
+and cannot be represented by the package replay arguments. Discovery refuses
+that transition and directs the caller to make the override absolute before
+rerunning; it does not print an address that another directory will reinterpret
+(`Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy`).
+When configured global-packages roots contain one another, package context is
+classified against the most-specific containing root and an outer root whose
+relative shape is not a package layout does not end the search. This retains
+the package provenance and source authority required by the disclosed address
+(`ResolveAll_NestedPackageRootsUseTheMostSpecificPackageContext`).
+
+The candidate population follows the disclosure rules rather than the focus
+rules. Type-scoped retrieval is the bounded default and is inferred from the
+seed's declaring type; whole-assembly search changes the cost class and so
+requires an explicit `--assembly-wide`. Both scopes are evaluated in the image
+that defines the seed, so widening the scope can never search strictly less than
+narrowing it did.
+
+Presentation and product limits stay orthogonal: `--top` bounds rendered rows,
+while `--max-results` and `--max-methods` move the product retrieval limits.
+When discovery required `--all` to resolve a non-public seed, the disclosed
+pairwise address retains `--all`; the stateless transition must be able to
+resolve the same seed before it can consume the candidate token
+(`Similar_NonPublicSeedDisclosureRetainsAll`).
+Structured output retains every candidate, per-method outcome, blocker, and
+receipt regardless of `--top`, so a text-shaping flag can never silently discard
+evidence. The per-method outcomes are what make the receipt's aggregate counts
+attributable: a count of skipped methods that names no method is not evidence.
+
+The disclosure follows the rendering rather than the format's convenience.
+Markdown carries it as a paragraph and structured output as a field, but table,
+TSV, and JSONL carry rows without prose, so it is written to stderr. That keeps
+the obligation unconditional without corrupting a parsed stream.
+
+The tabular formats emit exactly one row shape: the ranked candidates. Discovery
+also produces a seed, a scope, a retrieval disposition, a receipt, and blockers,
+and those are not candidate rows. Emitting them as extra tables would give
+`--table`, `--tsv`, and `--jsonl` two or three incompatible schemas in one
+stream, which the output-shape contract forbids. They travel to stderr as notes
+beside the disclosure, so the parsed stream stays single-shaped while the
+context remains visible. Markdown and structured output, which can carry several
+shapes, keep all of it inline.
+
+Discovery prints a metadata token on every ranked row, which is a promise that
+the row is directly addressable by the pairwise transition. Honoring that
+promise means the token grammar belongs to `match`'s shared selector resolution
+rather than to discovery alone; a token that only discovery can read would make
+the printed transition false for overloads and multi-accessor properties.
+
+A MethodDef token is a dense table row index, not an identity, so the promise
+holds only against the image that owns the row. A selector token is therefore
+resolved against the one image named by `--library` and is rejected when that
+image does not define it. Resolving a token against a merged surface — which
+includes forwarded types whose rows live elsewhere — binds it to whichever type
+collides first, which returns a confidently wrong member at exit 0 rather than a
+failure. That is the one outcome this command must never produce, so the row is
+range-checked against the image's MethodDef table before any comparison runs.
+
+A selector's origin is a physical-file identity, so it is canonicalized and then
+compared ordinally. The spelling arrives by two routes — a forwarded type's
+defining image and a resolved type's extraction path — and `./Foo.dll` and its
+absolute path are one file. Canonicalizing reconciles those routes. A token
+selector contributes no third route: it is anchored to the named library by
+construction, so it cannot introduce an origin the caller did not type.
+
+Because `--library` names one image, two origins can differ only by forwarding,
+which the metadata layer resolves to a real defining path. Two case-only
+spellings of one file can no longer reach that comparison at all, so the
+canonicalization rule needs no tie-breaking policy for them. Discovery-only
+options are rejected outright on the pairwise path rather than being silently
+accepted and ignored, and that rejection is raised in the parse layer as well,
+so a caller who supplies one selector and a discovery flag is pointed at
+`--similar` rather than asked for a second selector.
+
+Containment is a property of the structured document, not of its callers. The
+Markout row gate covers views, and a JSON document is not one, so the document
+records contain their own metadata-derived strings. That includes the failure
+document, whose detail is the query layer's own spelling of a missing or
+ambiguous target and can carry a metadata exception's message. JSON escaping is
+not containment: a parser restores the original control character, so an escaped
+bidi override would reach a JSON consumer intact.
 
 ## Timeline and bisect consequences
 
@@ -423,10 +898,16 @@ or operation.
 
 Adding `--member` changes the focus from the type-owned census to one exact
 member. With `--finding api.member`, the correlation selects that member's
-native identity key and reports `Present`, `Missing`, `SubjectAbsent`, and
-`Failed` cells. With `analysis.allocation`, `analysis.call-site`, or
-`analysis.unsafety`, the selected member is the Analysis subject and the
-correlated values are its producer-native occurrence censuses:
+native identity key and currently reports `Present`, `Missing`,
+`SubjectAbsent`, and `Failed` cells. The shared
+[Finding topology](finding-nomenclature.md#inspection-and-comparison-semantics)
+also retains `NoApplicableInput` and narrows `SubjectAbsent` to proven
+exact-subject absence. The current timeline projection renders both typed
+absence kinds as `SubjectAbsent` pending a focused CLI migration. With
+`analysis.allocation`, `analysis.call-site`, or `analysis.unsafety`, the
+selected member is the Analysis subject and the correlated values are its
+producer-native occurrence censuses. The compatibility projection is gated by
+`AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation`:
 
 ```bash
 dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \
@@ -458,10 +939,18 @@ Finding census-correlation semantics:
 
 - `Complete`: the focused census completed, including when it contains zero
   observations;
-- `SubjectAbsent`: the producer has no applicable subject input;
+- `SubjectAbsent`: the current presentation for either typed absence kind;
 - `Failed`: inspection did not complete;
 - `Unevaluated`: the address exists in the resolved vector but was not supplied
   to `FindingCensusCorrelation`.
+
+The shared
+[Finding topology](finding-nomenclature.md#inspection-and-comparison-semantics)
+retains `SubjectAbsent` when the exact subject is proven absent and
+`NoApplicableInput` when the subject exists without input for this producer.
+This command's presentation still collapses both to `SubjectAbsent`; exposing
+the distinction is a focused CLI migration. The current projection is gated by
+`AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation`.
 
 `Unevaluated` is a presentation state formed by joining the version vector with
 the sparse correlation. It is not fabricated as a Finding or inspection

@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "timestampUtc": "2026-09-09T01:49:38.6815033+00:00",
+  "revision": "cf96f4e7be43e905a2bd1908ac1d8f42687cc095",
+  "scenarioId": "decoded-literal-five-packages-v1",
+  "cacheState": "warm",
+  "host": "merritt",
+  "os": "Ubuntu 24.04.4 LTS",
+  "architecture": "X64",
+  "processorCount": 24,
+  "framework": ".NET 11.0.0-rc.1.26425.128",
+  "semanticFingerprint": "68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0",
+  "samples": [
+    {
+      "trial": 1,
+      "elapsedMilliseconds": 669.0017,
+      "cpuMilliseconds": 390,
+      "peakWorkingSetBytes": 121114624,
+      "candidates": 5,
+      "matches": 1,
+      "semanticMisses": 4,
+      "notApplicable": 0,
+      "failures": 0,
+      "httpRequests": 5,
+      "candidatesPerSecond": 7.473822562782725,
+      "semanticFingerprint": "68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0"
+    },
+    {
+      "trial": 2,
+      "elapsedMilliseconds": 837.3201,
+      "cpuMilliseconds": 420,
+      "peakWorkingSetBytes": 121167872,
+      "candidates": 5,
+      "matches": 1,
+      "semanticMisses": 4,
+      "notApplicable": 0,
+      "failures": 0,
+      "httpRequests": 5,
+      "candidatesPerSecond": 5.9714319529651805,
+      "semanticFingerprint": "68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0"
+    },
+    {
+      "trial": 3,
+      "elapsedMilliseconds": 663.4933,
+      "cpuMilliseconds": 400,
+      "peakWorkingSetBytes": 120922112,
+      "candidates": 5,
+      "matches": 1,
+      "semanticMisses": 4,
+      "notApplicable": 0,
+      "failures": 0,
+      "httpRequests": 5,
+      "candidatesPerSecond": 7.535871123340658,
+      "semanticFingerprint": "68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0"
+    },
+    {
+      "trial": 4,
+      "elapsedMilliseconds": 775.9779,
+      "cpuMilliseconds": 400,
+      "peakWorkingSetBytes": 121069568,
+      "candidates": 5,
+      "matches": 1,
+      "semanticMisses": 4,
+      "notApplicable": 0,
+      "failures": 0,
+      "httpRequests": 5,
+      "candidatesPerSecond": 6.443482475467407,
+      "semanticFingerprint": "68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0"
+    },
+    {
+      "trial": 5,
+      "elapsedMilliseconds": 727.5272,
+      "cpuMilliseconds": 409.9999,
+      "peakWorkingSetBytes": 121118720,
+      "candidates": 5,
+      "matches": 1,
+      "semanticMisses": 4,
+      "notApplicable": 0,
+      "failures": 0,
+      "httpRequests": 5,
+      "candidatesPerSecond": 6.872595278911908,
+      "semanticFingerprint": "68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0"
+    }
+  ],
+  "summary": {
+    "elapsedMilliseconds": {
+      "median": 727.5272,
+      "mean": 734.6640399999999,
+      "minimum": 663.4933,
+      "maximum": 837.3201,
+      "p95": 837.3201
+    },
+    "cpuMilliseconds": {
+      "median": 400,
+      "mean": 403.99998,
+      "minimum": 390,
+      "maximum": 420,
+      "p95": 420
+    },
+    "peakWorkingSetBytes": {
+      "median": 121114624,
+      "mean": 121078579.2,
+      "minimum": 120922112,
+      "maximum": 121167872,
+      "p95": 121167872
+    },
+    "httpRequests": {
+      "median": 5,
+      "mean": 5,
+      "minimum": 5,
+      "maximum": 5,
+      "p95": 5
+    },
+    "candidatesPerSecond": {
+      "median": 6.872595278911908,
+      "mean": 6.859440678693576,
+      "minimum": 5.9714319529651805,
+      "maximum": 7.535871123340658,
+      "p95": 7.535871123340658
+    }
+  }
+}

@@ -75,8 +75,9 @@ public sealed record PackageCompileAssetSelection(
     }
 
     /// <summary>
-    /// Finds the implementation counterpart of one selected compile asset. A library asset is
-    /// its own counterpart; a reference asset matches by framework and assembly name.
+    /// Finds the implementation counterpart of one selected compile asset. An exact retained
+    /// library asset is its own counterpart; otherwise correspondence uses the selector-owned
+    /// relative path so a neutral compile asset maps only to its RID-specific replacement.
     /// </summary>
     public PackageCompileAsset? FindImplementationAsset(PackageCompileAsset compileAsset)
     {
@@ -88,13 +89,78 @@ public sealed record PackageCompileAssetSelection(
                 nameof(compileAsset));
         }
 
-        return compileAsset.Kind == PackageCompileAssetKind.Library
-            ? compileAsset
+        PackageCompileAsset? exact =
+            ImplementationAssets.FirstOrDefault(asset =>
+                asset.Id.Equals(compileAsset.Id, StringComparison.Ordinal));
+        if (exact is not null)
+            return exact;
+
+        string? relativePath = TryGetRelativePath(compileAsset);
+        return relativePath is null
+            ? null
             : ImplementationAssets.FirstOrDefault(asset =>
-                asset.AssemblyName.Equals(
-                    compileAsset.AssemblyName,
-                    StringComparison.OrdinalIgnoreCase));
+                TryGetRelativePath(asset)?.Equals(
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase)
+                is true);
     }
+
+    static string? TryGetRelativePath(PackageCompileAsset asset)
+    {
+        string[] segments = asset.Path.Split('/');
+        if (segments.Length >= 3
+            && (segments[0].Equals("ref", StringComparison.OrdinalIgnoreCase)
+                || segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
+            && segments[1].Equals(
+                asset.TargetFramework,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Join('/', segments[2..]);
+        }
+
+        return segments.Length >= 5
+            && segments[0].Equals("runtimes", StringComparison.OrdinalIgnoreCase)
+            && segments[2].Equals("lib", StringComparison.OrdinalIgnoreCase)
+            && segments[3].Equals(
+                asset.TargetFramework,
+                StringComparison.OrdinalIgnoreCase)
+                ? string.Join('/', segments[4..])
+                : null;
+    }
+}
+
+/// <summary>
+/// Resource-free evidence binding one compile asset-selection outcome to the
+/// content generation and exact request that produced it.
+/// </summary>
+public sealed class PackageCompileAssetSelectionReceipt
+{
+    internal PackageCompileAssetSelectionReceipt(
+        PackageContentGenerationIdentity generation,
+        string packageId,
+        string? requestedTargetFramework,
+        string? requestedRuntimeIdentifier,
+        PackageCompileAssetSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(packageId);
+        ArgumentNullException.ThrowIfNull(selection);
+        Generation = generation;
+        PackageId = packageId;
+        RequestedTargetFramework = requestedTargetFramework;
+        RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
+        Selection = selection;
+    }
+
+    public PackageContentGenerationIdentity Generation { get; }
+
+    public string PackageId { get; }
+
+    public string? RequestedTargetFramework { get; }
+
+    public string? RequestedRuntimeIdentifier { get; }
+
+    public PackageCompileAssetSelection Selection { get; }
 }
 
 /// <summary>
@@ -111,7 +177,65 @@ public static class PackageCompileAssetSelector
     public static PackageCompileAssetSelection Select(
         IPackageContent content,
         string packageId,
-        string? targetFramework = null)
+        string? targetFramework = null,
+        string? runtimeIdentifier = null) =>
+        Evaluate(
+            content,
+            packageId,
+            targetFramework,
+            runtimeIdentifier).Selection;
+
+    /// <summary>
+    /// Selects compile roles for an already-selected compatible implementation
+    /// universe while reducing explicit empty reference groups against the
+    /// original requested framework.
+    /// </summary>
+    public static PackageCompileAssetSelection SelectForCompatibleImplementation(
+        IPackageContent content,
+        string packageId,
+        string requestedTargetFramework,
+        string implementationTargetFramework,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetFramework);
+        ArgumentException.ThrowIfNullOrWhiteSpace(implementationTargetFramework);
+        return SelectCore(
+            content,
+            packageId,
+            implementationTargetFramework,
+            runtimeIdentifier,
+            requestedTargetFramework);
+    }
+
+    /// <summary>
+    /// Selects compile assets and retains the exact invocation correspondence
+    /// without retaining package content.
+    /// </summary>
+    public static PackageCompileAssetSelectionReceipt Evaluate(
+        IPackageContent content,
+        string packageId,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return new PackageCompileAssetSelectionReceipt(
+            content.GenerationIdentity,
+            packageId,
+            targetFramework,
+            runtimeIdentifier,
+            SelectCore(
+                content,
+                packageId,
+                targetFramework,
+                runtimeIdentifier));
+    }
+
+    private static PackageCompileAssetSelection SelectCore(
+        IPackageContent content,
+        string packageId,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null,
+        string? emptyGroupTargetFramework = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -157,12 +281,25 @@ public static class PackageCompileAssetSelector
                     TfmResolver.GetTfmPriority(framework.ToLowerInvariant()))
                 .ThenBy(framework => framework, StringComparer.OrdinalIgnoreCase),
         ];
-        string? selectedFramework = string.IsNullOrWhiteSpace(targetFramework)
-            ? frameworks[0]
-            : frameworks.FirstOrDefault(
+        string? selectedFramework;
+        if (string.IsNullOrWhiteSpace(targetFramework))
+        {
+            selectedFramework = frameworks[0];
+        }
+        else
+        {
+            selectedFramework = frameworks.FirstOrDefault(
                 framework => framework.Equals(
                     targetFramework,
                     StringComparison.OrdinalIgnoreCase));
+            if (selectedFramework is null
+                && emptyReferenceGroups.Contains(
+                    targetFramework,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                selectedFramework = targetFramework;
+            }
+        }
         if (selectedFramework is null)
         {
             return new PackageCompileAssetSelection(
@@ -182,8 +319,21 @@ public static class PackageCompileAssetSelector
                     selectedFramework,
                     StringComparison.OrdinalIgnoreCase)),
         ];
+        string compileTargetFramework =
+            emptyGroupTargetFramework ?? selectedFramework;
+        PackageCompileAsset[] referenceAssets =
+        [
+            .. discovered.Where(
+                asset => asset.Kind == PackageCompileAssetKind.Reference
+                    && asset.TargetFramework.Equals(
+                        compileTargetFramework,
+                        StringComparison.OrdinalIgnoreCase)),
+        ];
         PackageAssetSelection implementationSelection =
-            PackageAssetSelector.Select(content, selectedFramework);
+            PackageAssetSelector.Select(
+                content,
+                selectedFramework,
+                runtimeIdentifier);
         if (implementationSelection
             is PackageAssetSelection.Ambiguous ambiguous)
         {
@@ -226,11 +376,13 @@ public static class PackageCompileAssetSelector
 
         // An explicit empty compile group is a statement, not an absence: NuGet's nearest-group
         // rule picks the closest compatible ref group, and when that group is `_._` the package
-        // contributes no compile-time assembly for the selected framework. Falling back to lib/
-        // there would compile against assets the package deliberately withheld. A real ref group
-        // at the selected framework is nearer than any compatible empty group, so it still wins.
-        if (!frameworkAssets.Any(asset => asset.Kind == PackageCompileAssetKind.Reference)
-            && NearestCompatibleEmptyGroup(emptyReferenceGroups, selectedFramework) is not null)
+        // contributes no compile-time assembly for the request. Falling back to lib/ there would
+        // compile against assets the package deliberately withheld. Compatible implementation
+        // selection still reduces empty groups against the original requested framework.
+        if (referenceAssets.Length == 0
+            && NearestCompatibleEmptyGroup(
+                emptyReferenceGroups,
+                compileTargetFramework) is not null)
         {
             return new PackageCompileAssetSelection(
                 PackageCompileAssetSelectionStatus.EmptyCompileGroup,
@@ -242,14 +394,20 @@ public static class PackageCompileAssetSelector
                 implementationAssets);
         }
 
-        bool hasReferenceAssets = frameworkAssets.Any(
-            asset => asset.Kind == PackageCompileAssetKind.Reference);
+        PackageCompileAsset[] libraryFallback =
+        [
+            .. frameworkAssets
+                .Where(asset => asset.Kind == PackageCompileAssetKind.Library)
+                .Select(asset =>
+                    implementationAssets.FirstOrDefault(candidate =>
+                        candidate.Id.Equals(asset.Id, StringComparison.Ordinal))
+                    ?? asset),
+        ];
         PackageCompileAsset[] selected =
         [
-            .. (hasReferenceAssets
-                    ? frameworkAssets.Where(
-                        asset => asset.Kind == PackageCompileAssetKind.Reference)
-                    : implementationAssets)
+            .. (referenceAssets.Length > 0
+                    ? referenceAssets
+                    : libraryFallback)
                 .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(asset => asset.Path, StringComparer.Ordinal),
         ];

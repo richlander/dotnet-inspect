@@ -206,7 +206,12 @@ internal static class GenericDeclarationPatternProof
     public static bool SameTestedValue(IrExpression a, IrExpression b) => (a, b) switch
     {
         (LoadLocal x, LoadLocal y) => x.Index == y.Index && x.Type.Equals(y.Type),
-        (LoadArgument x, LoadArgument y) => x.Index == y.Index && x.Type.Equals(y.Type),
+        (LoadArgument x, LoadArgument y) => PlaceIdentity.SameArgument(
+                x.Index,
+                x.Parameter,
+                y.Index,
+                y.Parameter)
+            && x.Type.Equals(y.Type),
         (Constant x, Constant y) => Equals(x.Value, y.Value) && x.Type.Equals(y.Type),
         (Box x, Box y) => x.Type.Equals(y.Type) && SameTestedValue(x.Operand, y.Operand),
         _ => false,

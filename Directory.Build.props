@@ -13,6 +13,18 @@
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == '' and '$(OfficialBuild)' == 'true' and '$(PublishAot)' == 'false'">net10.0</DefaultTargetFramework>
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net$(NETCoreAppMaximumVersion)</DefaultTargetFramework>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!--
+      Vulnerability advisories change independently of the source, so ordinary
+      builds do not audit. nuget-audit-scheduled.yml opts in with the global
+      NuGetAudit=true property and fails separately from PR/release builds.
+      Audit all transitive packages at every severity, including targets below
+      net10.0 where the SDK otherwise defaults to direct dependencies only.
+      See docs/dev-environment.md#build-warnings-and-dependency-auditing.
+    -->
+    <NuGetAudit>false</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
     <!--
       Only tools are packable or publishable, and those are project properties
       rather than consequences of whichever SDK command was run (issue #3330).

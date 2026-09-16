@@ -438,7 +438,7 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    iterator yields) — neutral on common sinks, correcting
    previously-unfaithful casts at call-argument sinks. The insertion domain is
    deliberately "sinks whose printer rendering is provably CoerceText with the
-   same target"; everything else is an enumerated residual for the burn-down:
+   same target"; everything else is an enumerated residual docket:
    slot-carried values (the unifier owns their type until instance 2), lambda
    returns (delegate `Invoke` signature not yet resolved), merge-node values
    (CoerceText's own targeted branches render them, statement-position
@@ -488,21 +488,283 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    coercion insertion, which discharges the minted loads' sink obligations
    like any local's. What stays on the print-time unifier is the counted
    residual: ambiguous testimony, cross-family (true disjoint ranges),
-   element-store identity recovery (the #1751 char class — the printer
-   re-types those slots, which a materialized local would foreclose), incomplete
-   slot-copy components, and nested `Lambda`/`LocalFunctionStatement` scopes
-   (blocked on the inner printer threading outer taken names — #2275). Direct
-   slot-copy components now materialize atomically when every member clears the
-   same type, scope, and rendering gates; otherwise every member stays
-   printer-owned. `MaterializesCompleteDirectCopyComponent` and
+   unproven element-store identity recovery, incomplete
+   slot-copy components, and nested `Lambda`/`LocalFunctionStatement` scopes.
+   The nested-name prerequisite #2275 landed in #2356. Lambda and local-function
+   raising complete the default pipeline, including materialization, on
+   imported bodies before embedding them. For a capturing lambda whose captures
+   are outer argument/`this` reads and whose imported body contains no further
+   lambda or local-function scope, capture substitution precedes the final
+   slots-only inlining and storage-finalization tail. This lets the existing
+   effect, single-use, type-witness, and evaluation-order rules see the recovered
+   argument reads rather than potentially throwing environment-field reads.
+   It does not inline user locals, invent a second inliner, or simplify in the
+   printer. Outer-local captures and further nested bodies retain their prior
+   finalization order so foreign local pools do not enter this opportunity.
+   The motivating witness is Newtonsoft.Json 13.0.4,
+   `JsonContract.CreateSerializationCallback`: its captured `MethodInfo` receiver
+   becomes an argument read, allowing the single-use `object[]` spill to return
+   to the invocation argument. `CapturingLambdaStorageFinalizationTests` gates
+   the compiler-produced positive and the retained ordering/storage boundaries.
+   The same existing live-range rules can remove a pure captured-argument alias
+   across an intervening call, as in `GenericContext.ForMethod` from
+   dotnet-inspect.any 0.14.0; the captured-reader fixture preserves that neighbor.
+   `CapturingLambdaCoupledBodyTests` compiles the unchanged product-issued RTS
+   artifact and compares both the factory and its actual `ldftn` target with the
+   existing IL contract. The compiler-produced callback's factory remains Exact
+   while its generated body improves from OpcodeDiff to Exact; this gate
+   therefore detects a body change that a factory-only comparison misses.
+   This slow test runs in Deep Inspect and as a focused pre-merge gate.
+   Native RTS for the pinned Newtonsoft witness cannot currently produce a donor
+   because its reconstructed context is missing `SerializationCallback`; the
+   fixture result is not transferred as a real-witness generated-body verdict.
+   This host-neutral pass is used by the default pipeline in both CLI and
+   Browser/Wasm; no host or rendering changes are required.
+   Late re-materialization of residual
+   nested webs remains deferred; it is not a missing first materialization
+   step. Direct slot-copy components now
+   materialize atomically when every member clears the same type, scope, and
+   rendering gates; otherwise every member stays printer-owned.
+   `MaterializesCompleteDirectCopyComponent` and
    `DefersWholeDirectCopyComponentWhenOneSlotIsUndecided` gate both sides of
-   that boundary. The C2 deletion and the invariant extension follow once the
-   residual census reaches the printer-owned floor.
+   that boundary. `SlotMaterializationPass.Analyze` owns the overlapping veto
+   attribution consumed by `--slot-residual-census`; each decision identifies
+   its exact body scope and slot number, and the census fails unless those
+   identities equal the post-F2 and retained web sets. The former
+   conditional-single-load veto is retired: the late expression-inlining pass
+   has already consumed every conditional store that it can safely move into
+   its sole consumer, while the remaining post-F2 stores render as standalone
+   assignments rather than through a printer-owned consumer fold. Decided
+   in-domain webs in that residual therefore materialize normally; their
+   declaration ordering may change, but no expression moves.
+
+   At materialization, a slot whose stores are all Boolean-valued may recover
+   the Boolean identity of an integer-typed load consumed by a Boolean sink
+   or condition. Every load still testifies: a numeric use conflicts, and an
+   underivable use vetoes recovery. This is identity recovery, not an
+   integer-to-Boolean conversion; mixed Boolean/integer stores retain the
+   existing `BooleanSinkIdentityRecovery` boundary. Earlier raising passes
+   retain their original testimony so materialization does not preempt their
+   constant or control-flow decisions. The printer uses the same Boolean-sink
+   rule for lowered and still-deferred slots instead of maintaining a second
+   sink vocabulary.
+
+   The motivating real witness is Newtonsoft.Json 13.0.4,
+   `DefaultContractResolver.InitializeContract`: the Boolean conditional
+   assigned to `DefaultCreatorNonPublic` retains an integer-typed stack load.
+   `CompilerProducedPropertyConditionalMaterializesBooleanIdentity` preserves
+   that compiler-produced shape, and
+   `CompilerProducedPropertyConditionalRecompilesWithRetainedTemporary`
+   gates binding and the existing retained-temporary compile-back difference;
+   it does not claim exact IL fidelity.
+   `ConflictingBooleanAndNumericUsesRemainPrinterOwned`,
+   `BooleanSinkDoesNotRetypeMixedBooleanAndIntegerStores`, and
+   `IntegerConditionKeepsItsNumericIdentity` gate the nearby decline and
+   non-action boundaries. Direct-copy components remain atomic:
+   `MaterializesBooleanSinkIdentityAcrossDirectCopyComponent` gates the
+   decided case; an undecided member still retains the entire component.
+   The C2 deletion and invariant extension follow once the residual census
+   reaches the printer-owned floor.
+
+   Element-store identity also recovers late: integer-typed loads used as the
+   value of a char or metadata-resolved enum array store may testify to that
+   element type when every producer is a conditional with two representable
+   constant arms. Char recovery shares
+   `CoercionRendering.TryCharConstantValue` with the printer; enum recovery
+   requires resolved backing data and constants within its signed/unsigned
+   range. Stack-family compatibility alone is not a value-preservation proof.
+   The existing slot-coercion gate still rejects unsupported widths. Every
+   observer contributes testimony, and all existing scope, control-flow, and
+   atomic copy-component gates remain. No expression or condition moves.
+   Nonconditional producers, nonconstant arms, out-of-range values, and missing
+   enum backing remain printer-owned. Earlier testimony is unchanged; the
+   general element-target printer fallback remains necessary for lowered and
+   deferred trees.
+
+   Real witnesses are Newtonsoft.Json 13.0.4
+   `DateTimeUtils.WriteDateTimeOffset` (`'+'`/`'-'`),
+   Microsoft.CodeAnalysis 5.0.0 `BitVector.GetDebuggerDisplay` (`'1'`/`'0'`),
+   and the two `ReadParameterRefKinds` implementations in
+   dotnet-inspect.any 0.14.0 (`ArgumentRefKind.Ref`/`Value`).
+   `ElementSlotIdentityTests` gates compiler-produced activation, constant
+   boundaries, competing and underivable observations, all-store agreement,
+   and incomplete copies. Its compile-back gate preserves the existing
+   retained-temporary `OpcodeDiff`, not an exact-IL claim. The existing
+   `CharElementStorePrinterTests` binding gate remains in force.
+
+   Slot identity is the owning body plus its number, not the number alone.
+   A nested web therefore cannot veto an otherwise decided outer web merely
+   by reusing its number. Outer materialization preserves nested node identity,
+   local tables, and residual slots. The shared-versus-isolated local-scope
+   discriminator is an IR fact consumed by local-reference tracking and the
+   printer; its existing behavior is unchanged.
+
+   The measured witnesses are Microsoft.CodeAnalysis 5.0.0
+   `SyntaxDiffer.RecordChange` (`int S_256`) and
+   Microsoft.CodeAnalysis.CSharp 5.0.0
+   `OverloadResolution.BetterConversionTargetCore` (`bool S_256`).
+   `NestedSlotMaterializationTests` preserves the corresponding overloads from
+   the repository's compiler dependency and gates outer activation, retained
+   nested nodes, coercion obligations, and local-slot invariants.
+   `NestedScopeNameCollisionTests` gates binding with and without outer
+   materialization for lambda, local-function, already-materialized nested,
+   and deeply nested naming cases. That scope-identity change did not expand
+   the coercion domain or allocate more nested locals: all 140 nested residual
+   webs in the 14-assembly investigation still failed the existing type-domain
+   gate.
+
+   Exact core-library string and object webs also materialize when every
+   producer already has the testified type. This does not expand the coercion
+   domain or infer reference conversions: an object-typed null cannot testify
+   to string storage, and a string-typed producer cannot testify to object
+   storage. Exact single-dimensional, zero-based arrays use the same admission
+   across element families when their complete array type passes the shared
+   explicit-type spelling gate. The array itself, not merely its element
+   representation, must already have the testified type. Jagged arrays,
+   generic elements, and in-scope generic parameters use that same gate;
+   unsupported constituents, unspellable names, unbound generic shapes, and
+   top-level non-SZ arrays remain deferred. The spelling gate is not a
+   universal binding or generic-constraint proof. Existing explicit casts are
+   preserved; array conversions are not inferred. In particular, covariance
+   does not make `string[]` and `object[]` the same storage type.
+   A covariant consumer may receive an explicitly
+   string-array-typed load without widening its storage identity.
+   Other non-exact producers and reference types remain
+   deferred. Every observer still supplies
+   testimony, and the existing structural-fold, nested-scope, and atomic-copy
+   boundaries remain in force. No value or control-flow edge moves.
+   A reference carrier already recognized by the later swap raiser stays on slots
+   until that raiser consumes it; materialization must not turn an existing
+   tuple swap back into assignments. This reuses the swap owner's matcher and
+   preserves its existing named-local boundary.
+
+   Return-accumulator recovery uses the same IR-owned scope identity: a local
+   in an independent nested pool cannot become an observation of an outer
+   accumulator merely by sharing its number. A nested function's capture of
+   the outer local still prevents that accumulator's elimination.
+
+   Real witnesses include Newtonsoft.Json 13.0.4
+   `JsonValidatingReader.ReadAsString` and Microsoft.CodeAnalysis 5.0.0
+   `PathUtilities.NormalizePathPrefix` and
+   `StringExtensions.GetWithSingleAttributeSuffix`.
+   `StringSlotMaterializationTests` gates exact and sink-derived testimony,
+   typed-null versus object-null producers, nominal string identity,
+   conflicting and underivable observations, atomic copies, structural folds,
+   and corresponding real Roslyn methods in the repository compiler dependency.
+   `CompilerProducedReadAndObserveMaterializesRetainedString` preserves a
+   retained call result across a state-changing call;
+   `CompilerProducedStringFixturesRecompileExactly` gates exact compile-back for
+   the retained result and compiler-produced swap.
+   `CompilerProducedStringSwapRetainsItsPendingCarrier` gates the pending-swap
+   boundary exposed by dotnet-inspect.any 0.14.0
+   `LevenshteinDistance.Compute`. The scope regression witness is
+   System.CommandLine 3.0.0-preview.5.26302.115
+   `HelpBuilder.Default.GetArgumentUsageLabel`;
+   `NestedLocalOwnershipSeparatesIndependentPoolsAndOuterCaptures` gates
+   independent nested pools and retained outer captures.
+
+   Object materialization preserves an already explicit `Box` rather than
+   inventing boxing from an assignable producer. Real witnesses include
+   Newtonsoft.Json 13.0.4 `JsonReader.get_ValueType` and
+   `JsonSerializer.DeserializeInternal`, and Microsoft.CodeAnalysis 5.0.0
+   `ExceptionUtilities.UnexpectedValue`.
+   `ObjectSlotMaterializationTests` gates exact and sink-derived object
+   testimony, preserved null and boxing nodes, every-producer agreement,
+   nominal identity, observer disagreement, atomic copies, pending swaps, and
+   the real Roslyn witness in the repository compiler dependency.
+   `CompilerProducedObjectFixturesRecompileExactly` gates retained call results,
+   retained boxing, and object swaps with independent compile-back.
+
+   Byte-array witnesses include Newtonsoft.Json 13.0.4
+   `JsonValidatingReader.ReadAsBytes` and `TraceJsonReader.ReadAsBytes`, plus
+   Microsoft.CodeAnalysis 5.0.0 `LittleEndianReader.ReadReversed` and
+   `CryptoBlobParser.ReadReversed`.
+   `ByteArraySlotMaterializationTests` gates exact array identity, preserved
+   allocation/initializer/cast nodes, sink-derived testimony, nominal element
+   identity and rank, competing producers and observers, atomic copies, and
+   pending swaps. Its compiler-produced fixtures retain reads and allocations
+   across state changes and preserve initialized/aliased arrays;
+   `CompilerProducedByteArrayFixturesRecompileExactly` checks those cases and
+   array swaps with independent compile-back. Materialization does not change
+   allocation timing, element writes, or the identity shared by array aliases.
+
+   String-array witnesses include Newtonsoft.Json 13.0.4
+   `JsonSchemaBuilder.ResolveReferences` and
+   `BinaryConverter.EnsureReflectionObject`, and Microsoft.CodeAnalysis 5.0.0
+   `PathUtilities.ExpandAbsolutePathWithRelativeParts`.
+   `StringArraySlotMaterializationTests` gates exact producers, preserved
+   allocation/initializer/cast nodes, nominal element identity and rank,
+   unanimous observers, covariant sinks versus non-exact producers, atomic
+   copies, pending swaps, and the corresponding real Roslyn method.
+   `CompilerProducedStringArrayFixturesRecompileExactly` checks retained reads,
+   allocations, initializers, mutation through a covariant alias, covariant
+   returns, and swaps. Array aliases and runtime element-store checks remain
+   unchanged; storage materialization neither moves writes nor narrows values.
+
+   The element-family admission replaces the former Byte/String allow-list,
+   not the exact producer requirement. It consumes
+   `CSharpSpellability.CanSpellSzArrayStorageType`, which shares the existing
+   by-value explicit-parameter type grammar and host-name checks rather than
+   introducing a second type walker. Motivating pinned witnesses include
+   Newtonsoft.Json 13.0.4 `StringUtils.FormatWith`,
+   `DynamicUtils.BinderWrapper.Init`, and `JsonTextReader.ReadStringIntoBuffer`,
+   plus dotnet-inspect.any 0.14.0 `TypeViewContext.get_TypeShapeViewSchema`.
+   `ExactSzArraySlotMaterializationTests` gates element families, whole-array
+   identity, generic scope and constituent-shape boundaries, atomic copies,
+   retained producers, and pending swaps. Compiler-produced retained reads,
+   allocations, covariant aliases, and generic/jagged arrays supply the
+   compile-back fixtures. `SlotMaterializationInvariant` checks each completed
+   rewrite under the existing validation policy; admission and later rendering
+   still need their separate gates. The mixed SZ/rectangular-element fixture
+   has IR coverage but not exact compile-back coverage: unchanged base tools
+   also reverse its array ranks during C# composition
+   ([#7103](https://github.com/richlander/dotnet-inspect/issues/7103)).
+   The neighboring scalar, generic, jagged, pointer, and function-pointer
+   fixtures require exact compile-back.
+
+   `MaterializesSingleStoreConditionalWithSingleRead` and
+   `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate
+   conditional materialization;
+   `MaterializesBooleanIdentityWhenConditionalFeedsBooleanProperty` gates the
+   property setter case. Production adoption is through the shared default
+   raising pipeline used by CLI and Browser/Wasm consumers; no host-specific
+   conversion or naming path is introduced.
+
+### Storage-rewrite validation
+
+Materialization preserves the ordered IR tree while replacing each converted
+outer slot web with one fresh local at its pre-rewrite testified type.
+Every occurrence of that web uses the same local; distinct webs use distinct
+locals, existing local types remain stable, and direct-copy components convert
+atomically. Non-slot nodes, including producers and nested function bodies,
+retain their identities and ordered child structure.
+
+`SlotMaterializationInvariant` checks that contract around completed rewrites
+when the existing `IrInvariants` switch is enabled. It derives correspondence
+from the before/after trees rather than trusting the admission plan or its
+replacement map. `SlotMaterializationInvariantTests` gates accepted compiler
+and real Roslyn cases plus faulty rewrites; its slow CoreLib sweep supplies
+broad activation evidence. Like `ControlFlowModelDifferentialTests`, this is a
+bounded comparison with explicit coverage, not a second optimizer. Tree arity
+and identity suffice here because materialization preserves shape; they would
+not suffice for a restructuring pass.
+
+The check does not prove eligibility, inspect every non-child metadata field,
+certify later inlining or printing, or establish whole-program equivalence.
+Existing admission, coercion, compile-back, and output gates retain those
+separate roles. Production adoption is inside the shared materialization pass,
+including direct, staged, and stepped callers in CLI and Browser/Wasm hosts.
+It inherits the existing validation switch and host policy, adds no new knob,
+and does not check a deliberately interrupted step as a completed rewrite.
+The next admission slices consume this gate before expanding semantic type
+categories; this slice itself changes neither admission nor printer output.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender
-coverage grows, compile-back-affecting slices add its A/B evidence per
-[docs/templates/decompiler-compile-back-harness-pr.md](../templates/decompiler-compile-back-harness-pr.md).
+coverage grows, compile-back-affecting slices add the A/B evidence described in
+[docs/templates/decompiler-compile-back-harness-pr.md](../templates/decompiler-compile-back-harness-pr.md)
+while retaining `decompiler-pr.md` as the PR body whenever product output
+changes.
 
 ## Acceptance and start-trigger
 

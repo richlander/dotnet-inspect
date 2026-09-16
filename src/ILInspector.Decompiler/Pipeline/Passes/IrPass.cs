@@ -450,7 +450,16 @@ public static class IrPasses
         // (stack slot or hidden local); before coercion insertion so the tuple
         // elements are coerced at their sinks like any load (issue #3166).
         new SwapIdiomPass(),
+        // Earlier inlining or await recovery can erase the boundary between an
+        // unsafe operation and an await before the final statement shape exists.
+        // Decline any surviving unsafe-await statement rather than emit await
+        // inside unsafe.
+        new UnsafeAwaitBoundaryPass(),
         new CoercionInsertionPass(),
+        // Parameter metadata is imported before nested bodies are known. Allocate
+        // missing-name fallbacks only after every raise has exposed the final
+        // lexical binder tree, so exact nested names reserve before synthesis.
+        new ParameterNameAllocationPass(),
     ];
 
     /// <summary>
@@ -470,6 +479,15 @@ public static class IrPasses
     public static ImmutableArray<IIrPass> Lowered { get; } =
         [.. Default.Where(p => p is not (ForLoopPass or IncrementDecrementPass or LockSugarPass))];
 
+    // Capture substitution exposes argument reads in place of environment-field
+    // reads. Let the existing final slots-only inliner see those before storage
+    // becomes locals; keep the rest of the emission tail in its normal order.
+    internal static ImmutableArray<IIrPass> CapturingLambdaPreparation { get; } =
+        [.. Default.TakeWhile(p => p is not SlotMaterializationPass).SkipLast(1)];
+
+    internal static ImmutableArray<IIrPass> CapturingLambdaCompletion { get; } =
+        [.. Default.Skip(CapturingLambdaPreparation.Length)];
+
     /// <summary>
     /// The sub-pipeline for cross-method reconstruction imports (async and
     /// iterator <c>MoveNext</c> bodies): <see cref="Default"/> without the
@@ -479,8 +497,8 @@ public static class IrPasses
     /// sub-pipeline breaks the match — and it buys nothing: the transplanted
     /// body re-enters the host pipeline, where materialization runs at its own
     /// position. Running an emission-stage pass inside an earlier pass is the
-    /// ordering inversion the obligations model forbids. Lambda raising keeps
-    /// <see cref="Default"/>: its embedded body IS final output.
+    /// ordering inversion the obligations model forbids. Lambda raising completes
+    /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
         [.. Default.Where(p => p is not (TPass or SlotMaterializationPass))];
@@ -496,7 +514,11 @@ public static class IrPasses
         {
             pass.Run(function, context);
             if (IrInvariants.Enabled)
+            {
                 function.CheckInvariant(IrInvariants.CheckSemantics);
+                if (IrInvariants.CheckSemantics && function.IsMetadataBacked)
+                    function.ValidateArgumentBindings();
+            }
         }
     }
 
@@ -582,9 +604,20 @@ public static class IrPasses
     /// </summary>
     public static Stepper RunWithSteps(
         IrFunction function, int stepLimit, Func<MethodRef, IrFunction?>? importMethodBody)
+        => RunWithSteps(function, stepLimit, importMethodBody, typesProvablyDisjoint: null);
+
+    /// <summary>
+    /// Runs the stepped pipeline with optional cross-method import and
+    /// type-disjointness evidence, as in the metadata-backed staged runner.
+    /// A null oracle preserves the existing conservative declines.
+    /// </summary>
+    public static Stepper RunWithSteps(
+        IrFunction function, int stepLimit, Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint)
     {
         var stepper = new Stepper(enabled: true) { StepLimit = stepLimit };
-        var context = new PassContext(stepper, importMethodBody: importMethodBody);
+        var context = new PassContext(stepper, importMethodBody: importMethodBody,
+            typesProvablyDisjoint: typesProvablyDisjoint);
         try
         {
             foreach (var pass in Default)

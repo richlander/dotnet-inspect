@@ -65,10 +65,13 @@ sections:
 | --- | --- | --- |
 | `--columns` | Column projection | All writers (table, TSV, markdown, JSON) |
 | `-k` / `--kind` | Row filter by member kind | Table sections |
-| `-m` / `--member` | Row filter by member name | Table sections |
-| `-t` / `--type` | Row filter by type name | Type listing sections |
+| `--member` | Row filter by member name | Table sections |
+| `--type` | Row filter by type name | Type listing sections |
 
 These filters work uniformly across all renderers, including JSON.
+The historical #4677 target proposed retiring the short `-m`/`-t` aliases; the
+[item-and-line composition](item-and-line-limits.md) records that focused CLI
+ownership remains pending.
 
 ## 4. Writer Selection
 

@@ -9,16 +9,15 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>A library for SourceLink inspection and source provenance</Description>
+    <Description>SourceLink map interpretation, source correlation, and provenance</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
-    <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\Inspector.Findings\Inspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
-    <ProjectReference Include="..\SourceLinkFetch\SourceLinkFetch.csproj" />
   </ItemGroup>
 
 </Project>

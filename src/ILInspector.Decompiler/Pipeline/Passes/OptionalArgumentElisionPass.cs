@@ -35,7 +35,11 @@ public sealed class OptionalArgumentElisionPass : IIrPass
 
             var detached = call.DetachChildren();
             var kept = detached.Take(detached.Count - drop).Cast<IrExpression>();
-            var replacement = new Call(call.Callee, call.IsVirtual, kept) { ConstrainedTo = call.ConstrainedTo };
+            var replacement = new Call(call.Callee, call.IsVirtual, kept)
+            {
+                ConstrainedTo = call.ConstrainedTo,
+                ExtensionSyntaxConflict = call.ExtensionSyntaxConflict,
+            };
             context.Stepper.StepOver(
                 $"elide {drop} default argument{(drop == 1 ? "" : "s")} of {call.Callee.Name}",
                 call);

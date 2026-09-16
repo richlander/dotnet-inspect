@@ -1,0 +1,333 @@
+name: Propose Inspect Web runtime pin
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: inspect-web-runtime-pin-proposal
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Discover and validate daily cohort
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+      DOTNET_DOTNETUP_DATA_DIR: ${{ github.workspace }}/artifacts/dotnetup-data
+      DOTNET_NOLOGO: true
+      DOTNET_ROOT: ${{ github.workspace }}/artifacts/dotnet-runtime-candidate
+    outputs:
+      update_available: ${{ steps.resolve.outputs.update_available || 'false' }}
+      sdk_version: ${{ steps.resolve.outputs.sdk_version }}
+      sdk_feature_band: ${{ steps.resolve.outputs.sdk_feature_band }}
+      runtime_version: ${{ steps.resolve.outputs.runtime_version }}
+      vmr_commit: ${{ steps.resolve.outputs.vmr_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require main source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Check proposal boundary
+        id: proposal
+        shell: bash
+        run: |
+          set -euo pipefail
+          existing=$(git ls-remote --heads origin \
+            'refs/heads/automation/inspect-web-runtime-pin-*')
+          if [[ -n "$existing" ]]; then
+            echo "blocked=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Inspect Web runtime pin"
+              echo
+              echo "Discovery skipped because a runtime-pin proposal branch is still open."
+              echo
+              echo '```text'
+              printf '%s\n' "$existing"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "blocked=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch authoritative daily metadata
+        if: steps.proposal.outputs.blocked == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=artifacts/runtime-pin-candidate
+          mkdir -p "$evidence"
+          product_commit_url=$(jq -er \
+            '.discovery.productCommitUrl' \
+            inspect-web/runtime-cohort-pin.json)
+          curl -fsSL --retry 3 "$product_commit_url" \
+            -o "$evidence/productCommit-linux-x64.json"
+
+      - name: Inspect candidate identity
+        if: steps.proposal.outputs.blocked == 'false'
+        id: discover
+        shell: bash
+        run: |
+          node inspect-web/scripts/runtime-cohort-pin.ts discover \
+            --current inspect-web/runtime-cohort-pin.json \
+            --product-commit \
+              artifacts/runtime-pin-candidate/productCommit-linux-x64.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Report no newer candidate
+        if: >-
+          steps.proposal.outputs.blocked == 'false'
+          && steps.discover.outputs.update_available != 'true'
+        shell: bash
+        run: |
+          {
+            echo "## Inspect Web runtime pin"
+            echo
+            echo "The authoritative daily metadata is not newer than the checked-in pin."
+            echo
+            echo "**Candidate status:** \`${{ steps.discover.outputs.candidate_status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install exact candidate SDK
+        if: steps.discover.outputs.update_available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_sdk="${{ steps.discover.outputs.sdk_version }}"
+          dotnetup_dir="$RUNNER_TEMP/dotnetup"
+          getter_script="$RUNNER_TEMP/get-dotnetup.sh"
+          mkdir -p "$dotnetup_dir" "$DOTNET_ROOT" "$DOTNET_DOTNETUP_DATA_DIR"
+          curl -fsSL --retry 3 \
+            https://aka.ms/dotnet/dotnetup/daily/get-dotnetup.sh \
+            -o "$getter_script"
+          bash "$getter_script" --install-dir "$dotnetup_dir"
+          "$dotnetup_dir/dotnetup" sdk install "$candidate_sdk" \
+            --install-path "$DOTNET_ROOT" \
+            --untracked \
+            --set-default-install false \
+            --interactive false
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$candidate_sdk",
+              "rollForward": "disable",
+              "allowPrerelease": true
+            }
+          }
+          EOF
+          echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
+          test "$("$DOTNET_ROOT/dotnet" --version)" = "$candidate_sdk"
+
+      - name: Install candidate browser Wasm workload
+        if: steps.discover.outputs.update_available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          daily_feed=$(jq -er '.feeds.daily' inspect-web/runtime-cohort-pin.json)
+          nuget_feed=$(jq -er '.feeds.nuget' inspect-web/runtime-cohort-pin.json)
+          dotnet workload install wasm-tools \
+            --skip-manifest-update \
+            --source "$daily_feed" \
+            --source "$nuget_feed"
+
+      - name: Resolve validated candidate pin
+        if: steps.discover.outputs.update_available == 'true'
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=artifacts/runtime-pin-candidate
+          manifest_id=$(jq -er \
+            '.workload.manifestId' \
+            inspect-web/runtime-cohort-pin.json)
+          mapfile -t manifests < <(find "$DOTNET_ROOT/sdk-manifests" \
+            -path "*/$manifest_id/*/WorkloadManifest.json" \
+            -type f)
+          test "${#manifests[@]}" -eq 1
+          manifest="${manifests[0]}"
+          relative="${manifest#"$DOTNET_ROOT/sdk-manifests/"}"
+          feature_band="${relative%%/*}"
+          cp "$manifest" "$evidence/WorkloadManifest.json"
+
+          runtime_version="${{ steps.discover.outputs.runtime_version }}"
+          webassembly_pack="$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$runtime_version.nupkg"
+          test -f "$webassembly_pack"
+          unzip -p "$webassembly_pack" '*.nuspec' \
+            > "$evidence/Microsoft.NET.Sdk.WebAssembly.Pack.nuspec"
+
+          node inspect-web/scripts/runtime-cohort-pin.ts resolve \
+            --current inspect-web/runtime-cohort-pin.json \
+            --product-commit "$evidence/productCommit-linux-x64.json" \
+            --sdk-feature-band "$feature_band" \
+            --workload-manifest "$evidence/WorkloadManifest.json" \
+            --webassembly-pack-nuspec \
+              "$evidence/Microsoft.NET.Sdk.WebAssembly.Pack.nuspec" \
+            --output "$evidence/runtime-cohort-pin.json" \
+            --github-output "$GITHUB_OUTPUT"
+
+          dotnet --info > "$evidence/dotnet-info.txt"
+          dotnet workload list > "$evidence/workload-list.txt"
+          test "$(dotnet --list-runtimes \
+            | awk '$1 == "Microsoft.NETCore.App" { print $2 }')" \
+            = "$runtime_version"
+
+      - name: Upload candidate evidence
+        if: steps.resolve.outputs.update_available == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspect-web-runtime-pin-candidate
+          path: artifacts/runtime-pin-candidate
+          if-no-files-found: error
+          retention-days: 90
+
+  candidate-cohort:
+    name: Admit candidate runtime cohort
+    needs: discover
+    if: needs.discover.outputs.update_available == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/inspect-web-runtime-cohort-nightly.yml
+    with:
+      dotnet_sdk_version: ${{ needs.discover.outputs.sdk_version }}
+      dotnet_sdk_feature_band: ${{ needs.discover.outputs.sdk_feature_band }}
+      dotnet_runtime_version: ${{ needs.discover.outputs.runtime_version }}
+      dotnet_vmr_commit: ${{ needs.discover.outputs.vmr_commit }}
+      samples: 5
+      member_count: 10
+
+  propose:
+    name: Publish proposal boundary
+    needs:
+      - discover
+      - candidate-cohort
+    if: >-
+      needs.discover.outputs.update_available == 'true'
+      && needs.candidate-cohort.result == 'success'
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Download validated candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-runtime-pin-candidate
+          path: artifacts/runtime-pin-candidate
+          digest-mismatch: error
+
+      - name: Download candidate cohort evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.candidate-cohort.outputs.evidence_artifact_name }}
+          path: artifacts/runtime-pin-cohort
+          digest-mismatch: error
+
+      - name: Require advancement-admissible cohort
+        shell: bash
+        run: |
+          node inspect-web/scripts/record-runtime-cohort.ts \
+            validate-advancement \
+            --cohort artifacts/runtime-pin-cohort/runtime-cohort.json \
+            --source-commit "$GITHUB_SHA"
+
+      - name: Create proposal branch
+        id: branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate=artifacts/runtime-pin-candidate/runtime-cohort-pin.json
+          node inspect-web/scripts/runtime-cohort-pin.ts export \
+            --pin "$candidate" \
+            --output "$RUNNER_TEMP/candidate.env"
+          cp "$candidate" inspect-web/runtime-cohort-pin.json
+          mapfile -t changed < <(git diff --name-only)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = "inspect-web/runtime-cohort-pin.json"
+
+          branch="automation/inspect-web-runtime-pin-${{ needs.discover.outputs.sdk_version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add inspect-web/runtime-cohort-pin.json
+          git commit -m "Update Inspect Web runtime pin to ${{ needs.discover.outputs.sdk_version }}"
+          test "$(git rev-parse HEAD^)" = "$GITHUB_SHA"
+          mapfile -t committed < <(git diff --name-only "$GITHUB_SHA"...HEAD)
+          test "${#committed[@]}" -eq 1
+          test "${committed[0]}" = "inspect-web/runtime-cohort-pin.json"
+          remote=$(git ls-remote --heads origin "refs/heads/$branch" \
+            | awk '{print $1}')
+          if [[ -n "$remote" ]]; then
+            test "$remote" = "$(git rev-parse HEAD)"
+          else
+            git push origin "HEAD:refs/heads/$branch"
+          fi
+          echo "name=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Record proposal on the tracker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+          SDK_VERSION: ${{ needs.discover.outputs.sdk_version }}
+          RUNTIME_VERSION: ${{ needs.discover.outputs.runtime_version }}
+          VMR_COMMIT: ${{ needs.discover.outputs.vmr_commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          encoded_branch=$(printf '%s' "$BRANCH" | jq -sRr @uri)
+          compare_url="${{ github.server_url }}/${{ github.repository }}/compare/main...$encoded_branch?expand=1"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(cat <<EOF
+          A validated Inspect Web runtime-pin proposal is ready.
+
+          - SDK: \`$SDK_VERSION\`
+          - runtime/workload: \`$RUNTIME_VERSION\`
+          - dotnet/dotnet VMR: \`$VMR_COMMIT\`
+          - proposal branch: \`$BRANCH\`
+          - discovery, provenance, correctness admission, and performance evidence: $run_url
+          - create the normal reviewed PR: $compare_url
+
+          The workflow intentionally stops at a branch-and-tracker boundary because repository Actions credentials cannot create pull requests. Only the shared pin file changed. The next proposal is blocked until this branch is merged or deleted.
+          EOF
+          )
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/6077/comments" \
+            -f body="$body" >/dev/null
+
+      - name: Publish proposal summary
+        shell: bash
+        run: |
+          {
+            echo "## Inspect Web runtime pin proposal"
+            echo
+            echo "**Branch:** \`${{ steps.branch.outputs.name }}\`"
+            echo
+            echo "**SDK:** \`${{ needs.discover.outputs.sdk_version }}\`"
+            echo
+            echo "**Runtime:** \`${{ needs.discover.outputs.runtime_version }}\`"
+            echo
+            echo "**VMR:** \`${{ needs.discover.outputs.vmr_commit }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

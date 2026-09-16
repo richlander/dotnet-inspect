@@ -27,7 +27,8 @@ public sealed record ILOffsetProjectionRequest(
     int ILOffset,
     ILOffsetProjectionCapabilities Capabilities,
     bool BrowsableUrls = false,
-    Action<string>? Log = null);
+    Action<string>? Log = null,
+    ResolvedAssemblyReference? Assembly = null);
 
 /// <summary>The stage that prevented an IL-offset projection from being produced.</summary>
 public enum ILOffsetProjectionFailureKind

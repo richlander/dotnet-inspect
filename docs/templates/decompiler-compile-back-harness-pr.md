@@ -1,14 +1,17 @@
 # Decompiler compile-back harness PR template
 
 <!--
-Use this for DecompilerHarness / fidelity skeleton / ReturnToSender (RTS) /
-compile-back coverage PRs. The center of gravity is the checkable population:
-what was uncheckable before, what became Exact or a classified fidelity
-difference after, and which frontier remains. Delete sections that do not apply.
+Use this only for DecompilerHarness / fidelity skeleton / ReturnToSender (RTS) /
+compile-back coverage PRs that do not change product decompiler output. If any
+product output changes, use `docs/templates/decompiler-pr.md` instead and keep
+the relevant compile-back evidence from this template. The center of gravity
+here is the checkable population: what was uncheckable before, what became
+Exact or a classified fidelity difference after, and which frontier remains.
+Delete sections that do not apply.
 -->
 
 - Advances #{issue-or-track}
-- Changes {one-line harness behavior; say "harness-only" if product output is unchanged}
+- Changes {one-line harness-only behavior}
 - Evidence revision: `{git-sha}`
 
 ## Change
@@ -142,7 +145,8 @@ hand-authored targets):
 
 - **Root cause:** {why compile-back could not check the method population}.
 - **Fix shape:** {skeleton/context/metadata/reference/fixture/RTS orchestration change}.
-- **Product impact:** {none, or explain any product-output behavior change}.
+- **Product impact:** none; if product decompiler output changes, switch to
+  `docs/templates/decompiler-pr.md`.
 - **Scope boundary:** {nearby failure intentionally left as a frontier or future issue}.
 - **RTS boundary:** {not applicable / RTS only orchestrates closure + Roslyn +
   contract body comparison; product/shared code owns C# source generation}.
@@ -284,10 +288,10 @@ commit refs for resolved findings}.
 ## Validation
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -method "*{FocusedTest}*"
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -class "*{FocusedTestClass}*"
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
-dotnet build src/dotnet-inspect -c Release --nologo --verbosity quiet
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -method "*{FocusedTest}*"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -class "*{FocusedTestClass}*"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+dotnet build src/DotnetInspect.Cli -c Release --nologo --verbosity quiet
 dotnet build tools/DecompilerHarness -c Release --nologo --verbosity quiet
 
 dotnet run --project tools/DecompilerHarness -c Release --no-build -- {assembly} --fidelity-check --fidelity-method-delta {delta-json} --max-examples {N}
@@ -296,5 +300,5 @@ dotnet run --project tools/DecompilerHarness -c Release --no-build -- {assembly}
 dotnet run --project tools/DecompilerHarness -c Release --no-build -- {assembly} --return-to-sender-ab --cap {N} --max-examples {N}
 
 /home/rich/git/dotnet-build-events-vmr-preview5-events/artifacts/preview5-events-sdk-test/dotnet build tools/DecompilerHarness --no-incremental --view types --event-log-stderr -c Release --nologo --verbosity quiet
-dotnet run --project /home/rich/git/dotnet-inspect-build-event-query/src/dotnet-inspect -c Release --no-build -- build {before-log} -S Compare --compare {after-log} --tsv
+dotnet run --project /home/rich/git/dotnet-inspect-build-event-query/src/DotnetInspect.Cli -c Release --no-build -- build {before-log} -S Compare --compare {after-log} --tsv
 ```

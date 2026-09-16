@@ -125,25 +125,28 @@ public static class MethodSignalAnalysis
                     }
                 }
 
-                if (allocationOccurrences is not null)
-                    continue;
-                // A `newobj` of a value type (struct/enum) constructs in place and does NOT
-                // allocate on the heap, so it must not count toward the allocation signal
-                // (#1804). The non-heap set is classified during Build, where the metadata
-                // reader is available (in-assembly value types, and cross-assembly generic
-                // structs via the TypeSpec signature blob). A cross-assembly non-generic user
-                // struct is unresolvable single-assembly and is intentionally NOT in the set,
-                // so it remains an owned false positive at the no-referenced-assembly boundary.
-                if (nonHeapNewObjOperandTokens is not null && nonHeapNewObjOperandTokens.Contains(call.OperandToken))
-                    continue;
-                allocations[caller] = allocations.GetValueOrDefault(caller) + 1;
-                AddEvidence(caller, call.ILOffset);
-                if (!isExceptionType && call.InLoop)
+                if (allocationOccurrences is null)
                 {
-                    // Steady-state (non-exception) object construction inside a loop is
-                    // the hot/repeated allocation; error-path construction is excluded.
-                    newObjInLoop.Add(caller);
+                    // A `newobj` of a value type (struct/enum) constructs in place and does NOT
+                    // allocate on the heap, so it must not count toward the allocation signal
+                    // (#1804). The non-heap set is classified during Build, where the metadata
+                    // reader is available (in-assembly value types, and cross-assembly generic
+                    // structs via the TypeSpec signature blob). A cross-assembly non-generic user
+                    // struct is unresolvable single-assembly and is intentionally NOT in the set,
+                    // so it remains an owned false positive at the no-referenced-assembly boundary.
+                    if (nonHeapNewObjOperandTokens is not null && nonHeapNewObjOperandTokens.Contains(call.OperandToken))
+                        continue;
+                    allocations[caller] =
+                        allocations.GetValueOrDefault(caller) + 1;
+                    AddEvidence(caller, call.ILOffset);
+                    if (!isExceptionType && call.InLoop)
+                    {
+                        // Steady-state (non-exception) object construction inside a loop is
+                        // the hot/repeated allocation; error-path construction is excluded.
+                        newObjInLoop.Add(caller);
+                    }
                 }
+                continue;
             }
             if (call.Kind is CallKind.LoadFunction or CallKind.LoadVirtualFunction)
                 AddEvidence(caller, call.ILOffset);

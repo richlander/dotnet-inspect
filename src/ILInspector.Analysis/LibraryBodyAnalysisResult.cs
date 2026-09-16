@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -15,15 +16,20 @@ internal sealed record MethodBodyAnalysisResult(
     ImmutableArray<MethodIdentity> DeclaredMethods,
     ImmutableArray<MethodIdentity> Methods,
     ImmutableArray<DirectCall> DirectCalls,
+    ImmutableArray<MethodResultSink> ResultSinks,
+    ImmutableArray<FieldStoreFact> FieldStores,
+    ImmutableArray<FieldLoadFact> FieldLoads,
+    ImmutableArray<MethodReturnFlow> ReturnFlows,
     IReadOnlyDictionary<int, BodySignals> BodySignals,
     IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
-    IReadOnlyDictionary<int, MethodIdentity> DeclaredSources);
+    IReadOnlyDictionary<int, MethodIdentity> DeclaredSources,
+    ImmutableArray<MethodLocalThrowEvidence> LocalThrows);
 
 internal sealed record SafetyAnalysisResult(
     ImmutableArray<UnsafeEvidence> Evidence,
     ImmutableArray<MethodIdentity> LeverageMethods,
-    bool UpdatedRulesEnabled,
+    MemorySafetyRulesResult Rules,
     UnsafeModeBreakdown Modes,
     IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> Occurrences);
 

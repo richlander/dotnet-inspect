@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <metadata>
+    <id>DotnetInspect.TestAssets.ToolV2</id>
+    <version>$version$</version>
+    <authors>dotnet-inspect</authors>
+    <description>Test-only Tool v2 pointer package for dotnet-inspect.</description>
+    <readme>README.md</readme>
+    <packageTypes>
+      <packageType name="DotnetTool" />
+    </packageTypes>
+    <repository type="git" url="https://github.com/richlander/dotnet-inspect" commit="$repositoryCommit$" />
+  </metadata>
+  <files>
+    <file src="README.md" target="README.md" />
+    <file src="pointer/DotnetToolSettings.xml" target="tools/any/any/DotnetToolSettings.xml" />
+  </files>
+</package>

@@ -1,14 +1,15 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 
 namespace NuGetFetch;
 
 internal sealed class NuGetOperationDeadline : IDisposable
 {
-    private readonly CancellationToken _callerToken;
-    private readonly CancellationTokenSource _operationCancellation;
-    private readonly TimeSpan _operationTimeout;
+    private readonly NuGetOperationContext _context;
+    private readonly bool _ownsContext;
+    private readonly PackageSourceResultIdentity? _source;
+    private readonly CancellationToken _operationToken;
     private readonly TimeSpan _requestTimeout;
-    private readonly long _operationStarted;
     private bool _disposed;
     private bool _ownershipTransferred;
 
@@ -16,22 +17,65 @@ internal sealed class NuGetOperationDeadline : IDisposable
         NuGetFetchOptions options,
         TimeSpan clientTimeout,
         CancellationToken callerToken)
-    {
-        options = NuGetFetchOptions.Validate(options);
-        _callerToken = callerToken;
-        _requestTimeout = NuGetFetchOptions.RequestTimeoutForClient(
+        : this(
             options,
+            clientTimeout,
+            callerToken,
+            source: null)
+    {
+    }
+
+    internal NuGetOperationDeadline(
+        NuGetFetchOptions options,
+        TimeSpan clientTimeout,
+        CancellationToken callerToken,
+        PackageSourceResultIdentity? source)
+        : this(
+            new NuGetOperationContext(
+                options.RequestTimeout,
+                options.OperationTimeout,
+                callerToken),
+            clientTimeout,
+            source,
+            ownsContext: true)
+    {
+    }
+
+    internal NuGetOperationDeadline(
+        NuGetOperationContext context,
+        TimeSpan clientTimeout,
+        PackageSourceResultIdentity? source)
+        : this(
+            context,
+            clientTimeout,
+            source,
+            ownsContext: false)
+    {
+    }
+
+    private NuGetOperationDeadline(
+        NuGetOperationContext context,
+        TimeSpan clientTimeout,
+        PackageSourceResultIdentity? source,
+        bool ownsContext)
+    {
+        _context = context;
+        _ownsContext = ownsContext;
+        _source = source;
+        _operationToken = context.OperationToken;
+        _requestTimeout = NuGetFetchOptions.RequestTimeoutForClient(
+            new NuGetFetchOptions
+            {
+                RequestTimeout = context.RequestTimeout,
+                OperationTimeout = context.OperationTimeout,
+            },
             clientTimeout);
-        _operationTimeout = options.OperationTimeout;
-        _operationCancellation =
-            CancellationTokenSource.CreateLinkedTokenSource(callerToken);
-        _operationCancellation.CancelAfter(_operationTimeout);
-        _operationStarted = Stopwatch.GetTimestamp();
     }
 
     public async Task<T> RunRequestAsync<T>(
         Func<CancellationToken, Task<T>> request)
     {
+        ThrowIfExpired();
         long requestStarted = Stopwatch.GetTimestamp();
         using CancellationTokenSource requestCancellation =
             CreateRequestCancellation();
@@ -39,12 +83,23 @@ internal sealed class NuGetOperationDeadline : IDisposable
         {
             T result = await request(requestCancellation.Token)
                 .ConfigureAwait(false);
-            ThrowIfRequestExpired(requestStarted, requestCancellation);
-            return result;
+            try
+            {
+                ThrowIfRequestExpired(
+                    requestStarted,
+                    requestCancellation);
+                return result;
+            }
+            catch
+            {
+                NuGetRejectedResult.RejectIfOwned(result);
+                throw;
+            }
         }
         catch (OperationCanceledException ex)
         {
             ThrowTranslated(ex, requestCancellation, requestStarted);
+            ThrowTransportTimeout(ex);
             throw;
         }
         catch (NuGetMetadataBodyTimeoutException ex)
@@ -62,7 +117,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             throw;
         }
         catch (Exception ex)
-            when (IsDeadlineAbort(ex)
+            when (IsDeadlineEligibleFailure(ex)
                 && IsAnyDeadlineExpired(requestStarted, requestCancellation))
         {
             ThrowTranslatedAbort(
@@ -76,45 +131,33 @@ internal sealed class NuGetOperationDeadline : IDisposable
     public void ThrowIfExpired()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_callerToken.IsCancellationRequested)
-        {
-            throw new OperationCanceledException(
-                "NuGet operation was canceled by the caller.",
-                _callerToken);
-        }
-
-        if (_operationCancellation.IsCancellationRequested
-            || Stopwatch.GetElapsedTime(_operationStarted) >= _operationTimeout)
-        {
-            throw new NuGetOperationTimeoutException(
-                _operationTimeout,
-                new OperationCanceledException(
-                    "NuGet operation deadline expired.",
-                    _operationCancellation.Token));
-        }
+        _context.ThrowIfExpiredForActiveOperation();
     }
 
     public async Task DelayAsync(TimeSpan delay)
     {
         ThrowIfExpired();
+        using CancellationTokenSource delayCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                _operationToken);
         try
         {
             await Task.Delay(
                 delay,
-                _operationCancellation.Token).ConfigureAwait(false);
+                delayCancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException exception)
         {
-            if (_callerToken.IsCancellationRequested)
+            if (_context.CancellationToken.IsCancellationRequested)
             {
                 throw new OperationCanceledException(
                     "NuGet operation was canceled by the caller.",
                     exception,
-                    _callerToken);
+                    _context.CancellationToken);
             }
 
             throw new NuGetOperationTimeoutException(
-                _operationTimeout,
+                _context.OperationTimeout,
                 exception);
         }
 
@@ -140,6 +183,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             IDisposable Owner,
             T Metadata)>> request)
     {
+        ThrowIfExpired();
         long requestStarted = Stopwatch.GetTimestamp();
         CancellationTokenSource requestCancellation =
             CreateRequestCancellation();
@@ -183,6 +227,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
                     ex,
                     requestCancellation,
                     requestStarted);
+                ThrowTransportTimeout(ex);
             }
             finally
             {
@@ -192,7 +237,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             throw;
         }
         catch (Exception ex)
-            when (IsDeadlineAbort(ex)
+            when (IsDeadlineEligibleFailure(ex)
                 && IsAnyDeadlineExpired(requestStarted, requestCancellation))
         {
             try
@@ -222,7 +267,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
             return;
 
         _disposed = true;
-        _operationCancellation.Dispose();
+        if (_ownsContext)
+            _context.Complete();
     }
 
     private CancellationTokenSource CreateRequestCancellation()
@@ -230,7 +276,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         CancellationTokenSource cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
-                _operationCancellation.Token);
+                _operationToken);
         cancellation.CancelAfter(_requestTimeout);
         return cancellation;
     }
@@ -255,32 +301,34 @@ internal sealed class NuGetOperationDeadline : IDisposable
     private bool IsAnyDeadlineExpired(
         long requestStarted,
         CancellationTokenSource requestCancellation) =>
-        _callerToken.IsCancellationRequested
+        _context.CancellationToken.IsCancellationRequested
         || IsOperationExpired()
         || requestCancellation.IsCancellationRequested
         || Stopwatch.GetElapsedTime(requestStarted) >= _requestTimeout;
 
-    private bool IsOperationExpired() =>
-        _operationCancellation.IsCancellationRequested
-        || Stopwatch.GetElapsedTime(_operationStarted) >= _operationTimeout;
+    private bool IsOperationExpired() => _context.IsOperationExpired;
+
+    internal TimeSpan RequestTimeout => _requestTimeout;
+
+    internal CancellationToken OperationToken => _context.OperationToken;
 
     private void ThrowTranslated(
         OperationCanceledException exception,
         CancellationTokenSource requestCancellation,
         long requestStarted)
     {
-        if (_callerToken.IsCancellationRequested)
+        if (_context.CancellationToken.IsCancellationRequested)
         {
             throw new OperationCanceledException(
                 "NuGet operation was canceled by the caller.",
                 exception,
-                _callerToken);
+                _context.CancellationToken);
         }
 
         if (IsOperationExpired())
         {
             throw new NuGetOperationTimeoutException(
-                _operationTimeout,
+                _context.OperationTimeout,
                 exception);
         }
 
@@ -312,8 +360,27 @@ internal sealed class NuGetOperationDeadline : IDisposable
         exception is IOException
             and not NuGetMetadataResponseTooLargeException
             and not NuGetRedirectLimitExceededException
+            and not NuGetRegistrationResourceLimitExceededException
+            and not NuGetCatalogResourceLimitExceededException
+            and not NuGetCatalogRequestLimitExceededException
+            and not NuGetCatalogDecodedByteLimitExceededException
+            or NuGetCatalogStalePageException
             or HttpRequestException
             or ObjectDisposedException;
+
+    private static void ThrowTransportTimeout(
+        OperationCanceledException exception)
+    {
+        if (NuGetTransportFailure.GetTimeout(exception) is { } timeout)
+            ExceptionDispatchInfo.Capture(timeout).Throw();
+    }
+
+    internal static bool IsDeadlineEligibleFailure(Exception exception) =>
+        IsDeadlineAbort(exception)
+        || exception is TimeoutException
+            or InvalidDataException
+            or System.Text.Json.JsonException
+            or NuGetSourceResponseException;
 
     private sealed class DeadlineStream : Stream
     {
@@ -329,8 +396,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
         private Exception? _abortDisposalFailure;
         private int _abortStarted;
         private int _deadlineCompleted;
+        private int _disposeStarted;
         private int _endOfStream;
-        private bool _disposed;
 
         public DeadlineStream(
             Stream inner,
@@ -362,6 +429,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         public override int Read(byte[] buffer, int offset, int count)
         {
+            ThrowIfCallerDisposed();
             ThrowIfDeadlineExpired();
             if (count == 0)
                 return 0;
@@ -369,6 +437,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             try
             {
                 int read = inner.Read(buffer, offset, count);
+                ThrowIfCallerDisposed();
                 ThrowIfDeadlineExpired();
                 if (read == 0 && count > 0)
                 {
@@ -377,15 +446,18 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 }
                 return read;
             }
-            catch (Exception ex) when (IsDeadlineAbort(ex))
+            catch (Exception ex) when (IsStreamReadFailure(ex))
             {
-                ThrowTranslated(ex);
+                if (IsDeadlineExpired())
+                    ThrowTranslated(ex);
+                ThrowSourceFailure(ex);
                 throw;
             }
         }
 
         public override int Read(Span<byte> buffer)
         {
+            ThrowIfCallerDisposed();
             ThrowIfDeadlineExpired();
             if (buffer.IsEmpty)
                 return 0;
@@ -393,6 +465,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             try
             {
                 int read = inner.Read(buffer);
+                ThrowIfCallerDisposed();
                 ThrowIfDeadlineExpired();
                 if (read == 0 && !buffer.IsEmpty)
                 {
@@ -401,9 +474,11 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 }
                 return read;
             }
-            catch (Exception ex) when (IsDeadlineAbort(ex))
+            catch (Exception ex) when (IsStreamReadFailure(ex))
             {
-                ThrowTranslated(ex);
+                if (IsDeadlineExpired())
+                    ThrowTranslated(ex);
+                ThrowSourceFailure(ex);
                 throw;
             }
         }
@@ -412,8 +487,9 @@ internal sealed class NuGetOperationDeadline : IDisposable
             Memory<byte> buffer,
             CancellationToken cancellationToken = default)
         {
+            ThrowIfCallerDisposed();
             if (cancellationToken.IsCancellationRequested
-                && cancellationToken == operation._callerToken)
+                && cancellationToken == operation._context.CancellationToken)
             {
                 await ThrowTranslatedAsync(
                     new OperationCanceledException(cancellationToken))
@@ -435,6 +511,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
                     .ConfigureAwait(false);
                 if (cancellationToken.IsCancellationRequested)
                     throw new OperationCanceledException(cancellationToken);
+                ThrowIfCallerDisposed();
                 await ThrowIfDeadlineExpiredAsync().ConfigureAwait(false);
                 if (read == 0 && !buffer.IsEmpty)
                 {
@@ -448,7 +525,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    if (cancellationToken == operation._callerToken)
+                    if (cancellationToken
+                        == operation._context.CancellationToken)
                     {
                         await ThrowTranslatedAsync(ex).ConfigureAwait(false);
                     }
@@ -458,13 +536,19 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 }
 
                 await ThrowTranslatedAsync(ex).ConfigureAwait(false);
+                ThrowSourceFailure(ex);
                 throw;
             }
-            catch (Exception ex) when (IsDeadlineAbort(ex))
+            catch (Exception ex) when (IsStreamReadFailure(ex))
             {
-                if (cancellationToken.IsCancellationRequested)
+                bool deadlineExpired = IsDeadlineExpired();
+                if (cancellationToken.IsCancellationRequested
+                    && (deadlineExpired
+                        || cancellationToken
+                            == operation._context.CancellationToken))
                 {
-                    if (cancellationToken == operation._callerToken)
+                    if (cancellationToken
+                        == operation._context.CancellationToken)
                     {
                         await ThrowTranslatedAsync(ex).ConfigureAwait(false);
                     }
@@ -474,6 +558,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 }
 
                 await ThrowTranslatedAsync(ex).ConfigureAwait(false);
+                ThrowSourceFailure(ex);
                 throw;
             }
         }
@@ -488,10 +573,12 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         public override int ReadByte()
         {
+            ThrowIfCallerDisposed();
             ThrowIfDeadlineExpired();
             try
             {
                 int value = inner.ReadByte();
+                ThrowIfCallerDisposed();
                 ThrowIfDeadlineExpired();
                 if (value < 0)
                 {
@@ -500,9 +587,11 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 }
                 return value;
             }
-            catch (Exception ex) when (IsDeadlineAbort(ex))
+            catch (Exception ex) when (IsStreamReadFailure(ex))
             {
-                ThrowTranslated(ex);
+                if (IsDeadlineExpired())
+                    ThrowTranslated(ex);
+                ThrowSourceFailure(ex);
                 throw;
             }
         }
@@ -524,9 +613,48 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && !_disposed)
+            if (disposing
+                && Interlocked.Exchange(ref _disposeStarted, 1) == 0)
             {
-                _disposed = true;
+                if (operation._source is not null)
+                {
+                    Exception? cleanupFailure = null;
+                    try
+                    {
+                        inner.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        cleanupFailure = ex;
+                    }
+
+                    try
+                    {
+                        owner.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        cleanupFailure ??= ex;
+                    }
+
+                    try
+                    {
+                        DisposeDeadlineState();
+                    }
+                    catch (Exception ex)
+                    {
+                        cleanupFailure ??= ex;
+                    }
+
+                    base.Dispose(disposing);
+                    cleanupFailure ??=
+                        Volatile.Read(ref _abortDisposalFailure);
+                    if (cleanupFailure is not null)
+                        ThrowCleanupFailure(cleanupFailure);
+
+                    return;
+                }
+
                 try
                 {
                     inner.Dispose();
@@ -549,9 +677,48 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         public override async ValueTask DisposeAsync()
         {
-            if (!_disposed)
+            if (Interlocked.Exchange(ref _disposeStarted, 1) == 0)
             {
-                _disposed = true;
+                if (operation._source is not null)
+                {
+                    Exception? cleanupFailure = null;
+                    try
+                    {
+                        await inner.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        cleanupFailure = ex;
+                    }
+
+                    try
+                    {
+                        await DisposeDeadlineStateAsync()
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        cleanupFailure ??= ex;
+                    }
+
+                    try
+                    {
+                        owner.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        cleanupFailure ??= ex;
+                    }
+
+                    GC.SuppressFinalize(this);
+                    cleanupFailure ??=
+                        Volatile.Read(ref _abortDisposalFailure);
+                    if (cleanupFailure is not null)
+                        ThrowCleanupFailure(cleanupFailure);
+
+                    return;
+                }
+
                 try
                 {
                     await inner.DisposeAsync().ConfigureAwait(false);
@@ -616,7 +783,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 _abortCompleted.TrySetResult();
             requestCancellation.Dispose();
             operation._disposed = true;
-            operation._operationCancellation.Dispose();
+            if (operation._ownsContext)
+                operation._context.Complete();
         }
 
         private void CompleteDeadline()
@@ -629,12 +797,24 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 _abortCompleted.TrySetResult();
             requestCancellation.Dispose();
             operation._disposed = true;
-            operation._operationCancellation.Dispose();
+            if (operation._ownsContext)
+                operation._context.Complete();
         }
 
-        private bool IsDeadlineAbort(Exception exception) =>
-            IsDeadlineExpired()
-            && NuGetOperationDeadline.IsDeadlineAbort(exception);
+        private bool IsStreamReadFailure(Exception exception) =>
+            exception is OperationCanceledException
+                or IOException
+                or InvalidDataException
+                or HttpRequestException
+                or TimeoutException
+                or ObjectDisposedException
+            || IsDeadlineExpired()
+                && NuGetOperationDeadline.IsDeadlineAbort(exception);
+
+        private void ThrowIfCallerDisposed() =>
+            ObjectDisposedException.ThrowIf(
+                Volatile.Read(ref _disposeStarted) != 0,
+                this);
 
         private bool IsDeadlineExpired() =>
             Volatile.Read(ref _endOfStream) == 0
@@ -676,7 +856,9 @@ internal sealed class NuGetOperationDeadline : IDisposable
             ThrowTranslatedCore(exception);
         }
 
-        private void ThrowTranslatedCore(Exception exception)
+        private void ThrowTranslatedCore(
+            Exception exception,
+            bool cleanupFailed = false)
         {
             Exception? disposalFailure =
                 Volatile.Read(ref _abortDisposalFailure);
@@ -690,10 +872,45 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 "NuGet response stream was aborted after its deadline expired.",
                 inner,
                 _requestToken);
-            operation.ThrowTranslated(
-                cancellation,
-                requestCancellation,
-                requestStarted);
+            try
+            {
+                operation.ThrowTranslated(
+                    cancellation,
+                    requestCancellation,
+                    requestStarted);
+            }
+            catch (OperationCanceledException)
+                when (operation._source is not null
+                    && operation._context.CancellationToken
+                        .IsCancellationRequested)
+            {
+                throw new OperationCanceledException(
+                    "NuGet payload consumption was canceled by the caller.",
+                    innerException: null,
+                    operation._context.CancellationToken);
+            }
+            catch (NuGetRequestTimeoutException timeout)
+                when (operation._source is not null)
+            {
+                throw new PackageSourceStreamException(
+                    operation._source,
+                    PackageSourceFailureKind.Timeout,
+                    new PackageSourceTimeout(
+                        PackageSourceTimeoutKind.Request,
+                        timeout.Timeout),
+                    cleanupFailed || disposalFailure is not null);
+            }
+            catch (NuGetOperationTimeoutException timeout)
+                when (operation._source is not null)
+            {
+                throw new PackageSourceStreamException(
+                    operation._source,
+                    PackageSourceFailureKind.Timeout,
+                    new PackageSourceTimeout(
+                        PackageSourceTimeoutKind.Operation,
+                        timeout.Timeout),
+                    cleanupFailed || disposalFailure is not null);
+            }
         }
 
         private async ValueTask ThrowTranslatedAsync(Exception exception)
@@ -711,6 +928,34 @@ internal sealed class NuGetOperationDeadline : IDisposable
         private void WaitForAbortCompletion()
         {
             _abortCompleted.Task.GetAwaiter().GetResult();
+        }
+
+        private void ThrowSourceFailure(Exception exception)
+        {
+            if (operation._source is null)
+                return;
+
+            throw new PackageSourceStreamException(
+                operation._source,
+                NuGetTransportFailure.IsTimeout(exception)
+                    ? PackageSourceFailureKind.Timeout
+                    : PackageSourceFailureKind.Transport,
+                timeout: null,
+                cleanupFailed: false);
+        }
+
+        private void ThrowCleanupFailure(Exception exception)
+        {
+            if (IsDeadlineExpired())
+                ThrowTranslatedCore(exception, cleanupFailed: true);
+
+            throw new PackageSourceStreamException(
+                operation._source!,
+                NuGetTransportFailure.IsTimeout(exception)
+                    ? PackageSourceFailureKind.Timeout
+                    : PackageSourceFailureKind.Transport,
+                timeout: null,
+                cleanupFailed: true);
         }
     }
 }

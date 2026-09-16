@@ -50,6 +50,6 @@ static class DiamondArmTypes
     // excluded because the arm printer only casts toward enum targets.
     static bool IsKnownUnderlyingEnum(TypeRef? type, IrFunction function)
         => type is not null
-            && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum
-            && function.EnumUnderlyingTypes.ContainsKey(type);
+            && CoercionRendering.IsEnum(type, function.TypeShapes)
+            && function.EnumUnderlyingTypes.ContainsKey(CoercionRendering.NamedDefinition(type));
 }

@@ -441,8 +441,6 @@ public sealed class StructuringPass : IIrPass
             return;
         }
 
-        context.StructuringDiagnostics?.RecordStructured();
-
         context.Stepper.StepOver(
             $"structure container at IL_{blocks[0].StartOffset:X4} ({blocks.Count} blocks) into nested if/diamond regions",
             container);
@@ -450,6 +448,7 @@ public sealed class StructuringPass : IIrPass
         var replacement = new BlockContainer();
         replacement.Add(structured);
         container.ReplaceWith(replacement);
+        context.StructuringDiagnostics?.RecordStructured();
     }
 
     static bool TryStructureRetainedRegions(BlockContainer container, Ctx sourceCtx, PassContext context)
@@ -488,10 +487,6 @@ public sealed class StructuringPass : IIrPass
                 range.RetainedMerges,
                 range.AllowRetainedMergeWithinLoop))
             .ToList();
-
-        context.Stepper.StepOver(
-            $"structure {ranges.Count} retained-merge region(s) in container at IL_{sourceCtx.Blocks[0].StartOffset:X4}",
-            container);
 
         var replacement = new BlockContainer
         {
@@ -534,14 +529,19 @@ public sealed class StructuringPass : IIrPass
             }
             replacement.Add(built);
             cursor = range.Stop;
-            context.StructuringDiagnostics?.RecordRetainedRegion();
         }
 
         while (cursor < clonedBlocks.Count)
             replacement.Add(clonedBlocks[cursor++]);
 
-        context.StructuringDiagnostics?.RecordStructured();
+        context.Stepper.StepOver(
+            $"structure {ranges.Count} retained-merge region(s) in container at IL_{sourceCtx.Blocks[0].StartOffset:X4}",
+            container);
+
         container.ReplaceWith(replacement);
+        context.StructuringDiagnostics?.RecordStructured();
+        foreach (var _ in ranges)
+            context.StructuringDiagnostics?.RecordRetainedRegion();
         return true;
     }
 
@@ -1154,6 +1154,15 @@ public sealed class StructuringPass : IIrPass
                     {
                         ctx.Recorder?.Record("cond-target-external");
                         return false;
+                    }
+                    // A droppable inlinable terminator (issue #4394) must be
+                    // built as a clone, not a break — mirrors the priority
+                    // BuildRegion enforces below, though both branches validate
+                    // the same way here.
+                    if (target > i && ctx.DroppableBlocks.Contains(target) && IsInlinableTerminator(ctx, target))
+                    {
+                        i++;
+                        break;
                     }
                     // A conditional branch to the loop exit is `if (c) break;`.
                     if (breakTarget == target)
@@ -2797,6 +2806,20 @@ public sealed class StructuringPass : IIrPass
                 {
                     int target = offsetToIndex[conditional.TargetOffset];
                     var condition = (IrExpression)conditional.DetachChildren()[0];
+                    // A droppable inlinable terminator (issue #4394) never prints
+                    // at its own position — it was cloned into every reaching
+                    // guard instead. Cloning must win here even though the target
+                    // also coincides with the loop's break/region-exit target;
+                    // otherwise converting this branch to a bare `break`/region
+                    // exit leaves the terminator uncloned on this path and its
+                    // content (e.g. a shared `return`) is lost entirely.
+                    if (target > i && ctx.DroppableBlocks.Contains(target) && IsInlinableTerminator(ctx, target))
+                    {
+                        var guardArm = CloneTerminatorSnapshot(ctx, target, block.StartOffset);
+                        result.Add(new IfStatement(condition, guardArm, null));
+                        i++;
+                        break;
+                    }
                     // A conditional branch to the loop exit raises to `if (c) break;`
                     // — the taken path is the break, so the condition is not negated.
                     if (breakTarget == target)

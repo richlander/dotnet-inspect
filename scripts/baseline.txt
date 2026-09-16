@@ -1,5 +1,5 @@
 # dotnet-inspect Baseline Output
-# This file is used for regression testing
+# This file is a developer-invoked external ecosystem canary, not a CI gate
 # Volatile data (downloads, dates) is filtered to <FILTERED>
 
 
@@ -1032,4 +1032,3 @@ COMMAND: platform --framework runtime -n 10
 | System.Collections.Concurrent.dll |
 
 *... and 157 more assemblies*
-

@@ -36,8 +36,22 @@ public record SearchResult(
     string? Description = null,
     long TotalDownloads = 0,
     bool Verified = false,
-    IReadOnlyList<SearchVersion>? Versions = null);
+    IReadOnlyList<SearchVersion>? Versions = null,
+    [property: JsonConverter(typeof(StringOrArrayJsonConverter))]
+    IReadOnlyList<string>? Owners = null);
 
 public record SearchVersion(
     string Version,
     long Downloads);
+
+internal sealed record PrefixSearchWireResponse(
+    IReadOnlyList<PrefixSearchWireResult> Data);
+
+internal sealed record PrefixSearchWireResult(
+    string Id,
+    string Version,
+    string? Description = null,
+    long TotalDownloads = 0,
+    bool Verified = false,
+    [property: JsonConverter(typeof(StringOrArrayJsonConverter))]
+    IReadOnlyList<string>? Owners = null);

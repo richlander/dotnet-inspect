@@ -105,6 +105,40 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
     }
 
     /// <summary>
+    /// Executes this query and its Integrations prerequisite for one participant
+    /// without releasing its retained image.
+    /// </summary>
+    /// <remarks>
+    /// A reusable Browser or service workspace can focus one selected assembly
+    /// and still run later group queries. Gated by
+    /// <c>AssemblyContextIntegrationsQueryTests.OpportunitiesExecuteParticipant_DoesNotReleaseTheReusableGroup</c>.
+    /// </remarks>
+    public static AssemblyIntegrationOpportunitiesEntry ExecuteParticipant(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant)
+    {
+        AssemblyIntegrationsEntry integrations =
+            AssemblyContextIntegrationsQuery.ExecuteParticipant(
+                group,
+                participant);
+        return integrations switch
+        {
+            AssemblyIntegrationsEntry.Rejected rejected =>
+                new AssemblyIntegrationOpportunitiesEntry.Rejected(
+                    rejected.Subject,
+                    rejected.Failure),
+            AssemblyIntegrationsEntry.Failed failed =>
+                new AssemblyIntegrationOpportunitiesEntry.Failed(
+                    failed.Subject,
+                    failed.Error),
+            AssemblyIntegrationsEntry.Available available =>
+                Inspect(group, participant, available),
+            _ => throw new InvalidOperationException(
+                $"Unknown assembly integrations entry '{integrations.GetType().Name}'."),
+        };
+    }
+
+    /// <summary>
     /// Executes this query and its Integrations prerequisite for one streamed
     /// participant before its retained image is released.
     /// </summary>
@@ -199,12 +233,13 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
         AssemblyContextParticipant participant,
         AssemblyIntegrationsEntry.Available integrations)
     {
-        var existing = new HashSet<string>(
+        var existing = new HashSet<IntegrationConceptDescriptor>(
             integrations.EcosystemSignals.Select(
-                static signal => signal.Integration),
-            StringComparer.Ordinal);
+                    static signal => signal.GetConcept())
+                .OfType<IntegrationConceptDescriptor>(),
+            ReferenceEqualityComparer.Instance);
         if (!integrations.OpenTelemetrySignals.IsDefaultOrEmpty)
-            existing.Add(EcosystemIntegrationNames.OpenTelemetry);
+            existing.Add(IntegrationConceptCatalog.OpenTelemetry);
 
         AssemblyImageAccessResult<
             AssemblyIntegrationOpportunitiesEntry> access =
@@ -232,19 +267,20 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
         AssemblyInspectionSession session,
         AssemblyIntegrationsEntry.Available integrations)
     {
-        var existing = new HashSet<string>(
+        var existing = new HashSet<IntegrationConceptDescriptor>(
             integrations.EcosystemSignals.Select(
-                static signal => signal.Integration),
-            StringComparer.Ordinal);
+                    static signal => signal.GetConcept())
+                .OfType<IntegrationConceptDescriptor>(),
+            ReferenceEqualityComparer.Instance);
         if (!integrations.OpenTelemetrySignals.IsDefaultOrEmpty)
-            existing.Add(EcosystemIntegrationNames.OpenTelemetry);
+            existing.Add(IntegrationConceptCatalog.OpenTelemetry);
         return Inspect(session, integrations, existing);
     }
 
     static AssemblyIntegrationOpportunitiesEntry Inspect(
         AssemblyInspectionSession session,
         AssemblyIntegrationsEntry.Available integrations,
-        HashSet<string> existing)
+        HashSet<IntegrationConceptDescriptor> existing)
     {
         try
         {

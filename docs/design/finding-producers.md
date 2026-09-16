@@ -94,6 +94,93 @@ context, and projection failures such as `DEC0001`-`DEC0003` are inspection
 failures, while a method's `Full` or `Partial` fidelity is a fold over its cause
 census. Human diagnostic messages are not occurrence identity.
 
+### Admit body topology before native comparison
+
+**Status:** the shared Findings topology is implemented and verified by the
+gates named in
+[Finding Nomenclature](finding-nomenclature.md#typed-inspection-topology).
+`ILInspector.ILDiff` and `ILInspector.Decompiler` have adopted the obligations
+below through `IlAssemblyDiff.CompareMemberEndpoints` and
+`CSharpBodyDiff.CompareMemberEndpoints`.
+
+Body differs use the shared
+[typed inspection topology](finding-nomenclature.md#typed-inspection-topology)
+rather than encoding a missing endpoint as a pairwise diff failure.
+
+The producer-specific adapter evaluates each exact endpoint:
+
+- a successfully inspected body is `Complete`, including a valid empty
+  observation census;
+- a proven missing target is `Absent(SubjectAbsent)`;
+- an existing bodyless or non-method-like target is
+  `Absent(NoApplicableInput)`; and
+- unavailable acquisition, resolution, decode, or canonicalization evidence is
+  `Failed`.
+
+The adapter owns this classification and retains its typed target, body, and
+absence evidence in the producer-native result. `Absent.Detail` may explain the
+state but cannot authorize it. APIs must not interpret a null body, reader,
+handle, stream, or collection as absence; the caller supplies an explicit
+owner-issued endpoint or the adapter returns failure.
+
+For a Finding-backed producer, `FindingComparison.Compare` retains the endpoint
+transition and folds native observations. `Complete`/`Absent` can produce
+native added or removed observations, but that statement is not total:
+`Complete([])`/`Absent` has no observation pair while its inspection topology
+still differs. Consumers must inspect the transition rather than pair count
+when endpoint topology is user-visible.
+
+A native differ whose canonicalization genuinely requires both inputs may keep
+that two-body algorithm. Its outer result retains the corresponding native
+Finding comparison and shared inspection transition, and invokes the native
+algorithm only for `Complete`/`Complete`. Other non-failed combinations are
+terminal topology outcomes; any failed endpoint prevents native comparison.
+Pair-dependent canonicalization must not be recast as one-version Findings.
+
+Old-body-missing and new-body-missing are endpoint topology, not decode or
+comparison failures. Producer migrations retire bespoke missing-body failure
+kinds after their typed inspection path is wired. Consumers retain the native
+transition and result instead of translating a failure string or enum into an
+added/removed conclusion.
+
+These are producer-boundary obligations, not permission for a producer to
+resolve selectors or infer cross-version target correspondence. The caller
+supplies exact endpoints or typed absence evidence; the producer decides
+whether it can inspect them and owns its native observations, pair algorithm,
+and result.
+
+The ILDiff adoption is gated by
+`CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults`,
+`CompareMemberEndpoints_BodyfulAndBodyless_UsesNoApplicableInputWithoutPairDiff`,
+`CompareMemberEndpoints_BodyfulAndSubjectAbsent_RetainsExplicitAbsenceWithoutPairDiff`,
+`CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutPairDiff`,
+`CompareMemberEndpoints_DecodeFailure_RetainsFailedInspectionWithoutPairDiff`,
+and `PresentEndpoint_RejectsNullAndNilEvidence`. Together they verify explicit
+endpoint evidence, null rejection, retained topology, pair suppression outside
+`Complete`/`Complete`, and the absence of bespoke missing-body failures on the
+adopted path. Legacy assembly-wide and `CompareMembers` paths retain their
+existing compatibility result until their consumers migrate; they are not the
+typed endpoint path.
+
+The C# adoption is gated by
+`CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults`,
+`CompareMemberEndpoints_BodylessAndBodyful_UsesNoApplicableInputWithoutBodyDiff`,
+`CompareMemberEndpoints_BodyfulAndSubjectAbsent_RetainsExplicitAbsenceWithoutBodyDiff`,
+`CompareMemberEndpoints_SubjectAbsentAndBodyful_RetainsAddedCSharpFindingsWithoutBodyDiff`,
+`CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutBodyDiff`,
+`CompareMemberEndpoints_FailedInspection_RetainsFailureWithoutBodyDiff`, and
+`PresentEndpoint_RejectsNullAndNilEvidence` in
+`CSharpMemberEndpointComparisonTests`. Together they verify the same explicit
+endpoint, topology-retention, pair-suppression, native-result, and null
+rejection obligations for the Decompiler owner, including added canonical C#
+Findings for a one-sided present method. Legacy assembly-wide and
+`CompareMembers` paths retain their existing compatibility behavior until
+their consumers migrate; they are not the typed endpoint path.
+
+Each future producer migration must name equivalent owner-specific gates. The
+Findings gates prove the shared state and transition contract; they do not
+prove adjacent producer wiring.
+
 ## 5. Choose identity and ordering semantics
 
 The producer owns stable observation identity:

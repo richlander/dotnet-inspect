@@ -1,0 +1,1494 @@
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
+namespace ILInspector.Decompiler.Tests;
+
+[Trait("Area", "Pass")]
+public class IteratorReconstructionPassTests
+{
+    // Reconstruction needs the cross-method seam (to import the state machine's
+    // MoveNext); IrPasses.Run(function) uses PassContext.None and would leave the
+    // kickoff for the acknowledgment fallback instead.
+    static IrFunction Raised(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        var context = new PassContext(new Stepper(enabled: false),
+            importMethodBody: method => IrImporter.Import(source, method));
+        IrPasses.Run(function!, IrPasses.Default, context);
+        function!.CheckInvariant();
+        return function!;
+    }
+
+    static string Print(string methodName) => CSharpPrinter.Print(Raised(methodName)).Output!;
+
+    static int CountOccurrences(string text, string value)
+        => (text.Length - text.Replace(value, "", StringComparison.Ordinal).Length) / value.Length;
+
+    [Fact]
+    public void BodyOnlyInterfaceFact_ReachesReconstructedIterator()
+    {
+        string output = Print(nameof(CfgSampleClass.YieldInterfaceValue));
+
+        Assert.Contains("yield return ((CfgDimFace)consumer).Value();", output);
+        Assert.DoesNotContain("yield return (consumer).Value();", output);
+    }
+
+    static (IrFunction Function, string Output) RaisedFrom(MetadataSource source, string typeName, string methodName)
+    {
+        var function = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, $"{methodName}: {string.Join(", ", result.Diagnostics.Select(d => d.Message))}");
+        function!.CheckInvariant();
+        return (function!, result.Output ?? "");
+    }
+
+    static CompiledFixture CompileComplexIteratorFixture(OptimizationLevel optimization)
+    {
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+
+            namespace Issue2868;
+
+            public static class Iterators
+            {
+                public static IEnumerable<int> SwitchYield(int k)
+                {
+                    switch (k)
+                    {
+                        case 0:
+                            yield return 10;
+                            break;
+                        case 1:
+                            yield return 20;
+                            yield return 21;
+                            break;
+                        default:
+                            yield return 99;
+                            break;
+                    }
+
+                    yield return 100;
+                }
+
+                public static IEnumerable<int> WhileTrueYieldBreak(int n)
+                {
+                    int i = 0;
+                    while (true)
+                    {
+                        if (i >= n)
+                            yield break;
+
+                        yield return i;
+                        i++;
+                    }
+                }
+
+                public static IEnumerable<int> WhileTrueYieldBreakWithSideEffect(int n)
+                {
+                    int i = 0;
+                    while (true)
+                    {
+                        if (i >= n)
+                            yield break;
+
+                        yield return i;
+                        Console.Write(i);
+                        i++;
+                    }
+                }
+
+                public static IEnumerable<int> WhileTrueYieldBreakWithMultipleSideEffects(int n)
+                {
+                    int i = 0;
+                    while (true)
+                    {
+                        if (i >= n)
+                            yield break;
+
+                        yield return i;
+                        Console.Write(i);
+                        Console.WriteLine(i);
+                        i++;
+                    }
+                }
+
+                public static IEnumerable<int> LinearFourYields()
+                {
+                    yield return 1;
+                    yield return 2;
+                    yield return 3;
+                    yield return 4;
+                }
+
+                public static IEnumerable<int> LinearFiveYields()
+                {
+                    yield return 1;
+                    yield return 2;
+                    yield return 3;
+                    yield return 4;
+                    yield return 5;
+                }
+
+                public static IEnumerable<int> LinearSixYields()
+                {
+                    yield return 1;
+                    yield return 2;
+                    yield return 3;
+                    yield return 4;
+                    yield return 5;
+                    yield return 6;
+                }
+            }
+            """;
+
+        var directory = Path.Combine(AppContext.BaseDirectory, "Issue2868GeneratedFixtures");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"Issue2868.{optimization}.{Guid.NewGuid():N}.dll");
+        var syntax = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            Path.GetFileNameWithoutExtension(path),
+            [syntax],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: optimization,
+                allowUnsafe: true));
+        var emit = compilation.Emit(path);
+        Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+        return new CompiledFixture(path);
+    }
+
+    sealed class CompiledFixture(string path) : IDisposable
+    {
+        public string Path { get; } = path;
+
+        public void Dispose()
+        {
+            try { File.Delete(Path); }
+            catch { }
+        }
+    }
+
+    // Compiles an iterator whose MoveNext body contains an inline-array collection
+    // expression (a params ReadOnlySpan<int> target lowered to a synthesized, dead
+    // inline-array buffer local). Reconstruction copies that dead buffer local into
+    // the kickoff; its eliminated marking must survive so its unspellable name does
+    // not re-cap the method at Partial. Regression coverage for #3221 across the
+    // iterator reconstruction seams that carry MoveNext locals into the kickoff.
+    static CompiledFixture CompileInlineArrayIteratorFixture(string parameters, string body, OptimizationLevel optimization)
+    {
+        var source = $$"""
+            using System;
+            using System.Collections.Generic;
+
+            namespace Issue3221;
+
+            public static class Iterators
+            {
+                public static IEnumerable<int> InlineArrayYield({{parameters}})
+                {
+                    {{body}}
+                }
+
+                static int Sum(ReadOnlySpan<int> values)
+                {
+                    int total = 0;
+                    foreach (int value in values)
+                        total += value;
+                    return total;
+                }
+            }
+            """;
+
+        var directory = Path.Combine(AppContext.BaseDirectory, "Issue3221GeneratedFixtures");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"Issue3221.{optimization}.{Guid.NewGuid():N}.dll");
+        var syntax = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            Path.GetFileNameWithoutExtension(path),
+            [syntax],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: optimization,
+                allowUnsafe: true));
+        var emit = compilation.Emit(path);
+        Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+        return new CompiledFixture(path);
+    }
+
+    // Under the test's Roslyn the inline-array buffer struct is spellable, so
+    // fidelity is Full whether or not the dead buffer stays eliminated. The
+    // discriminating evidence for #3221 is that the buffer's eliminated marking
+    // survives reconstruction (EliminatedLocalSlots is non-empty); reverting either
+    // reconstruction wiring empties it. Debug-optimized inline-array iterators keep
+    // enough state-machine scaffolding that reconstruction declines (an unrelated
+    // iterator limit), so these use the Release shapes that reconstruct. The two
+    // shapes exercise the two seams that copy MoveNext locals into the kickoff:
+    // the single-loop shape (Transplant/ResetLocals) and the conditional-yield
+    // shape (MultiYieldReconstruction, which appends locals at an offset).
+    [Theory]
+    [InlineData("int a, int b", "for (int i = 0; i < a; i++)\n            yield return Sum([a + i, b + i]);")]
+    [InlineData("int a, int b, bool flag", "if (flag)\n            yield return Sum([a, b]);\n        yield return 0;")]
+    public void ReconstructedIterator_WithInlineArrayCollection_KeepsBufferEliminated(string parameters, string body)
+    {
+        using var compiled = CompileInlineArrayIteratorFixture(parameters, body, OptimizationLevel.Release);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue3221.Iterators", "InlineArrayYield");
+
+        // The iterator reconstructs and the collection expression raises, so the
+        // shipped body has no buffer reference. The dead buffer local is carried
+        // into the kickoff with the reconstructed body; its eliminated marking must
+        // survive that carry (#3221), or an unspellable buffer name would re-cap the
+        // method at Partial.
+        Assert.DoesNotContain("not reconstructed", result.Output);
+        Assert.NotEmpty(result.Function.Descendants.OfType<CollectionExpression>());
+        Assert.NotEmpty(result.Function.EliminatedLocalSlots);
+        Assert.DoesNotContain("y__InlineArray", result.Output);
+        Assert.DoesNotContain("PrivateImplementationDetails", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+    }
+
+    [Fact]
+    public void LinearConstantIterator_ReconstructsYieldSequence()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldTwo));
+
+        var yields = function.Descendants.OfType<YieldReturn>().ToList();
+        Assert.Equal(2, yields.Count);
+        Assert.Equal(1, Assert.IsType<Constant>(yields[0].Value).Value);
+        Assert.Equal(2, Assert.IsType<Constant>(yields[1].Value).Value);
+        Assert.All(
+            yields.SelectMany(static yield => yield.Descendants.Prepend(yield)),
+            node => Assert.Equal(-1, node.SourceOffset));
+
+        // The misleading state-machine handoff and acknowledgment marker are gone.
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+    }
+
+    [Fact]
+    public void ReconstructedIterator_RendersYieldReturns()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldTwo));
+
+        Assert.Contains("yield return 1;", output);
+        Assert.Contains("yield return 2;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void ReconstructedIterator_IsFullFidelity()
+    {
+        Assert.Equal(DecompilationFidelity.Full, Raised(nameof(CfgSampleClass.YieldTwo)).Fidelity);
+    }
+
+    [Fact]
+    public void CountingLoopIterator_ReconstructsWhileLoop()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldRange));
+
+        // The `for (int i = 0; i < n; i++) yield return i;` shape comes back as a
+        // structured loop with a single yield — not the acknowledgment fallback.
+        var yield = Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.IsType<LoadLocal>(yield.Value);
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void CountingLoopIterator_RendersLoopAndYield()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldRange));
+
+        Assert.Contains("int i = 0;", output);
+        Assert.Contains("while (i < n)", output);
+        Assert.Contains("yield return i;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void CountingLoopIterator_ConstantBoundAndArithmeticElement()
+    {
+        // Constant bound, no parameter, and an arithmetic yielded value exercise the
+        // self-contained remap (hoisted loop field -> local) without a parameter.
+        var output = Print(nameof(CfgSampleClass.YieldSquares));
+
+        Assert.Contains("while (i < 4)", output);
+        Assert.Contains("yield return i * i;", output);
+    }
+
+    [Fact]
+    public void CountingLoopIterator_IncrementFromNonLoopField_Declines()
+    {
+        var (kickoff, handoff, moveNext) = CountingLoopFixture(incrementLeft: new Constant(0, TypeRef.CoreLib("System", "Int32")));
+
+        Assert.False(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
+        Assert.Empty(statements);
+        kickoff.CheckInvariant();
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void CountingLoopIterator_ResumeSideEffectStatement_Declines()
+    {
+        var (kickoff, handoff, moveNext) = CountingLoopFixture(resumeMiddle: ResumeSideEffectStatement());
+
+        Assert.False(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
+        Assert.Empty(statements);
+        kickoff.CheckInvariant();
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void CountingLoopIterator_PostfixTempCopy_StillReconstructs()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var loopField = LoopField(intType);
+        var tempStore = new StoreLocal(1, intType, new LoadField(loopField, new LoadArgument(0, "this", StateMachineType())));
+        var (kickoff, handoff, moveNext) = CountingLoopFixture(
+            resumeMiddle: tempStore,
+            incrementLeft: new LoadLocal(1, intType));
+
+        Assert.True(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
+        Assert.Equal(2, statements.Count);
+        Assert.IsType<StoreLocal>(statements[0]);
+        Assert.IsType<WhileLoop>(statements[1]);
+        kickoff.CheckInvariant();
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void CountingLoopIterator_PostfixTempWithExtraLoad_Declines()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var loopField = LoopField(intType);
+        var tempStore = new StoreLocal(1, intType, new LoadField(loopField, new LoadArgument(0, "this", StateMachineType())));
+        var (kickoff, handoff, moveNext) = CountingLoopFixture(
+            resumeMiddle: tempStore,
+            incrementLeft: new LoadLocal(1, intType),
+            yieldValue: new LoadLocal(1, intType));
+
+        Assert.False(CountingLoopReconstruction.TryReconstruct(moveNext, kickoff, handoff, out var statements));
+        Assert.Empty(statements);
+        kickoff.CheckInvariant();
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedLoopIterator_ReconstructsNestedLoops()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldGrid));
+
+        // `for i … for j … yield return i + j;` lowers to an irreducible state
+        // dispatch (the resume edge jumps into the inner loop). The transform-then-
+        // restructure path strips the scaffolding to make it reducible, then the
+        // structurer raises both loops — no acknowledgment marker.
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Equal(2, function.Descendants.OfType<ForLoop>().Count());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void NestedLoopIterator_RendersBothLoopsAndYield()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldGrid));
+
+        Assert.Contains("for (int i = 0;", output);
+        Assert.Contains("for (int j = 0;", output);
+        Assert.Contains("yield return i + j;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void NestedLoopIterator_FoldsBothForUpdatesToOperator()
+    {
+        // Both loops' increments are rebuilt through a single shared spill slot
+        // (`V_1 = j; … V_1 = i;` captures with `j = V_1 + 1` / `i = V_1 + 1`
+        // updates); the post-reconstruction IncrementDecrementPass inlines the
+        // shared temp so both updates spell `i++` / `j++` and the temp disappears.
+        var output = Print(nameof(CfgSampleClass.YieldGrid));
+
+        Assert.Contains("for (int i = 0; i < 2; i++)", output);
+        Assert.Contains("for (int j = 0; j < 2; j++)", output);
+        Assert.DoesNotContain("V_1", output);
+        Assert.DoesNotContain("+ 1", output);
+    }
+
+    [Fact]
+    public void NonIterator_IsUnaffected()
+    {
+        var function = Raised(nameof(CfgSampleClass.NotAnIterator));
+
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Contains("source", Print(nameof(CfgSampleClass.NotAnIterator)));
+    }
+
+    [Fact]
+    public void ThreeYieldChain_ReconstructsAllElements()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldThree));
+
+        var values = function.Descendants.OfType<YieldReturn>()
+            .Select(y => Assert.IsType<Constant>(y.Value).Value).ToList();
+        Assert.Equal(new object?[] { 10, 20, 30 }, values);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void StringElementIterator_ReconstructsReferenceLiterals()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldStrings));
+
+        Assert.Contains("yield return \"a\";", output);
+        Assert.Contains("yield return \"b\";", output);
+    }
+
+    [Fact]
+    public void EnumeratorReturningIterator_IsAlsoReconstructed()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldEnumerator));
+
+        var values = function.Descendants.OfType<YieldReturn>()
+            .Select(y => Assert.IsType<Constant>(y.Value).Value).ToList();
+        Assert.Equal(new object?[] { 7, 8 }, values);
+        Assert.Empty(function.Descendants.OfType<UnsupportedNode>());
+    }
+
+    [Fact]
+    public void EmptyIterator_ReconstructsYieldBreak()
+    {
+        var function = Raised(nameof(CfgSampleClass.JustBreak));
+
+        // No yields, exactly one `yield break;`, and no acknowledgment marker.
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void EmptyIterator_RendersYieldBreak()
+    {
+        var output = Print(nameof(CfgSampleClass.JustBreak));
+
+        Assert.Contains("yield break;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void SideEffectBeforeIteratorHandoff_IsNotReconstructed()
+    {
+        var (function, moveNext, sideEffect) = BuildKickoffWithSideEffectBeforeHandoff();
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method.Name == "MoveNext" ? moveNext : null);
+
+        new IteratorReconstructionPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<YieldBreak>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee == sideEffect);
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Single(function.Descendants.OfType<Return>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SideEffectConsumedByIteratorHandoff_IsNotReconstructed()
+    {
+        // The body is a single `return new <M>d__0(SideEffect())` — narrow by shape, but the
+        // construction consumes a side-effecting call. Reconstructing to `yield break;` would
+        // drop that call, so the pass must decline (#1471; symmetric to the #1362
+        // acknowledgment guard and the #1363 side-effect-before-handoff guard).
+        var (function, moveNext, sideEffect) = BuildKickoffWithSideEffectingHandoffArgument();
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method.Name == "MoveNext" ? moveNext : null);
+
+        new IteratorReconstructionPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<YieldBreak>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee == sideEffect);
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Single(function.Descendants.OfType<Return>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void StructThisCaptureHandoff_StillReconstructs()
+    {
+        // A value-type instance iterator captures `this` as `<>4__this = *this`
+        // (ldarg.0; ldobj <struct>), which ObjectInitializerPass preserves as a
+        // LoadIndirect(LoadArgument) initializer entry. That read is inert, so the
+        // narrow-handoff gate must accept it — the kickoff still reconstructs and the
+        // inert-argument guard (#1471) must not regress legitimate struct iterators.
+        var (function, moveNext) = BuildStructThisCaptureKickoff();
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method.Name == "MoveNext" ? moveNext : null);
+
+        new IteratorReconstructionPass().Run(function, context);
+
+        // Reconstructed: the handoff construction is gone, replaced by yield break.
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NonEmptyIterator_HasNoSpuriousYieldBreak()
+    {
+        // A normal linear iterator falls off the end implicitly; reconstruction
+        // must not append a trailing `yield break;`.
+        var function = Raised(nameof(CfgSampleClass.YieldTwo));
+
+        Assert.Empty(function.Descendants.OfType<YieldBreak>());
+    }
+
+    [Fact]
+    public void ConditionalYieldIterator_ReconstructsGuardedYield()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldIf));
+
+        // `if (flag) yield return 1; yield return 2;` — two yields, one under a
+        // parameter-tested guard — comes back structured, not the fallback marker.
+        var yields = function.Descendants.OfType<YieldReturn>().ToList();
+        Assert.Equal(2, yields.Count);
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void ConditionalYieldIterator_RendersGuardAndBothYields()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldIf));
+
+        Assert.Contains("if (flag)", output);
+        Assert.Contains("yield return 1;", output);
+        Assert.Contains("yield return 2;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void MultiYieldLoopIterator_ReconstructsBothYieldsInLoop()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldPairs));
+
+        // `for (int i = 0; i < n; i++) { yield return i; yield return -i; }` —
+        // two yields per iteration — keeps the loop and both yields.
+        Assert.Equal(2, function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void MultiYieldLoopIterator_RendersLoopAndBothYields()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldPairs));
+
+        Assert.Contains("int i = 0;", output);
+        Assert.Contains("while (i < n)", output);
+        Assert.Contains("yield return i;", output);
+        Assert.Contains("yield return -i;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void MultiYieldLoopIterator_FoldsRebuiltIncrementToOperator()
+    {
+        // Reconstruction rebuilds the hoisted loop variable's increment through a
+        // spill slot (`V_1 = i; i = V_1 + 1;`); the post-reconstruction
+        // IncrementDecrementPass run folds that dead-temp shape back into `i++`.
+        var output = Print(nameof(CfgSampleClass.YieldPairs));
+
+        Assert.Contains("i++;", output);
+        Assert.DoesNotContain("= V_1 + 1", output);
+        Assert.DoesNotContain("V_1 = i;", output);
+    }
+
+    [Fact]
+    public void SwitchIterator_ReconstructsSwitchAndSharedContinuation()
+    {
+        var function = Raised(nameof(CfgSampleClass.SwitchYield));
+
+        Assert.Single(function.Descendants.OfType<Switch>());
+        var values = function.Descendants.OfType<YieldReturn>()
+            .Select(y => Assert.IsType<Constant>(y.Value).Value)
+            .ToArray();
+        Assert.Equal(new object?[] { 10, 20, 21, 99, 100 }, values);
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void SwitchIterator_RendersSwitchWithoutFalseRaiseOrdering()
+    {
+        var output = Print(nameof(CfgSampleClass.SwitchYield));
+
+        Assert.Contains("switch (k)", output);
+        Assert.Contains("case 0:", output);
+        Assert.Contains("yield return 10;", output);
+        Assert.Contains("case 1:", output);
+        Assert.Contains("yield return 20;", output);
+        Assert.Contains("yield return 21;", output);
+        Assert.Contains("default:", output);
+        Assert.Contains("yield return 99;", output);
+        Assert.Contains("yield return 100;", output);
+        Assert.Equal(1, CountOccurrences(output, "yield return 100;"));
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void WhileTrueYieldBreakIterator_ReconstructsExplicitYieldBreakLoop()
+    {
+        var function = Raised(nameof(CfgSampleClass.WhileTrueYieldBreak));
+
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Equal(true, Assert.IsType<Constant>(loop.Condition).Value);
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void WhileTrueYieldBreakIterator_RendersExplicitYieldBreak()
+    {
+        var output = Print(nameof(CfgSampleClass.WhileTrueYieldBreak));
+
+        Assert.Contains("int i = 0;", output);
+        Assert.Contains("while (true)", output);
+        Assert.Contains("if (i >= n)", output);
+        Assert.Contains("yield break;", output);
+        Assert.Contains("yield return i;", output);
+        Assert.Contains("i++;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Theory]
+    [InlineData(OptimizationLevel.Debug)]
+    [InlineData(OptimizationLevel.Release)]
+    public void ComplexIteratorFixtures_ReconstructAcrossDebugAndRelease(OptimizationLevel optimization)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var switchResult = RaisedFrom(source, "Issue2868.Iterators", "SwitchYield");
+        Assert.Equal(DecompilationFidelity.Full, switchResult.Function.Fidelity);
+        Assert.Single(switchResult.Function.Descendants.OfType<Switch>());
+        Assert.Equal(5, switchResult.Function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Contains("switch (k)", switchResult.Output);
+        Assert.Contains("yield return 100;", switchResult.Output);
+        Assert.DoesNotContain("not reconstructed", switchResult.Output);
+
+        var yieldBreakResult = RaisedFrom(source, "Issue2868.Iterators", "WhileTrueYieldBreak");
+        Assert.Equal(DecompilationFidelity.Full, yieldBreakResult.Function.Fidelity);
+        Assert.Single(yieldBreakResult.Function.Descendants.OfType<YieldReturn>());
+        Assert.Single(yieldBreakResult.Function.Descendants.OfType<YieldBreak>());
+        Assert.Contains("while (true)", yieldBreakResult.Output);
+        Assert.Contains("yield break;", yieldBreakResult.Output);
+        Assert.DoesNotContain("not reconstructed", yieldBreakResult.Output);
+    }
+
+    [Theory]
+    [InlineData(OptimizationLevel.Debug, "WhileTrueYieldBreakWithSideEffect")]
+    [InlineData(OptimizationLevel.Release, "WhileTrueYieldBreakWithSideEffect")]
+    [InlineData(OptimizationLevel.Debug, "WhileTrueYieldBreakWithMultipleSideEffects")]
+    [InlineData(OptimizationLevel.Release, "WhileTrueYieldBreakWithMultipleSideEffects")]
+    public void YieldBreakLoopIterator_WithPostYieldSideEffects_DeclinesHonestly(
+        OptimizationLevel optimization,
+        string methodName)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.Iterators", methodName);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Function.Fidelity);
+        Assert.Empty(result.Function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(result.Function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Contains("not reconstructed", marker.Reason);
+        Assert.Contains("return default;", result.Output);
+        Assert.DoesNotContain("yield return", result.Output);
+    }
+
+    [Theory]
+    [InlineData(OptimizationLevel.Debug, "LinearFourYields", 4)]
+    [InlineData(OptimizationLevel.Release, "LinearFourYields", 4)]
+    [InlineData(OptimizationLevel.Debug, "LinearFiveYields", 5)]
+    [InlineData(OptimizationLevel.Release, "LinearFiveYields", 5)]
+    [InlineData(OptimizationLevel.Debug, "LinearSixYields", 6)]
+    [InlineData(OptimizationLevel.Release, "LinearSixYields", 6)]
+    public void LinearIterators_NearSwitchShape_StillUseGeneralRecovery(
+        OptimizationLevel optimization,
+        string methodName,
+        int expectedYields)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.Iterators", methodName);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+        Assert.Equal(expectedYields, result.Function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Empty(result.Function.Descendants.OfType<Switch>());
+        Assert.DoesNotContain("not reconstructed", result.Output);
+        for (var value = 1; value <= expectedYields; value++)
+            Assert.Contains($"yield return {value};", result.Output);
+    }
+
+    [Fact]
+    public void YieldBreakLoopIterator_WithDispatchSideEffect_DeclinesHonestly()
+    {
+        var (function, _, moveNext) = CountingLoopFixture(dispatchMiddle: ResumeSideEffectStatement());
+
+        Assert.True(YieldBreakLoopIteratorReconstruction.IsCandidate(moveNext));
+        Assert.False(YieldBreakLoopIteratorReconstruction.TryReconstruct(moveNext, function,
+            Assert.IsType<NewObject>(Assert.IsType<Return>(Assert.Single(function.Body.Blocks).Children.Single()).Value),
+            out _));
+        var (runFunction, _, _) = CountingLoopFixture(dispatchMiddle: ResumeSideEffectStatement());
+        RunIteratorReconstructionAndAcknowledgment(runFunction,
+            () => CountingLoopFixture(dispatchMiddle: ResumeSideEffectStatement()).MoveNext);
+
+        AssertHonestIteratorPartial(runFunction);
+    }
+
+    [Fact]
+    public void SwitchIterator_WithFallthroughDefaultSideEffect_DeclinesHonestly()
+    {
+        var (function, _, moveNext) = SwitchIteratorFixture(fallthroughStatement: ResumeSideEffectStatement());
+
+        Assert.True(SwitchIteratorReconstruction.IsCandidate(moveNext));
+        Assert.False(SwitchIteratorReconstruction.TryReconstruct(moveNext, function,
+            Assert.IsType<NewObject>(Assert.IsType<Return>(Assert.Single(function.Body.Blocks).Children.Single()).Value),
+            out _));
+        var (runFunction, _, _) = SwitchIteratorFixture(fallthroughStatement: ResumeSideEffectStatement());
+        RunIteratorReconstructionAndAcknowledgment(runFunction,
+            () => SwitchIteratorFixture(fallthroughStatement: ResumeSideEffectStatement()).MoveNext);
+
+        AssertHonestIteratorPartial(runFunction);
+    }
+
+    [Fact]
+    public void NestedIfIterator_StillReconstructs()
+    {
+        var function = Raised(nameof(CfgSampleClass.ValidNestedIf));
+
+        Assert.Equal(3, function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Contains(function.Descendants.OfType<IfStatement>(), i =>
+            i.Then.Descendants.OfType<IfStatement>().Any());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void SideEffectingEmptyIterator_PreservesSideEffectBeforeBreak()
+    {
+        var function = Raised(nameof(CfgSampleClass.BreakWithSideEffect));
+
+        // A yield-nothing iterator that runs a side effect first is NOT a bare
+        // `yield break;` — the call must survive, ahead of the break, at Full
+        // fidelity and with no acknowledgment marker.
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "WriteLine");
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void SideEffectingEmptyIterator_RendersCallThenBreak()
+    {
+        var output = Print(nameof(CfgSampleClass.BreakWithSideEffect));
+
+        Assert.Contains("Console.WriteLine(\"side effect\");", output);
+        Assert.Contains("yield break;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void ParameterReferencingEmptyIterator_DeclinesToAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.BreakWithParameterSideEffect));
+
+        // The side effect reads a hoisted parameter field, unspeakable in the
+        // kickoff's scope. Reconstruction must NOT silently collapse to `yield break;`
+        // — it declines so the honest acknowledgment marker stands.
+        Assert.Empty(function.Descendants.OfType<YieldBreak>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+    }
+
+    [Fact]
+    public void CollectionExpressionSpreadIterator_ReconstructsYieldButNotSpread()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldCollectionExpressionSpread));
+
+        // The iterator layer reconstructs the single yield, but the yielded
+        // spread collection expression (`[.. arch, true]`) stays at the lowered
+        // inline-array/CopyTo/Slice altitude: the spread collection-target frontier
+        // is unraised (see CollectionExpression ledger), so this composes two
+        // independent frontiers rather than recovering the source idiom. The
+        // reconstruction is still Full fidelity — honest, just lower altitude.
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+
+        // Pin the exact lowered spread shape so an array-spread raise cannot reach
+        // into the iterator interaction without an explicit fixture proving it safe.
+        var output = Print(nameof(CfgSampleClass.YieldCollectionExpressionSpread));
+        Assert.Contains("new bool[1 + ", output);
+        Assert.Contains(".CopyTo(", output);
+        Assert.Contains(".Slice(", output);
+        Assert.Contains("yield return", output);
+        Assert.DoesNotContain("[..", output);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_ReconstructsForeach()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldEach));
+
+        // foreach-over-source delegation lowers to an irreducible single-yield dispatch
+        // with the iterator's split disposal idiom (a fault handler plus a `<>m__Finally1`
+        // call). The transform-then-restructure path strips both the state scaffolding and
+        // the disposal, then recovers the foreach — no acknowledgment marker.
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal(
+            ["GetEnumerator", "MoveNext", "get_Current", "Dispose"],
+            foreachStatement.ConsumedMemberRefs.Select(method => method.Name));
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_RendersForeachAndYield()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldEach));
+
+        Assert.Contains("foreach (", output);
+        Assert.Contains("in source)", output);
+        Assert.Contains("yield return", output);
+        Assert.DoesNotContain("not reconstructed", output);
+        // The split disposal scaffolding is fully gone.
+        Assert.DoesNotContain("Finally", output);
+        Assert.DoesNotContain("GetEnumerator", output);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_PreservesNamedStructReceiver()
+    {
+        using var source = MetadataSource.Open(typeof(NamePreservationSamples).Assembly.Location);
+        var (function, output) = RaisedFrom(
+            source,
+            typeof(NamePreservationSamples).FullName!,
+            nameof(NamePreservationSamples.YieldNamedStructReceiver));
+
+        var loop = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("date", function.LocalNames[loop.LocalIndex]);
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Empty(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("foreach (DateTime date in dates)", output);
+        Assert.Contains("yield return date.Year;", output);
+    }
+
+    [Theory]
+    [InlineData(nameof(IteratorReceiverNameSamples.YieldYears))]
+    [InlineData(nameof(IteratorReceiverNameSamples.YieldAdjustedYears))]
+    [InlineData(nameof(IteratorReceiverNameSamples.YieldCombinedYears))]
+    public void ForeachDelegationIterator_PreservesCapturedInstance(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(IteratorReceiverNameSamples).Assembly.Location);
+        var (function, output) = RaisedFrom(
+            source,
+            typeof(IteratorReceiverNameSamples).FullName!,
+            methodName);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var loop = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("date", function.LocalNames[loop.LocalIndex]);
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Empty(function.Descendants.OfType<UnsupportedNode>());
+        var receiverReads = function.Descendants.OfType<LoadArgument>()
+            .Where(argument => argument.Index == 0).ToArray();
+        Assert.NotEmpty(receiverReads);
+        Assert.All(receiverReads, argument => Assert.Same(function.ReceiverParameter, argument.Parameter));
+        Assert.Contains("date.Year", output);
+        Assert.DoesNotContain("= default", output);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_CopiedValueReceiverDeclines()
+    {
+        using var source = MetadataSource.Open(typeof(IteratorValueReceiverNameSamples).Assembly.Location);
+        var (function, _) = RaisedFrom(source, typeof(IteratorValueReceiverNameSamples).FullName!,
+            nameof(IteratorValueReceiverNameSamples.YieldYears));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+    }
+
+    [Theory]
+    [InlineData("different-receiver")]
+    [InlineData("missing-field-evidence")]
+    [InlineData("reassigned-alias")]
+    [InlineData("addressed-alias")]
+    [InlineData("captured-field-write")]
+    [InlineData("captured-field-address")]
+    [InlineData("unrelated-prefix")]
+    public void ForeachDelegationIterator_UnownedReceiverInitializationDeclines(string shape)
+    {
+        using var source = MetadataSource.Open(typeof(IteratorReceiverNameSamples).Assembly.Location);
+        var kickoff = IrImporter.Import(source, typeof(IteratorReceiverNameSamples).FullName!,
+            nameof(IteratorReceiverNameSamples.YieldCombinedYears))!;
+        var context = new PassContext(new Stepper(enabled: false),
+            importMethodBody: method => IrImporter.Import(source, method));
+        IrPasses.Run(kickoff, [.. IrPasses.Default.TakeWhile(pass => pass is not IteratorReconstructionPass)], context);
+        var handoff = Assert.Single(kickoff.Descendants.OfType<NewObject>());
+        var initializer = Assert.IsType<ObjectInitializerExpression>(handoff.Parent);
+        var capture = Assert.Single(initializer.Entries, entry => entry.ConsumedField?.Name == "<>4__this");
+        var work = IrImporter.Import(source, handoff.Constructor with { Name = "MoveNext" })!;
+        var entryBlock = work.Body.Blocks[0];
+        var alias = Assert.Single(entryBlock.Children.OfType<StoreLocal>(),
+            store => store.Value is LoadField { Field.Name: "<>4__this" });
+
+        if (shape == "different-receiver")
+        {
+            capture.Arguments[0].ReplaceWith(new LoadArgument(1, kickoff.Signature.Parameters[0]));
+        }
+        else if (shape == "missing-field-evidence")
+        {
+            var replacement = new ObjectInitializerExpression((NewObject)handoff.Clone(), false,
+                initializer.Entries.Select(entry => entry with
+                {
+                    ConsumedField = entry.ConsumedField?.Name == "<>4__this" ? null : entry.ConsumedField,
+                    Arguments = [.. entry.Arguments.Select(argument => (IrExpression)argument.Clone())],
+                }));
+            initializer.ReplaceWith(replacement);
+            handoff = replacement.Creation;
+        }
+        else
+        {
+            var intType = TypeRef.CoreLib("System", "Int32");
+            var terminal = entryBlock.Children[^1];
+            terminal.Detach();
+            entryBlock.Add(shape switch
+            {
+                "reassigned-alias" => alias.Clone(),
+                "addressed-alias" => new ExpressionStatement(new LoadLocalAddress(alias.Index, alias.Type)),
+                "captured-field-write" => new StoreField(capture.ConsumedField!,
+                    new LoadArgument(0, work.ReceiverParameter!), (IrExpression)alias.Value.Clone()),
+                "captured-field-address" => new ExpressionStatement(new LoadFieldAddress(capture.ConsumedField!,
+                    new LoadArgument(0, work.ReceiverParameter!))),
+                "unrelated-prefix" => new StoreLocal(work.AddLocal(intType, "unowned"), intType,
+                    new Constant(1, intType)),
+                _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+            });
+            entryBlock.Add(terminal);
+        }
+
+        work.CheckInvariant();
+        kickoff.CheckInvariant();
+        Assert.False(ForeachIteratorReconstruction.TryReconstruct(work, kickoff, handoff, context, out _));
+        work.CheckInvariant();
+        new IteratorAcknowledgmentPass().Run(kickoff, context);
+        kickoff.CheckInvariant();
+        Assert.Empty(kickoff.Descendants.OfType<ForeachStatement>());
+        Assert.Single(kickoff.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_WithUserFinally_DeclinesToAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachUserFinally));
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_WithOuterFinally_DeclinesToAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachWithOuterFinally));
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_WithUserFinallyBeforeYield_DeclinesToAcknowledgment()
+    {
+        var function = Raised(nameof(CfgSampleClass.ForeachUserFinallyBeforeYield));
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal("iterator", marker.Opcode);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void GenericDeclaringTypeIterator_RemainsHonestlyAcknowledged()
+    {
+        var type = typeof(GenericIteratorDeclaringTypeSamples<>);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(GenericIteratorDeclaringTypeSamples<int>.Loop));
+        Assert.NotNull(function);
+        Assert.True(IteratorShapes.TryGetKickoff(function!, out var handoff));
+        var moveNext = handoff.Constructor with { Name = "MoveNext" };
+        Assert.Equal(TypeRefKind.GenericInstance, moveNext.DeclaringType.Kind);
+        Assert.Null(IrImporter.Import(source, moveNext));
+
+        var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Single(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+        function.CheckInvariant();
+    }
+
+    static (IrFunction Function, IrFunction MoveNext, MethodRef SideEffect) BuildKickoffWithSideEffectBeforeHandoff()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var stateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+        var constructor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            voidType,
+            [intType],
+            HasThis: false)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var sideEffect = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Effects"),
+            "SideEffect",
+            voidType,
+            [],
+            HasThis: false);
+
+        var kickoffBlock = new Block();
+        kickoffBlock.Add(new ExpressionStatement(new Call(sideEffect, isVirtual: false, [])));
+        kickoffBlock.Add(new Return(new NewObject(constructor, [new Constant(-2, intType)])));
+        var kickoffBody = new BlockContainer();
+        kickoffBody.Add(kickoffBlock);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            kickoffBody);
+
+        var moveNextBlock = new Block();
+        moveNextBlock.Add(new Return(new Constant(false, boolType)));
+        var moveNextBody = new BlockContainer();
+        moveNextBody.Add(moveNextBlock);
+        var moveNext = new IrFunction(
+            "MoveNext",
+            stateMachine,
+            new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            moveNextBody);
+
+        return (function, moveNext, sideEffect);
+    }
+
+    static (IrFunction Function, IrFunction MoveNext, MethodRef SideEffect) BuildKickoffWithSideEffectingHandoffArgument()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var stateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+        var constructor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            voidType,
+            [intType],
+            HasThis: false)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        // Returns int so it can sit in the int-typed state argument the ctor consumes.
+        var sideEffect = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Effects"),
+            "SideEffect",
+            intType,
+            [],
+            HasThis: false);
+
+        var kickoffBlock = new Block();
+        kickoffBlock.Add(new Return(new NewObject(constructor, [new Call(sideEffect, isVirtual: false, [])])));
+        var kickoffBody = new BlockContainer();
+        kickoffBody.Add(kickoffBlock);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            kickoffBody);
+
+        var moveNextBlock = new Block();
+        moveNextBlock.Add(new Return(new Constant(false, boolType)));
+        var moveNextBody = new BlockContainer();
+        moveNextBody.Add(moveNextBlock);
+        var moveNext = new IrFunction(
+            "MoveNext",
+            stateMachine,
+            new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            moveNextBody);
+
+        return (function, moveNext, sideEffect);
+    }
+
+    static (IrFunction Function, IrFunction MoveNext) BuildStructThisCaptureKickoff()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var ownerType = TypeRef.Definition("Synthetic", "Samples", "Outer");
+        var stateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+        var constructor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            voidType,
+            [intType],
+            HasThis: false)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+
+        // `<>4__this = *this` — the inert struct-this capture (ldarg.0; ldobj Outer).
+        var creation = new NewObject(constructor, [new Constant(-2, intType)]);
+        var thisCapture = new LoadIndirect(ownerType, new LoadArgument(0, "this", TypeRef.ByRef(ownerType)));
+        var handoff = new ObjectInitializerExpression(
+            creation,
+            isCollection: false,
+            [new InitializerEntry("<>4__this", [thisCapture])]);
+
+        var kickoffBlock = new Block();
+        kickoffBlock.Add(new Return(handoff));
+        var kickoffBody = new BlockContainer();
+        kickoffBody.Add(kickoffBlock);
+        var function = new IrFunction(
+            "M",
+            ownerType,
+            new MethodSignature(enumerable, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            kickoffBody);
+
+        var moveNextBlock = new Block();
+        moveNextBlock.Add(new Return(new Constant(false, boolType)));
+        var moveNextBody = new BlockContainer();
+        moveNextBody.Add(moveNextBlock);
+        var moveNext = new IrFunction(
+            "MoveNext",
+            stateMachine,
+            new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            moveNextBody);
+
+        return (function, moveNext);
+    }
+
+    static void RunIteratorReconstructionAndAcknowledgment(IrFunction function, Func<IrFunction> moveNextFactory)
+    {
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method.Name == "MoveNext" ? moveNextFactory() : null);
+
+        new IteratorReconstructionPass().Run(function, context);
+        new IteratorAcknowledgmentPass().Run(function, context);
+        function.CheckInvariant();
+    }
+
+    static void AssertHonestIteratorPartial(IrFunction function)
+    {
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Empty(function.Descendants.OfType<YieldBreak>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Contains("not reconstructed", marker.Reason);
+    }
+
+    static (IrFunction Kickoff, NewObject Handoff, IrFunction MoveNext) CountingLoopFixture(
+        IrNode? resumeMiddle = null,
+        IrExpression? incrementLeft = null,
+        IrExpression? yieldValue = null,
+        IrNode? dispatchMiddle = null)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Outer");
+        var stateMachine = StateMachineType();
+        var stateField = new FieldRef(stateMachine, "<>1__state", intType);
+        var currentField = new FieldRef(stateMachine, "<>2__current", intType);
+        var loopField = LoopField(intType);
+        var constructor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            voidType,
+            [intType],
+            HasThis: true)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var handoff = new NewObject(constructor, [new Constant(-2, intType)]);
+        var kickoffBlock = new Block(0);
+        kickoffBlock.Add(new Return(handoff));
+        var kickoffBody = new BlockContainer();
+        kickoffBody.Add(kickoffBlock);
+        var kickoff = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            kickoffBody);
+
+        var dispatch0 = new Block(0);
+        dispatch0.Add(new StoreLocal(0, intType, new LoadField(stateField, This(stateMachine))));
+        dispatch0.Add(new ConditionalBranch(new LogicalNot(new LoadLocal(0, intType)), targetOffset: 10));
+
+        var dispatch1 = new Block(1);
+        if (dispatchMiddle is not null)
+            dispatch1.Add(dispatchMiddle);
+        dispatch1.Add(new ConditionalBranch(
+            new Comparison(ComparisonKind.Equal, false, new LoadLocal(0, intType), new Constant(1, intType)),
+            targetOffset: 40));
+
+        var defaultReturn = new Block(2);
+        defaultReturn.Add(new Return(new Constant(false, boolType)));
+
+        var init = new Block(10);
+        init.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        init.Add(new StoreField(loopField, This(stateMachine), new Constant(0, intType)));
+        init.Add(new Branch(50));
+
+        var yield = new Block(30);
+        yield.Add(new StoreField(currentField, This(stateMachine), yieldValue ?? new LoadField(loopField, This(stateMachine))));
+        yield.Add(new StoreField(stateField, This(stateMachine), new Constant(1, intType)));
+        yield.Add(new Return(new Constant(true, boolType)));
+
+        var resume = new Block(40);
+        resume.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        if (resumeMiddle is not null)
+            resume.Add(resumeMiddle);
+        resume.Add(new StoreField(
+            loopField,
+            This(stateMachine),
+            new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                incrementLeft ?? new LoadField(loopField, This(stateMachine)),
+                new Constant(1, intType))));
+
+        var cond = new Block(50);
+        cond.Add(new ConditionalBranch(
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadField(loopField, This(stateMachine)),
+                new Constant(4, intType)),
+            targetOffset: 30));
+
+        var terminal = new Block(51);
+        terminal.Add(new Return(new Constant(false, boolType)));
+
+        var moveNextBody = new BlockContainer();
+        foreach (var block in new[] { dispatch0, dispatch1, defaultReturn, init, yield, resume, cond, terminal })
+            moveNextBody.Add(block);
+        var moveNext = new IrFunction(
+            "MoveNext",
+            stateMachine,
+            new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
+            // Slot 0 is the dispatch state; slot 1 is the slot the injectable
+            // resume/dispatch statements write. Declared rather than left empty
+            // so the semantic invariant validates these fixtures for real.
+            [intType, intType],
+            moveNextBody);
+        return (kickoff, handoff, moveNext);
+    }
+
+    static (IrFunction Kickoff, NewObject Handoff, IrFunction MoveNext) SwitchIteratorFixture(IrNode? fallthroughStatement = null)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Outer");
+        var stateMachine = StateMachineType();
+        var stateField = new FieldRef(stateMachine, "<>1__state", intType);
+        var currentField = new FieldRef(stateMachine, "<>2__current", intType);
+        var constructor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            voidType,
+            [intType],
+            HasThis: true)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var handoff = new NewObject(constructor, [new Constant(-2, intType)]);
+        var kickoffBlock = new Block(0);
+        kickoffBlock.Add(new Return(handoff));
+        var kickoffBody = new BlockContainer();
+        kickoffBody.Add(kickoffBlock);
+        var kickoff = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            kickoffBody);
+
+        var dispatch = new Block(0);
+        dispatch.Add(new StoreLocal(0, intType, new LoadField(stateField, This(stateMachine))));
+        dispatch.Add(new SwitchBranch(new LoadLocal(0, intType), [10, 21, 31, 41, 51, 60]));
+
+        var fallthrough = new Block(1);
+        if (fallthroughStatement is not null)
+            fallthrough.Add(fallthroughStatement);
+        fallthrough.Add(new Return(new Constant(false, boolType)));
+
+        var entry = new Block(10);
+        entry.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        entry.Add(new StoreLocal(1, intType, new Constant(0, intType)));
+        entry.Add(new ConditionalBranch(new LogicalNot(new LoadLocal(1, intType)), targetOffset: 12));
+
+        var secondDispatch = new Block(11);
+        secondDispatch.Add(new ConditionalBranch(
+            new Comparison(ComparisonKind.Equal, false, new LoadLocal(1, intType), new Constant(1, intType)),
+            targetOffset: 30));
+
+        var defaultDispatch = new Block(12);
+        defaultDispatch.Add(new Branch(50));
+
+        var case0 = new Block(20);
+        case0.Add(new StoreField(currentField, This(stateMachine), new Constant(10, intType)));
+        case0.Add(new StoreField(stateField, This(stateMachine), new Constant(1, intType)));
+        case0.Add(new Return(new Constant(true, boolType)));
+
+        var state1 = new Block(21);
+        state1.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        state1.Add(new Branch(55));
+
+        var case1First = new Block(30);
+        case1First.Add(new StoreField(currentField, This(stateMachine), new Constant(20, intType)));
+        case1First.Add(new StoreField(stateField, This(stateMachine), new Constant(2, intType)));
+        case1First.Add(new Return(new Constant(true, boolType)));
+
+        var case1Second = new Block(31);
+        case1Second.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        case1Second.Add(new StoreField(currentField, This(stateMachine), new Constant(21, intType)));
+        case1Second.Add(new StoreField(stateField, This(stateMachine), new Constant(3, intType)));
+        case1Second.Add(new Return(new Constant(true, boolType)));
+
+        var state3 = new Block(41);
+        state3.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        state3.Add(new Branch(55));
+
+        var defaultCase = new Block(50);
+        defaultCase.Add(new StoreField(currentField, This(stateMachine), new Constant(99, intType)));
+        defaultCase.Add(new StoreField(stateField, This(stateMachine), new Constant(4, intType)));
+        defaultCase.Add(new Return(new Constant(true, boolType)));
+
+        var state4 = new Block(51);
+        state4.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        state4.Add(new Branch(55));
+
+        var post = new Block(55);
+        post.Add(new StoreField(currentField, This(stateMachine), new Constant(100, intType)));
+        post.Add(new StoreField(stateField, This(stateMachine), new Constant(5, intType)));
+        post.Add(new Return(new Constant(true, boolType)));
+
+        var terminal = new Block(60);
+        terminal.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        terminal.Add(new Return(new Constant(false, boolType)));
+
+        var moveNextBody = new BlockContainer();
+        foreach (var block in new[] { dispatch, fallthrough, entry, secondDispatch, defaultDispatch, case0, state1, case1First, case1Second, state3, defaultCase, state4, post, terminal })
+            moveNextBody.Add(block);
+        var moveNext = new IrFunction(
+            "MoveNext",
+            stateMachine,
+            new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
+            // Slot 0 is the outer dispatch state, slot 1 the inner one, which is
+            // also what the injectable fallthrough statement writes.
+            [intType, intType],
+            moveNextBody);
+        return (kickoff, handoff, moveNext);
+    }
+
+    static TypeRef StateMachineType()
+        => TypeRef.Definition("Synthetic", "Samples", "Outer+<M>d__0");
+
+    static FieldRef LoopField(TypeRef intType)
+        => new(StateMachineType(), "<i>5__2", intType);
+
+    static LoadArgument This(TypeRef stateMachine)
+        => new(0, "this", stateMachine);
+
+    static IrNode ResumeSideEffectStatement()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var effect = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Effects"),
+            "SideEffect",
+            intType,
+            [],
+            HasThis: false);
+        return new StoreLocal(1, intType, new Call(effect, isVirtual: false, []));
+    }
+}
+
+public sealed class GenericIteratorDeclaringTypeSamples<T>
+{
+    readonly int _count = 3;
+
+    public System.Collections.Generic.IEnumerable<int> Loop()
+    {
+        for (int i = 0; i < _count; i++)
+            yield return i;
+    }
+}

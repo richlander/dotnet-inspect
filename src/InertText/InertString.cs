@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.Json.Serialization;
 using InertText.Encoding;
 
 namespace InertText;
@@ -71,7 +70,6 @@ namespace InertText;
 /// holds it back. Here the payload is already inert, and the wrapper only records that fact.
 /// Losing the wrapper loses provenance, not protection.
 /// </remarks>
-[JsonConverter(typeof(InertText.Json.InertStringJsonConverter))]
 public readonly struct InertString : IEquatable<InertString>
 {
     // A constructor is the only thing that assigns this, and both constructors assign encoder
@@ -190,6 +188,17 @@ public readonly struct InertString : IEquatable<InertString>
         new(string.Empty, VisualForm.None, TextConcern.None);
 
     /// <summary>
+    /// The standard replacement for text that a sink omits because it required containment.
+    /// </summary>
+    /// <remarks>
+    /// The wording reports the operation and the producing policy's result without attributing
+    /// intent to the source text. Callers pass this value explicitly to
+    /// <see cref="ReplaceIfContainmentRequired"/>.
+    /// </remarks>
+    public static InertString ContainmentRequiredPlaceholder { get; } =
+        new(TextPolicy.Field, "[Text omitted: required containment]");
+
+    /// <summary>
     /// Reconstructs an unbounded value from text previously returned by <see cref="ToString"/>.
     /// </summary>
     /// <remarks>
@@ -248,6 +257,25 @@ public readonly struct InertString : IEquatable<InertString>
     /// conformance check for a different policy. Use <see cref="EnsurePermitted"/> for that.
     /// </remarks>
     public bool RequiredContainment => Concerns != TextConcern.None;
+
+    /// <summary>
+    /// Returns <paramref name="containmentText"/> when this value required containment; otherwise
+    /// returns this value unchanged.
+    /// </summary>
+    /// <remarks>
+    /// This is the suppression form for a sink that must not disclose text carrying a
+    /// <see cref="TextConcern"/>, even in its inert spelling. It deliberately follows
+    /// <see cref="RequiredContainment"/> rather than <see cref="WasEncoded"/>:
+    /// disambiguating a literal backslash may require encoding, but does not make the source
+    /// text concerning.
+    ///
+    /// Both outcomes are <see cref="InertString"/> values, so choosing a placeholder does not
+    /// discard the currency type or introduce a second raw-text path around the policy-bearing
+    /// constructors.
+    /// </remarks>
+    /// <param name="containmentText">The inert value to return instead of concerned text.</param>
+    public InertString ReplaceIfContainmentRequired(InertString containmentText)
+        => RequiredContainment ? containmentText : this;
 
     /// <summary>Whether raw rendering must run the visual encoding backwards.</summary>
     public bool NeedsRawDecoding => Forms != VisualForm.None;

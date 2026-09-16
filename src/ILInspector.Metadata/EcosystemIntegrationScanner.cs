@@ -36,6 +36,32 @@ public record EcosystemIntegrationSignalInfo(
     string Name,
     string Shape = IntegrationSignalShape.Type)
 {
+    string _integration = Integration;
+    IntegrationConceptDescriptor? _concept = ResolveConcept(Integration);
+
+    public string Integration
+    {
+        get => _integration;
+        init
+        {
+            _integration = value;
+            _concept = ResolveConcept(value);
+        }
+    }
+    public string Kind { get; init; } = Kind;
+    public string Name { get; init; } = Name;
+    public string Shape { get; init; } = Shape;
+
+    internal EcosystemIntegrationSignalInfo(
+        IntegrationConceptDescriptor concept,
+        string kind,
+        string name,
+        string shape = IntegrationSignalShape.Type)
+        : this(concept.DisplayLabel, kind, name, shape)
+    {
+        _concept = concept;
+    }
+
     internal ImmutableArray<EcosystemIntegrationApiEvidence> ApiEvidence
         { get; init; } = [];
     internal bool ApiEvidenceUnavailable { get; init; }
@@ -51,6 +77,28 @@ public record EcosystemIntegrationSignalInfo(
 
     public MetadataTypeDefinitionName? GetTypeDefinition() =>
         TypeDefinition;
+
+    public IntegrationConceptDescriptor? GetConcept() => _concept;
+
+    public IntegrationProducerPolicyDescriptor? GetProducerPolicy()
+    {
+        IntegrationProducerPolicyDescriptor policy =
+            IntegrationConceptCatalog.EcosystemObserved;
+        return _concept is not null
+            && policy.Concepts.Contains(
+                _concept,
+                ReferenceEqualityComparer.Instance)
+                ? policy
+                : null;
+    }
+
+    static IntegrationConceptDescriptor? ResolveConcept(string? integration) =>
+        integration is not null
+        && IntegrationConceptCatalog.TryGetByDisplayLabel(
+            integration,
+            out IntegrationConceptDescriptor? concept)
+                ? concept
+                : null;
 
     // Preserve the original four-field signal contract. Structured evidence is
     // derived from the same metadata and intentionally does not affect row
@@ -107,12 +155,29 @@ public record EcosystemIntegrationPresence
 /// </summary>
 public static class EcosystemIntegrationScanner
 {
+    /// <summary>Existing Aspire interpretation for staged application-catalog adoption.</summary>
+    public static EcosystemIntegrationScannerBinding AspireBinding { get; } =
+        EcosystemIntegrationScannerBinding.Create(EcosystemIntegrationClassifier.ClassifyAspire);
+
+    /// <summary>
+    /// Runs one selected interpretation over owner-produced observations.
+    /// The returned rows do not constitute full-library presence or a Census.
+    /// </summary>
+    public static List<EcosystemIntegrationSignalInfo> Scan(
+        EcosystemIntegrationObservationContext context,
+        EcosystemIntegrationScannerBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(binding);
+        return EcosystemIntegrationProjection.Project(binding.Scan(context));
+    }
+
     public static List<EcosystemIntegrationSignalInfo> Scan(PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
-        return EcosystemIntegrationProjection.Scan(peReader.GetMetadataReader());
+        return EcosystemIntegrationProjection.Scan(MetadataFormatAdmission.GetMetadataReader(peReader));
     }
 
     public static EcosystemIntegrationPresence ScanPresence(MetadataReader reader)

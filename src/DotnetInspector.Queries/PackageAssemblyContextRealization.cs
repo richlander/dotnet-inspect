@@ -1,0 +1,1653 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Runtime.CompilerServices;
+
+using DotnetInspector.Packages;
+using ILInspector.Metadata;
+using NuGetFetch;
+
+namespace DotnetInspector.Queries;
+
+/// <summary>
+/// Opaque reference identity for one exact realized package Root. Descriptive
+/// fields do not define equality; consumers correlate Roots by object identity.
+/// </summary>
+public sealed class PackageRootIdentity
+{
+    internal PackageRootIdentity(
+        string packageId,
+        string packageVersion,
+        string? requestedTargetFramework,
+        string? requestedRuntimeIdentifier)
+    {
+        PackageId = packageId;
+        PackageVersion = packageVersion;
+        RequestedTargetFramework = requestedTargetFramework;
+        RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
+    }
+
+    public string PackageId { get; }
+
+    public string PackageVersion { get; }
+
+    public string? RequestedTargetFramework { get; }
+
+    public string? RequestedRuntimeIdentifier { get; }
+}
+
+/// <summary>
+/// Opaque identity for one immutable package compile-asset selection.
+/// </summary>
+/// <remarks>
+/// Equality is reference identity. A token is occurrence-local: equal tokens
+/// guarantee the same typed selection arm and ordered asset sequences, while
+/// independently repeated equal selections may receive different tokens.
+/// </remarks>
+public sealed class PackageRootSelectionIdentity
+{
+    internal PackageRootSelectionIdentity()
+    {
+    }
+}
+
+/// <summary>
+/// Acquisition-issued binding among one package Root, its authoritative
+/// realized coordinate, retained content generation, and compile-asset selection.
+/// </summary>
+public sealed class PackageRootBinding
+{
+    PackageRootBinding(
+        PackageRootRealization root,
+        RealizedMemberCoordinate.Package coordinate,
+        PackageProducerIdentity? sourceProducer,
+        PackageContentGenerationIdentity contentGenerationIdentity,
+        PackageRootSelectionIdentity selectionIdentity,
+        string? compileTargetFramework,
+        bool usesCompatibleImplementationSelection)
+    {
+        Root = root;
+        Coordinate = coordinate;
+        SourceProducer = sourceProducer;
+        ContentGenerationIdentity = contentGenerationIdentity;
+        SelectionIdentity = selectionIdentity;
+        CompileTargetFramework = compileTargetFramework;
+        UsesCompatibleImplementationSelection =
+            usesCompatibleImplementationSelection;
+    }
+
+    public PackageRootRealization Root { get; }
+
+    public RealizedMemberCoordinate.Package Coordinate { get; }
+
+    internal PackageProducerIdentity? SourceProducer { get; }
+
+    public PackageContentGenerationIdentity ContentGenerationIdentity { get; }
+
+    public PackageRootSelectionIdentity SelectionIdentity { get; }
+
+    internal string? CompileTargetFramework { get; }
+
+    internal bool UsesCompatibleImplementationSelection { get; }
+
+    /// <summary>
+    /// Issues the exact, resource-free request that repeats this logical Root
+    /// under another host's acquisition capabilities.
+    /// </summary>
+    /// <remarks>
+    /// The issued value preserves the realized producer-pinned coordinate and
+    /// the normalized compile and implementation selection targets separately,
+    /// and carries no content, generation identity, selection identity,
+    /// workspace identity, lease, opener, or path authority. Gated by
+    /// <c>SparsePackageAssemblyProjectionTests.ReacquisitionRequest_IsExactResourceFreeAndSeparatesTargets</c>.
+    /// </remarks>
+    public PackageRootReacquisitionRequest CreateReacquisitionRequest() =>
+        new(PackageArtifactRootRequest.From(this));
+
+    /// <summary>
+    /// Binds a payload acquired through the typed source-client path.
+    /// </summary>
+    public static PackageRootBinding CreateFromSource(
+        AcquiredPackageSourcePayload payload,
+        string? selectionTargetFramework = null,
+        string? runtimeIdentifier = null,
+        string? displayPackageId = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        if (runtimeIdentifier is not null
+            && !RealizedMemberCoordinate.IsCanonicalRuntimeIdentifier(
+                runtimeIdentifier))
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier must be a canonical lowercase moniker.",
+                nameof(runtimeIdentifier));
+        }
+        string? acquisitionFramework =
+            SourceAcquisitionFramework(selectionTargetFramework);
+        if (runtimeIdentifier is not null
+            && acquisitionFramework is null)
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier requires a canonical acquisition framework.",
+                nameof(selectionTargetFramework));
+        }
+
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            SourceCoordinateProducer(payload),
+            payload.Producer,
+            payload.LegacyProducerKey,
+            acquisitionFramework,
+            selectionTargetFramework,
+            runtimeIdentifier);
+    }
+
+    /// <summary>
+    /// Binds a typed-source payload to the exact compile selection receipt
+    /// already issued for its retained content generation.
+    /// </summary>
+    internal static PackageRootBinding CreateFromSourceSelection(
+        AcquiredPackageSourcePayload payload,
+        PackageCompileAssetSelectionReceipt receipt,
+        string? displayPackageId = null)
+    {
+        string? acquisitionFramework =
+            ValidateSourceSelection(payload, receipt);
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            SourceCoordinateProducer(payload),
+            payload.Producer,
+            payload.LegacyProducerKey,
+            acquisitionFramework,
+            receipt.RequestedTargetFramework,
+            receipt.RequestedRuntimeIdentifier,
+            assetSelection: receipt.Selection);
+    }
+
+    /// <summary>
+    /// Attempts to bind a typed-source payload to its exact compile selection
+    /// when the complete package Root coordinate is representable.
+    /// </summary>
+    internal static bool TryCreateFromSourceSelection(
+        AcquiredPackageSourcePayload payload,
+        PackageCompileAssetSelectionReceipt receipt,
+        [NotNullWhen(true)] out PackageRootBinding? binding,
+        string? displayPackageId = null)
+    {
+        string? acquisitionFramework =
+            ValidateSourceSelection(payload, receipt);
+        return TryCreate(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            SourceCoordinateProducer(payload),
+            payload.Producer,
+            payload.LegacyProducerKey,
+            acquisitionFramework,
+            receipt.RequestedTargetFramework,
+            receipt.RequestedRuntimeIdentifier,
+            receipt.Selection,
+            compileTargetFramework: null,
+            usesCompatibleImplementationSelection: false,
+            out binding,
+            out _);
+    }
+
+    private static string? ValidateSourceSelection(
+        AcquiredPackageSourcePayload payload,
+        PackageCompileAssetSelectionReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentNullException.ThrowIfNull(receipt);
+        if (!payload.Coordinate.PackageId.Equals(
+                receipt.PackageId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "The compile selection receipt must identify the acquired package.",
+                nameof(receipt));
+        }
+        if (!ReferenceEquals(
+                payload.Content.GenerationIdentity,
+                receipt.Generation))
+        {
+            throw new ArgumentException(
+                "The compile selection receipt must describe the acquired content generation.",
+                nameof(receipt));
+        }
+        if (receipt.RequestedRuntimeIdentifier is not null
+            && !RealizedMemberCoordinate.IsCanonicalRuntimeIdentifier(
+                receipt.RequestedRuntimeIdentifier))
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier must be a canonical lowercase moniker.",
+                nameof(receipt));
+        }
+        string? acquisitionFramework =
+            SourceAcquisitionFramework(receipt.RequestedTargetFramework);
+        if (receipt.RequestedRuntimeIdentifier is not null
+            && acquisitionFramework is null)
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier requires a canonical acquisition framework.",
+                nameof(receipt));
+        }
+
+        return acquisitionFramework;
+    }
+
+    /// <summary>
+    /// Binds a source payload for a requested framework, selecting a compatible
+    /// implementation universe only when exact compile selection has no match.
+    /// </summary>
+    public static PackageRootBinding CreateFromSourceWithCompatibleSelection(
+        AcquiredPackageSourcePayload payload,
+        string requestedTargetFramework,
+        string? displayPackageId = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetFramework);
+        PackageRootBinding exact = CreateFromSource(
+            payload,
+            requestedTargetFramework,
+            displayPackageId: displayPackageId);
+        if (exact.Root.AssetSelection.Status
+                is not PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+        {
+            return exact;
+        }
+        if (TrySelectCompatibleCompileAssets(
+                payload.Content,
+                payload.Coordinate.PackageId,
+                requestedTargetFramework,
+                runtimeIdentifier: null,
+                exact.Root.AssetSelection,
+                out PackageCompileAssetSelection? compatibleSelection)
+                is false)
+        {
+            compatibleSelection = exact.Root.AssetSelection;
+        }
+
+        string? acquisitionFramework =
+            SourceAcquisitionFramework(requestedTargetFramework);
+        if (acquisitionFramework is null)
+            return exact;
+
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            SourceCoordinateProducer(payload),
+            payload.Producer,
+            payload.LegacyProducerKey,
+            acquisitionFramework,
+            compatibleSelection.TargetFramework,
+            runtimeIdentifier: null,
+            assetSelection: compatibleSelection,
+            compileTargetFramework: requestedTargetFramework,
+            usesCompatibleImplementationSelection: true);
+    }
+
+    internal static PackageRootBinding CreateFromReacquiredSource(
+        AcquiredPackageSourcePayload payload,
+        PackageRootReacquisitionRequest request)
+    {
+        RealizedMemberCoordinate.Package coordinate = request.Coordinate;
+        PackageCompileAssetSelection? selection =
+            ReacquiredCompatibleSelection(payload.Content, coordinate.PackageId, request);
+        return Create(
+            payload,
+            coordinate.PackageId,
+            coordinate.PackageId,
+            coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            coordinate.Producer,
+            payload.Producer,
+            payload.LegacyProducerKey,
+            coordinate.Framework,
+            request.SelectionTargetFramework,
+            coordinate.RuntimeIdentifier,
+            selection,
+            request.CompileTargetFramework,
+            request.UsesCompatibleImplementationSelection);
+    }
+
+    internal static PackageRootBinding CreateFromReacquiredResolved(
+        AcquiredPackagePayload payload,
+        PackageRootReacquisitionRequest request,
+        PackageProducerIdentity? producer = null)
+    {
+        RealizedMemberCoordinate.Package coordinate = request.Coordinate;
+        PackageCompileAssetSelection? selection =
+            ReacquiredCompatibleSelection(payload.Content, coordinate.PackageId, request);
+        return Create(
+            payload,
+            coordinate.PackageId,
+            coordinate.PackageId,
+            coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            coordinate.Producer,
+            producer,
+            sourceProducerAlias: null,
+            coordinate.Framework,
+            request.SelectionTargetFramework,
+            coordinate.RuntimeIdentifier,
+            selection,
+            request.CompileTargetFramework,
+            request.UsesCompatibleImplementationSelection);
+    }
+
+    /// <summary>
+    /// Binds a payload acquired through the resolved multi-source path.
+    /// </summary>
+    public static PackageRootBinding CreateFromResolved(
+        AcquiredPackagePayload payload,
+        string? selectionTargetFramework = null,
+        string? displayPackageId = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            payload.ProducerKey,
+            sourceProducer: null,
+            sourceProducerAlias: null,
+            payload.Coordinate.Framework,
+            selectionTargetFramework ?? payload.Coordinate.Framework,
+            payload.Coordinate.RuntimeIdentifier);
+    }
+
+    internal static PackageRootBinding CreateFromResolved(
+        AcquiredPackagePayload payload,
+        string? selectionTargetFramework,
+        string? displayPackageId,
+        string coordinateProducer,
+        PackageProducerIdentity producer)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(coordinateProducer);
+        ArgumentNullException.ThrowIfNull(producer);
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            coordinateProducer,
+            producer,
+            sourceProducerAlias: null,
+            payload.Coordinate.Framework,
+            selectionTargetFramework ?? payload.Coordinate.Framework,
+            payload.Coordinate.RuntimeIdentifier);
+    }
+
+    /// <summary>
+    /// Binds a resolved payload for a requested framework, selecting a
+    /// compatible implementation universe only when exact compile selection
+    /// has no match.
+    /// </summary>
+    public static PackageRootBinding CreateFromResolvedWithCompatibleSelection(
+        AcquiredPackagePayload payload,
+        string requestedTargetFramework,
+        string? displayPackageId = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetFramework);
+        PackageRootBinding exact = CreateFromResolved(
+            payload,
+            requestedTargetFramework,
+            displayPackageId);
+        if (exact.Root.AssetSelection.Status
+                is not PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+        {
+            return exact;
+        }
+        if (TrySelectCompatibleCompileAssets(
+                payload.Content,
+                payload.Coordinate.PackageId,
+                requestedTargetFramework,
+                payload.Coordinate.RuntimeIdentifier,
+                exact.Root.AssetSelection,
+                out PackageCompileAssetSelection? compatibleSelection)
+                is false)
+        {
+            compatibleSelection = exact.Root.AssetSelection;
+        }
+
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            payload.ProducerKey,
+            sourceProducer: null,
+            sourceProducerAlias: null,
+            payload.Coordinate.Framework,
+            compatibleSelection.TargetFramework,
+            payload.Coordinate.RuntimeIdentifier,
+            compatibleSelection,
+            requestedTargetFramework,
+            usesCompatibleImplementationSelection: true);
+    }
+
+    static PackageCompileAssetSelection? ReacquiredCompatibleSelection(
+        IPackageContent content,
+        string packageId,
+        PackageRootReacquisitionRequest request)
+    {
+        if (!request.UsesCompatibleImplementationSelection
+            || request.CompileTargetFramework is not { } compileTargetFramework
+            || request.SelectionTargetFramework is not { } selectionTargetFramework)
+        {
+            return null;
+        }
+
+        if (string.Equals(
+                compileTargetFramework,
+                selectionTargetFramework,
+                StringComparison.Ordinal))
+        {
+            PackageCompileAssetSelection exactSelection =
+                PackageCompileAssetSelector.Select(
+                    content,
+                    packageId,
+                    compileTargetFramework,
+                    request.SelectionRuntimeIdentifier);
+            return exactSelection.Status
+                    is PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
+                && TrySelectCompatibleCompileAssets(
+                    content,
+                    packageId,
+                    compileTargetFramework,
+                    request.SelectionRuntimeIdentifier,
+                    exactSelection,
+                    out PackageCompileAssetSelection? compatibleSelection)
+                ? compatibleSelection
+                : exactSelection;
+        }
+
+        return PackageCompileAssetSelector.SelectForCompatibleImplementation(
+            content,
+            packageId,
+            compileTargetFramework,
+            selectionTargetFramework,
+            request.SelectionRuntimeIdentifier);
+    }
+
+    static bool TrySelectCompatibleCompileAssets(
+        IPackageContent content,
+        string packageId,
+        string requestedTargetFramework,
+        string? runtimeIdentifier,
+        PackageCompileAssetSelection exactSelection,
+        [NotNullWhen(true)] out PackageCompileAssetSelection? selection)
+    {
+        PackageAssetSelection implementationSelection =
+            PackageAssetSelector.Select(content, requestedTargetFramework);
+        if (implementationSelection is PackageAssetSelection.NoMatch)
+        {
+            selection = null;
+            return false;
+        }
+
+        selection = implementationSelection switch
+        {
+            PackageAssetSelection.Selected compatible =>
+                PackageCompileAssetSelector.SelectForCompatibleImplementation(
+                    content,
+                    packageId,
+                    requestedTargetFramework,
+                    compatible.Universe.TargetFramework,
+                    runtimeIdentifier),
+            PackageAssetSelection.Ambiguous ambiguous =>
+                exactSelection with
+                {
+                    Status =
+                        PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+                    Message = ambiguous.Message,
+                },
+            PackageAssetSelection.Invalid invalid =>
+                exactSelection with
+                {
+                    Status =
+                        PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+                    Message = invalid.Message,
+                },
+            _ => throw new UnreachableException(
+                "Package asset selection returned an unsupported outcome."),
+        };
+        return true;
+    }
+
+    static PackageRootBinding Create(
+        object acquiredPayload,
+        string coordinatePackageId,
+        string displayPackageId,
+        string packageVersion,
+        IPackageContent content,
+        string producerKey,
+        string coordinateProducer,
+        PackageProducerIdentity? sourceProducer,
+        string? sourceProducerAlias,
+        string? acquisitionFramework,
+        string? targetFramework,
+        string? runtimeIdentifier,
+        PackageCompileAssetSelection? assetSelection = null,
+        string? compileTargetFramework = null,
+        bool usesCompatibleImplementationSelection = false)
+    {
+        if (!TryCreate(
+                acquiredPayload,
+                coordinatePackageId,
+                displayPackageId,
+                packageVersion,
+                content,
+                producerKey,
+                coordinateProducer,
+                sourceProducer,
+                sourceProducerAlias,
+                acquisitionFramework,
+                targetFramework,
+                runtimeIdentifier,
+                assetSelection,
+                compileTargetFramework,
+                usesCompatibleImplementationSelection,
+                out PackageRootBinding? binding,
+                out string? problem))
+        {
+            throw new ArgumentException(
+                $"The acquired package payload cannot form a realized coordinate: {problem}.",
+                nameof(acquiredPayload));
+        }
+
+        return binding;
+    }
+
+    static bool TryCreate(
+        object acquiredPayload,
+        string coordinatePackageId,
+        string displayPackageId,
+        string packageVersion,
+        IPackageContent content,
+        string producerKey,
+        string coordinateProducer,
+        PackageProducerIdentity? sourceProducer,
+        string? sourceProducerAlias,
+        string? acquisitionFramework,
+        string? targetFramework,
+        string? runtimeIdentifier,
+        PackageCompileAssetSelection? assetSelection,
+        string? compileTargetFramework,
+        bool usesCompatibleImplementationSelection,
+        [NotNullWhen(true)] out PackageRootBinding? binding,
+        [NotNullWhen(false)] out string? problem)
+    {
+        binding = null;
+        if (!displayPackageId.Equals(
+                coordinatePackageId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "A package Root display id must identify the acquired package.",
+                nameof(displayPackageId));
+        }
+        if (!content.ProducerKey.Equals(producerKey, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The acquired package payload and retained content name different producers.",
+                nameof(acquiredPayload));
+        }
+        if (sourceProducer is null
+                ? !producerKey.Equals(
+                    coordinateProducer,
+                    StringComparison.Ordinal)
+                : !MatchesSourceProducer(
+                    sourceProducer,
+                    producerKey,
+                    coordinateProducer,
+                    sourceProducerAlias))
+        {
+            throw new ArgumentException(
+                "The acquired package payload does not establish the coordinate producer.",
+                nameof(acquiredPayload));
+        }
+
+        string? effectiveFramework =
+            (string.IsNullOrWhiteSpace(acquisitionFramework)
+                ? null
+                : acquisitionFramework)
+            ?.ToLowerInvariant();
+        string? effectiveRuntimeIdentifier =
+            runtimeIdentifier;
+        if (!RealizedMemberCoordinate.Package.TryCreate(
+                coordinatePackageId,
+                packageVersion,
+                coordinateProducer,
+                effectiveFramework,
+                effectiveRuntimeIdentifier,
+                out RealizedMemberCoordinate.Package? coordinate,
+                out problem))
+        {
+            return false;
+        }
+
+        var root = new PackageRootRealization(
+            content,
+            displayPackageId,
+            packageVersion,
+            targetFramework,
+            runtimeIdentifier,
+            assetSelection);
+        binding = new PackageRootBinding(
+            root,
+            coordinate,
+            sourceProducer,
+            content.GenerationIdentity,
+            new PackageRootSelectionIdentity(),
+            compileTargetFramework ?? targetFramework,
+            usesCompatibleImplementationSelection);
+        return true;
+    }
+
+    internal bool ReferencesRetainedContent() =>
+        ReferenceEquals(
+            ContentGenerationIdentity,
+            Root.Content.GenerationIdentity)
+        && Root.ProducerKey.Equals(
+            Root.Content.ProducerKey,
+            StringComparison.Ordinal)
+        && (SourceProducer is null
+            ? Coordinate.Producer.Equals(
+                Root.Content.ProducerKey,
+                StringComparison.Ordinal)
+            : true);
+
+    internal static bool MatchesSourceProducer(
+        AcquiredPackageSourcePayload payload,
+        string coordinateProducer)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(coordinateProducer);
+        return payload.Producer is { } producer
+            ? MatchesSourceProducer(
+                producer,
+                payload.ProducerKey,
+                coordinateProducer,
+                payload.LegacyProducerKey)
+            : payload.ProducerKey.Equals(
+                coordinateProducer,
+                StringComparison.Ordinal);
+    }
+
+    static bool MatchesSourceProducer(
+        PackageProducerIdentity producer,
+        string contentProducerKey,
+        string coordinateProducer,
+        string? legacyProducerKey = null) =>
+        producer.PortableKey.Equals(
+            coordinateProducer,
+            StringComparison.Ordinal)
+        || producer.Key.Equals(
+            coordinateProducer,
+            StringComparison.Ordinal)
+        || contentProducerKey.Equals(
+            coordinateProducer,
+            StringComparison.Ordinal)
+        || legacyProducerKey?.Equals(
+            coordinateProducer,
+            StringComparison.Ordinal) is true;
+
+    static string SourceCoordinateProducer(
+        AcquiredPackageSourcePayload payload) =>
+        payload.Producer?.PortableKey
+        ?? payload.ProducerKey;
+
+    internal static string? SourceAcquisitionFramework(string? targetFramework) =>
+        PackageCoordinateResolver.IsAcquisitionTargetText(targetFramework)
+            ? targetFramework!.ToLowerInvariant()
+            : null;
+}
+
+/// <summary>
+/// One exact, already-acquired package Root and its compile-asset selection outcome.
+/// </summary>
+public sealed class PackageRootRealization
+{
+    readonly IPackageContent _content;
+
+    public PackageRootRealization(
+        IPackageContent content,
+        string packageId,
+        string packageVersion,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null)
+        : this(
+            content,
+            packageId,
+            packageVersion,
+            targetFramework,
+            runtimeIdentifier,
+            assetSelection: null)
+    {
+    }
+
+    internal PackageRootRealization(
+        IPackageContent content,
+        string packageId,
+        string packageVersion,
+        string? targetFramework,
+        string? runtimeIdentifier,
+        PackageCompileAssetSelection? assetSelection)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
+
+        _content = content;
+        PackageId = packageId;
+        PackageVersion = packageVersion;
+        RequestedTargetFramework = targetFramework;
+        RequestedRuntimeIdentifier = runtimeIdentifier;
+        Identity = new PackageRootIdentity(
+            packageId,
+            packageVersion,
+            targetFramework,
+            runtimeIdentifier);
+        AssetSelection = Freeze(
+            assetSelection
+            ?? PackageCompileAssetSelector.Select(
+                content,
+                packageId,
+                targetFramework,
+                runtimeIdentifier));
+    }
+
+    public string PackageId { get; }
+
+    public string PackageVersion { get; }
+
+    public PackageRootIdentity Identity { get; }
+
+    public string? RequestedTargetFramework { get; }
+
+    public string? RequestedRuntimeIdentifier { get; }
+
+    public string ProducerKey => _content.ProducerKey;
+
+    public bool FromCache => _content.FromCache;
+
+    public PackageCompileAssetSelection AssetSelection { get; }
+
+    internal IPackageContent Content => _content;
+
+    public bool ReferencesContent(IPackageContent content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return ReferenceEquals(_content, content);
+    }
+
+    static PackageCompileAssetSelection Freeze(
+        PackageCompileAssetSelection selection) =>
+        new(
+            selection.Status,
+            selection.TargetFramework,
+            Freeze(selection.AvailableTargetFrameworks),
+            Freeze(selection.Assets),
+            selection.DefaultAsset,
+            Freeze(selection.CandidateAssets),
+            Freeze(selection.ImplementationAssets),
+            selection.Message);
+
+    static IReadOnlyList<T> Freeze<T>(IReadOnlyList<T> values) =>
+        Array.AsReadOnly([.. values]);
+}
+
+/// <summary>Resource admission policy for acquired-package role realization.</summary>
+public sealed record PackageAssemblyContextRealizationOptions
+{
+    /// <summary>The largest participant count admitted into either role.</summary>
+    public int MaxAssembliesPerRole { get; init; } = int.MaxValue;
+
+    /// <summary>
+    /// The retained-byte budget for one package realization.
+    /// </summary>
+    /// <remarks>
+    /// Artifact-backed realization divides this budget between the artifact
+    /// generation and the resulting role groups. Distinct surface and
+    /// implementation groups divide the role-group share again.
+    /// </remarks>
+    public long MaxAggregateRetainedImageBytes { get; init; } =
+        AssemblyContextGroupOptions.DefaultMaxRetainedImageBytes;
+
+    /// <summary>The largest selected assembly entry the content opener may expand.</summary>
+    public long MaxAssemblyEntryBytes { get; init; } =
+        AssemblyContextGroupOptions.DefaultMaxRetainedImageBytes;
+
+    /// <summary>
+    /// Requires every package content to expose declared entry lengths so all
+    /// selected assets can be rejected over budget before identity decoding.
+    /// </summary>
+    public bool RequireDeclaredEntryLengths { get; init; }
+
+    internal void Validate()
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(MaxAssembliesPerRole);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            MaxAggregateRetainedImageBytes);
+        ArgumentOutOfRangeException.ThrowIfNegative(MaxAssemblyEntryBytes);
+    }
+}
+
+/// <summary>
+/// One selected package asset and the exact product participant realized from
+/// it.
+/// </summary>
+public sealed class PackageAssemblyRoleParticipant
+{
+    internal PackageAssemblyRoleParticipant(
+        PackageRootRealization package,
+        PackageCompileAsset asset,
+        AssemblyContextParticipant participant)
+        : this(package.Identity, asset, participant)
+    {
+    }
+
+    internal PackageAssemblyRoleParticipant(
+        PackageRootIdentity package,
+        PackageCompileAsset asset,
+        AssemblyContextParticipant participant)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(asset);
+        ArgumentNullException.ThrowIfNull(participant);
+        Package = package;
+        Asset = asset;
+        Participant = participant;
+    }
+
+    public PackageRootIdentity Package { get; }
+
+    public PackageCompileAsset Asset { get; }
+
+    public AssemblyContextParticipant Participant { get; }
+}
+
+/// <summary>
+/// Reports that selected package surface and implementation assets cannot form
+/// an exact assembly-role correspondence.
+/// </summary>
+public sealed class PackageAssemblyRoleCorrespondenceException :
+    InvalidOperationException
+{
+    internal PackageAssemblyRoleCorrespondenceException(string message)
+        : base(message)
+    {
+    }
+}
+
+/// <summary>
+/// Product-realized package surface and implementation roles, including exact
+/// package-asset-to-participant associations.
+/// </summary>
+public sealed class PackageAssemblyContextRealization : IDisposable
+{
+    readonly PackageAssemblyContextRoles? _roles;
+
+    internal PackageAssemblyContextRealization(
+        PackageAssemblyContextRoles? roles,
+        ImmutableArray<PackageAssemblyRoleParticipant> surfaceParticipants,
+        ImmutableArray<PackageAssemblyRoleParticipant> implementationParticipants)
+    {
+        _roles = roles;
+        SurfaceParticipants = surfaceParticipants;
+        ImplementationParticipants = implementationParticipants;
+    }
+
+    public bool HasAssemblyContexts => _roles is not null;
+
+    public AssemblyContextGroup SurfaceGroup =>
+        _roles?.SurfaceGroup
+        ?? throw new InvalidOperationException(
+            "The package realization has no selected compile assemblies.");
+
+    public AssemblyContextGroup? ImplementationGroup =>
+        _roles?.ImplementationGroup;
+
+    public bool SharesGroup => _roles?.SharesGroup ?? false;
+
+    public ImmutableArray<PackageAssemblyRoleParticipant> SurfaceParticipants
+    {
+        get;
+    }
+
+    public ImmutableArray<PackageAssemblyRoleParticipant> ImplementationParticipants
+    {
+        get;
+    }
+
+    public PackageAssemblyRoleParticipant? ImplementationParticipant(
+        PackageAssemblyRoleParticipant surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        PackageAssemblyRoleParticipant selected =
+            SurfaceParticipants.FirstOrDefault(candidate =>
+                ReferenceEquals(candidate, surface))
+            ?? throw new ArgumentException(
+                "The participant does not belong to the surface package role.",
+                nameof(surface));
+        AssemblyContextParticipant? implementation = _roles!
+            .ImplementationParticipant(selected.Participant);
+        return implementation is null
+            ? null
+            : ImplementationParticipants.First(candidate =>
+                ReferenceEquals(candidate.Participant, implementation));
+    }
+
+    public void Dispose() => _roles?.Dispose();
+}
+
+public sealed partial class InspectionWorkspace
+{
+    /// <summary>
+    /// Realizes already-acquired package contents into reference-preferred
+    /// surface and body-bearing implementation roles.
+    /// </summary>
+    public PackageAssemblyContextRealization RealizePackageAssemblyContextRoles(
+        IEnumerable<PackageRootRealization> packages,
+        PackageAssemblyContextRealizationOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        PackageRoleRealizationPreparation preparation =
+            PreparePackageRoleRealization(
+                packages,
+                options,
+                cancellationToken);
+        if (preparation.SurfaceAssets.IsEmpty)
+        {
+            return new PackageAssemblyContextRealization(
+                roles: null,
+                [],
+                []);
+        }
+
+        ImmutableArray<RoleAssembly> surfaceRole =
+            CreateRole(
+                preparation.SurfaceAssets,
+                preparation.GroupBudget,
+                preparation.Options,
+                cancellationToken);
+        ImmutableArray<RoleAssembly> implementationRole = preparation.Shared
+            ? surfaceRole
+            : CreateRole(
+                preparation.ImplementationAssets,
+                preparation.GroupBudget,
+                preparation.Options,
+                cancellationToken);
+        return CreatePackageAssemblyContextRealization(
+            preparation,
+            surfaceRole,
+            implementationRole,
+            cancellationToken);
+    }
+
+    internal static PackageRoleRealizationPreparation
+        PreparePackageRoleRealization(
+        IEnumerable<PackageRootRealization> packages,
+        PackageAssemblyContextRealizationOptions? options,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(packages);
+        options ??= new PackageAssemblyContextRealizationOptions();
+        options.Validate();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ImmutableArray<PackageRootRealization> packageRoots =
+            [.. packages];
+        if (packageRoots.IsEmpty)
+        {
+            throw new InvalidOperationException(
+                "Package realization requires at least one package.");
+        }
+        if (packageRoots.Any(static package => package is null))
+        {
+            throw new ArgumentException(
+                "Package realization cannot contain a null package.",
+                nameof(packages));
+        }
+
+        ImmutableArray<RoleAsset> surfaceAssets =
+        [
+            .. packageRoots.SelectMany(
+                (package, packageIndex) =>
+                    package.AssetSelection.IsSelected
+                        ? package.AssetSelection.Assets.Select(asset =>
+                            new RoleAsset(
+                                packageIndex,
+                                package,
+                                asset))
+                        : []),
+        ];
+        ImmutableArray<RoleAsset> implementationAssets =
+        [
+            .. packageRoots.SelectMany(
+                (package, packageIndex) =>
+                    package.AssetSelection.IsSelected
+                        ? package.AssetSelection.ImplementationAssets.Select(
+                            asset => new RoleAsset(
+                                packageIndex,
+                                package,
+                                asset))
+                        : []),
+        ];
+        ValidateAssetCount(surfaceAssets.Length, options);
+        ValidateAssetCount(implementationAssets.Length, options);
+        bool shared = SameAssets(surfaceAssets, implementationAssets);
+        bool hasSeparateImplementation =
+            !shared && !implementationAssets.IsEmpty;
+        long groupBudget = hasSeparateImplementation
+            ? options.MaxAggregateRetainedImageBytes / 2
+            : options.MaxAggregateRetainedImageBytes;
+
+        ValidateAssets(surfaceAssets, groupBudget, options);
+        if (hasSeparateImplementation)
+            ValidateAssets(implementationAssets, groupBudget, options);
+
+        return new PackageRoleRealizationPreparation(
+            surfaceAssets,
+            implementationAssets,
+            shared,
+            groupBudget,
+            options);
+    }
+
+    PackageAssemblyContextRealization CreatePackageAssemblyContextRealization(
+        PackageRoleRealizationPreparation preparation,
+        ImmutableArray<RoleAssembly> surfaceRole,
+        ImmutableArray<RoleAssembly> implementationRole,
+        CancellationToken cancellationToken,
+        bool provisional = false)
+    {
+        ImmutableArray<PackageAssemblyRoleCorrespondence> correspondences =
+            Correspondences(surfaceRole, implementationRole);
+        cancellationToken.ThrowIfCancellationRequested();
+        var roleOptions = new AssemblyContextGroupOptions
+        {
+            MaxRetainedImageBytes = preparation.GroupBudget,
+        };
+
+        var roles = new PackageAssemblyContextRoles(
+            this,
+            surfaceRole.Select(entry => entry.Assembly),
+            implementationRole.IsEmpty
+                ? null
+                : implementationRole.Select(entry => entry.Assembly),
+            correspondences,
+            shareImplementationGroup: preparation.Shared,
+            surfaceOptions: roleOptions,
+            implementationOptions: roleOptions,
+            createRole: provisional
+                ? static (_, participants, options) => new AssemblyContextGroup(
+                    participants,
+                    options,
+                    static _ => { },
+                    captureReleaseFailuresByDefault: true)
+                : null);
+        try
+        {
+            return new PackageAssemblyContextRealization(
+                roles,
+                Participants(surfaceRole, roles.SurfaceParticipants),
+                Participants(
+                    implementationRole,
+                    roles.ImplementationParticipants));
+        }
+        catch (Exception creationFailure)
+        {
+            try
+            {
+                roles.Dispose();
+            }
+            catch (Exception disposalFailure)
+            {
+                throw new AggregateException(
+                    creationFailure,
+                    disposalFailure);
+            }
+
+            throw;
+        }
+    }
+
+    static ImmutableArray<RoleAssembly> CreateRole(
+        ImmutableArray<RoleAsset> assets,
+        long groupBudget,
+        PackageAssemblyContextRealizationOptions options,
+        CancellationToken cancellationToken)
+    {
+        var assemblies = ImmutableArray.CreateBuilder<RoleAssembly>(assets.Length);
+        long entryLimit = Math.Min(
+            groupBudget,
+            options.MaxAssemblyEntryBytes);
+        for (int index = 0; index < assets.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            assemblies.Add(
+                CreateRoleAssembly(
+                    assets[index],
+                    entryLimit,
+                    index));
+        }
+
+        return assemblies.MoveToImmutable();
+    }
+
+    static RoleAssembly CreateRoleAssembly(
+        RoleAsset asset,
+        long entryLimit,
+        int roleIndex)
+    {
+        Func<Stream> openRead = () => OpenEntry(asset, entryLimit);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
+                openRead,
+                RejectionCarrierIdentity(roleIndex),
+                PackageProvenance(asset),
+                out bool usedFallbackIdentity);
+        return new RoleAssembly(
+            asset.PackageIndex,
+            asset.Package,
+            asset.Asset,
+            assembly,
+            IdentityDecoded: !usedFallbackIdentity);
+    }
+
+    static AssemblyResolutionProvenance PackageProvenance(
+        RoleAsset asset) =>
+        AssemblyResolutionProvenance.Package(
+            asset.Package.PackageId,
+            asset.Package.PackageVersion,
+            asset.Asset.TargetFramework,
+            rid: null);
+
+    static AssemblyReferenceIdentity RejectionCarrierIdentity(
+        int roleIndex) =>
+        new(
+            "RejectedPackageAsset"
+                + roleIndex.ToString(CultureInfo.InvariantCulture),
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null);
+
+    static Stream OpenEntry(
+        RoleAsset asset,
+        long maxExpandedBytes,
+        CancellationToken cancellationToken = default) =>
+        OpenPackageEntry(
+            asset.Package.Content,
+            asset.Asset.Path,
+            maxExpandedBytes,
+            cancellationToken);
+
+    static Stream OpenPackageEntry(
+        IPackageContent content,
+        string path,
+        long maxExpandedBytes,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!content.TryOpenEntry(
+                path,
+                maxExpandedBytes,
+                out Stream? stream))
+        {
+            throw new InvalidOperationException(
+                "A selected assembly entry is unavailable in the retained package content.");
+        }
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new BoundedPackageEntryStream(
+                stream,
+                maxExpandedBytes);
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+    }
+
+    static void ValidateAssets(
+        ImmutableArray<RoleAsset> assets,
+        long groupBudget,
+        PackageAssemblyContextRealizationOptions options)
+    {
+        long expandedBytes = 0;
+        foreach (RoleAsset asset in assets)
+        {
+            if (asset.Package.Content is not IPackageContentEntryManifest manifest)
+            {
+                if (options.RequireDeclaredEntryLengths)
+                {
+                    throw new InvalidOperationException(
+                        "The selected package content cannot preflight declared entry lengths.");
+                }
+                continue;
+            }
+            if (!manifest.TryGetEntryLength(asset.Asset.Path, out long length))
+            {
+                throw new InvalidOperationException(
+                    "A selected assembly entry disappeared from "
+                    + $"{asset.Package.PackageId} {asset.Package.PackageVersion}.");
+            }
+            if (length < 0 || length > options.MaxAssemblyEntryBytes)
+            {
+                throw new InvalidOperationException(
+                    "A selected assembly entry exceeds the configured "
+                    + "assembly-entry byte limit.");
+            }
+            try
+            {
+                expandedBytes = checked(expandedBytes + length);
+            }
+            catch (OverflowException ex)
+            {
+                throw new InvalidOperationException(
+                    "The selected package workspace role exceeds the configured "
+                    + "retained-image budget.",
+                    ex);
+            }
+        }
+
+        if (expandedBytes > groupBudget)
+        {
+            throw new InvalidOperationException(
+                "The selected package workspace role exceeds the configured "
+                + "retained-image budget before assembly identity decoding.");
+        }
+    }
+
+    static void ValidateAssetCount(
+        int assetCount,
+        PackageAssemblyContextRealizationOptions options)
+    {
+        if (assetCount > options.MaxAssembliesPerRole)
+        {
+            throw new InvalidOperationException(
+                "The selected package workspace role exceeds the configured "
+                + "assembly-count limit.");
+        }
+    }
+
+    static ImmutableArray<PackageAssemblyRoleCorrespondence> Correspondences(
+        ImmutableArray<RoleAssembly> surfaces,
+        ImmutableArray<RoleAssembly> implementations)
+    {
+        var implementationsByAsset = new Dictionary<RoleAsset, RoleAssembly>(
+            implementations.Length,
+            RoleAssetIdentityComparer.Instance);
+        foreach (RoleAssembly implementation in implementations)
+        {
+            var roleAsset = new RoleAsset(
+                implementation.PackageIndex,
+                implementation.Package,
+                implementation.Asset);
+            if (!implementationsByAsset.TryAdd(roleAsset, implementation))
+            {
+                throw new InvalidOperationException(
+                    "Package asset selection produced duplicate implementation role assets.");
+            }
+        }
+
+        var pairs =
+            ImmutableArray.CreateBuilder<PackageAssemblyRoleCorrespondence>();
+        foreach (RoleAssembly surface in surfaces)
+        {
+            PackageCompileAsset? selectedImplementation =
+                surface.Package.AssetSelection.FindImplementationAsset(
+                    surface.Asset);
+            if (selectedImplementation is null)
+            {
+                continue;
+            }
+            var implementationAsset = new RoleAsset(
+                surface.PackageIndex,
+                surface.Package,
+                selectedImplementation);
+
+            if (!implementationsByAsset.TryGetValue(
+                implementationAsset,
+                out RoleAssembly? implementation))
+            {
+                throw new InvalidOperationException(
+                    "A selected implementation asset is not part of the "
+                    + "implementation package role.");
+            }
+            bool identitiesDecoded =
+                surface.IdentityDecoded
+                && implementation.IdentityDecoded;
+            if (identitiesDecoded
+                && !surface.Assembly.Identity.IsEquivalentTo(
+                    implementation.Assembly.Identity))
+            {
+                throw new PackageAssemblyRoleCorrespondenceException(
+                    "The selected reference and implementation assets have "
+                    + "different assembly identities.");
+            }
+
+            pairs.Add(PackageAssemblyRoleCorrespondence.SelectedAssets(
+                surface.Assembly,
+                implementation.Assembly,
+                identitiesDecoded));
+        }
+
+        return pairs.ToImmutable();
+    }
+
+    static ImmutableArray<PackageAssemblyRoleParticipant> Participants(
+        ImmutableArray<RoleAssembly> assemblies,
+        ImmutableArray<AssemblyContextParticipant> participants)
+    {
+        if (assemblies.Length != participants.Length)
+        {
+            throw new InvalidOperationException(
+                "Package asset realization did not preserve participant cardinality.");
+        }
+
+        var result =
+            ImmutableArray.CreateBuilder<PackageAssemblyRoleParticipant>(
+                participants.Length);
+        for (int index = 0; index < participants.Length; index++)
+        {
+            if (!ReferenceEquals(
+                    assemblies[index].Assembly,
+                    participants[index].Assembly))
+            {
+                throw new InvalidOperationException(
+                    "Package asset realization did not preserve participant order.");
+            }
+            result.Add(new PackageAssemblyRoleParticipant(
+                assemblies[index].Package,
+                assemblies[index].Asset,
+                participants[index]));
+        }
+
+        return result.MoveToImmutable();
+    }
+
+    static bool SameAssets(
+        ImmutableArray<RoleAsset> left,
+        ImmutableArray<RoleAsset> right)
+    {
+        if (left.Length != right.Length)
+            return false;
+
+        var remaining = new HashSet<RoleAsset>(
+            left,
+            RoleAssetIdentityComparer.Instance);
+        if (remaining.Count != left.Length)
+        {
+            throw new InvalidOperationException(
+                "Package asset selection produced duplicate role assets.");
+        }
+
+        return right.All(remaining.Remove) && remaining.Count == 0;
+    }
+
+    internal sealed record RoleAsset(
+        int PackageIndex,
+        PackageRootRealization Package,
+        PackageCompileAsset Asset);
+
+    sealed class RoleAssetIdentityComparer : IEqualityComparer<RoleAsset>
+    {
+        internal static RoleAssetIdentityComparer Instance { get; } = new();
+
+        public bool Equals(RoleAsset? left, RoleAsset? right) =>
+            ReferenceEquals(left, right)
+            || (left is not null
+                && right is not null
+                && ReferenceEquals(left.Package, right.Package)
+                && left.Asset.Path.Equals(
+                    right.Asset.Path,
+                    StringComparison.Ordinal));
+
+        public int GetHashCode(RoleAsset asset) =>
+            HashCode.Combine(
+                RuntimeHelpers.GetHashCode(asset.Package),
+                StringComparer.Ordinal.GetHashCode(asset.Asset.Path));
+    }
+
+    internal sealed record RoleAssembly(
+        int PackageIndex,
+        PackageRootRealization Package,
+        PackageCompileAsset Asset,
+        ResolvedAssemblyReference Assembly,
+        bool IdentityDecoded);
+
+    internal sealed record PackageRoleRealizationPreparation(
+        ImmutableArray<RoleAsset> SurfaceAssets,
+        ImmutableArray<RoleAsset> ImplementationAssets,
+        bool Shared,
+        long GroupBudget,
+        PackageAssemblyContextRealizationOptions Options);
+
+    sealed class BoundedPackageEntryStream : Stream
+    {
+        readonly Stream _source;
+        readonly long _maxBytes;
+        readonly long _start;
+        long _position;
+
+        public BoundedPackageEntryStream(
+            Stream source,
+            long maxBytes)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+            if (!source.CanRead)
+            {
+                throw new IOException(
+                    "The package entry opener did not return a readable stream.");
+            }
+            _source = source;
+            _maxBytes = maxBytes;
+            if (!source.CanSeek)
+                return;
+
+            _start = source.Position;
+            long length = checked(source.Length - _start);
+            if (length < 0 || length > maxBytes)
+                ThrowLimit();
+        }
+
+        public override bool CanRead => _source.CanRead;
+
+        public override bool CanSeek => _source.CanSeek;
+
+        public override bool CanWrite => false;
+
+        public override long Length
+        {
+            get
+            {
+                if (!CanSeek)
+                    throw new NotSupportedException();
+                long length = checked(_source.Length - _start);
+                if (length < 0 || length > _maxBytes)
+                    ThrowLimit();
+                return length;
+            }
+        }
+
+        public override long Position
+        {
+            get => _position;
+            set => Seek(value, SeekOrigin.Begin);
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+        {
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(offset);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            if (buffer.Length - offset < count)
+                throw new ArgumentException("The buffer range is invalid.");
+            if (count == 0)
+                return 0;
+
+            int allowed = Allowed(count);
+            if (allowed == 0)
+                return ProbeEnd();
+            int read = _source.Read(buffer, offset, allowed);
+            _position += read;
+            return read;
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            if (buffer.IsEmpty)
+                return 0;
+
+            int allowed = Allowed(buffer.Length);
+            if (allowed == 0)
+                return ProbeEnd();
+            int read = _source.Read(buffer[..allowed]);
+            _position += read;
+            return read;
+        }
+
+        public override int ReadByte()
+        {
+            if (_position == _maxBytes)
+            {
+                ProbeEnd();
+                return -1;
+            }
+            int value = _source.ReadByte();
+            if (value >= 0)
+                _position++;
+            return value;
+        }
+
+        public override Task<int> ReadAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken) =>
+            ReadAsync(
+                buffer.AsMemory(offset, count),
+                cancellationToken)
+            .AsTask();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (buffer.IsEmpty)
+                return 0;
+
+            int allowed = Allowed(buffer.Length);
+            if (allowed == 0)
+            {
+                byte[] probe = new byte[1];
+                int extra = await _source.ReadAsync(
+                    probe,
+                    cancellationToken);
+                if (extra != 0)
+                    ThrowLimit();
+                return 0;
+            }
+
+            int read = await _source.ReadAsync(
+                buffer[..allowed],
+                cancellationToken);
+            _position += read;
+            return read;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            if (!CanSeek)
+                throw new NotSupportedException();
+
+            long target = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => checked(_position + offset),
+                SeekOrigin.End => checked(Length + offset),
+                _ => throw new ArgumentOutOfRangeException(nameof(origin)),
+            };
+            if (target < 0 || target > _maxBytes)
+                ThrowLimit();
+            _source.Seek(checked(_start + target), SeekOrigin.Begin);
+            _position = target;
+            return target;
+        }
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _source.Dispose();
+            base.Dispose(disposing);
+        }
+
+        int Allowed(int requested) =>
+            (int)Math.Min(requested, _maxBytes - _position);
+
+        int ProbeEnd()
+        {
+            if (_source.ReadByte() >= 0)
+                ThrowLimit();
+            return 0;
+        }
+
+        void ThrowLimit() =>
+            throw new InvalidDataException(
+                "A selected assembly entry exceeds the configured "
+                + "assembly-entry byte limit.");
+    }
+}

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -51,6 +52,27 @@ public sealed record CallTreeNode(
     /// was built from a catalog call-graph scope.
     /// </summary>
     public GraphNodeEvidence? GraphEvidence { get; init; }
+
+    /// <summary>
+    /// Exact assembly identity that supplied the resolved method definition, when the catalog
+    /// established one unambiguous definition site.
+    /// </summary>
+    /// <remarks>
+    /// <c>CalleeTreeCarriesResolvedDefinitionAssemblyIdentity</c> gates this independently of the
+    /// call-site storage retained by <see cref="GraphEvidence"/>.
+    /// </remarks>
+    public AssemblyReferenceIdentity? DefinitionAssemblyIdentity { get; init; }
+
+    /// <summary>
+    /// Exact terminal assembly identity observed while resolving the declaring
+    /// type. An unresolved value is an acquisition hint, not a definition
+    /// claim.
+    /// </summary>
+    /// <remarks>
+    /// <c>CalleeTreeCarriesResolvedDefinitionAssemblyIdentity</c> gates this
+    /// independently of the definition-site identity.
+    /// </remarks>
+    public AssemblyReferenceIdentity? ResolutionAssemblyIdentity { get; init; }
 
     /// <summary>
     /// Physical calls supporting the edge between this node and its parent.

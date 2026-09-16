@@ -338,6 +338,37 @@ public static class AssemblyContextApiSurfaceQuery
             session => Project(session, scope));
     }
 
+    internal static AssemblyContextEntry<AssemblyApiSurface>
+        ExecuteParticipantResolved(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            ApiSurfaceScope scope)
+    {
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+
+        return AssemblyContextQueryExecutor.ExecuteParticipantOverSnapshot(
+            group,
+            participant,
+            (_, snapshot) =>
+            {
+                using var catalog = new TypeResolutionCatalog();
+                catalog.RegisterRetainedSnapshot(
+                    participant.Assembly,
+                    snapshot);
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Open(snapshot);
+                ApiSurface surface = session.ApiSurface(
+                    participant.Assembly,
+                    catalog,
+                    participant.BindingPolicy,
+                    ExtractionScope(scope));
+                return new AssemblyApiSurface(
+                    surface,
+                    [.. surface.InspectionFailures]);
+            });
+    }
+
     /// <summary>
     /// Projects a selected participant set under explicit bounds, stopping at the first bound it
     /// would exceed and reporting that stop.
@@ -384,6 +415,21 @@ public static class AssemblyContextApiSurfaceQuery
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits limits,
         IReadOnlyList<AssemblyContextParticipant>? participants = null)
+        => ExecuteBoundedCore(group, scope, limits, participants, resolveConstraints: false);
+
+    internal static AssemblyContextApiSurfaceResult ExecuteBoundedResolved(
+        AssemblyContextGroup group,
+        ApiSurfaceScope scope,
+        ApiSurfaceProjectionLimits limits,
+        IReadOnlyList<AssemblyContextParticipant> participants)
+        => ExecuteBoundedCore(group, scope, limits, participants, resolveConstraints: true);
+
+    static AssemblyContextApiSurfaceResult ExecuteBoundedCore(
+        AssemblyContextGroup group,
+        ApiSurfaceScope scope,
+        ApiSurfaceProjectionLimits limits,
+        IReadOnlyList<AssemblyContextParticipant>? participants,
+        bool resolveConstraints)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(limits);
@@ -430,10 +476,23 @@ public static class AssemblyContextApiSurfaceQuery
                 limits.MaxMetadataRows - metadataRows,
                 limits.MaxRetainedTextCharacters - retainedTextCharacters);
             AssemblyContextEntry<ApiSurfaceExtractionResult> entry =
-                AssemblyContextQueryExecutor.ExecuteParticipant(
-                    group,
-                    participant,
-                    session => ProjectBounded(session, scope, bounds));
+                resolveConstraints
+                    ? AssemblyContextQueryExecutor.ExecuteParticipantOverSnapshot(
+                        group,
+                        participant,
+                        (_, snapshot) =>
+                        {
+                            using var catalog = new TypeResolutionCatalog();
+                            catalog.RegisterRetainedSnapshot(participant.Assembly, snapshot);
+                            using AssemblyInspectionSession session = AssemblyInspectionSession.Open(snapshot);
+                            return session.BoundedApiSurface(
+                                participant.Assembly, catalog, participant.BindingPolicy,
+                                ExtractionScope(scope), bounds);
+                        })
+                    : AssemblyContextQueryExecutor.ExecuteParticipant(
+                        group,
+                        participant,
+                        session => ProjectBounded(session, scope, bounds));
             walked++;
             if (entry is not AssemblyContextEntry<ApiSurfaceExtractionResult>.Available available)
             {
@@ -577,7 +636,11 @@ public static class AssemblyContextApiSurfaceQuery
         _ => ApiSurfaceExtractionScope.Public,
     };
 
-    internal static string MetadataTypeIdentity(ApiType type)
+    /// <summary>
+    /// Stable metadata/definition identity used to join a projected type back
+    /// to a product selector without relying on display text.
+    /// </summary>
+    public static string MetadataTypeIdentity(ApiType type)
     {
         ArgumentNullException.ThrowIfNull(type);
         if (type.DefinitionName is { } definitionName)

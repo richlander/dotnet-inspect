@@ -80,11 +80,18 @@ public class MetadataTypeDeclarationProbeTests
         var consecutiveDot =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
                 MetadataTypeDefinitionName.ParseSerialized("N..T+S"));
+        var escapedComma =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized(
+                    @"N.Outer+<I<A\,B>-M>d__1"));
 
         Assert.Equal(
             Name("", "Program", "<<Main>$>d__0"),
             nested.Name);
         Assert.Equal(Name("N", ".T", "S"), consecutiveDot.Name);
+        Assert.Equal(
+            Name("N", "Outer", "<I<A,B>-M>d__1"),
+            escapedComma.Name);
     }
 
     [Theory]
@@ -488,6 +495,37 @@ public class MetadataTypeDeclarationProbeTests
         Assert.False(index.TryGetUniqueDefinition(
             Name("N", "Duplicate"),
             out _));
+    }
+
+    [Fact]
+    public void TypeDefinitionIndex_DuplicateNamesAllocateLinearly()
+    {
+        const int definitions = 10_000;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            for (int i = 0; i < definitions; i++)
+            {
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "N",
+                    "Duplicate");
+            }
+        });
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(image.Reader);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.InRange(allocated, 0, 4 * 1024 * 1024);
+        Assert.True(index.TryGetDefinitions(
+            Name("N", "Duplicate"),
+            out ImmutableArray<TypeDefinitionHandle> handles,
+            out bool ambiguous));
+        Assert.True(ambiguous);
+        Assert.Equal(definitions, handles.Length);
     }
 
     [Fact]

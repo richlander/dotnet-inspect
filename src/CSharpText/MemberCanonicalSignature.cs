@@ -21,7 +21,7 @@ public static class MemberCanonicalSignature
     /// <param name="kind">DocId kind code: <c>"M"</c> (method/constructor/operator), <c>"P"</c>, <c>"F"</c>, or <c>"E"</c>.</param>
     /// <param name="typeFullName">Declaring type full name including generic parameters (for example <c>System.Collections.Generic.List&lt;T&gt;</c>).</param>
     /// <param name="memberName">Member name including method generic parameters (for example <c>M&lt;U&gt;</c>); <c>#ctor</c> for constructors.</param>
-    /// <param name="parameterTypeFullNames">Full-name parameter type strings; ignored for <c>P</c>/<c>F</c>/<c>E</c>.</param>
+    /// <param name="parameterTypeFullNames">Full-name parameter type strings. A <c>P</c> carries them only as an indexer's index parameters, and an empty list keeps the ordinary bare property spelling; ignored for <c>F</c>/<c>E</c>.</param>
     /// <param name="conversionReturnType">Full-name return type for a conversion operator (which overloads on return type), otherwise <see langword="null"/>.</param>
     public static string Build(
         string kind,
@@ -30,8 +30,20 @@ public static class MemberCanonicalSignature
         IReadOnlyList<string> parameterTypeFullNames,
         string? conversionReturnType = null)
     {
-        if (kind is "P" or "F" or "E")
+        if (kind is "F" or "E")
             return $"{kind}:{typeFullName}.{memberName}";
+
+        // A field or event has no parameter list at all, but an indexer is a
+        // property that overloads on its index parameters, so those belong to
+        // property identity. An ordinary property has none and keeps the bare
+        // "P:{type}.{name}" spelling it has always had -- an empty parameter
+        // list is not the same as an empty parameter list in parentheses.
+        if (kind == "P")
+        {
+            return parameterTypeFullNames.Count == 0
+                ? $"P:{typeFullName}.{memberName}"
+                : $"P:{typeFullName}.{memberName}({string.Join(",", parameterTypeFullNames)})";
+        }
 
         var signature = $"{kind}:{typeFullName}.{memberName}({string.Join(",", parameterTypeFullNames)})";
         return string.IsNullOrWhiteSpace(conversionReturnType)

@@ -1,303 +1,398 @@
-# Row query and ordering design
+# L2 row query and ordering
 
 ## Status
 
-Design proposal. This document describes a future query model; it does not
-describe behavior that exists today.
+Focused L2 design proposal for
+[#5162](https://github.com/richlander/dotnet-inspect/issues/5162), adopting the
+row-selection composition pattern locked by
+[Item and line selection composition](item-and-line-limits.md). The
+host-neutral L2 contract is implemented under
+[#6841](https://github.com/richlander/dotnet-inspect/issues/6841); production
+adoption remains tracked by
+[#6840](https://github.com/richlander/dotnet-inspect/issues/6840).
 
-## Problem
+The Release gates in [Required gates](#required-gates) verify the implemented
+L2 behavior.
 
-Table sections are becoming richer. `Performance Triage` now has columns such as
-`Allocation`, `Path`, `Path Confidence`, and `Post Dominance`, and future
-sections will add more domain-specific columns. Adding one flag per column, such
-as `--allocation` or `--path-confidence`, does not scale:
+Related designs:
 
-- the command surface grows without bound;
-- field names become less discoverable than table schemas;
-- aliases and one-off predicates drift from section column names;
-- agents must learn both the section schema and an unrelated option vocabulary.
+- [Inspection layers](inspection-layers.md) assigns typed operation resolution,
+  executable-plan construction, and declared-row-set binding to L2.
+- [Semantic row selection](semantic-row-selection.md) owns `Head`, `Tail`,
+  `Window`, and `Top` execution after L2 resolves every order identity.
+- [Output shapes](output-shapes.md) owns declared row units and the
+  Document-to-Scalar shape ladder.
+- [Section-row shaping](section-row-shaping.md) owns declared-row-set binding,
+  projection roles, terminal Count, and typed result binding.
+- [Source delegation](source-delegation.md) owns delegation planning and
+  completion-evidence binding without changing this design's query
+  semantics.
+- [Schema query](schema-query.md) owns section and projection discovery. Its
+  current field spellings are not row-query identities.
+- [The package query CLI](package-query-cli.md) contains provisional CLI
+  examples. They do not define this L2 contract or approve a CLI grammar.
 
-The existing query model already has `-D`, `--schema`, `--columns`, and
-`--fields`. Row filtering and ordering should extend that model instead of
-adding more command-specific flags.
+## Authority and scope
 
-## Goals
+L2 `DotnetInspector.Sections` is the authority for resolving typed row-query
+intent against one declared section-row schema.
 
-1. Let users filter rows by section field/column without adding bespoke flags.
-2. Make default row ordering discoverable through `--schema`.
-3. Keep `--top` meaningful by defining it as a post-filter, post-order semantic
-   row cap.
-4. Preserve `--columns` and `--fields` as projection, not filtering.
-5. Let existing focused flags, such as `--loop`, lower to the same row-predicate
-   engine for compatibility.
-6. Keep section ownership clear: filterable and sortable fields are declared by
-   the selected section schema.
+This design owns:
 
-## Non-goals
+- stable field and order identities used by row queries;
+- the predicate capabilities and comparison domains declared by a row schema;
+- predicate binding and evaluation over typed row values;
+- baseline-order and ranking-order resolution;
+- the distinction between sequence order and ranking order;
+- the effective baseline order supplied to semantic row selection; and
+- the opaque order identities and total resolver supplied to semantic row
+  selection.
 
-- Do not add a general expression language in the first version.
-- Do not make row predicates span multiple sections.
-- Do not change section selection or scanner backpressure.
-- Do not make `--top` a renderer cap; `--rows N` already owns that role.
-- Do not require every section to be sortable or filterable.
+This design does not own:
 
-## Proposed command model
+- CLI option names, expression grammar, aliases, token order, diagnostics, or
+  compatibility;
+- declared-row-set binding across sections, field or column projection,
+  logical reductions such as count, or common result binding;
+- source requests, pushdown, acquisition, pagination, merge, deduplication, or
+  completion evidence;
+- `Head`, `Tail`, `Window`, or `Top` execution semantics;
+- payload acquisition, rendering, output formats, or line selection; or
+- Markout schema construction or presentation behavior.
 
-### Field-scoped predicates
+Those adjacent owners consume this contract or provide its inputs without
+redefining row-query meaning.
 
-Use `--where "<Field><operator><value>"` for row filtering:
+## Typed boundary
 
-```bash
-dotnet-inspect library MyApp.dll -S "Performance Triage" \
-  --where "Allocation=boxed *" \
-  --where "Path=loop body" \
-  --where "Confidence>=medium"
-```
+L3 first validates its own syntax and lowers it into typed operation intent.
+For row-query operations, that intent distinguishes:
 
-`--where` is deliberately separate from `--columns`:
+- predicate operations, each containing a field reference, operator identity,
+  and inert value token;
+- an optional baseline-order operation; and
+- an optional ranking-order operation attached to each intended `Top` stage.
 
-- `--columns` projects visible columns.
-- `--where` filters rows by a field that may or may not be projected.
+An order operation is either one named-order reference plus direction or an
+ordered list of field-and-direction terms. Field terms compose
+lexicographically in declaration order. The intent carries no executable
+expression string.
 
-Multiple `--where` predicates are combined with AND.
+Unresolved references use the row schema's canonical query keys. They are not
+display headings. L3-owned compatibility aliases and focused flags lower to
+those keys before this boundary; L2 does not know which CLI spelling produced
+them. L2 resolves the references and values exactly once against the selected
+row schema.
 
-The predicate expression is one quoted command-line argument. This avoids shell
-redirection bugs with operators such as `>=` and `<=`.
+Selection-stage intent is complete and satisfies the semantic component's
+construction preconditions before it reaches L2: counts and present window
+coordinates are positive, closed windows are ordered, and every stage has all
+required operands. L2 constructs the executable `RowSelectionPlan`; a caller
+violating this precondition is misuse rather than a row-query resolution
+failure.
 
-### Ordering
+Successful resolution produces:
 
-Use `--order-by` for explicit row ordering:
+1. typed predicate bindings;
+2. an effective baseline-order binding;
+3. one opaque resolved ranking-order identity for each `Top` stage; and
+4. the executable semantic `RowSelectionPlan` containing those identities; and
+5. an immutable resolved-order catalog from which L2 supplies the semantic
+   executor's comparer resolver.
 
-```bash
-dotnet-inspect library MyApp.dll -S "Performance Triage" \
-  --where "Allocation=boxed *" \
-  --order-by "RootReach desc,Confidence desc" \
-  --top 20
-```
+The catalog is total for every order identity emitted into the plan. `Top`
+contains only the opaque identity. The semantic component retains authority
+over lazy, stage-ordered resolver invocation and comparer caching.
+Resolution stores typed comparer-producing bindings without invoking owner
+factories. Baseline execution invokes its factory after predicates and before
+semantic selection; each `Top` factory remains behind the semantic resolver and
+is invoked only when that stage is reached.
 
-If `--order-by` is omitted, the selected section's default order applies. That
-default must be discoverable through `--schema`.
+Resolution failure produces one structured failure and no executable request.
 
-### Top
+This boundary is per schema. The later L2 declared-row-set design owns how one
+resolved request is associated with one or more concrete row sets and how
+results are rebound to their declared identities.
 
-`--top N` means "take the first N rows after filtering and ordering."
-`--count` reports the post-filter row count before `--top` is applied.
+## Row schema contract
 
-Pipeline:
+A row schema exposes queryable structure independently from presentation:
+
+- A **field identity** is a stable owner-issued token. Its display name,
+  heading, aliases, canonical query key, and rendered value are not its
+  identity.
+- A queryable field declares its typed value domain and the predicate and order
+  capabilities valid for that domain.
+- One typed accessor supplies that field value for both predicate and order
+  evaluation. A field descriptor erases the value type only after construction
+  has paired that accessor with its typed operand binder and typed order
+  comparer factory.
+- A **named order identity** is a stable owner-issued token resolving to one
+  deterministic order over the schema's rows. A named order may compose
+  multiple typed fields without exposing that composition as a downstream
+  comma-separated string.
+- A schema may independently declare one default baseline order and one default
+  `Top` ranking. Named orders are classified as either `Sequence` or `Ranking`;
+  only a ranking may be the default for `Top`.
+
+The canonical query key is the L2 lookup namespace for unresolved intent. It is
+stable within the row schema contract but remains distinct from both the typed
+identity used after resolution and the label shown to a user.
+
+The same displayed field may participate in predicates, ordering, projection,
+all three, or none. Those capabilities are independent. In particular, a
+field need not be projected to remain available to a predicate or order.
+
+Query evaluation reads typed field values from the row contract. It must not
+parse table cells, formatted numbers, localized text, headings, labels, or
+other rendered output back into data.
+
+## Predicate resolution and evaluation
+
+A predicate operation identifies one field, one schema-supported operator, and
+one value token. L2 resolves the field identity, verifies that the operator is
+valid for its typed domain, and asks the field's typed binder to normalize the
+value before any row is evaluated. An ordinary binder rejection is the
+structured invalid-value resolution failure. An unexpected binder exception
+propagates unchanged; it is not converted into a user-input failure.
+
+Multiple predicates form one conjunction. A row survives only when every
+predicate succeeds. Predicate evaluation preserves the incoming relative order
+of surviving rows.
+
+Comparison meaning belongs to the field's typed domain. Numeric comparison is
+numeric, enum or ranked-value comparison follows the schema-issued order, and
+text matching follows the resolved text predicate. Display formatting never
+changes that meaning.
+
+The CLI design may later choose spellings for exact, negated, ordered, or text
+predicates. Those spellings cannot introduce an operator the selected schema
+does not support.
+
+## Order resolution
+
+An order binding is deterministic over the selected schema's rows and has one
+of two purposes:
+
+- **Sequence** establishes a stable traversal order without claiming that
+  earlier rows are better.
+- **Ranking** establishes priority, so earlier rows are better under the
+  resolved criteria.
+
+This distinction is semantic, not presentational. Alphabetical, declaration,
+token, source, or insertion order may provide useful sequence stability without
+being a ranking. A relevance, confidence, severity, or explicitly requested
+priority order may be a ranking.
+
+Every order operation has an explicit direction. Direction applies to the
+complete named order or to its individual field term. The schema supplies the
+direction-aware comparer, including any owner-defined placement for missing
+typed values; L2 does not infer missing-value order by reversing rendered
+values.
+
+An ordered list of field terms compares the first term, then each later term
+only when every earlier term compares equal. Rows equal under the complete
+order retain their incoming relative order.
+
+### Effective baseline order
+
+After predicates run, L2 establishes the baseline sequence consumed by semantic
+row-selection stages:
+
+1. an explicit baseline-order binding, when typed intent supplies one;
+2. otherwise the schema's declared default baseline order, when present; or
+3. otherwise the incoming owner-defined row order.
+
+Equal comparisons preserve incoming relative order. The resulting order is
+therefore deterministic whenever the incoming row order and resolved comparer
+are deterministic.
+
+### Ranking order for `Top`
+
+Each `Top` stage receives its own resolved ranking-order identity. The order is
+attached to that stage, not promoted into the baseline order.
+
+This separation preserves ordered-stage meaning:
 
 ```text
-select section -> collect rows -> apply --where -> compute --count -> apply order
--> apply --top -> project --columns/--fields -> render
+Head(100) -> Top(10, ScoreDescending)
 ```
 
-`--rows N` remains a renderer/display cap. It is applied after projection and
-rendering decisions, and should preserve headings and table headers.
+`Head` first keeps the first 100 rows in the effective baseline order. `Top`
+then ranks only those survivors by `ScoreDescending`. Sorting the complete
+input before `Head` would produce a different plan and is not equivalent.
 
-## Predicate grammar
+Typed intent may supply an explicit ranking order for a `Top` stage. Without
+one, L2 may use only the schema's default `Top` ranking. The default baseline
+order never becomes a `Top` ranking implicitly, and the default `Top` ranking
+never becomes the baseline implicitly. A schema may intentionally assign one
+ranking identity to both roles, but that is an explicit schema declaration.
 
-Start with a small field predicate grammar:
+Repeated `Top` stages resolve independently and may carry different opaque
+ranking identities. Every emitted identity resolves through the accompanying
+catalog. The semantic component owns when each resolver entry is invoked, how
+comparers are cached, how stages reindex their inputs, and how equal ranks
+preserve current order.
 
-| Form | Meaning |
+## Logical composition
+
+For one complete logical row sequence, the L2 reference order is:
+
+```text
+owner-defined rows
+-> conjunctive typed predicates
+-> effective baseline order
+-> semantic RowSelection stages
+```
+
+A `Top` stage performs its own ranking at its position in the semantic plan.
+Other semantic stages consume the current sequence order without changing the
+meaning of the baseline-order binding.
+
+This reference order defines observable row-query meaning. A source owner may
+execute predicates, ordering, or semantic selection elsewhere only through the
+[source delegation](source-delegation.md) contract's exact-equivalence and
+honest-completion rules. This design does not
+define that optimization or its evidence. Delegation follows that owner's
+[source-closed boundary](source-delegation.md#source-closed-operations);
+operations this design does not declare source-closed remain on the reference
+or row-handoff residual path.
+
+If this owner declares an operation source-closed, it proves that declaration
+with `SourceClosedDeclarationsMatchOwnerContracts` against this design's
+resolution, callback, exception, ordering, and failure-precedence contract.
+
+Membership projection is outside this owner and supplies the rows entering this
+sequence. Cell projection, Count, and payload operations are also outside this
+owner.
+[Section-row shaping](section-row-shaping.md#reference-composition) defines
+those two projection positions and where Count observes the result without
+changing predicate or order semantics; the focused payload design remains
+separate.
+
+## Failure model
+
+Resolution returns one structured failure when:
+
+- a field or named order does not resolve in the selected schema;
+- a field does not support the requested predicate or ordering capability;
+- a value token cannot normalize into the field's typed domain;
+- a `Top` stage has neither an explicit ranking order nor a default `Top`
+  ranking; or
+- an owner-issued binding is otherwise invalid for that schema.
+
+The failure identifies the selected schema, operation kind, its one-based
+position within that kind, reason, and the resolved field or named-order
+identity when lookup succeeded. An unknown reference carries no invented
+target identity; L3 retains its original typed intent at the reported position.
+A `Top` ranking failure also carries its semantic stage number. The failure
+contains no CLI diagnostic sentence, rendered row value, exception text, or
+presentation suggestion.
+
+Validation examines predicates in declaration order, then the baseline-order
+operation, then `Top` ranking operations in semantic stage order. Terms within
+one order operation follow their declaration order. The first failure wins.
+Resolution is atomic: a failure returns no partial predicate set, effective
+order, resolved-order catalog, semantic plan, or source request. A binder
+returning ordinary rejection participates in that precedence as an
+invalid-value failure.
+
+An unexpected exception thrown by a binder during resolution, or by an
+already-resolved field accessor, predicate, order factory, comparer, or order
+resolver during execution, is not a row-query failure. The implementation must
+surface it unchanged rather than converting it into an invalid-value result,
+empty output, or successful partial query.
+
+## Implementation and adoption sequence
+
+The first implementation is a two-PR stack under
+[#6840](https://github.com/richlander/dotnet-inspect/issues/6840):
+
+1. implement this complete host-neutral L2 schema, resolver, plan, failure, and
+   executor contract with the required gates below; then
+2. migrate the complete Performance Triage field set for `library`, `type`, and
+   `member` without dividing fields between old and new evaluators.
+
+Performance Triage declares no schema default baseline order. L3 supplies its
+Triage or Allocation Fanout baseline only for requests whose current contract
+requires that baseline. The schema independently declares Triage descending as
+the default `Top` ranking, so a Top-only request ranks only at the Top stage.
+Explicit equal-order rows retain incoming order; legacy hidden Member, IL, or
+Shape tie-breakers and reversing equal groups are not part of this contract.
+Focused `--loop` and `--min-confidence` gestures lower to canonical typed
+predicates. `--triage-shape` remains a separate membership or producer control
+because its repeated values are a set and Allocation Fanout may change the
+admitted population.
+
+The browser/Wasm adoption path extends the existing Type Dependency row plan
+that already flows through `DotnetInspect.Web.Interop.Metadata`. Its row schema
+will consume this same L2 resolver and executor through the production browser
+facade rather than adding a host-specific query evaluator.
+
+## Worked examples
+
+### Predicate plus positional selection
+
+Given rows in owner order:
+
+```text
+A(score 3), B(score 1), C(score 3), D(score 2)
+```
+
+and a predicate `score >= 2`, with no declared or explicit baseline order, the
+semantic input is:
+
+```text
+A(score 3), C(score 3), D(score 2)
+```
+
+`Head(2)` therefore returns `A, C`. The displayed spelling of `score` and its
+formatted values are irrelevant to evaluation.
+
+### Baseline order versus `Top` ranking
+
+With an explicit baseline sequence of `NameAscending`:
+
+```text
+A(score 1), B(score 1), C(score 1), D(score 5)
+```
+
+the plan:
+
+```text
+Head(3) -> Top(2, ScoreDescending)
+```
+
+first keeps `A, B, C`, then returns `A, B` because equal scores retain that
+current order. Promoting `ScoreDescending` into the baseline would instead
+produce `D, A`; the two plans are observably different.
+
+### Baseline default cannot rank implicitly
+
+A default baseline order of `MetadataTokenAscending` may make traversal stable.
+It does not answer which rows are most important. A `Top` stage without an
+explicit ranking order therefore fails resolution unless the schema separately
+declares a default `Top` ranking.
+
+## Required gates
+
+The implementation must add these named Release gates:
+
+| Gate | Contract |
 | --- | --- |
-| `--where "Field=value"` | exact or enum match |
-| `--where "Field=glob *"` | glob match for string fields |
-| `--where "Field!=value"` | negated exact/glob match |
-| `--where "Field>=10"` | numeric or ranked comparison |
-| `--where "Field<=10"` | numeric or ranked comparison |
+| `RowQueryResolvesSchemaIdentitiesOnce` | Field and order spellings are resolved once at the L2 boundary into owner-issued identities; execution receives no unresolved expression or rendered field name. |
+| `RowPredicatesUseTypedValues` | Numeric, ranked-value, and text predicates evaluate typed row values and are unchanged by presentation formatting, headings, or projected columns. |
+| `RowPredicatesConjoinAndPreserveOrder` | Multiple predicates use AND semantics and retain the incoming relative order of every surviving row. |
+| `EffectiveBaselineOrderFollowsPrecedence` | Explicit baseline order wins over a declared default; a declared default wins over incoming owner order; equal comparisons retain incoming order. |
+| `TopRankingDoesNotBecomeBaselineOrder` | `Head(100) -> Top(10, order)` ranks only the first-stage survivors, while applying the same order as the baseline before `Head` produces the independently expected different result. |
+| `EachTopCarriesItsResolvedRankingIdentity` | Repeated `Top` stages may resolve distinct order identities, the semantic plan contains no unresolved field or named-order spelling, and the supplied resolver is total for every emitted identity. |
+| `BaselineAndTopDefaultsAreIndependent` | A baseline default never satisfies `Top` implicitly, a default `Top` ranking never changes baseline order implicitly, and one identity occupies both roles only through two explicit schema declarations. |
+| `RowQueryResolutionIsAtomic` | Any invalid field, operator, value, order, or ranking requirement returns the deterministic first structured failure and no executable plan or source request. |
+| `RowQueryFailureShapeIsPresentationFree` | Resolution failures contain only typed operation position, selected schema identity, available resolved target identity, and reason; no diagnostic sentence, rendered value, or exception text enters the contract. |
+| `RowQueryExecutionFailuresStayVisible` | A sentinel exception from an already-resolved accessor, predicate, order factory, comparer, or resolver is not converted into successful empty or partial output, and an earlier strict-stage failure prevents later resolver invocation. |
 
-Examples:
+## Non-claims
 
-```bash
---where "Candidate=pt~0123456789abcdef"
---where "Finding=analysis.call-site"
---where "Provenance=exact"
---where "Shape=box-value-type"
---where "Operation=box"
---where "Allocation=boxed *"
---where "Path=loop body"
---where "PathConfidence=dominates-return"
---where "PostDominance=return-post-dominates"
---where "RootReach>=10"
---where "Confidence>=medium"
-```
-
-Ranked comparisons are section/schema-defined. For `Performance Triage`,
-`Confidence>=medium` means `high` or `medium`.
-
-Regular expressions can be considered later. If added, they should use an
-explicit operator such as `~=` so glob and regex behavior do not blur.
-
-## Ordering grammar
-
-`--order-by` accepts a comma-separated list of fields plus optional direction:
-
-```bash
---order-by "RootReach desc"
---order-by "Confidence desc,RootReach desc,Member asc"
-```
-
-Rules:
-
-- Unknown fields produce a diagnostic with suggestions.
-- Direction defaults to `asc` unless the section declares a field-specific
-  default.
-- Named composite orders are allowed when declared by the section, for example
-  `Triage desc`.
-- `--top` uses the effective order, whether explicit or default.
-
-## Schema discoverability
-
-`--schema` must expose row query metadata for each table section:
-
-```text
-Section: Performance Triage
-
-Default order:
-  Triage desc
-    1. Loop desc
-    2. Confidence desc (high > medium > low)
-    3. RootReach desc
-    4. Member asc
-    5. IL asc
-    6. Shape asc
-
-Filterable fields:
-  Member, Candidate, Finding, Provenance, RootReach, Shape, Operation, Token,
-  Evidence, Fix, Confidence, Loop, Allocation, Path, PathConfidence,
-  PostDominance, IL, Weight, DirectSites, OncePaths, ConditionalPaths,
-  RepeatedPaths, UnknownPaths, CachedSites, OpaquePaths, Saturated
-
-Sortable fields:
-  Triage, RootReach, Confidence, Loop, Member, Candidate, Finding, Provenance,
-  Shape, Operation, Token, IL, Allocation, Path, PathConfidence, PostDominance,
-  Weight, DirectSites, OncePaths, ConditionalPaths, RepeatedPaths, UnknownPaths,
-  CachedSites, OpaquePaths
-```
-
-This makes the default sort order visible exactly where users and agents already
-learn columns. Candidate ordering is fingerprint order: it is useful for stable
-pagination within one build, not as a semantic priority. Exact token predicates
-normalize hexadecimal metadata tokens, so `0x2000001` matches rendered
-`0x02000001`.
-
-`-D <section>` may include a compact form of the same metadata, but `--schema`
-is the authoritative static contract.
-
-## Performance Triage example
-
-Default query:
-
-```bash
-dotnet-inspect library MyApp.dll -S "Performance Triage" --top 20
-```
-
-Equivalent conceptual query:
-
-```bash
-dotnet-inspect library MyApp.dll -S "Performance Triage" \
-  --order-by "Triage desc" \
-  --top 20
-```
-
-Filtered query:
-
-```bash
-dotnet-inspect library MyApp.dll -S "Performance Triage" \
-  --where "Allocation=boxed *" \
-  --where "Path=loop body" \
-  --order-by "RootReach desc" \
-  --top 10 \
-  --columns "Member,Shape,Allocation,Path,PathConfidence,PostDominance,RootReach,IL"
-```
-
-Compact note in human output when `--top` is used:
-
-```text
-Showing top 10 by RootReach desc after 2 row filters.
-```
-
-For default ordering:
-
-```text
-Showing top 20 by Performance Triage default order: Loop, Confidence, RootReach.
-```
-
-Suppress these notes for `--tsv`, `--jsonl`, `--json`, and quiet output.
-
-## Compatibility and lowering
-
-Existing focused flags remain for compatibility, but should lower to row
-predicates internally:
-
-| Existing option | Row-query equivalent |
-| --- | --- |
-| `--loop` | `--where "Loop=loop"` or section-specific loop predicate |
-| `--min-confidence medium` | `--where "Confidence>=medium"` |
-| `--triage-shape box-value-type` | `--where "Shape=box-value-type"` |
-| `--top 20` | unchanged; semantic cap after order |
-
-This lets command-specific UX remain stable while new columns avoid bespoke
-flags.
-
-## Section descriptor contract
-
-Table sections should declare query metadata alongside their row schema:
-
-```csharp
-DefaultOrder = "Triage desc";
-OrderDescription =
-[
-    "Loop desc",
-    "Confidence desc (high > medium > low)",
-    "RootReach desc",
-    "Member asc",
-    "IL asc",
-    "Shape asc",
-];
-FilterableFields = [...];
-SortableFields = [...];
-CompositeOrders = ["Triage"];
-```
-
-The same metadata should drive:
-
-- `--schema` output;
-- validation and suggestions for `--where` and `--order-by`;
-- help text for section-scoped options;
-- agent skills and generated examples;
-- compatibility lowering from legacy focused flags.
-
-## Error behavior
-
-Unknown fields should fail with suggestions:
-
-```text
-Error: Field 'Allocaton' is not filterable in section 'Performance Triage'.
-
-Did you mean:
-  Allocation
-```
-
-Invalid operators should name valid forms:
-
-```text
-Error: Field 'RootReach' supports numeric comparisons: =, !=, >=, <=.
-```
-
-Unsortable sections should reject `--order-by` clearly:
-
-```text
-Error: Section 'Facts' does not declare sortable fields. Use --rows N to cap
-rendered rows.
-```
-
-## Open questions
-
-1. Should `--where "Field=glob *"` use glob matching automatically when `*` or
-   `?` appears, or require an explicit glob operator?
-2. Should field names normalize aliases such as `PathConfidence` and
-   `Path Confidence`, or `PostDominance` and `Post Dominance`?
-3. Should `--order-by Confidence` default to descending for ranked fields?
-4. Should a selected section with no default order allow `--top`, or should
-   `--top` require a default or explicit order?
-5. Should `--schema` include examples generated from the section metadata?
+This design does not select CLI spellings, define source optimization, place
+count or projection relative to the selected rows, or change current product
+behavior. Those decisions remain with their focused owners.

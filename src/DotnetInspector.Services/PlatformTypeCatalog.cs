@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using CSharpText;
 using ILInspector.Metadata;
@@ -11,9 +10,14 @@ namespace DotnetInspector.Services;
 /// </summary>
 public sealed class PlatformTypeLookupPattern
 {
-    PlatformTypeLookupPattern(string normalized) => Normalized = normalized;
+    PlatformTypeLookupPattern(string normalized, bool hasExplicitGenericNotation)
+    {
+        NormalizedLookup = NormalizeLookup(normalized);
+        HasExplicitGenericNotation = hasExplicitGenericNotation;
+    }
 
-    internal string Normalized { get; }
+    internal string NormalizedLookup { get; }
+    internal bool HasExplicitGenericNotation { get; }
 
     public static PlatformTypeLookupPatternResult Create(string? value)
     {
@@ -26,26 +30,38 @@ public sealed class PlatformTypeLookupPattern
         }
 
         return new PlatformTypeLookupPatternResult.Valid(
-            new PlatformTypeLookupPattern(FqnParser.NormalizeTypeName(value.Trim())));
+            new PlatformTypeLookupPattern(
+                FqnParser.NormalizeTypeName(value.Trim()),
+                TypeMatcher.HasExplicitGenericNotation(value)));
     }
 
     internal bool Matches(MetadataTypeDefinitionName name) =>
-        TypeMatcher.Matches(name.ToMetadataFullName(), Normalized);
+        TypeMatcher.MatchesNormalized(
+            NormalizeMetadataLookup(name),
+            NormalizedLookup);
 
     internal bool IsExact(MetadataTypeDefinitionName name)
     {
-        string candidate = NormalizeLookup(name.ToMetadataFullName());
-        string pattern = NormalizeLookup(Normalized);
-        return candidate.Equals(pattern, StringComparison.OrdinalIgnoreCase)
-            || TypeMatcher.GetSimpleName(candidate).Equals(
-                pattern,
-                StringComparison.OrdinalIgnoreCase);
+        string candidate = NormalizeMetadataLookup(name);
+        return candidate.Equals(
+                NormalizedLookup,
+                StringComparison.OrdinalIgnoreCase)
+            || (candidate.Length > NormalizedLookup.Length
+                && candidate[
+                    candidate.Length
+                    - NormalizedLookup.Length
+                    - 1] == '.'
+                && candidate.EndsWith(
+                    NormalizedLookup,
+                    StringComparison.OrdinalIgnoreCase));
     }
-
-    internal int GenericArity => TypeMatcher.GetPatternArity(Normalized);
 
     static string NormalizeLookup(string value) =>
         FqnParser.NormalizeTypeName(value).Replace('+', '.');
+
+    static string NormalizeMetadataLookup(
+        MetadataTypeDefinitionName name) =>
+        name.ToMetadataFullName().Replace('+', '.');
 }
 
 /// <summary>The result of validating a platform type lookup pattern.</summary>
@@ -140,15 +156,10 @@ public abstract class PlatformTypeLookupOutcome
 
 /// <summary>
 /// Trusted reference-pack index. Metadata produces each declaration inventory;
-/// this service owns platform discovery, caching, and source-selection policy.
+/// this service owns platform discovery and source-selection policy.
 /// </summary>
 internal sealed class PlatformTypeCatalog
 {
-    static readonly ConcurrentDictionary<
-        string,
-        Lazy<PlatformTypeCatalogResult>> Cache =
-            new(StringComparer.Ordinal);
-
     readonly ImmutableArray<PlatformTypeLookupCandidate> _entries;
 
     PlatformTypeCatalog(
@@ -167,27 +178,10 @@ internal sealed class PlatformTypeCatalog
             return new PlatformTypeLookupOutcome.Rejected(invalid.Failure);
 
         string fullReferencePath = Path.GetFullPath(referencePath);
-        Lazy<PlatformTypeCatalogResult> cachedCatalog = Cache.GetOrAdd(
-            fullReferencePath,
-            path => new Lazy<PlatformTypeCatalogResult>(
-                () => Build(path, framework, frameworkVersion),
-                LazyThreadSafetyMode.ExecutionAndPublication));
-        PlatformTypeCatalogResult catalogResult = cachedCatalog.Value;
+        PlatformTypeCatalogResult catalogResult =
+            Build(fullReferencePath, framework, frameworkVersion);
         if (catalogResult is PlatformTypeCatalogResult.Rejected rejected)
-        {
-            if (rejected.Failure.Kind
-                == PlatformTypeLookupFailureKind.CatalogUnavailable)
-            {
-                // Remove only the failed Lazy observed by this caller; a
-                // concurrent retry may already have installed a replacement.
-                ((ICollection<KeyValuePair<
-                    string,
-                    Lazy<PlatformTypeCatalogResult>>>)Cache).Remove(
-                        new(fullReferencePath, cachedCatalog));
-            }
-
             return new PlatformTypeLookupOutcome.Rejected(rejected.Failure);
-        }
 
         var catalog =
             ((PlatformTypeCatalogResult.Ready)catalogResult).Catalog;
@@ -212,27 +206,43 @@ internal sealed class PlatformTypeCatalog
         ];
         ImmutableArray<PlatformTypeLookupCandidate> selected =
             definitions.IsEmpty ? matches : definitions;
-        if (pattern.GenericArity >= 0)
-        {
-            ImmutableArray<PlatformTypeLookupCandidate> sameArity =
-            [
-                .. selected.Where(candidate =>
-                    TypeMatcher.GetGenericArity(
-                        candidate.Type.ToMetadataFullName())
-                    == pattern.GenericArity),
-            ];
-            selected = sameArity;
-        }
-
-        if (selected.IsEmpty)
-            return new PlatformTypeLookupOutcome.Missing();
-
         ImmutableArray<PlatformTypeLookupCandidate> exact =
         [
             .. selected.Where(candidate => pattern.IsExact(candidate.Type)),
         ];
         if (!exact.IsEmpty)
             selected = exact;
+        else if (pattern.HasExplicitGenericNotation)
+            return new PlatformTypeLookupOutcome.Missing();
+
+        if (selected.Length > 1
+            && selected
+                .Select(candidate =>
+                    candidate.Type.ToMetadataFullName())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() == 1)
+        {
+            var resolvedTypeName =
+                selected[0].Type.ToMetadataFullName();
+            var assemblyPrefixMatches = selected
+                .Where(candidate =>
+                    resolvedTypeName.StartsWith(
+                        candidate.Assembly.Identity.Name + ".",
+                        StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(candidate =>
+                    candidate.Assembly.Identity.Name.Length)
+                .ToArray();
+            if (assemblyPrefixMatches.Length > 0
+                && (assemblyPrefixMatches.Length == 1
+                    || assemblyPrefixMatches[0]
+                            .Assembly.Identity.Name.Length
+                        > assemblyPrefixMatches[1]
+                            .Assembly.Identity.Name.Length))
+            {
+                return new PlatformTypeLookupOutcome.Resolved(
+                    assemblyPrefixMatches[0]);
+            }
+        }
 
         return selected.Length == 1
             ? new PlatformTypeLookupOutcome.Resolved(selected[0])
@@ -255,9 +265,20 @@ internal sealed class PlatformTypeCatalog
         {
             var entries =
                 ImmutableArray.CreateBuilder<PlatformTypeLookupCandidate>();
-            foreach (string path in Directory
+            string[] assemblyPaths =
+            [
+                .. Directory
                 .EnumerateFiles(referencePath, "*.dll")
-                .OrderBy(static path => path, StringComparer.Ordinal))
+                .OrderBy(static path => path, StringComparer.Ordinal),
+            ];
+            if (assemblyPaths.Length == 0)
+            {
+                return Rejected(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    "The platform reference catalog contains no assemblies.");
+            }
+
+            foreach (string path in assemblyPaths)
             {
                 ResolvedAssemblyReference assembly =
                     ResolvedAssemblyReference.CreateFromPath(

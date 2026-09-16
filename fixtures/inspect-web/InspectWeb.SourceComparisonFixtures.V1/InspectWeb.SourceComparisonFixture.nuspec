@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <metadata>
+    <id>InspectWeb.SourceComparisonFixture</id>
+    <version>1.0.0</version>
+    <authors>dotnet-inspect</authors>
+    <description>Authored Source comparison pair, before version: embedded PDB with a browser-reachable SourceLink map.</description>
+  </metadata>
+</package>

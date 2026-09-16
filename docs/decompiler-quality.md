@@ -97,18 +97,20 @@ back through a compiler. The supporting evidence:
 
 ### Expanding real-world fidelity coverage
 
-The real-world corpus card exposes compile-back fidelity coverage honestly, but
-coverage can be thin because many methods are not yet standalone-recompilable.
-Increasing the cap is only a measurement step: it characterizes how much useful
-compile-back evidence exists today and buckets why the rest fails. The first
-expansion target is therefore the **checked population inside the fixed
-corpus**, not a larger random assembly set.
+The real-world corpus card exposes native ReturnToSender fidelity coverage
+honestly, but coverage can be thin because many methods are not yet
+standalone-recompilable. Increasing the cap is only a measurement step: it
+characterizes how much useful native evidence exists today and buckets why the
+rest fails. The first expansion target is therefore the **checked population
+inside the fixed corpus**, not a larger random assembly set.
 
 Use this order for risky decompiler work:
 
-1. Run the fixed corpus with multiple `--corpus-fidelity-cap` values and record
-   exact, opcode-diff, operand-diff, fidelity-unavailable, recompile-failed, and
-   context-failed counts plus failure buckets.
+1. Run the fixed corpus through separate native RTS invocations at the desired
+   `--corpus-fidelity-cap` values, and record exact, opcode-diff, operand-diff,
+   fidelity-unavailable, recompile-failed, and context-failed counts plus
+   failure buckets. Separate runs preserve the complete independently selected
+   ledger for each cap.
 2. For a risky raise/structuring PR, emit a per-method corpus delta and treat the
    changed methods as the fidelity population to cover. A bigger general sample
    is not enough if the changed methods remain unchecked.
@@ -163,19 +165,22 @@ still needs, recompiling until the unit binds or the closure stops growing. It
 runs in **escalation** order — the cheap whole-module compile first, and only the
 rows it could not check are escalated to the closure path, which reaches the same
 checkable population as attempting the closure everywhere at a fraction of the
-cost. A row falls back to its whole-module result when the closure cannot be
-closed within budget, so it never regresses below the baseline — it only rescues
-targets the all-or-nothing skeleton failed for unrelated sibling reasons. A
-persistent bail is a principled *not-safely-capturable* classification rather than
-a fidelity verdict, and the changed-method report prints the segmented
-**safely-capturable bands** (checkable whole-module, checkable cluster-rescued,
-not-safely-capturable) from each row's capture provenance. The current gain is
-modest and library-shaped, and improves lever by lever as the closure learns to
-resolve more of what the compiler names: namespace-segment inclusion (the
-dominant `CS0234` bail, ~81% on Newtonsoft.Json), a synthetic parameterless
-constructor stub for reconstructed classes whose base lacks one (the `CS1729`/`CS7036`
-implicit-`base()` bail), and reconstructing sibling properties as property syntax
-(the `CS1061` `obj.X` bail) together took Newtonsoft.Json exact-match from 7.9% to
+cost under the shipping comparison contract.
+
+Issue #4810's target compile-context contract does not let a failed closure
+attempt borrow the whole-module result. A separately labelled whole-module
+control may remain visible, but a post-attempt stall or budget exhaustion is
+*not-safely-capturable*, not a fidelity verdict, and cannot inherit `Exact`
+without its own complete receipt. The changed-method report prints the
+segmented **safely-capturable bands** (checkable whole-module, checkable
+cluster-rescued, not-safely-capturable) from each row's capture provenance. The
+current gain is modest and library-shaped, and improves lever by lever as the
+closure learns to resolve more of what the compiler names: namespace-segment
+inclusion (the dominant `CS0234` bail, ~81% on Newtonsoft.Json), a synthetic
+parameterless constructor stub for reconstructed classes whose base lacks one
+(the `CS1729`/`CS7036` implicit-`base()` bail), and reconstructing sibling
+properties as property syntax (the `CS1061` `obj.X` bail) together took
+Newtonsoft.Json exact-match from 7.9% to
 43.4%; inherited/extension members (the rest of `CS1061`) are the next measured
 lever. The point is the
 inverse of cheating: a good cluster system lets honest changed-method fidelity
@@ -335,12 +340,10 @@ coverage strings, sharpen ledger notes, and avoid behavior changes unless the
 curation exposes an actual bug. Run the relevant catalog/fixture tests so the
 metadata still points at real rows and mechanisms.
 
-Operational burndown queue hygiene — stale rows, merged PR status, merge
+Operational defect-queue hygiene — stale rows, merged PR status, merge
 conflicts, CI breaks, rebaseline triggers, and subagent delegation — is the
-**Burndown Curator** role. Its protocol starts in
-[burndown-curator.md](burndown-curator.md), with role personas under
-[`../agents/`](../agents/).
-Burndown row ownership is hot-start work: a claimed row should proceed to a PR,
+**Defect Docket Curator** role, tracked operationally through rollup issue #1568.
+Docket-row ownership is hot-start work: a claimed row should proceed to a PR,
 explicit blocker, or pivot issue rather than waiting or stopping at an internal
 milestone.
 
@@ -460,7 +463,7 @@ These keep a review fast and the proof legible:
   Reconstruct the claim from that history before reading today's matcher.
 - **Run the pass's tests in isolation.** The full decompiler suite is slow, so
   filter to the class under review —
-  `dotnet run --project src/ILInspector.Decompiler.Tests -- -class
+  `dotnet run --project tests/ILInspector.Decompiler.Tests -- -class
   ILInspector.Decompiler.Tests.<PassTests>`. Run the full suite once for a
   baseline so you can separate pre-existing failures (for example the
   fidelity-gate docket) from regressions you introduce.
@@ -470,7 +473,7 @@ These keep a review fast and the proof legible:
   ternary in Debug. A default Debug run can therefore show every positive fixture
   failing with an empty collection and the whole suite red; that is a config
   artifact, not a regression. Match CI:
-  `dotnet run --project src/ILInspector.Decompiler.Tests -c Release`.
+  `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release`.
 - **Prefer synthetic IR for near-miss negatives.** Many discriminators
   (non-local targets, field/temp receivers, user-assembly lookalikes) are awkward
   or impossible to spell in C# source but trivial to build directly as IR in the
@@ -540,11 +543,13 @@ drill-down. To reproduce the full row set behind a capped card, follow
 [Reproducing decompiler corpus deltas](decompiler-corpus-delta-repro.md).
 Use the terse PR body shape in
 [docs/templates/decompiler-pr.md](templates/decompiler-pr.md) when writing the
-human summary around the generated card. For DecompilerHarness,
-ReturnToSender, fidelity skeleton, or compile-back coverage PRs, use
+human summary around the generated card. For harness-only DecompilerHarness,
+ReturnToSender, fidelity skeleton, or compile-back coverage PRs that do not
+alter product decompiler output, use
 [docs/templates/decompiler-compile-back-harness-pr.md](templates/decompiler-compile-back-harness-pr.md)
 instead so the PR records the targeted checked population and RTS/current A/B
-evidence.
+evidence. If product output changes, keep `decompiler-pr.md` as the PR body and
+add the relevant compile-back evidence there.
 
 Rate deltas in card prose use **percentage points** (`pp`): `+0.49 pp` means
 the rate increased from, for example, `82.17%` to `82.66%`. The metric-change
@@ -558,7 +563,7 @@ Run the sensor with the same command documented in the harness README. The
 `--quality-diff-card` flag is what emits the PR-ready Markdown block:
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
@@ -566,12 +571,13 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
+  --corpus-fidelity-oracle rts-cutover \
   --max-examples 3
 ```
 
 For risky raise or structuring PRs, add `--quality-card-risky`. It keeps the
 card generated from the same snapshots, but adds a thin-coverage warning when the
-semantic validity sample is below 1.00% of methods or the compile-back fidelity
+semantic validity sample is below 1.00% of methods or the native RTS fidelity
 sample is below 0.10%. That warning means the aggregate card is not enough by
 itself; add method-level improved examples and still-flat near misses.
 
@@ -849,8 +855,9 @@ changes source legality or required spelling, use paired representative source
 that produces the same IL and differs only in mode metadata. It is small by
 construction — only mode-sensitive fixtures get thin per-flag overlay assemblies
 — so the cost is one default plus a few shrinking single-flag overlays, never the
-corpus times N. The active axes are the `runtime-async=off` overlay
-(`Fixtures.ClassicAsync`), the checked-arithmetic overlay
+corpus times N. The active async axis compiles the exact same `AsyncFixtures.cs`
+as `runtime-async=off` (`Fixtures.ClassicAsync`) and `runtime-async=on`
+(`Fixtures.RuntimeAsync`). The other active axes are the checked-arithmetic overlay
 (`Fixtures.CheckedArithmetic`), and the old/new memory-safety pair
 (`Fixtures.LegacyUnsafe` / `Fixtures.NewUnsafe`, plus `UnsafeChainA/B/C` for
 cross-assembly `RequiresUnsafeAttribute` resolution). The mechanics, axis
@@ -858,8 +865,10 @@ switches, and recipe for adding an axis live in
 [the harness README](../tools/DecompilerHarness/README.md), "Multi-mode fixture
 matrix".
 
-This is a **discovery and bring-down instrument, on-demand — not a CI gate.** It
-feeds the quality loop from the other end than the corpus does:
+Library-report measurement is a **discovery and bring-down instrument,
+on-demand — not a CI gate.** `AsyncLoweringFixtureMatrixTests` gates that the
+async pair continues to share one source and produce its two physical
+lowerings. The reports feed the quality loop from the other end than the corpus:
 
 - **Discover.** `--library-report` over an overlay surfaces unsupported-pattern
   buckets the single-mode corpus could never produce. Each bucket is a real,

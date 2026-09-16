@@ -1,25 +1,257 @@
 # Version resolution
 
-dotnet-inspect uses Docker-style version tags to balance freshness against
-latency. Version discovery is cached briefly; package contents are cached
-permanently by exact version.
+## Status, owner, and claim
+
+This document is the normative owner for **Package Version Selection**. The
+resource-free request and resolution correspondence is tracked by
+[#6455](https://github.com/richlander/dotnet-inspect/issues/6455); production
+adoption remains on the eleven-step
+[PackageHouse tracker](https://github.com/richlander/dotnet-inspect/issues/6426).
+
+Given one canonical package ID, one closed unresolved selection form, one
+explicit discovery policy, and owner-issued configured-authority discovery
+evidence, Package Version Selection returns one exact source-authorized package
+candidate or one typed terminal non-success. The result preserves the exact
+request and discovery evidence and proves that any selected coordinate
+satisfies that request.
+
+The owner defines:
+
+- the closed unresolved request forms and their canonical fields;
+- prerelease, listing, completeness, and refresh requirements;
+- semantic version ordering and request satisfaction;
+- the resolution receipt and request-to-coordinate correspondence; and
+- the distinction between package absence, no matching version, ambiguity,
+  incomplete evidence, rejection, unavailability, and operation failure.
+
+It consumes configured-authority discovery and exact acquisition candidates
+from the [Package Source Model](package-source-model.md). It does not define
+source authorization, source-result adoption, transport, retries,
+authentication, package payload acquisition, dependency-range semantics, or
+dependency graph traversal.
+
+`PackageCoordinate` and `PackageSourceCoordinate` remain exact-coordinate
+types. They are not wildcard, range, or latest-selector grammars.
+
+## Resource-free request family
+
+`PackageVersionSelectionRequest` is a closed family:
+
+| Request | Meaning | Prerelease policy | Freshness |
+| --- | --- | --- | --- |
+| `LatestStable` | Highest listed stable version | Excluded | Current authoritative evidence may be reused |
+| `LatestPrerelease` | Highest listed version, including prereleases | Included | Current authoritative evidence may be reused |
+| `AlwaysLatest` | Highest listed version under the stated prerelease policy | Explicit | Every configured authority is refreshed for this exact request |
+| `Wildcard` | Highest listed version whose normalized version starts with the typed prefix | Included, preserving current wildcard behavior | Current authoritative evidence may be reused |
+| `Range` | One typed address in an inclusive, direction-preserving `PackageVersionRange` | Included when either endpoint is prerelease or the request opts in | Current authoritative evidence may be reused |
+
+The range address is one of first, last, positive one-based ordinal, or exact
+normalized version. Range enumeration without an address is a different
+vector-producing operation and does not resolve one package coordinate.
+
+The exact pinned case remains `PackageSourceCoordinate`. It performs no
+unresolved version selection and therefore does not enter this request family.
+This distinction preserves direct exact acquisition without pretending that a
+coordinate is a universal selector.
+
+Every request carries a `PackageVersionDiscoveryRequirement` stating:
+
+- whether prerelease candidates must be retained;
+- that automatic selection uses listed versions;
+- that every configured authority must settle;
+- that the complete candidate set, not a caller-limited display subset, is
+  required; and
+- whether current authoritative evidence is acceptable or the authorities
+  must be refreshed for this exact request.
+
+Hosts parse command or gesture syntax before constructing this family.
+PackageHouse receives the typed request and never parses `latest`, `*`, range,
+or address text.
+
+## Vector-producing population settlement
+
+Range enumeration without an address uses the same owner-issued range currency
+but remains separate from exact-coordinate resolution. Package Version
+Selection owns:
+
+- semantic endpoint equality and admission;
+- direction-preserving ordering;
+- duplicate semantic-version removal;
+- prerelease inclusion from the endpoints or explicit policy; and
+- the terminal classification of non-authoritative discovery.
+
+`PackageVersionVector.Create` is the deterministic vector operation. Both
+endpoints must be present in the admitted version set. The result includes
+only versions inside the inclusive semantic range, follows the caller's
+direction, and excludes prereleases unless an endpoint is prerelease or the
+request opts in.
+
+PackageHouse is the first operation-bearing adopter under
+[#7115](https://github.com/richlander/dotnet-inspect/issues/7115). Its separate
+`PackageHouseVersionPopulationRequest` asks Package Source for one complete
+configured-authority enumeration, applies this owner's vector operation, and
+returns a resource-free closed result. PackageHouse owns the request/result
+correspondence, operation lifetime, timeout precedence, and later cell
+execution. This owner does not acquire payloads, issue source candidates, or
+retain Package Source lease authority.
+
+An available House population retains the exact discovery and accepts only an
+address from its exact vector. It obtains the cell candidate from that
+discovery's `SelectCandidate` operation. Thus one discovery can serve multiple
+sparse or dense cells without rediscovery while every cell remains restricted
+to authorities that reported its version.
+
+The initial production bridge is online configured-source composition.
+Subject-owned Diff History and package version Count are the target consumers.
+Current API-range and top-level `timeline` execution, offline extraction,
+History coordination, and Browser/Wasm adoption remain separate slices.
+
+## Resolution receipt
+
+`PackageVersionResolutionReceipt` is owner-issued and resource-free. Every arm
+retains:
+
+- the exact `PackageVersionSelectionRequest`;
+- the complete `PackageVersionDiscoveryResult`, including its discovery
+  contract, admitted observations, state, and typed authority failures;
+- whether discovery was current, refreshed for this exact request, or could
+  not establish freshness; and
+- one typed terminal outcome.
+
+`Resolved` additionally retains the discovery-issued
+`PackageAcquisitionCandidate`; its normalized `PackageSourceCoordinate` is the
+selected coordinate. Construction recomputes the deterministic selection from
+the retained request and discovery. It therefore rejects a same-ID coordinate
+that does not satisfy the wildcard, range address, prerelease policy, or
+semantic maximum, and it cannot attach a candidate issued outside the retained
+discovery.
+
+The non-success arms are:
+
+- **Not found** -- every required authority settled and no version of the
+  package was observed;
+- **No match** -- the package exists, but no listed version satisfies the
+  request, including a missing range endpoint or address;
+- **Ambiguous** -- complete evidence admits more than one result and an
+  owner-defined policy cannot choose;
+- **Incomplete** -- one or more required authorities did not settle, even if
+  another authority reported a candidate;
+- **Rejected** -- the request or evidence is unusable for selection;
+- **Unavailable** -- a required selection or source capability is unavailable;
+  and
+- **Failed** -- the resolution operation failed.
+
+Caller cancellation remains cancellation rather than becoming a receipt.
+Typed non-success keeps the discovery evidence and does not manufacture an
+exact coordinate.
+
+`PackageVersionSelectionResolver` is the owner's total request-to-receipt
+operation. Discovery that omits package identity or names a package other than
+the request is `Rejected` before terminal-state precedence. Compatible
+authoritative evidence produces `Resolved`, `NotFound`, or `NoMatch`.
+Incompatible authoritative evidence is `Rejected`. Partial evidence and
+incomplete listing metadata are `Incomplete`. Failed discovery is `Failed`
+when timeout or transport evidence is present, `Rejected` when input or
+returned evidence is unusable, and otherwise `Unavailable` when the configured
+source or capability cannot answer. Operational failure takes precedence in a
+mixed failed-discovery set after request correspondence is established. The
+current closed request forms are deterministic, so `Ambiguous` remains a
+reserved owner-issued arm rather than an outcome manufactured by this
+resolver.
+
+An authoritative empty selectable list is not automatically `NotFound`.
+`PackageVersionDiscoveryResult.HasAnyCandidate` distinguishes authoritative
+package absence from a package whose observed versions were excluded by
+listing or prerelease policy; the latter is `NoMatch`.
+
+## PackageHouse adoption
+
+`PackageHouseDemand.Selecting` is the first adopter of this contract under the
+bounded first-adopter rule in
+[design scope and composition](../design-scope.md#stage-implementation-after-locking-the-design).
+The demand retains one exact `PackageVersionSelectionRequest`.
+
+A PackageHouse package-retention decision for that demand requires the
+matching `Resolved` receipt and uses the receipt's exact candidate and
+coordinate. A typed non-success receipt can only stop settlement without a
+coordinate, candidate, pruning result, acquisition, or realization. A receipt
+for a structurally equal but separately issued request is not interchangeable:
+the exact request association is retained.
+
+This slice does not route CLI or Browser/Wasm execution through the new
+request, perform selected-package pruning, or retire
+`DesktopPackageSourceComposition.AcquireSelectedAsync`. Those remain
+PackageHouse adoption work under #6426.
+
+## Contract evidence
+
+`PackageHouseContractTests` gates:
+
+- distinct request forms and discovery requirements;
+- semantic latest, prerelease, wildcard, and directed-range selection;
+- the closed, resource-free version-population request and terminal family;
+- total request-to-receipt resolution and deterministic terminal precedence;
+- rejection of missing or mismatched discovery package identity;
+- refresh evidence for `AlwaysLatest`;
+- authoritative absence versus no matching version;
+- rejection of selection from partial discovery;
+- exact request, discovery, candidate, and coordinate association through
+  PackageHouse; and
+- the resource-free public surface of the request, receipt, and House
+  contracts.
+
+`PackageHouseExecutionTests` additionally gate one population discovery serving
+multiple directed cells, no payload work during settlement, exact
+population-address membership, reporter-only acquisition, authoritative
+absence, missing endpoints, partial and failed discovery, timeout and caller
+cancellation, operation release, and rejection across Package Source root
+generations.
+
+The defining pathological case has two required authorities: one reports a
+candidate and the other times out. The retained discovery is partial, so no
+`Resolved` receipt or PackageHouse coordinate can be constructed. The
+candidate remains evidence in `Incomplete`; it is not silently promoted to the
+latest or range answer.
+
+## Current product behavior
+
+dotnet-inspect uses Docker-style version tags to separate version selection
+from exact payload acquisition. Online single-package CLI inspection uses the
+[configured-authority acquisition contract](package-source-model.md#discovered-coordinate-payload-acquisition):
+automatic selection performs fresh bounded discovery, local payload caches
+are authority-scoped, and HTTP payloads use temporary materialization.
+Unmigrated consumers retain the candidate and producer-payload caches described
+below.
 
 The command modes, listing rules, source-scoped candidate caches, and
 payload-provenance rules describe current behavior. Package source mapping and
 the remaining source-policy boundaries are tracked by the
 [package source model](package-source-model.md).
+Result-limit and short-selector examples use spellings from the retired #4677
+umbrella design. [Item and line
+limits](item-and-line-limits.md) records the replacement composition and
+focused-owner gaps; those spellings are historical proposals, not
+implementation-ready syntax.
 
-## Four modes
+## Current host spellings
 
-| Syntax | Behavior | Network I/O |
+| Syntax | Behavior | Online single-package CLI discovery |
 | --- | --- | --- |
-| `Name@2.0.3` | **Pinned** — use the exact version from cache; download only if missing | Never, if cached |
-| `Name` | **Latest stable** — resolve the latest stable version, then use/download that exact package | Only on version-cache miss |
-| `Name --preview` | **Latest prerelease** — resolve the latest version including prerelease/preview versions | Only on version-cache miss |
-| `Name@latest` | **Always check** — query NuGet for the latest version every time | Always |
-| `Name@A..B` | **Addressable vector** — resolve the inclusive published-version range without downloading package payloads | Only on version-list cache miss |
+| `Name@2.0.3` | **Pinned** — acquire the caller's exact version | No candidate discovery |
+| `Name` | **Latest stable** — resolve the latest stable version, then acquire that exact package | Fresh eligible-source discovery |
+| `Name --preview` | **Latest prerelease** — include prerelease/preview versions in selection | Fresh eligible-source discovery |
+| `Name@latest` | **Always check** — resolve the latest version every time | Fresh eligible-source discovery |
+| `Name@A..B` | **Addressable vector** — enumerate the inclusive published-version range with `--versions`, without payload acquisition | Fresh eligible-source discovery |
 
 ### Pinned (`Name@version`)
+
+Online single-package and API caller-pinned CLI extraction follows the
+[configured-authority acquisition contract](package-source-model.md#caller-pinned-payload-acquisition):
+local authority caches may answer immediately, while HTTP payloads currently
+use temporary authority-scoped materialization rather than persistent
+producer-keyed caches. The following producer-cache description applies to
+offline and other unmigrated consumers. API pins use the same authority-scoped
+path so an exact replay can reopen a package selected from a folder-feed range.
 
 The version is treated as immutable and the caller supplies the candidate. If
 the package is already in a payload cache under an eligible producer, it is
@@ -30,7 +262,13 @@ and cached permanently under that producer.
 
 ### Latest stable (`Name`)
 
-This is the default and the most common case. Resolution follows this order:
+This is the default and the most common case. Online single-package CLI
+inspection requires complete discovery from all eligible configured
+authorities, then acquires only from authorities that reported the chosen
+version. It does not consult legacy candidate caches or use their shortened
+stale-cache request budget. Folder-only selection performs no HTTP work.
+
+Unmigrated consumers follow this legacy order:
 
 1. **Version cache** — check each eligible feed's version-resolution cache
    (1-hour TTL) for a source-scoped candidate list.
@@ -100,10 +338,58 @@ reuse a NuGet.org metadata cache entry for a same-named private package. Package
 acquisition and RID companion-package verification continue to follow the
 configured sources.
 
+RID companion verification prefers the package's standalone nuspec and falls
+back to the source's authoritative version index when a feed does not expose
+standalone nuspec documents. A version-list failure is reported as unknown,
+not as evidence that the companion package is absent. Cached companion
+identities are reverified without repeating filesystem inspection. RID
+availability is not persisted because it depends on the current source policy.
+The
+`VerifyAsync_VersionIndexFailureIsUnknown` and
+`InspectAsync_ReverifiesIndeterminateCachedRidAvailability` and
+`RidAvailability_IsNotPersisted` tests gate these properties.
+
 This describes the current gate. The target
 [package source model](package-source-model.md#enrichment-is-a-separate-capability)
 narrows it further when package source mapping is enabled: NuGet.org must be
 eligible for the package id, not merely active somewhere in configuration.
+
+### Browser platform catalog targets
+
+Issue #6013's Platform subject defaults to the .NET 11 release line, including
+preview and release-candidate versions. Browser discovery orders NuGet versions
+semantically and selects from the common versions of the reference and
+representative `linux-x64` runtime packs required by the target. The catalog
+includes the .NET and ASP.NET Core families, so both families' reference and
+runtime packages must publish the selected version. A missing common version
+or discovery failure remains visible rather than selecting an older major.
+
+A catalog identifies its exact TFM and pack version. Each library retains its
+supplying family, assembly/file identity, reference-pack membership, runtime
+availability, and metadata-derived facade role. Reference membership and
+facade classification are independent, not assembly-name heuristics or a
+classification of contained Types' accessibility. The reference pack supplies
+the logical API inventory; runtime bytes supply implementation inspection.
+
+The shipped catalog is an exact-version fast-start snapshot, not a claim that
+its version is forever latest. Lightweight discovery may reveal newer
+versions; it does not replace an open coordinate. Selecting another version
+requires its matching catalog before committing the target. Old inventory
+must never be relabeled with a newly discovered version.
+
+The browser uses the existing Gallery source, package acquisition, deadlines,
+single-flight, and retained-archive capacity policy. A Platform-open gesture
+may prefetch exact runtime archives without projecting every assembly's API.
+Later Library demand reuses acquisition and existing platform realization.
+Search alone does not authorize runtime-pack acquisition. None of these
+operations registers a Workspace traversal scope.
+
+Platform-pack selection preserves ordinary framework-qualified `lib`
+selection and satellite exclusion, while admitting additional DLL candidates
+outside `lib` under the exact selected RID. Product metadata admission
+distinguishes managed libraries from native images; malformed or unsupported
+metadata remains a failure. Catalog generation and runtime realization consume
+the same platform selector. Ordinary NuGet package asset selection is unchanged.
 
 ### Always check (`Name@latest`)
 
@@ -135,6 +421,22 @@ Resolving the vector reads version metadata only. The command downloads or
 opens a package only after the caller selects an address, so an agent can probe
 previous, midpoint, or adjacent versions without triggering an unbounded scan.
 
+Online API and timeline commands use complete, fresh configured-authority
+discovery and retain its reporting authorities through selected payload
+acquisition. Each timeline invocation keeps one vector for all its selected
+cells. An unreadable eligible source fails discovery before any payload
+acquisition, rather than silently shortening the vector. Local payload caches
+are authority-scoped; HTTP payloads are temporary and downloaded again in a
+later invocation. Remaining consumer migration stays in step 6 of the
+[source adoption plan](package-source-model.md#implementation-boundary).
+Ordinary `package` payload inspection does not accept a range or `--at`.
+
+API and timeline vectors remain listed-only. Unlisted endpoints cannot be
+selected unless another authority independently reports that coordinate as
+listed; use an exact caller pin to inspect an unlisted package. Metadata-only
+`package --versions --include-unlisted` can enumerate those rows, but their
+ordinals are not addresses in the listed-only API/timeline vector.
+
 `timeline` uses the same vector without changing that authorization rule. With
 no `--at`, it renders every address as `Unevaluated` and recommends a probe
 without downloading package payloads. Repeated `--at` selectors perform sparse
@@ -146,6 +448,13 @@ one exact member identity track. The same member focus composes with
 selected method body is decoded at each evaluated address. Sparse transitions
 spanning unevaluated cells are labeled as gaps and do not claim the exact
 version of a change.
+
+Online timeline recommendations retain source and configuration arguments,
+including an absolute `--nugetconfig-directory` for ambient configuration.
+They also retain TFM, prerelease, and visibility choices. Exact `match --similar`
+replay retains the reporting configured sources for the selected coordinate,
+not a transient extraction path. Credential-sensitive sources must be selected
+through configuration when their URLs cannot be safely disclosed.
 
 ```bash
 dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \
@@ -176,7 +485,7 @@ endpoints and reports each native allocation occurrence pair:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
+  --type Foo.Parser --member Parse \
   --finding analysis.allocation
 ```
 
@@ -189,7 +498,7 @@ can test whether a new direct call explains it:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
+  --type Foo.Parser --member Parse \
   --finding analysis.call-site
 ```
 
@@ -202,7 +511,7 @@ To confirm a definite unsafe-operation boundary in the same method:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
+  --type Foo.Parser --member Parse \
   --finding analysis.unsafety
 ```
 
@@ -212,6 +521,14 @@ kind and producer detail establish identity, while IL offsets remain local to
 each endpoint.
 
 ## Listed vs. unlisted versions
+
+The online CLI metadata-only version queries now adopt typed configured
+authority results under
+[Package Source Model](package-source-model.md#metadata-only-version-queries).
+They bypass the legacy caches described below, disclose partial raw listings,
+and require complete evidence for latest and range selection. Payload-selecting
+resolution and offline queries retain the legacy behavior in this section
+until their separately tracked adoption.
 
 NuGet lets a publisher **unlist** a version: it stays restorable by exact
 coordinate but is hidden from discovery on nuget.org. The flat-container
@@ -278,7 +595,7 @@ listing, so verifying a known unlisted version reports it rather than
 feed), versions are reported as listed.
 
 `--include-unlisted` composes with the other `--versions` lenses. With a limit
-(`--versions 1 --include-unlisted`) it takes the listing-aware path. A pinned
+(`--versions -n 1 --include-unlisted`) it takes the listing-aware path. A pinned
 `Name@Version` and `Name@latest` still emit a one-row tagged table rather than a
 bare version, so the result always carries the `listed`/`unlisted` column the
 flag requests.
@@ -308,9 +625,9 @@ empty snapshot is a cache miss rather than authoritative candidate metadata.
 | Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v5/` | 1 hour | dotnet-inspect; one entry per producer, cache kind, package id, and latest flavor where applicable |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
-| Verified SourceLink bytes | `$LOCAL_APP_DATA/dotnet-inspect/source-bytes-v2/` | Permanent when the caller's checksum validator accepts the bytes | dotnet-inspect |
-| SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit-v2/` | Permanent for immutable hits, 1 day for mutable hits and misses | dotnet-inspect |
-| SourceLink integrity markers | `$LOCAL_APP_DATA/dotnet-inspect/source-integrity-v2/` | Permanent for immutable checksum-verified results | dotnet-inspect |
+| [Validated source-byte candidates](source-fetch.md#candidate-order-and-validation) | `$LOCAL_APP_DATA/dotnet-inspect/source-bytes-v2/` | Permanent candidate bytes; every use is revalidated by the caller | dotnet-inspect |
+| [SourceLink availability markers](source-availability-audit.md#cache-subject-and-reuse) | `$LOCAL_APP_DATA/dotnet-inspect/source-audit-v2/` | Permanent for immutable positives, 1 day for mutable positives; no persisted misses | dotnet-inspect |
+| [SourceLink integrity markers](source-integrity-audit.md#cache-subject-and-reuse) | `$LOCAL_APP_DATA/dotnet-inspect/source-integrity-v2/` | Permanent for immutable exact or line-ending-normalized results; no mutable or negative entries | dotnet-inspect |
 
 The app package cache carries a `{source}` segment because cached content is
 scoped to the source that supplied it; see
@@ -321,29 +638,32 @@ feed.
 
 ## Network download/cache behavior
 
-Network calls use the cache behavior below. Negative cache entries are written
-only for definitive 404/not-found responses; transient failures, timeouts,
-offline mode, and unsupported local feed URLs are not cached as misses.
+Network calls use the cache behavior below. Where a cache owner permits
+negative entries, they are written only for definitive 404/not-found responses;
+transient failures, timeouts, offline mode, and unsupported local feed URLs are
+not cached as misses.
+Package-metadata absence is a time-bounded observation rather than a permanent
+coordinate fact; its target semantics are owned by
+[package metadata persistence](package-metadata-persistence.md).
 
 | Download or check | Cache behavior |
 | --- | --- |
 | Pinned package `.nupkg` extraction | Uses a global or app payload only when its recorded producer is eligible; downloads otherwise. |
 | Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet. When producer-authorized local payloads exist, an uncached network lookup is bounded to one second and timeout diagnostics offer exact local pins; those diagnostic versions are never selected automatically, and package caches are still used only after a version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
-| Single-version listing (`--version` or `--versions 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. |
+| Single-version listing (`--version` or `--versions -n 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
 | Package index scan | Cached permanently for extracted package contents. |
-| Package metadata | Cached for 1 hour in the metadata cache. |
-| Dependency publish dates | Reuses the package metadata cache, so dependency-age audit does not refetch known publish dates. |
+| Package metadata | Present or authoritative-absence observations are cached for no more than 1 hour under the [package metadata persistence](package-metadata-persistence.md) contract. |
+| Dependency publish dates | Reuses an eligible package metadata observation; an authority without persistent or process-local reuse is refetched. |
 | Successful symbol-server PDB downloads | Cached permanently under `packages/symbols/servers/`. |
 | Symbol-server PDB 404s | Cached as misses for 1 day, so detailed audit does not retry unavailable PDBs on every run. |
 | Successful `.snupkg` PDB extraction | Extracted PDB is cached permanently under `packages/symbols/{package}/{version}/`. |
 | Missing `.snupkg` URLs and `.snupkg` files without the requested PDB | Cached as misses for 1 day. The `.snupkg` archive itself is not retained. |
-| SourceLink audit source checks | Successful HEAD checks are cached permanently; 404s are cached as misses for 1 day. |
+| SourceLink availability HEAD checks | Origin-validated positives follow the immutable/permanent or mutable/one-day policy; non-success results are not cached. |
 | Selected-member `PDB Source` downloads | Not cached by this command path. |
-| `SourceLink: Availability` URL checks | Not cached by this command path. |
 | Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
 | GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |
 
@@ -396,7 +716,16 @@ and `PackageVersionVectorTests.ResolveAsync_FallsThroughFailedHttpSource`.
 
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than
-one feed.
+one feed. The historical #4677 target treated one `(version, feed)` observation
+as its declared row, so its proposed `--versions-with-feed -n N` selected N
+rows. This behavior awaits focused CLI ownership and is not released.
+This differs from the released count-valued lens option, which selects N
+distinct versions and then emits every carrying feed. The primary version order
+is the containing Vector's order: newest-first for a bare package and caller
+direction for `Package@A..B`. Equal-version rows then sort by the credential-free
+canonical producer key in ordinal order. Presentation labels do not define this
+tie-breaker, and reversing source declaration order cannot change which rows an
+item limit selects.
 
 ### Listing status across sources
 

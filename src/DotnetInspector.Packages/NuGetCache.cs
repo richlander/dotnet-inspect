@@ -1,8 +1,10 @@
+using DotnetInspector.Cache;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 using NuGet.Versioning;
+using NuGetFetch;
 
 namespace DotnetInspector.Packages;
 
@@ -29,20 +31,25 @@ internal sealed record CachedPackage(
 /// Uses platform-appropriate cache directories (XDG on Linux, ~/Library/Caches on macOS).
 /// Never writes to ~/.nuget/packages (read-only).
 /// Call <see cref="Initialize"/> before using app cache methods.
-/// Source content caching is delegated to <see cref="CoreCache"/>.
+/// Source content caching is delegated to <see cref="PersistentCache"/>.
 /// </summary>
 public static class NuGetCache
 {
     private const string PackageContentCategory = "package-content-v5";
     private const string PackageContentCategoryPrefix = "package-content-v";
+    internal const string AuthorityPackageContentCategory = "package-authority-content-v1";
     public const string CommitMarkerFileName = ".dotnet-inspect.complete";
+    private static readonly Encoding s_utf8Strict =
+        new UTF8Encoding(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true);
     private static string? _appName;
     private static bool _skipNuGetCache;
 
     /// <summary>
     /// Initializes the cache with the application name used for the cache directory.
     /// Must be called before any app cache operations.
-    /// Also initializes <see cref="CoreCache"/> with the same app name.
+    /// Also initializes <see cref="PersistentCache"/> with the same app name.
     /// </summary>
     /// <param name="appName">Application name used as the cache subdirectory (e.g., "dotnet-inspect")</param>
     /// <param name="basePath">Optional override for the cache base directory</param>
@@ -52,10 +59,13 @@ public static class NuGetCache
         ArgumentException.ThrowIfNullOrWhiteSpace(appName);
         _appName = appName;
         _skipNuGetCache = skipNuGetCache;
-        CoreCache.Initialize(appName, basePath);
-        CoreCache.RegisterVersionedCategory(
+        PersistentCache.Initialize(appName, basePath);
+        PersistentCache.RegisterVersionedCategory(
             PackageContentCategoryPrefix,
             PackageContentCategory);
+        PersistentCache.RegisterVersionedCategory(
+            "package-authority-content-v",
+            AuthorityPackageContentCategory);
     }
 
     private static string AppName => _appName
@@ -76,7 +86,7 @@ public static class NuGetCache
         }
     }
 
-    private static bool IsValidPathComponent(string value) =>
+    internal static bool IsValidPathComponent(string value) =>
         !(string.IsNullOrWhiteSpace(value)
             || value.Contains("..")
             || value.Contains('/')
@@ -105,16 +115,45 @@ public static class NuGetCache
     }
 
     /// <summary>
-    /// Gets the base path for application caches (read-write).
-    /// Delegates to <see cref="CoreCache.GetBasePath"/>.
+    /// Gets every NuGet global-packages root dependency resolution can read, with an explicit
+    /// <c>NUGET_PACKAGES</c> override first and the platform-default root second.
     /// </summary>
-    public static string GetAppCacheBasePath() => CoreCache.GetBasePath();
+    public static IReadOnlyList<string> GetNuGetPackageRoots()
+    {
+        List<string> roots = [];
+        StringComparer comparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+        void Add(string? root)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+                return;
+
+            string fullPath = Path.GetFullPath(root);
+            if (!roots.Contains(fullPath, comparer))
+                roots.Add(fullPath);
+        }
+
+        Add(Environment.GetEnvironmentVariable("NUGET_PACKAGES"));
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Add(string.IsNullOrEmpty(home)
+            ? null
+            : Path.Combine(home, ".nuget", "packages"));
+        return roots;
+    }
+
+    /// <summary>
+    /// Gets the base path for application caches (read-write).
+    /// Delegates to <see cref="PersistentCache.GetBasePath"/>.
+    /// </summary>
+    public static string GetAppCacheBasePath() => PersistentCache.GetBasePath();
 
     /// <summary>
     /// Gets the default (non-overridden) base path for application caches.
     /// Always returns the platform-default directory, ignoring isolation overrides.
     /// </summary>
-    public static string GetDefaultAppCacheBasePath() => CoreCache.GetDefaultBasePath();
+    public static string GetDefaultAppCacheBasePath() => PersistentCache.GetDefaultBasePath();
 
     /// <summary>
     /// Gets the legacy package-artifact root used by symbol caches.
@@ -131,7 +170,73 @@ public static class NuGetCache
     /// </summary>
     public static string GetPackageContentCachePath()
     {
-        return CoreCache.GetCategoryPath(PackageContentCategory);
+        return PersistentCache.GetCategoryPath(PackageContentCategory);
+    }
+
+    /// <summary>
+    /// Gets the product package-content cache when cache services have already
+    /// been initialized.
+    /// </summary>
+    public static bool TryGetPackageContentCachePath(out string path)
+    {
+        if (_appName is null)
+        {
+            path = "";
+            return false;
+        }
+
+        path = GetPackageContentCachePath();
+        return true;
+    }
+
+    /// <summary>
+    /// Recovers the exact package coordinate and asset path represented by a
+    /// file inside a product-owned package-content cache slot.
+    /// </summary>
+    public static bool TryGetPackageContentIdentity(
+        string path,
+        out string packageName,
+        out string version,
+        out string assetPath,
+        out string packageDirectory)
+    {
+        packageName = "";
+        version = "";
+        assetPath = "";
+        packageDirectory = "";
+        if (!TryGetPackageContentCachePath(out string cacheRoot))
+            return false;
+
+        string relative = Path.GetRelativePath(
+            Path.GetFullPath(cacheRoot),
+            Path.GetFullPath(path));
+        if (Path.IsPathRooted(relative)
+            || relative.Equals("..", StringComparison.Ordinal)
+            || relative.StartsWith(
+                $"..{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal)
+            || relative.StartsWith(
+                $"..{Path.AltDirectorySeparatorChar}",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string[] segments = relative.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 4)
+            return false;
+
+        packageName = segments[0];
+        version = segments[1];
+        assetPath = string.Join('/', segments[3..]);
+        packageDirectory = Path.Combine(
+            cacheRoot,
+            segments[0],
+            segments[1],
+            segments[2]);
+        return true;
     }
 
     internal static bool UsesGlobalPackages => !_skipNuGetCache;
@@ -141,7 +246,7 @@ public static class NuGetCache
     /// </summary>
     public static string GetSourceCachePath()
     {
-        return CoreCache.GetCategoryPath("sources");
+        return PersistentCache.GetCategoryPath("sources");
     }
 
     /// <summary>
@@ -199,24 +304,27 @@ public static class NuGetCache
         string packageName,
         string version,
         IReadOnlyList<string>? allowedSourceKeys,
-        string? globalPackagesPath = null)
+        string? globalPackagesPath = null,
+        IReadOnlyList<string>? globalPackagesPaths = null)
         => [.. EnumerateCachedPackageContent(
             packageName,
             version,
             allowedSourceKeys,
-            globalPackagesPath)];
+            globalPackagesPath,
+            globalPackagesPaths)];
 
     /// <summary>
     /// Cache tiers for a coordinate, preferred order: product-owned app-cache
-    /// slots (configured producer order), then NuGet global-packages. Yields
-    /// lazily so a usable app-cache hit never opens global
+    /// slots (configured producer order), then the ordered NuGet global-packages
+    /// roots. Yields lazily so a usable app-cache hit never opens global
     /// <c>.nupkg.metadata</c> or inspects a corrupt foreign tree.
     /// </summary>
     internal static IEnumerable<CachedPackage> EnumerateCachedPackageContent(
         string packageName,
         string version,
         IReadOnlyList<string>? allowedSourceKeys,
-        string? globalPackagesPath = null)
+        string? globalPackagesPath = null,
+        IReadOnlyList<string>? globalPackagesPaths = null)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
@@ -232,8 +340,8 @@ public static class NuGetCache
         // to read from, in configured order. A slot belonging to any other
         // source is not consulted: those bytes were fetched under an authority
         // this caller no longer claims.
-        var appCachePath = GetPackageContentCachePath();
-        if (Directory.Exists(appCachePath))
+        if (TryGetPackageContentCachePath(out string appCachePath)
+            && Directory.Exists(appCachePath))
         {
             foreach (var sourceKey in allowedSourceKeys ?? [])
             {
@@ -254,7 +362,6 @@ public static class NuGetCache
                     if (!any)
                     {
                         any = true;
-                        InfoTracker.RecordCacheHit();
                         CacheTelemetry.Record(
                             "packages",
                             cacheKey,
@@ -273,18 +380,22 @@ public static class NuGetCache
         // (admission rejected them or none existed).
         if (!_skipNuGetCache)
         {
-            var nugetCachePath = globalPackagesPath ?? GetNuGetCachePath();
-            CachedPackage? global = TryGetGlobalPackageContent(
-                nugetCachePath,
-                normalizedName,
-                normalizedVersion,
-                allowedSourceKeys);
-            if (global is not null)
+            IEnumerable<string> roots = globalPackagesPath is not null
+                ? [globalPackagesPath]
+                : globalPackagesPaths ?? GetNuGetPackageRoots();
+            foreach (string root in roots)
             {
+                CachedPackage? global = TryGetGlobalPackageContent(
+                    root,
+                    normalizedName,
+                    normalizedVersion,
+                    allowedSourceKeys);
+                if (global is null)
+                    continue;
+
                 if (!any)
                 {
                     any = true;
-                    InfoTracker.RecordCacheHit();
                     CacheTelemetry.Record(
                         "nuget-global-packages",
                         cacheKey,
@@ -298,7 +409,6 @@ public static class NuGetCache
         if (!any)
         {
             CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
-            InfoTracker.RecordCacheMiss();
         }
     }
 
@@ -316,7 +426,7 @@ public static class NuGetCache
         // retained nupkg or extracted tree is usable. A damaged global-packages
         // slot must still surface so offline errors are not "not found".
         if (!Directory.Exists(packageDirectory)
-            || !TryReadGlobalPackageSourceKey(
+            || !TryReadGlobalPackageSource(
                 packageDirectory,
                 out string? producerKey)
             || !(allowedSourceKeys?.Contains(producerKey) ?? false))
@@ -346,9 +456,10 @@ public static class NuGetCache
     /// </summary>
     internal const int MaxCommitMarkerBytes = 4 * 1024;
 
-    private static bool TryReadGlobalPackageSourceKey(
+    internal static bool TryReadGlobalPackageSource(
         string packageDirectory,
-        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? sourceKey)
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? sourceKey,
+        bool rawSource = false)
     {
         string metadataPath = Path.Combine(packageDirectory, ".nupkg.metadata");
         try
@@ -399,11 +510,12 @@ public static class NuGetCache
                 return false;
             }
 
-            sourceKey = GetSourceKey(source.GetString());
+            sourceKey = rawSource ? source.GetString()! : GetSourceKey(source.GetString());
             return true;
         }
         catch (Exception ex) when (ex is
-            IOException
+            ArgumentException
+            or IOException
             or UnauthorizedAccessException
             or System.Text.Json.JsonException
             or InvalidOperationException
@@ -473,41 +585,63 @@ public static class NuGetCache
             normalizedName,
             normalizedVersion,
             sourceKey);
+        return CommitPackageToSlot(
+            extractedPath,
+            nupkgPath,
+            normalizedName,
+            normalizedVersion,
+            sourceKey,
+            targetPath,
+            GetCommitMarkerContent(normalizedName, normalizedVersion, sourceKey),
+            useAppCache: true);
+    }
+
+    /// <summary>
+    /// Publishes to a product-owned slot using the caller's marker contract.
+    /// Temporary slots use the same transaction without claiming an app-cache path.
+    /// </summary>
+    internal static CommittedPackage CommitPackageToSlot(
+        string extractedPath,
+        string? nupkgPath,
+        string packageName,
+        string version,
+        string producerKey,
+        string targetPath,
+        string markerContent,
+        bool useAppCache)
+    {
+        ValidatePathComponent(packageName, "package name");
+        ValidatePathComponent(version, "version");
+        string normalizedName = packageName.ToLowerInvariant();
+        string normalizedVersion = version.ToLowerInvariant();
         string? parentDir = Path.GetDirectoryName(targetPath)
             ?? throw new InvalidOperationException(
                 $"Package cache path has no parent: {targetPath}");
 
-        CoreCache.EnsurePathInCacheContext(targetPath);
+        if (useAppCache)
+            PersistentCache.EnsurePathInCacheContext(targetPath);
         Directory.CreateDirectory(parentDir);
 
-        if (IsCommittedPackageValid(
-            targetPath,
-            normalizedName,
-            normalizedVersion,
-            sourceKey))
+        if (IsCommittedPackageValid(targetPath, markerContent))
         {
             return OpenCommittedPackage(
                 targetPath,
                 normalizedName,
                 normalizedVersion,
-                sourceKey);
+                producerKey);
         }
 
         if (Directory.Exists(targetPath))
         {
             // A concurrent winner may have published between the validity
             // check and Exists. Re-check before treating the slot as corrupt.
-            if (IsCommittedPackageValid(
-                targetPath,
-                normalizedName,
-                normalizedVersion,
-                sourceKey))
+            if (IsCommittedPackageValid(targetPath, markerContent))
             {
                 return OpenCommittedPackage(
                     targetPath,
                     normalizedName,
                     normalizedVersion,
-                    sourceKey);
+                    producerKey);
             }
 
             throw new InvalidDataException(
@@ -516,8 +650,9 @@ public static class NuGetCache
 
         string stagingPath = Path.Combine(
             parentDir,
-            $".{sourceKey}.tmp-{Guid.NewGuid():N}");
-        CoreCache.EnsurePathInCacheContext(stagingPath);
+            $".{Path.GetFileName(targetPath)}.tmp-{Guid.NewGuid():N}");
+        if (useAppCache)
+            PersistentCache.EnsurePathInCacheContext(stagingPath);
 
         try
         {
@@ -545,7 +680,7 @@ public static class NuGetCache
             {
                 string tempNupkg = Path.Combine(
                     parentDir,
-                    $".{sourceKey}.nupkg-{Guid.NewGuid():N}");
+                    $".{Path.GetFileName(targetPath)}.nupkg-{Guid.NewGuid():N}");
                 try
                 {
                     ZipFile.CreateFromDirectory(
@@ -569,28 +704,20 @@ public static class NuGetCache
                 FileShare.None))
             using (var writer = new StreamWriter(marker))
             {
-                writer.Write(
-                    GetCommitMarkerContent(
-                        normalizedName,
-                        normalizedVersion,
-                        sourceKey));
+                writer.Write(markerContent);
             }
 
             try
             {
                 Directory.Move(stagingPath, targetPath);
             }
-            catch (IOException) when (IsCommittedPackageValid(
-                targetPath,
-                normalizedName,
-                normalizedVersion,
-                sourceKey))
+            catch (IOException) when (IsCommittedPackageValid(targetPath, markerContent))
             {
                 return OpenCommittedPackage(
                     targetPath,
                     normalizedName,
                     normalizedVersion,
-                    sourceKey);
+                    producerKey);
             }
 
             CacheTelemetry.Record(
@@ -601,7 +728,7 @@ public static class NuGetCache
             return new CommittedPackage(
                 targetPath,
                 Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
-                sourceKey);
+                producerKey);
         }
         finally
         {
@@ -774,12 +901,13 @@ public static class NuGetCache
         string packageName,
         string version,
         string sourceKey) =>
-        IsCachedPackageValid(cachedPath)
-        && IsCommittedPackageSlotPresent(
+        IsCommittedPackageValid(
             cachedPath,
-            packageName,
-            version,
-            sourceKey);
+            GetCommitMarkerContent(packageName, version, sourceKey));
+
+    private static bool IsCommittedPackageValid(string cachedPath, string markerContent) =>
+        IsCachedPackageValid(cachedPath)
+        && IsCommittedPackageSlotPresent(cachedPath, markerContent);
 
     /// <summary>
     /// True when the app-cache slot exists and carries this source's commit
@@ -790,7 +918,12 @@ public static class NuGetCache
         string cachedPath,
         string packageName,
         string version,
-        string sourceKey)
+        string sourceKey) =>
+        IsCommittedPackageSlotPresent(
+            cachedPath,
+            GetCommitMarkerContent(packageName, version, sourceKey));
+
+    internal static bool IsCommittedPackageSlotPresent(string cachedPath, string markerContent)
     {
         try
         {
@@ -834,7 +967,7 @@ public static class NuGetCache
 
             string actual = Encoding.UTF8.GetString(markerBytes);
             return actual.Equals(
-                GetCommitMarkerContent(packageName, version, sourceKey),
+                markerContent,
                 StringComparison.Ordinal);
         }
         catch (IOException)
@@ -888,13 +1021,17 @@ public static class NuGetCache
     /// the cache can already see which packages were fetched. Protecting feed
     /// identity from a local reader would require cache permissions, not a hash.
     ///
-    /// Canonicalization is delegated to
-    /// <see cref="NuGetCredentialScope.CanonicalizeEndpoint"/> so a source has
-    /// one identity across the tool. Two feeds that method holds apart — such as
-    /// <c>/FeedA</c> and <c>/feeda</c>, which a case-sensitive server may serve
-    /// differently — get separate cache slots.
+    /// HTTP canonicalization is delegated to
+    /// <see cref="NuGetCredentialScope.CanonicalizeEndpoint"/>. Local
+    /// canonicalization is delegated to
+    /// <see cref="LocalPackageSourceIdentity"/>. This legacy producer identity
+    /// is intentionally distinct from the package owner's stricter,
+    /// process-local configured-authority identity; cache provenance cannot
+    /// authorize credentials or source results.
     /// </remarks>
-    /// <param name="sourceUrl">The source URL, or a local folder path.</param>
+    /// <param name="sourceUrl">
+    /// The source URL, or an absolute local folder path.
+    /// </param>
     /// <returns>A short hex digest identifying the source.</returns>
     public static string GetSourceKey(string? sourceUrl)
     {
@@ -904,37 +1041,20 @@ public static class NuGetCache
         var trimmed = sourceUrl.Trim();
         string normalized;
 
-        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && !uri.IsFile)
+        if (LocalPackageSourceIdentity.IsLocalSource(trimmed))
         {
-            normalized = NuGetCredentialScope.CanonicalizeEndpoint(uri);
+            normalized =
+                LocalPackageSourceIdentity.CreateAbsolute(trimmed).PersistentValue;
         }
         else
         {
-            // A local folder source. Resolve it so a relative and an absolute
-            // spelling of one directory share a slot. Case is preserved on
-            // every platform: case-insensitive volumes exist on all of them and
-            // case-sensitive ones do too, so the running OS does not answer
-            // whether two spellings name one directory. A spare slot costs a
-            // duplicate download; a folded one serves another directory's bytes.
-            string resolved;
-            try
-            {
-                resolved = Path.GetFullPath(uri?.IsFile == true ? uri.LocalPath : trimmed);
-            }
-            catch (ArgumentException)
-            {
-                resolved = trimmed;
-            }
-            catch (IOException)
-            {
-                resolved = trimmed;
-            }
+            if (!Uri.TryCreate(trimmed, UriKind.Absolute, out Uri? uri))
+                throw new ArgumentException("The package source is unusable.", nameof(sourceUrl));
 
-            normalized = resolved.TrimEnd(
-                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            normalized = NuGetCredentialScope.CanonicalizeEndpoint(uri);
         }
 
-        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        var digest = SHA256.HashData(s_utf8Strict.GetBytes(normalized));
         return Convert.ToHexStringLower(digest.AsSpan(0, 16));
     }
 

@@ -2,18 +2,19 @@
 
 set -euo pipefail
 
-if [ "$#" -lt 3 ] || [ "$#" -gt 7 ]; then
-  echo "usage: $0 <staging-run-id> <max-age-hours> <output> [expected-sha] [expected-attempt] [expected-artifact-id] [expected-digest]" >&2
+if [ "$#" -lt 4 ] || [ "$#" -gt 8 ]; then
+  echo "usage: $0 <staging-run-id> <max-age-hours> <output> <allow-manual-staging> [expected-sha] [expected-attempt] [expected-artifact-id] [expected-digest]" >&2
   exit 2
 fi
 
 staging_run_id=$1
 max_age_hours=$2
 output=$3
-expected_sha=${4:-}
-expected_attempt=${5:-}
-expected_artifact_id=${6:-}
-expected_digest=${7:-}
+allow_manual_staging=$4
+expected_sha=${5:-}
+expected_attempt=${6:-}
+expected_artifact_id=${7:-}
+expected_digest=${8:-}
 
 if [[ ! "$staging_run_id" =~ ^[1-9][0-9]*$ ]]; then
   echo "staging run ID must be a positive decimal run ID." >&2
@@ -21,6 +22,10 @@ if [[ ! "$staging_run_id" =~ ^[1-9][0-9]*$ ]]; then
 fi
 if [[ ! "$max_age_hours" =~ ^[1-9][0-9]*$ ]]; then
   echo "max-age-hours must be a positive integer." >&2
+  exit 1
+fi
+if [ "$allow_manual_staging" != true ] && [ "$allow_manual_staging" != false ]; then
+  echo "allow-manual-staging must be true or false." >&2
   exit 1
 fi
 if [ -n "$expected_sha" ] && [[ ! "$expected_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
@@ -65,6 +70,7 @@ dotnet run eng/validate-inspect-web-promotion.cs -- \
   --jobs "$jobs_json" \
   --artifacts "$artifacts_json" \
   --repository "$GITHUB_REPOSITORY" \
+  --allow-manual-staging "$allow_manual_staging" \
   --max-age-hours "$max_age_hours" \
   --github-output "$validator_output"
 

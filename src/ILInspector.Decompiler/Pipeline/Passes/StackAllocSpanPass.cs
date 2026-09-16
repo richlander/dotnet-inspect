@@ -373,7 +373,7 @@ public sealed class StackAllocSpanPass : IIrPass
     /// effectful operand across the moved allocation, or move the allocation
     /// into a conditionally-evaluated branch.
     /// </summary>
-    static bool ReachesAsOnlyPrecedingEffect(IrExpression expression, NewObject newObject)
+    internal static bool ReachesAsOnlyPrecedingEffect(IrExpression expression, NewObject newObject)
     {
         if (ReferenceEquals(expression, newObject))
             return true;
@@ -410,10 +410,18 @@ public sealed class StackAllocSpanPass : IIrPass
     {
         (Constant x, Constant y) => Equals(x.Value, y.Value),
         (LoadLocal x, LoadLocal y) => x.Index == y.Index,
-        (LoadArgument x, LoadArgument y) => x.Index == y.Index,
+        (LoadArgument x, LoadArgument y) => PlaceIdentity.SameArgument(
+            x.Index,
+            x.Parameter,
+            y.Index,
+            y.Parameter),
         (LoadStackSlot x, LoadStackSlot y) => x.Slot == y.Slot,
         (LoadLocalAddress x, LoadLocalAddress y) => x.Index == y.Index,
-        (LoadArgumentAddress x, LoadArgumentAddress y) => x.Index == y.Index,
+        (LoadArgumentAddress x, LoadArgumentAddress y) => PlaceIdentity.SameArgument(
+            x.Index,
+            x.Parameter,
+            y.Index,
+            y.Parameter),
         (SizeOf x, SizeOf y) => x.Type.Equals(y.Type),
         (Unary x, Unary y) => x.Kind == y.Kind && StructurallyEqual(x.Operand, y.Operand),
         (Binary x, Binary y) => x.Kind == y.Kind && x.IsChecked == y.IsChecked && x.IsUnsigned == y.IsUnsigned
@@ -453,7 +461,7 @@ public sealed class StackAllocSpanPass : IIrPass
     /// count is already an element count, not a byte size, so no arithmetic
     /// proof is needed there.</para>
     /// </summary>
-    static bool IsProvenByteSize(IrExpression size, IrExpression count, TypeRef element)
+    internal static bool IsProvenByteSize(IrExpression size, IrExpression count, TypeRef element)
     {
         var unwrappedSize = Unconvert(size);
         var unwrappedCount = Unconvert(count);

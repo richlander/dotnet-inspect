@@ -1,6 +1,8 @@
 #!/bin/bash
 # Baseline test script for dotnet-inspect
 # Generates output for a comprehensive set of commands
+# This developer-invoked external ecosystem canary is not a CI gate. It
+# intentionally exercises pinned real packages and requires live feed access.
 # Usage: ./baseline-test.sh [--update]
 #   --update: Overwrite baseline.txt with new output
 #   (no args): Compare current output against baseline
@@ -20,28 +22,31 @@ fi
 
 # Build the tool first
 echo "Building dotnet-inspect..." >&2
-dotnet build "$REPO_ROOT/src/dotnet-inspect" --nologo -v q >&2
+dotnet build "$REPO_ROOT/src/DotnetInspect.Cli" --nologo -v q >&2
 
 # Function to run a command and capture output with header
 run_cmd() {
     local cmd="$1"
+    local add_separator="${2:-true}"
     echo "================================================================================"
     echo "COMMAND: $cmd"
     echo "================================================================================"
     # Run via dotnet run, filter out volatile data
-    eval "dotnet run --project $REPO_ROOT/src/dotnet-inspect --no-build -- $cmd 2>&1" | \
+    eval "dotnet run --project $REPO_ROOT/src/DotnetInspect.Cli --no-build -- $cmd 2>&1" | \
         sed -E 's/^(\| Total Downloads \| )[0-9.]+[KMBT]?/\1<FILTERED>/g' | \
         sed -E 's/^(\| Version Downloads \| )[0-9.]+[KMBT]?/\1<FILTERED>/g' | \
         sed -E 's/^(\| Downloads \| )[0-9.]+[KMBT]?/\1<FILTERED>/g' | \
         sed -E 's/Updated: [0-9]{4}-[0-9]{2}-[0-9]{2}/Updated: <FILTERED>/g' | \
         sed -E 's/\| Updated \| [0-9]{4}-[0-9]{2}-[0-9]{2}/| Updated | <FILTERED>/g'
-    echo ""
+    if [[ "$add_separator" == "true" ]]; then
+        echo ""
+    fi
 }
 
 # Generate all output
 {
     echo "# dotnet-inspect Baseline Output"
-    echo "# This file is used for regression testing"
+    echo "# This file is a developer-invoked external ecosystem canary, not a CI gate"
     echo "# Volatile data (downloads, dates) is filtered to <FILTERED>"
     echo ""
 
@@ -82,7 +87,7 @@ run_cmd() {
     # Tool package
     run_cmd "dotnet-ef 10.0.2 -v:d"
 
-    # RID-specific tool
+    # RID-specific external ecosystem canary
     run_cmd "Azure.Mcp 1.0.1 -v:d"
 
     # Community package
@@ -160,7 +165,7 @@ run_cmd() {
 
     run_cmd "platform"
     run_cmd "platform --list-versions"
-    run_cmd "platform --framework runtime -n 10"
+    run_cmd "platform --framework runtime -n 10" false
 
 } > "$TEMP_FILE"
 

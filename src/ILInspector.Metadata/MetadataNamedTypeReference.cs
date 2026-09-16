@@ -44,6 +44,10 @@ public abstract record MetadataTypeReferenceScope
 /// </summary>
 public sealed record MetadataNamedTypeReference
 {
+    public static IEqualityComparer<MetadataNamedTypeReference>
+        EquivalentComparer { get; } =
+        new EquivalentIdentityComparer();
+
     public MetadataNamedTypeReference(
         MetadataTypeReferenceScope scope,
         MetadataTypeDefinitionName type)
@@ -56,6 +60,62 @@ public sealed record MetadataNamedTypeReference
 
     public MetadataTypeReferenceScope Scope { get; }
     public MetadataTypeDefinitionName Type { get; }
+
+    private sealed class EquivalentIdentityComparer :
+        IEqualityComparer<MetadataNamedTypeReference>
+    {
+        public bool Equals(
+            MetadataNamedTypeReference? x,
+            MetadataNamedTypeReference? y) =>
+            ReferenceEquals(x, y)
+            || x is not null
+                && y is not null
+                && x.Type == y.Type
+                && ScopesAreEquivalent(x.Scope, y.Scope);
+
+        public int GetHashCode(MetadataNamedTypeReference obj)
+        {
+            ArgumentNullException.ThrowIfNull(obj);
+            int scopeHash = obj.Scope switch
+            {
+                MetadataTypeReferenceScope.CurrentAssembly => 0,
+                MetadataTypeReferenceScope.IntrinsicCoreLibrary => 1,
+                MetadataTypeReferenceScope.AssemblyReference assembly =>
+                    HashCode.Combine(
+                        2,
+                        AssemblyReferenceIdentity.EquivalentComparer
+                            .GetHashCode(assembly.Assembly)),
+                MetadataTypeReferenceScope.ModuleReference module =>
+                    HashCode.Combine(
+                        3,
+                        StringComparer.Ordinal.GetHashCode(module.Name)),
+                _ => throw new InvalidOperationException(
+                    "Unknown metadata type-reference scope."),
+            };
+            return HashCode.Combine(obj.Type, scopeHash);
+        }
+
+        static bool ScopesAreEquivalent(
+            MetadataTypeReferenceScope left,
+            MetadataTypeReferenceScope right) =>
+            (left, right) switch
+            {
+                (MetadataTypeReferenceScope.CurrentAssembly,
+                    MetadataTypeReferenceScope.CurrentAssembly) => true,
+                (MetadataTypeReferenceScope.IntrinsicCoreLibrary,
+                    MetadataTypeReferenceScope.IntrinsicCoreLibrary) => true,
+                (MetadataTypeReferenceScope.AssemblyReference x,
+                    MetadataTypeReferenceScope.AssemblyReference y) =>
+                    x.Assembly.IsEquivalentTo(y.Assembly),
+                (MetadataTypeReferenceScope.ModuleReference x,
+                    MetadataTypeReferenceScope.ModuleReference y) =>
+                    string.Equals(
+                        x.Name,
+                        y.Name,
+                        StringComparison.Ordinal),
+                _ => false,
+            };
+    }
 }
 
 internal static class MetadataNamedTypeSignatureDecoder

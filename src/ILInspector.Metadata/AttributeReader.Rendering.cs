@@ -35,8 +35,6 @@ public static partial class AttributeReader
                 continue;
             if (skipAttribute?.Invoke(typeName) == true)
                 continue;
-            beforeMaterialize?.Invoke(
-                reader.GetBlobReader(attr.Value).Length);
             if (TryRenderAttribute(
                     reader,
                     attr,
@@ -426,6 +424,8 @@ public static partial class AttributeReader
         KnownAttributeNames.DynamicAttribute => true,
         KnownAttributeNames.TupleElementNamesAttribute => true,
         KnownAttributeNames.RequiredMemberAttribute => true,
+        KnownAttributeNames.RequiresUnsafeAttribute => true,
+        KnownAttributeNames.RequiresUnsafeAttributeCompilerServices => true,
         KnownAttributeNames.DecimalConstantAttribute => true,
         KnownAttributeNames.DateTimeConstantAttribute => true,
         KnownAttributeNames.AsyncStateMachineAttribute => true,

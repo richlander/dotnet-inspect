@@ -60,17 +60,10 @@ public sealed class MetadataContext : IDisposable
         AssemblyAcquisitionRegistration,
         Lazy<OpenedAssembly?>> _openedRegistrations =
             new(ReferenceEqualityComparer.Instance);
+    readonly object _typeResolutionGenerationGate = new();
     readonly TypeResolutionCatalog _typeResolutionCatalog = new();
     readonly IAssemblyBindingPolicy _bindingPolicy;
     readonly IAssemblyReferenceResolver? _resolver;
-
-    /// <summary>
-    /// How much this context trusts DISCOVERED assemblies to claim
-    /// core-library identity. Defaults to the safe setting; a host whose
-    /// surrounding directory is as trusted as the target may relax it.
-    /// </summary>
-    internal CoreLibraryTrustPolicy CoreLibraryTrust { get; init; }
-        = CoreLibraryTrustPolicy.DesignatedAndPlatform;
 
     public MetadataContext(IAssemblyReferenceResolver resolver)
     {
@@ -108,14 +101,18 @@ public sealed class MetadataContext : IDisposable
     /// <summary>
     /// Opens a path the caller named directly. Naming an exact file is a
     /// designation, so the result keeps core-library identity; see
-    /// <see cref="CoreLibraryIdentityTrust"/>.
+    /// <see cref="CoreLibraryIdentityTrust"/>. The designation is stated as
+    /// provenance and answered by the rule rather than granted directly, so
+    /// this site is entitled for a reason the rule can be asked about.
     /// </summary>
     static OpenedAssembly? OpenDesignated(string path)
     {
         OpenedAssembly? opened = OpenedAssembly.TryOpen(path);
         if (opened is not null)
         {
-            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(opened.Reader);
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                opened.Reader,
+                AssemblyResolutionProvenance.Designated("MetadataContext designation"));
         }
         return opened;
     }
@@ -130,7 +127,7 @@ public sealed class MetadataContext : IDisposable
     /// <summary>
     /// Opens an assembly that reference resolution selected, and records
     /// whether its acquisition entitles it to core-library identity. Discovery
-    /// is trusted only by provenance or host policy; see
+    /// is trusted by provenance alone; see
     /// <see cref="CoreLibraryIdentityTrust"/>.
     /// </summary>
     OpenedAssembly? OpenResolved(ResolvedAssemblyReference assembly)
@@ -140,8 +137,7 @@ public sealed class MetadataContext : IDisposable
         {
             CoreLibraryIdentityTrust.GrantIfEntitled(
                 opened.Reader,
-                assembly.Provenance,
-                CoreLibraryTrust);
+                assembly.Provenance);
         }
         return opened;
     }
@@ -165,12 +161,49 @@ public sealed class MetadataContext : IDisposable
         ResolvedAssemblyReference root,
         TypeResolutionRequest request)
     {
-        using TypeResolutionContext context =
-            _typeResolutionCatalog.CreateContext(
-                _bindingPolicy,
-                [root],
-                [request]);
-        return context.Resolve(request);
+        lock (_typeResolutionGenerationGate)
+        {
+            using TypeResolutionContext context =
+                _typeResolutionCatalog.CreateContext(
+                    _bindingPolicy,
+                    [root],
+                    [request]);
+            return context.Resolve(request);
+        }
+    }
+
+    /// <summary>
+    /// Resolves both requests in one frozen catalog generation and accepts only
+    /// exact catalog-issued correspondence. Duplicate artifacts remain
+    /// indeterminate and therefore do not compare equal.
+    /// <c>ConcurrentResolution_DoesNotInvalidateDefinitionCorrespondence</c>
+    /// and <c>DistinctSignatureTypeDefinitions_DoNotCorrespond</c> gate both
+    /// boundaries.
+    /// </summary>
+    internal bool ResolveToSameDefinition(
+        ResolvedAssemblyReference leftRoot,
+        TypeResolutionRequest leftRequest,
+        ResolvedAssemblyReference rightRoot,
+        TypeResolutionRequest rightRequest)
+    {
+        lock (_typeResolutionGenerationGate)
+        {
+            using TypeResolutionContext context =
+                _typeResolutionCatalog.CreateContext(
+                    _bindingPolicy,
+                    [leftRoot, rightRoot],
+                    [leftRequest, rightRequest]);
+            TypeResolutionOutcome leftOutcome =
+                context.Resolve(leftRequest);
+            TypeResolutionOutcome rightOutcome =
+                context.Resolve(rightRequest);
+            return leftOutcome is TypeResolutionOutcome.Resolved left
+                && rightOutcome is TypeResolutionOutcome.Resolved right
+                && _typeResolutionCatalog.Compare(
+                    left.Definition.Key,
+                    right.Definition.Key)
+                    is DefinitionCorrespondence.Same;
+        }
     }
 
     internal ResolvedTypeDefinition? ResolveCoreLibraryDefinition(
@@ -220,6 +253,7 @@ internal sealed class OpenedAssembly : IDisposable
 {
     readonly Stream _stream;
     readonly PEReader _pe;
+    readonly Lazy<MemorySafetyMetadataIndex> _memorySafety;
     volatile Dictionary<string, TypeDefinitionHandle>? _byFullName;
     readonly object _indexLock = new();
 
@@ -228,9 +262,13 @@ internal sealed class OpenedAssembly : IDisposable
         _stream = stream;
         _pe = pe;
         Reader = reader;
+        _memorySafety = new(
+            () => MemorySafetyMetadataIndex.Create(reader),
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public MetadataReader Reader { get; }
+    internal MemorySafetyMetadataIndex MemorySafety => _memorySafety.Value;
 
     /// <summary>
     /// Opens an assembly for reading, or returns null when the file is missing,

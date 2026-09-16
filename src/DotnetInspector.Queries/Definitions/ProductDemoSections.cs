@@ -37,22 +37,37 @@ public static class ProductDemoSections
     /// rule instead of silently gaining a second section at run time.
     /// </summary>
     /// <param name="singleSectionFormat">
-    /// When true (table/tsv/jsonl), multi-package Call Graph demos select
-    /// <see cref="Callers"/> only. MemberCommand re-adds Callers whenever
-    /// caller-scope packages are set; starting from Call Graph alone therefore
-    /// becomes {Call Graph, Callers} and the tabular path falls back to a member
-    /// inventory. Callers alone survives that re-add as a true one-section
-    /// projection. Standalone mermaid is not this path — it keeps Call Graph
-    /// only (validated before the Callers inject) and is resolved by the CLI
-    /// runner.
+    /// When true (table/tsv/jsonl), Call Graph demos must pick exactly one
+    /// section. With caller scope, that is <see cref="Callers"/>: MemberCommand
+    /// re-adds Callers whenever caller-scope packages are set, so starting from
+    /// Call Graph alone becomes {Call Graph, Callers} and the tabular path falls
+    /// back to a member inventory. Callers alone survives that re-add.
+    /// Without caller scope the re-add does not fire, so Call Graph alone stays
+    /// a true one-section projection — required for package-local entry points
+    /// that have outbound callees but no inbound callers (empty Callers would
+    /// silently succeed with zero rows). Standalone mermaid is not this path —
+    /// it keeps Call Graph only (validated before any Callers inject) and is
+    /// resolved by the CLI runner.
+    /// </param>
+    /// <param name="hasCallerScope">
+    /// True when the run encodes extra packages as caller-scope
+    /// (<c>--caller-package</c>). Defaults to true so legacy multi-package
+    /// callers keep the Callers tabular path without an extra argument.
     /// </param>
     public static IReadOnlyList<string> ExpandRunSections(
         string boundSection,
-        bool singleSectionFormat = false)
+        bool singleSectionFormat = false,
+        bool hasCallerScope = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(boundSection);
         if (string.Equals(boundSection, CallGraph, StringComparison.Ordinal))
-            return singleSectionFormat ? [Callers] : [CallGraph, Callers];
+        {
+            if (!singleSectionFormat)
+                return [CallGraph, Callers];
+            // Caller-scope re-add forces Callers; no-scope keeps Call Graph.
+            return hasCallerScope ? [Callers] : [CallGraph];
+        }
+
         return [boundSection];
     }
 

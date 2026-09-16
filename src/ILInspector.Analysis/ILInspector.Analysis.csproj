@@ -19,23 +19,25 @@
     <InternalsVisibleTo Include="analysis-harness" />
     <InternalsVisibleTo Include="ILInspector.CallGraph" />
     <InternalsVisibleTo Include="ILInspector.Analysis.Tests" />
+    <InternalsVisibleTo Include="ILInspector.JsExportSurface.Tests" />
     <InternalsVisibleTo Include="ILInspector.Research.Tests" />
     <!--
-      The browser prototype's boundary tests build genuinely distinct declaring types — a nested
+      Inspect Web's boundary tests build genuinely distinct declaring types — a nested
       chain and a type whose own metadata name contains the nesting delimiter — to prove the
       browser carries the product's injective identity for each. Only the fixture construction
       needs internals; the identities under test are public product projections.
     -->
-    <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
     <ProjectReference Include="..\ILInspector.ControlFlow\ILInspector.ControlFlow.csproj" />
-    <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\Inspector.Findings\Inspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
+    <ProjectReference Include="..\InertText\InertText.csproj" />
   </ItemGroup>
 
 </Project>

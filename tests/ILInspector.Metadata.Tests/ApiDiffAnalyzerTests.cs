@@ -33,8 +33,8 @@ public class ApiDiffAnalyzerTests
             IsAbstract = isAbstract,
             IsStatic = isSealed && isAbstract,
             BaseType = baseType,
-            Interfaces = interfaces,
-            TypeParameters = typeParameters,
+            Interfaces = interfaces ?? [],
+            TypeParameters = typeParameters ?? [],
             Members = members ?? []
         };
     }

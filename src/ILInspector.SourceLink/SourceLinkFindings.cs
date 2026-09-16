@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -15,6 +15,13 @@ public enum SourceDocumentStorage
     Embedded,
 }
 
+public enum SourceDocumentResolutionStatus
+{
+    Unmapped,
+    Resolved,
+    Rejected,
+}
+
 public sealed record SourceDocumentObservation(
     string CanonicalPath,
     string OriginalPath,
@@ -24,6 +31,8 @@ public sealed record SourceDocumentObservation(
     string? ChecksumAlgorithm,
     string? Checksum)
 {
+    public SourceDocumentResolutionStatus ResolutionStatus { get; init; }
+
     public bool IsCompilerLanguageSource =>
         CanonicalPath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
         || CanonicalPath.EndsWith(".vb", StringComparison.OrdinalIgnoreCase)
@@ -84,7 +93,16 @@ public static class SourceLinkFindings
         ArgumentNullException.ThrowIfNull(subject);
         if (!source.HasPdb)
         {
+            if (source.Context.NeedsPdb
+                && !source.Context.WindowsPdbDetected)
+            {
+                return PdbUnresolved<SourceDocumentObservation>(
+                    subject,
+                    SourceDocumentDescriptor);
+            }
+
             return new FindingInspection<SourceDocumentObservation>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 "A portable PDB is unavailable.");
         }
 
@@ -141,7 +159,16 @@ public static class SourceLinkFindings
         ArgumentNullException.ThrowIfNull(subject);
         if (!source.HasPdb)
         {
+            if (source.Context.NeedsPdb
+                && !source.Context.WindowsPdbDetected)
+            {
+                return PdbUnresolved<MemberSourceObservation>(
+                    subject,
+                    MemberSourceDescriptor);
+            }
+
             return new FindingInspection<MemberSourceObservation>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 "A portable PDB is unavailable.");
         }
 
@@ -238,7 +265,10 @@ public static class SourceLinkFindings
                         : SourceDocumentStorage.Unmapped,
                 document.ResolvedUrl,
                 document.ChecksumAlgorithm,
-                document.Checksum is null ? null : Convert.ToHexString(document.Checksum));
+                document.Checksum is null ? null : Convert.ToHexString(document.Checksum))
+            {
+                ResolutionStatus = document.ResolutionStatus,
+            };
         });
 
         if (!string.IsNullOrEmpty(query?.PathContains))
@@ -368,6 +398,7 @@ public static class SourceLinkFindings
         => oldDocument.CanonicalPath == newDocument.CanonicalPath
             && oldDocument.OriginalPath == newDocument.OriginalPath
             && oldDocument.Storage == newDocument.Storage
+            && oldDocument.ResolutionStatus == newDocument.ResolutionStatus
             && oldDocument.ResolvedUrl == newDocument.ResolvedUrl
             && oldDocument.ChecksumAlgorithm == newDocument.ChecksumAlgorithm
             && oldDocument.Checksum == newDocument.Checksum;
@@ -387,6 +418,16 @@ public static class SourceLinkFindings
         => exception is BadImageFormatException
             or InvalidOperationException
             or ArgumentOutOfRangeException;
+
+    static FindingInspection<T> PdbUnresolved<T>(
+        FindingSubject subject,
+        FindingDescriptor descriptor)
+        where T : notnull
+        => new FindingInspection<T>.Failed(
+            new InspectionError(
+                subject,
+                descriptor,
+                "A matching portable PDB remains unresolved after acquisition."));
 
     static FindingInspection<T> Failed<T>(
         FindingSubject subject,

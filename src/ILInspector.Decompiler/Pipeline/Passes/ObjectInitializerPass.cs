@@ -152,7 +152,8 @@ public sealed class ObjectInitializerPass : IIrPass
         BlockPlan? Block,
         MethodRef? ConsumedMethod = null,
         FieldRef? ConsumedField = null,
-        bool FromReusedSpill = false);
+        bool FromReusedSpill = false,
+        bool ConsumedMethodIsVirtual = false);
 
     /// <summary>A nested initializer body: an object/collection brace group with no creation.</summary>
     sealed record BlockPlan(bool IsCollection, IReadOnlyList<EntryPlan> Entries);
@@ -541,7 +542,7 @@ public sealed class ObjectInitializerPass : IIrPass
 
     sealed record NestedOp(EntryPlan Outer, bool IsCollection, EntryPlan Inner);
 
-    sealed record OuterMember(string Name, MethodRef? Method, FieldRef? Field);
+    sealed record OuterMember(string Name, MethodRef? Method, FieldRef? Field, bool MethodIsVirtual = false);
 
     /// <summary>
     /// Matches a store/Add whose target reads a member off the threaded reference
@@ -557,14 +558,14 @@ public sealed class ObjectInitializerPass : IIrPass
             case StoreProperty { HasInstance: true } property
                 when IsInitializerSpellable(property) && OuterMemberOffSlot(property.Instance, aliasSlots) is { } outer:
                 var objectInner = property.IndexArguments.Count != 0
-                    ? new EntryPlan(null, [.. property.IndexArguments, property.Value], null, ConsumedMethod: property.Accessor)
-                    : new EntryPlan(property.PropertyName, [property.Value], null, ConsumedMethod: property.Accessor);
-                return new NestedOp(new EntryPlan(outer.Name, [], null, outer.Method, outer.Field), IsCollection: false, objectInner);
+                    ? new EntryPlan(null, [.. property.IndexArguments, property.Value], null, ConsumedMethod: property.Accessor, ConsumedMethodIsVirtual: property.IsVirtual)
+                    : new EntryPlan(property.PropertyName, [property.Value], null, ConsumedMethod: property.Accessor, ConsumedMethodIsVirtual: property.IsVirtual);
+                return new NestedOp(new EntryPlan(outer.Name, [], null, outer.Method, outer.Field, ConsumedMethodIsVirtual: outer.MethodIsVirtual), IsCollection: false, objectInner);
 
             case StoreField { HasInstance: true } field
                 when OuterMemberOffSlot(field.Instance, aliasSlots) is { } outer:
                 return new NestedOp(
-                    new EntryPlan(outer.Name, [], null, outer.Method, outer.Field),
+                    new EntryPlan(outer.Name, [], null, outer.Method, outer.Field, ConsumedMethodIsVirtual: outer.MethodIsVirtual),
                     IsCollection: false,
                     new EntryPlan(field.Field.Name, [field.Value], null, ConsumedField: field.Field));
 
@@ -573,9 +574,9 @@ public sealed class ObjectInitializerPass : IIrPass
                 when IsCollectionAdd(function, call)
                     && OuterMemberOffSlot(call.Arguments[0], aliasSlots) is { } outer:
                 return new NestedOp(
-                    new EntryPlan(outer.Name, [], null, outer.Method, outer.Field),
+                    new EntryPlan(outer.Name, [], null, outer.Method, outer.Field, ConsumedMethodIsVirtual: outer.MethodIsVirtual),
                     IsCollection: true,
-                    new EntryPlan(null, [.. call.Arguments.Skip(1)], null, ConsumedMethod: call.Callee));
+                    new EntryPlan(null, [.. call.Arguments.Skip(1)], null, ConsumedMethod: call.Callee, ConsumedMethodIsVirtual: call.IsVirtual));
 
             default:
                 return null;
@@ -589,14 +590,14 @@ public sealed class ObjectInitializerPass : IIrPass
             case StoreProperty { HasInstance: true } property
                 when IsInitializerSpellable(property) && OuterMemberOffLocal(property.Instance, localIndex) is { } outer:
                 var objectInner = property.IndexArguments.Count != 0
-                    ? new EntryPlan(null, [.. property.IndexArguments, property.Value], null, ConsumedMethod: property.Accessor)
-                    : new EntryPlan(property.PropertyName, [property.Value], null, ConsumedMethod: property.Accessor);
-                return new NestedOp(new EntryPlan(outer.Name, [], null, outer.Method, outer.Field), IsCollection: false, objectInner);
+                    ? new EntryPlan(null, [.. property.IndexArguments, property.Value], null, ConsumedMethod: property.Accessor, ConsumedMethodIsVirtual: property.IsVirtual)
+                    : new EntryPlan(property.PropertyName, [property.Value], null, ConsumedMethod: property.Accessor, ConsumedMethodIsVirtual: property.IsVirtual);
+                return new NestedOp(new EntryPlan(outer.Name, [], null, outer.Method, outer.Field, ConsumedMethodIsVirtual: outer.MethodIsVirtual), IsCollection: false, objectInner);
 
             case StoreField { HasInstance: true } field
                 when OuterMemberOffLocal(field.Instance, localIndex) is { } outer:
                 return new NestedOp(
-                    new EntryPlan(outer.Name, [], null, outer.Method, outer.Field),
+                    new EntryPlan(outer.Name, [], null, outer.Method, outer.Field, ConsumedMethodIsVirtual: outer.MethodIsVirtual),
                     IsCollection: false,
                     new EntryPlan(field.Field.Name, [field.Value], null, ConsumedField: field.Field));
 
@@ -604,9 +605,9 @@ public sealed class ObjectInitializerPass : IIrPass
                 when IsCollectionAdd(function, call)
                     && OuterMemberOffLocal(call.Arguments[0], localIndex) is { } outer:
                 return new NestedOp(
-                    new EntryPlan(outer.Name, [], null, outer.Method, outer.Field),
+                    new EntryPlan(outer.Name, [], null, outer.Method, outer.Field, ConsumedMethodIsVirtual: outer.MethodIsVirtual),
                     IsCollection: true,
-                    new EntryPlan(null, [.. call.Arguments.Skip(1)], null, ConsumedMethod: call.Callee));
+                    new EntryPlan(null, [.. call.Arguments.Skip(1)], null, ConsumedMethod: call.Callee, ConsumedMethodIsVirtual: call.IsVirtual));
 
             default:
                 return null;
@@ -619,7 +620,7 @@ public sealed class ObjectInitializerPass : IIrPass
         LoadProperty { HasInstance: true, Instance: LoadStackSlot slot } property
             when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0
                 && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsEscapableIdentifier(property.PropertyName)
-            => new OuterMember(property.PropertyName, property.Accessor, null),
+            => new OuterMember(property.PropertyName, property.Accessor, null, property.IsVirtual),
         LoadField { Instance: LoadStackSlot slot } field
             when aliasSlots.Contains(slot.Slot)
             => new OuterMember(field.Field.Name, null, field.Field),
@@ -631,7 +632,7 @@ public sealed class ObjectInitializerPass : IIrPass
         LoadProperty { HasInstance: true, Instance: LoadLocal local } property
             when local.Index == localIndex && property.IndexArguments.Count == 0
                 && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsEscapableIdentifier(property.PropertyName)
-            => new OuterMember(property.PropertyName, property.Accessor, null),
+            => new OuterMember(property.PropertyName, property.Accessor, null, property.IsVirtual),
         LoadField { Instance: LoadLocal local } field
             when local.Index == localIndex
             => new OuterMember(field.Field.Name, null, field.Field),
@@ -670,10 +671,10 @@ public sealed class ObjectInitializerPass : IIrPass
         // An indexer member `[k0, k1] = v`: the keys precede the value.
         StoreProperty { HasInstance: true, Instance: LoadStackSlot slot } property
             when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count != 0 && IsInitializerSpellable(property)
-            => new EntryPlan(null, [.. property.IndexArguments, property.Value], null, ConsumedMethod: property.Accessor),
+            => new EntryPlan(null, [.. property.IndexArguments, property.Value], null, ConsumedMethod: property.Accessor, ConsumedMethodIsVirtual: property.IsVirtual),
         StoreProperty { HasInstance: true, Instance: LoadStackSlot slot } property
             when aliasSlots.Contains(slot.Slot) && IsInitializerSpellable(property)
-            => new EntryPlan(property.PropertyName, [property.Value], null, ConsumedMethod: property.Accessor),
+            => new EntryPlan(property.PropertyName, [property.Value], null, ConsumedMethod: property.Accessor, ConsumedMethodIsVirtual: property.IsVirtual),
         StoreField { HasInstance: true, Instance: LoadStackSlot slot } field
             when aliasSlots.Contains(slot.Slot)
             => new EntryPlan(field.Field.Name, [field.Value], null, ConsumedField: field.Field),
@@ -699,16 +700,16 @@ public sealed class ObjectInitializerPass : IIrPass
 
         // The consuming member store: `ref.M = LoadLocal L` on a threaded slot, with
         // no index arguments (the value is the whole right-hand side).
-        var (member, method, fieldRef) = memberStatement switch
+        var (member, method, fieldRef, methodIsVirtual) = memberStatement switch
         {
             StoreProperty { HasInstance: true, Instance: LoadStackSlot slot, Value: LoadLocal use } property
                 when aliasSlots.Contains(slot.Slot) && use.Index == localIndex
                     && property.IndexArguments.Count == 0 && IsInitializerSpellable(property)
-                => (property.PropertyName, (MethodRef?)property.Accessor, (FieldRef?)null),
+                => (property.PropertyName, (MethodRef?)property.Accessor, (FieldRef?)null, property.IsVirtual),
             StoreField { HasInstance: true, Instance: LoadStackSlot slot, Value: LoadLocal use } field
                 when aliasSlots.Contains(slot.Slot) && use.Index == localIndex
-                => (field.Field.Name, null, field.Field),
-            _ => ((string?)null, null, null),
+                => (field.Field.Name, null, field.Field, false),
+            _ => ((string?)null, null, null, false),
         };
         if (member is null)
             return null;
@@ -724,7 +725,9 @@ public sealed class ObjectInitializerPass : IIrPass
                 .Any(address => address.Index == localIndex && !ReferenceEquals(address, init.Address)))
             return null;
 
-        return new EntryPlan(member, [new DefaultValue(init.Type)], null, ConsumedMethod: method, ConsumedField: fieldRef);
+        var defaultValue = new DefaultValue(init.Type);
+        defaultValue.InheritSourceOffset(init);
+        return new EntryPlan(member, [defaultValue], null, ConsumedMethod: method, ConsumedField: fieldRef, ConsumedMethodIsVirtual: methodIsVirtual);
     }
 
     /// <summary>
@@ -757,16 +760,16 @@ public sealed class ObjectInitializerPass : IIrPass
 
         // The consuming member store: `ref.M = LoadStackSlot t` on a threaded slot,
         // with no index arguments (the temp is the whole right-hand side).
-        var (member, method, fieldRef) = memberStatement switch
+        var (member, method, fieldRef, methodIsVirtual) = memberStatement switch
         {
             StoreProperty { HasInstance: true, Instance: LoadStackSlot slot, Value: LoadStackSlot use } property
                 when aliasSlots.Contains(slot.Slot) && use.Slot == tempSlot
                     && property.IndexArguments.Count == 0 && IsInitializerSpellable(property)
-                => (property.PropertyName, (MethodRef?)property.Accessor, (FieldRef?)null),
+                => (property.PropertyName, (MethodRef?)property.Accessor, (FieldRef?)null, property.IsVirtual),
             StoreField { HasInstance: true, Instance: LoadStackSlot slot, Value: LoadStackSlot use } field
                 when aliasSlots.Contains(slot.Slot) && use.Slot == tempSlot
-                => (field.Field.Name, null, field.Field),
-            _ => ((string?)null, null, null),
+                => (field.Field.Name, null, field.Field, false),
+            _ => ((string?)null, null, null, false),
         };
         if (member is null)
             return null;
@@ -781,7 +784,7 @@ public sealed class ObjectInitializerPass : IIrPass
         if (!IsLinearSpillSlot(function, tempSlot))
             return null;
 
-        return new EntryPlan(member, [spilledValue], null, ConsumedMethod: method, ConsumedField: fieldRef, FromReusedSpill: true);
+        return new EntryPlan(member, [spilledValue], null, ConsumedMethod: method, ConsumedField: fieldRef, FromReusedSpill: true, ConsumedMethodIsVirtual: methodIsVirtual);
     }
 
     /// <summary>
@@ -872,10 +875,10 @@ public sealed class ObjectInitializerPass : IIrPass
     {
         StoreProperty { HasInstance: true, Instance: LoadLocal local } property
             when local.Index == localIndex && property.IndexArguments.Count != 0 && IsInitializerSpellable(property)
-            => new EntryPlan(null, [.. property.IndexArguments, property.Value], null, ConsumedMethod: property.Accessor),
+            => new EntryPlan(null, [.. property.IndexArguments, property.Value], null, ConsumedMethod: property.Accessor, ConsumedMethodIsVirtual: property.IsVirtual),
         StoreProperty { HasInstance: true, Instance: LoadLocal local } property
             when local.Index == localIndex && IsInitializerSpellable(property)
-            => new EntryPlan(property.PropertyName, [property.Value], null, ConsumedMethod: property.Accessor),
+            => new EntryPlan(property.PropertyName, [property.Value], null, ConsumedMethod: property.Accessor, ConsumedMethodIsVirtual: property.IsVirtual),
         StoreField { HasInstance: true, Instance: LoadLocal local } field
             when local.Index == localIndex
             => new EntryPlan(field.Field.Name, [field.Value], null, ConsumedField: field.Field),
@@ -890,7 +893,7 @@ public sealed class ObjectInitializerPass : IIrPass
             return null;
         if (call.Arguments[0] is not LoadStackSlot receiver || !aliasSlots.Contains(receiver.Slot))
             return null;
-        return new EntryPlan(null, [.. call.Arguments.Skip(1)], null, ConsumedMethod: call.Callee);
+        return new EntryPlan(null, [.. call.Arguments.Skip(1)], null, ConsumedMethod: call.Callee, ConsumedMethodIsVirtual: call.IsVirtual);
     }
 
     static EntryPlan? TryCollectionAdd(IrFunction function, IrNode statement, int localIndex)
@@ -901,7 +904,7 @@ public sealed class ObjectInitializerPass : IIrPass
             return null;
         if (call.Arguments[0] is not LoadLocal receiver || receiver.Index != localIndex)
             return null;
-        return new EntryPlan(null, [.. call.Arguments.Skip(1)], null, ConsumedMethod: call.Callee);
+        return new EntryPlan(null, [.. call.Arguments.Skip(1)], null, ConsumedMethod: call.Callee, ConsumedMethodIsVirtual: call.IsVirtual);
     }
 
     static bool IsCollectionAdd(IrFunction function, Call call)
@@ -1290,7 +1293,9 @@ public sealed class ObjectInitializerPass : IIrPass
                         .Count(store => store.Index == index);
                     if (loads.Count != 1 || stores != 0 || addressUses != 1)
                         continue;
-                    loads[0].ReplaceWith(new DefaultValue(init.Type));
+                    var defaultValue = new DefaultValue(init.Type);
+                    defaultValue.InheritSourceOffset(init);
+                    loads[0].ReplaceWith(defaultValue);
                     init.Detach();
                     break;
                 }
@@ -1343,8 +1348,8 @@ public sealed class ObjectInitializerPass : IIrPass
 
     static InitializerEntry BuildEntry(EntryPlan entry)
         => entry.Block is { } block
-            ? new InitializerEntry(entry.Member, [BuildBlock(block)], entry.ConsumedMethod, entry.ConsumedField)
-            : new InitializerEntry(entry.Member, entry.Arguments, entry.ConsumedMethod, entry.ConsumedField);
+            ? new InitializerEntry(entry.Member, [BuildBlock(block)], entry.ConsumedMethod, entry.ConsumedField, entry.ConsumedMethodIsVirtual)
+            : new InitializerEntry(entry.Member, entry.Arguments, entry.ConsumedMethod, entry.ConsumedField, entry.ConsumedMethodIsVirtual);
 
     static InitializerBlock BuildBlock(BlockPlan block)
         => new(block.IsCollection, block.Entries.Select(BuildEntry).ToList());

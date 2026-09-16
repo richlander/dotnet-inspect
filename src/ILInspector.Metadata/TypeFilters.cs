@@ -12,7 +12,7 @@ public static class TypeFilters
     /// rule appropriate for member names.
     /// </summary>
     public static bool IsCompilerGenerated(string typeName)
-        => typeName.StartsWith('<') || typeName.StartsWith("__", System.StringComparison.Ordinal);
+        => GeneratedNameGrammar.IsGeneratedName(typeName);
 
     /// <summary>
     /// True when any segment of a possibly nested-qualified, <c>+</c>-separated

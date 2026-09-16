@@ -29,7 +29,7 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
     public string Name => "range-getsubarray";
 
     /// <summary>A validated range endpoint: the inner index expression plus whether it counts from the end (<c>^n</c>).</summary>
-    readonly record struct Endpoint(IrExpression Inner, bool FromEnd);
+    readonly record struct Endpoint(IrExpression Inner, bool FromEnd, int SourceOffset);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -55,7 +55,9 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
             var start = BuildEndpoint(startEndpoint);
             var end = BuildEndpoint(endEndpoint);
             var range = new RangeExpression(start, end);
-            var slice = new SliceExpression(receiver, range, resultType);
+            range.InheritSourceOffset(rangeArg);
+            var slice = new SliceExpression(receiver, range, resultType, call.Callee);
+            slice.InheritSourceOffset(call);
             context.Stepper.StepOver("raise GetSubArray range slice to a[..] indexer", call);
             call.ReplaceWith(slice);
         }
@@ -269,7 +271,11 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
         if (endpoint is not { } value)
             return null;
         value.Inner.Detach();
-        return value.FromEnd ? new IndexFromEnd(value.Inner) : value.Inner;
+        if (!value.FromEnd)
+            return value.Inner;
+        var result = new IndexFromEnd(value.Inner);
+        result.SetSourceOffset(value.SourceOffset);
+        return result;
     }
 
     /// <summary>
@@ -310,10 +316,10 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
         switch (index)
         {
             case Call { Arguments: [var inner] } conversion when MemberIdentity.IsIndexFromStartConversion(conversion.Callee):
-                endpoint = new Endpoint(inner, FromEnd: false);
+                endpoint = new Endpoint(inner, FromEnd: false, conversion.SourceOffset);
                 return true;
             case NewObject { Arguments: [var offset, Constant { Value: true }] } fromEnd when MemberIdentity.IsIndexFromEndConstructor(fromEnd.Constructor):
-                endpoint = new Endpoint(offset, FromEnd: true);
+                endpoint = new Endpoint(offset, FromEnd: true, fromEnd.SourceOffset);
                 return true;
             default:
                 endpoint = null;

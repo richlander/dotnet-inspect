@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using DotnetInspector.Packages;
+using ILInspector.Metadata;
 using InertText;
 using NuGet.Versioning;
 using NuGetFetch;
@@ -235,6 +236,9 @@ public enum WorkspaceContextLoadFailureKind
     /// <summary>The selected platform pack does not carry the requested assembly.</summary>
     PlatformAssemblyUnavailable,
 
+    /// <summary>The selected platform pack carries multiple identities with the requested name.</summary>
+    PlatformAssemblyAmbiguous,
+
     /// <summary>
     /// The producer a realized platform coordinate names is not authorized or
     /// did not serve its implementation pack.
@@ -253,8 +257,17 @@ public enum WorkspaceContextLoadFailureKind
     /// <summary>A selected image has no managed metadata or cannot be read.</summary>
     InvalidImage,
 
+    /// <summary>The context's immutable image-retention budget was exhausted.</summary>
+    ImageRetentionBudgetExceeded,
+
     /// <summary>The host offers no capability an acquisition kind requires.</summary>
     HostCapabilityUnavailable,
+
+    /// <summary>A selected image uses Windows Metadata, which is unsupported.</summary>
+    UnsupportedMetadataFormat,
+
+    /// <summary>A selected image has a malformed assembly metadata root.</summary>
+    MalformedMetadataRoot,
 }
 
 /// <summary>
@@ -266,9 +279,13 @@ public enum WorkspaceContextLoadFailureKind
 /// A declared <see cref="WorkspaceMemberCoordinate"/> may float: a package
 /// member without a version names no exact identity, so it cannot be
 /// transported, compared, or re-acquired as one. The realized coordinate is
-/// what the loader actually selected — every field concrete and canonical —
-/// so a consumer can carry it across a transport boundary and get the same
-/// bytes back.
+/// what the loader actually selected — every identity field concrete and
+/// canonical, with an optional acquisition target absent only for a
+/// framework-neutral source acquisition — so a consumer can carry it across a
+/// transport boundary and repeat the same producer-bound acquisition request.
+/// Package storage may publish a newer payload generation under that
+/// coordinate; only an acquisition-owned content-generation identity proves
+/// immutable byte correspondence.
 /// </para>
 /// <para>
 /// It is a value, not a handle. It carries no source, credential, stream,
@@ -327,7 +344,7 @@ public abstract record RealizedMemberCoordinate
             string packageId,
             string version,
             string producer,
-            string framework,
+            string? framework,
             string? runtimeIdentifier)
         {
             if (!IsCanonicalPackageIdentity(packageId))
@@ -344,14 +361,15 @@ public abstract record RealizedMemberCoordinate
                     nameof(version));
             }
 
-            if (!IsCanonicalProducer(producer))
+            if (!IsCanonicalPackageProducer(producer))
             {
                 throw new ArgumentException(
                     "A realized package producer is a canonical content-cache producer key.",
                     nameof(producer));
             }
 
-            if (!IsCanonicalFramework(framework))
+            if (framework is not null
+                && !IsCanonicalFramework(framework))
             {
                 throw new ArgumentException(
                     "A realized acquisition framework is a canonical lowercase moniker.",
@@ -363,6 +381,13 @@ public abstract record RealizedMemberCoordinate
             {
                 throw new ArgumentException(
                     "A realized runtime identifier is a canonical lowercase moniker.",
+                    nameof(runtimeIdentifier));
+            }
+            if (framework is null
+                && runtimeIdentifier is not null)
+            {
+                throw new ArgumentException(
+                    "A realized runtime identifier requires an acquisition framework.",
                     nameof(runtimeIdentifier));
             }
 
@@ -393,8 +418,11 @@ public abstract record RealizedMemberCoordinate
         /// </remarks>
         public string Producer { get; }
 
-        /// <summary>The context's effective acquisition framework.</summary>
-        public string Framework { get; }
+        /// <summary>
+        /// The context's effective acquisition framework, or <c>null</c> for a
+        /// framework-neutral source acquisition.
+        /// </summary>
+        public string? Framework { get; }
 
         /// <summary>The context's effective acquisition runtime identifier.</summary>
         public string? RuntimeIdentifier { get; }
@@ -418,7 +446,7 @@ public abstract record RealizedMemberCoordinate
             string packageId,
             string version,
             string producer,
-            string framework,
+            string? framework,
             string? runtimeIdentifier,
             [NotNullWhen(true)] out Package? coordinate,
             [NotNullWhen(false)] out string? problem)
@@ -428,13 +456,17 @@ public abstract record RealizedMemberCoordinate
                 ? "a realized package id must be a canonical NuGet package id in its normalized lowercase spelling"
                 : !IsCanonicalPackageVersion(version)
                     ? "a realized package version must be one exact NuGet version in its normalized lowercase spelling"
-                    : !IsCanonicalProducer(producer)
+                    : !IsCanonicalPackageProducer(producer)
                         ? "a realized package producer must be a canonical content-cache producer key"
-                        : !IsCanonicalFramework(framework)
+                        : framework is not null
+                            && !IsCanonicalFramework(framework)
                             ? "a realized acquisition framework must be a canonical lowercase moniker"
                             : runtimeIdentifier is not null
                                 && !IsCanonicalRuntimeIdentifier(runtimeIdentifier)
                                 ? "a realized runtime identifier must be a canonical lowercase moniker"
+                                : framework is null
+                                    && runtimeIdentifier is not null
+                                    ? "a realized runtime identifier requires an acquisition framework"
                                 : null;
             if (problem is not null)
                 return false;
@@ -652,21 +684,33 @@ public abstract record RealizedMemberCoordinate
             || character is >= 'a' and <= 'f');
 
     /// <summary>
-    /// True when <paramref name="value"/> can be a content-cache producer key:
-    /// a short, lowercase, opaque token of ASCII letters, digits, and hyphens.
+    /// True when <paramref name="value"/> is either the current bounded
+    /// NuGet.org producer key or a legacy content-cache producer key.
     /// </summary>
     /// <remarks>
-    /// The grammar is what makes a producer safe to carry in a portable value.
-    /// A URL, a credential, a user-info segment, and a filesystem path each
-    /// contain a character this rejects, so a caller cannot smuggle a locator
-    /// or a secret into a coordinate by passing one where a key belongs.
+    /// Package Query currently admits only NuGet.org, so it can carry that
+    /// owner-issued modern key without claiming that every configured endpoint
+    /// or local-path producer key fits the bounded portable Root format. The
+    /// smaller legacy grammar remains accepted during source-model migration.
     /// </remarks>
     public static bool IsCanonicalProducer(string? value) =>
-        value is { Length: > 0 and <= 64 }
-        && value.All(static character =>
-            char.IsAsciiDigit(character)
-            || character is >= 'a' and <= 'z'
-            || character is '-');
+        string.Equals(
+            value,
+            PackageProducerIdentity.NuGetOrg.Key,
+            StringComparison.Ordinal)
+        || value is { Length: > 0 and <= 64 }
+            && value.All(static character =>
+                char.IsAsciiDigit(character)
+                || character is >= 'a' and <= 'z'
+                || character is '-');
+
+    /// <summary>
+    /// True when <paramref name="value"/> is a current portable Package Source
+    /// producer token or an already-supported producer spelling.
+    /// </summary>
+    public static bool IsCanonicalPackageProducer(string? value) =>
+        PackageProducerIdentity.IsCanonicalPortableKey(value)
+        || IsCanonicalProducer(value);
 
     /// <summary>
     /// True when <paramref name="value"/> names a product-owned platform
@@ -822,7 +866,11 @@ public abstract record RealizedMemberCoordinate
 public sealed record WorkspaceContextLoadFailure(
     WorkspaceContextLoadFailureKind Kind,
     WorkspaceMemberCoordinate? Member,
-    string Message);
+    string Message)
+{
+    /// <summary>The exact malformed-root reason, when applicable.</summary>
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
 
 /// <summary>One realized member of a loaded workspace context.</summary>
 /// <param name="Declared">
@@ -852,16 +900,44 @@ public abstract record WorkspaceContextLoadOutcome
     public sealed record Loaded : WorkspaceContextLoadOutcome
     {
         internal Loaded(
+            InspectionWorkspaceIdentity workspace,
             AssemblyContextGroup group,
             ImmutableArray<WorkspaceContextMember> members,
+            ImmutableArray<RealizedMemberCoordinate.Platform>
+                availablePlatformAssemblies,
+            string? framework,
+            string? runtimeIdentifier)
+            : this(
+                workspace,
+                group,
+                members,
+                [],
+                availablePlatformAssemblies,
+                framework,
+                runtimeIdentifier)
+        {
+        }
+
+        internal Loaded(
+            InspectionWorkspaceIdentity workspace,
+            AssemblyContextGroup group,
+            ImmutableArray<WorkspaceContextMember> members,
+            ImmutableArray<PackageRootBinding> packageRoots,
+            ImmutableArray<RealizedMemberCoordinate.Platform>
+                availablePlatformAssemblies,
             string? framework,
             string? runtimeIdentifier)
         {
+            Workspace = workspace;
             Group = group;
             Members = members;
+            PackageRoots = packageRoots;
+            AvailablePlatformAssemblies = availablePlatformAssemblies;
             Framework = framework;
             RuntimeIdentifier = runtimeIdentifier;
         }
+
+        public InspectionWorkspaceIdentity Workspace { get; }
 
         public AssemblyContextGroup Group { get; }
 
@@ -870,6 +946,24 @@ public abstract record WorkspaceContextLoadOutcome
         /// contribute several participants.
         /// </summary>
         public ImmutableArray<WorkspaceContextMember> Members { get; }
+
+        /// <summary>
+        /// Acquisition-issued package Roots in context declaration order.
+        /// </summary>
+        public ImmutableArray<PackageRootBinding> PackageRoots { get; }
+
+        /// <summary>
+        /// Metadata-derived assembly selection coordinates observed in the
+        /// selected platform asset universes, including assemblies not loaded
+        /// as participants. Selecting a name carried by more than one full
+        /// identity still produces a typed ambiguity failure.
+        /// </summary>
+        /// <remarks>
+        /// <c>WorkspaceContextLoaderTests.PlatformMember_AssemblyFilterUsesMetadataIdentity</c>
+        /// gates metadata identity and selected-universe ownership.
+        /// </remarks>
+        public ImmutableArray<RealizedMemberCoordinate.Platform>
+            AvailablePlatformAssemblies { get; }
 
         /// <summary>The effective acquisition framework, when the context needed one.</summary>
         public string? Framework { get; }

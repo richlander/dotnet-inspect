@@ -6,88 +6,49 @@ namespace CiChangeDetection;
 internal static class PromotionWorkflowContract
 {
     private const string AzureAction =
-        "Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1";
+        "Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9";
     private const string CheckoutAction =
-        "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803";
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
     private const string DownloadArtifactAction =
         "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
     private const string SetupDotnetAction =
-        "actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1";
+        "actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68";
     private const string SetupNodeAction =
-        "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38";
+        "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
     private const string UploadArtifactAction =
         "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
-    private const string DeploymentFilesCheck =
+    private const string CompilerAsyncDeploymentCheck =
         """
-        set -euo pipefail
-        site=artifacts/inspect-web-publish/wwwroot
-        api=artifacts/inspect-web-publish/api
-        index="$site/index.html"
-        test -f "$index"
-        test -f "$site/staticwebapp.config.json"
-        test -f "$api/host.json"
-        test -f "$api/functions.metadata"
-        test -f "$api/worker.config.json"
-        test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
-        jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
-        manifest="$site/manifest.json"
-        test -f "$manifest"
-        jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
-        vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
-        while IFS= read -r asset; do
-          [[ "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
-          test -f "$site/$asset"
-        done <<< "$vite_assets"
-        vite_entry=$(jq -er '.["index.html"].file' "$manifest")
-        grep -Fq "src=\"/$vite_entry\"" "$index"
-        vite_stylesheets=$(jq -er '.["index.html"].css | if length > 0 then join("\n") else error("missing Vite stylesheet") end' "$manifest")
-        while IFS= read -r stylesheet; do
-          grep -Fq "href=\"/$stylesheet\"" "$index"
-        done <<< "$vite_stylesheets"
-        dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
-        test -n "$dotnet_module"
-        test -f "$site/_framework/$dotnet_module"
-        import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
-        module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
-        test "$import_map_line" -lt "$module_line"
+        eng/verify-inspect-web-async-deployment.sh \
+          compiler \
+          inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+          artifacts/inspect-web-publish/wwwroot \
+          artifacts/inspect-web-publish/async-lowering.json \
+          artifacts/inspect-web-compiler-async-receipts
         """;
-    private const string CoreClrDeploymentFilesCheck =
+    private const string RuntimeAsyncDeploymentCheck =
         """
-        set -euo pipefail
-        site=artifacts/inspect-web-coreclr-publish/wwwroot
-        api=artifacts/inspect-web-coreclr-publish/api
-        index="$site/index.html"
-        test -f "$index"
-        test -f "$site/staticwebapp.config.json"
-        test -f "$api/host.json"
-        test -f "$api/functions.metadata"
-        test -f "$api/worker.config.json"
-        test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
-        jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
-        manifest="$site/manifest.json"
-        test -f "$manifest"
-        jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
-        vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
-        while IFS= read -r asset; do
-          [[ "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
-          test -f "$site/$asset"
-        done <<< "$vite_assets"
-        vite_entry=$(jq -er '.["index.html"].file' "$manifest")
-        grep -Fq "src=\"/$vite_entry\"" "$index"
-        vite_stylesheets=$(jq -er '.["index.html"].css | if length > 0 then join("\n") else error("missing Vite stylesheet") end' "$manifest")
-        while IFS= read -r stylesheet; do
-          grep -Fq "href=\"/$stylesheet\"" "$index"
-        done <<< "$vite_stylesheets"
-        dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
-        test -n "$dotnet_module"
-        test -f "$site/_framework/$dotnet_module"
-        import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
-        module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
-        test "$import_map_line" -lt "$module_line"
-        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
-        grep -q GetDotNetRuntimeHeap "$site"/_framework/dotnet.native.*.js
+        RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
+          eng/verify-inspect-web-async-deployment.sh \
+            runtime \
+            inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+            artifacts/inspect-web-coreclr-publish/wwwroot \
+            artifacts/inspect-web-coreclr-publish/async-lowering.json \
+            artifacts/inspect-web-runtime-async-receipts
         """;
-
+    private const string PairedAsyncDeploymentCheck =
+        """
+        eng/verify-inspect-web-async-deployment.sh \
+          --compare \
+          artifacts/inspect-web-compiler-publish/async-lowering.json \
+          artifacts/inspect-web-coreclr-publish/async-lowering.json
+        """;
+    private const string CoreClrPackageOperationCheck =
+        """
+        INSPECT_WEB_PACKAGE_ADOPTION_SITE="$GITHUB_WORKSPACE/artifacts/inspect-web-coreclr-publish/wwwroot" \
+          eng/test-inspect-web-package-adoption-gate.sh \
+            --grep 'drives the production opening, join, occurrence, and rejection contracts'
+        """;
     internal static void AssertMutations(string repository)
     {
         string promotionPath = Path.Combine(
@@ -105,24 +66,79 @@ internal static class PromotionWorkflowContract
             ".github",
             "workflows",
             "deploy-inspect-web-coreclr.yml");
+        string runtimeCohortPath = Path.Combine(
+            repository,
+            ".github",
+            "workflows",
+            "inspect-web-runtime-cohort-nightly.yml");
+        string runtimePinProposalPath = Path.Combine(
+            repository,
+            ".github",
+            "workflows",
+            "inspect-web-runtime-pin-proposal.yml");
+        string asyncVerifierPath = Path.Combine(
+            repository,
+            "eng",
+            "verify-inspect-web-async-deployment.sh");
+        string asyncLoweringReceiptTargetPath = Path.Combine(
+            repository,
+            "eng",
+            "InspectWebAsyncLoweringReceipt.targets");
         string promotionWorkflow = File.ReadAllText(promotionPath);
         string stagingWorkflow = File.ReadAllText(stagingPath);
         string coreClrStagingWorkflow = File.ReadAllText(coreClrStagingPath);
+        string runtimeCohortWorkflow = File.ReadAllText(runtimeCohortPath);
+        string runtimePinProposalWorkflow =
+            File.ReadAllText(runtimePinProposalPath);
+        string asyncVerifier = File.ReadAllText(asyncVerifierPath);
+        string asyncLoweringReceiptTarget =
+            File.ReadAllText(asyncLoweringReceiptTargetPath);
         ValidatePromotion(promotionWorkflow);
         ValidateStaging(stagingWorkflow);
         ValidateCoreClrStaging(coreClrStagingWorkflow);
+        ValidateRuntimeSdkGlobalJsonOverride(
+            runtimeCohortWorkflow,
+            "$DOTNET_SDK_VERSION",
+            "runtime cohort");
+        ValidateRuntimeSdkGlobalJsonOverride(
+            runtimePinProposalWorkflow,
+            "$candidate_sdk",
+            "runtime pin proposal");
+        ValidateAsyncDeploymentVerifier(asyncVerifier);
+        ValidateAsyncLoweringReceiptTarget(asyncLoweringReceiptTarget);
+        InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet(asyncVerifier);
+        InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts(asyncVerifier);
+
+        AssertMutationRejected(
+            runtimeCohortWorkflow,
+            "              \"version\": \"$DOTNET_SDK_VERSION\",\n",
+            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            workflow => ValidateRuntimeSdkGlobalJsonOverride(
+                workflow,
+                "$DOTNET_SDK_VERSION",
+                "runtime cohort"),
+            "Runtime cohort contract accepted the repository SDK in the candidate SDK root.");
+        AssertMutationRejected(
+            runtimePinProposalWorkflow,
+            "              \"version\": \"$candidate_sdk\",\n",
+            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            workflow => ValidateRuntimeSdkGlobalJsonOverride(
+                workflow,
+                "$candidate_sdk",
+                "runtime pin proposal"),
+            "Runtime pin proposal contract accepted the repository SDK in the candidate SDK root.");
 
         const string trustedCheckout =
             """
                 steps:
-                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
                   - name: Setup .NET
             """;
         const string candidateCheckout =
             """
                 steps:
-                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
                     with:
                       ref: ${{ needs.resolve.outputs.sha }}
 
@@ -143,7 +159,7 @@ internal static class PromotionWorkflowContract
         const string stagingCheckout =
             """
                 steps:
-                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
                   - name: Download staged site artifact
             """;
@@ -154,28 +170,9 @@ internal static class PromotionWorkflowContract
             ValidateStaging,
             "Staging workflow contract accepted candidate code in the deployment job.");
 
-        const string coreClrStagingDownload =
-            """
-                steps:
-                  - name: Download CoreCLR staged site artifact
-            """;
-        const string coreClrStagingCheckout =
-            """
-                steps:
-                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-                  - name: Download CoreCLR staged site artifact
-            """;
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            coreClrStagingDownload,
-            coreClrStagingCheckout,
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted candidate code in the deployment job.");
-
         AssertMutationRejected(
             promotionWorkflow,
-            "      - name: Setup .NET\n        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5",
+            "      - name: Setup .NET\n        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0",
             "      - name: Setup .NET\n        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8",
             ValidatePromotion,
             "Promotion workflow contract accepted an alternate setup action.");
@@ -185,6 +182,12 @@ internal static class PromotionWorkflowContract
             "            \"$EXPECTED_DIGEST\" || true\n",
             ValidatePromotion,
             "Promotion workflow contract accepted disabled revalidation.");
+        AssertMutationRejected(
+            promotionWorkflow,
+            "          ALLOW_MANUAL_STAGING: ${{ inputs.allow_manual_staging }}\n",
+            "",
+            ValidatePromotion,
+            "Promotion workflow contract accepted an unpinned manual-staging override.");
         AssertMutationRejected(
             promotionWorkflow,
             "      - name: Revalidate staged site\n",
@@ -205,6 +208,24 @@ internal static class PromotionWorkflowContract
             "Staging workflow contract accepted disabled Vite asset verification.");
         AssertMutationRejected(
             stagingWorkflow,
+            "            [[ \"$asset\" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]\n",
+            "",
+            ValidateStaging,
+            "Staging workflow contract accepted a deleted Vite asset path constraint.");
+        AssertMutationRejected(
+            promotionWorkflow,
+            "            and .method == \"InspectionEngine.AsyncLoweringCanary\"\n",
+            "",
+            ValidatePromotion,
+            "Promotion workflow contract accepted a receipt without the exact canary method.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "            and .result == \"inspect-web-async-lowering-ok\"\n",
+            "            and .result == \"changed\"\n",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted a changed canary result.");
+        AssertMutationRejected(
+            stagingWorkflow,
             "          jq -e '. as $manifest | type == \"object\" and (.[\"index.html\"] | type == \"object\") and all(to_entries[]; (.value | type == \"object\") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' \"$manifest\" >/dev/null\n",
             "",
             ValidateStaging,
@@ -222,17 +243,131 @@ internal static class PromotionWorkflowContract
             ValidateStaging,
             "Staging workflow contract accepted an artifact without hidden Function dependencies.");
         AssertMutationRejected(
+            stagingWorkflow,
+            "          overwrite: true\n",
+            "",
+            ValidateStaging,
+            "Staging workflow contract accepted a non-rerun-safe artifact upload.");
+        AssertMutationRejected(
             coreClrStagingWorkflow,
             "            -p:Features=runtime-async=on \\\n",
             "",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted classic async lowering.");
         AssertMutationRejected(
+            stagingWorkflow,
+            "inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll",
+            "inspect-web/DotnetInspect.Web/obj/Release/net11.0/linked/DotnetInspect.Web.dll",
+            ValidateStaging,
+            "Staging contract accepted async evidence from the wrong assembly.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll",
+            "inspect-web/DotnetInspect.Web/obj/Release/net11.0/linked/DotnetInspect.Web.dll",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted async evidence from the wrong assembly.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "  \"$repo_root/inspect-web/scripts/verify-published-engine-facades.ts\" \\\n  \"$site\" \\\n  deployment \\\n  \"$domain\" \\\n  \"$smoke_result\"\n",
+            "",
+            ValidateAsyncDeploymentVerifier,
+            "Async deployment verifier accepted a skipped browser invocation.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "    async_method_count: census.async_method_count,\n",
+            "",
+            ValidateAsyncDeploymentVerifier,
+            "Async deployment verifier accepted a receipt without the async census.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "    repository_project_count: graph.repository_project_count,\n",
+            "",
+            ValidateAsyncDeploymentVerifier,
+            "Async deployment verifier accepted a receipt without the project count.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "    generated_source_sha256: sha256(sourcePath),\n",
+            "",
+            ValidateAsyncDeploymentVerifier,
+            "Async deployment verifier accepted a receipt without per-facade source identity.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "    published_js_sha256: sha256(javascriptPath),\n",
+            "",
+            ValidateAsyncDeploymentVerifier,
+            "Async deployment verifier accepted a receipt without per-facade JavaScript identity.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "  \"DotnetInspect.Web.Interop.Source\",\n",
+            "",
+            InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet,
+            "Async deployment receipt contract accepted an omitted source facade.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "  published_js_sha256: assembly.published_js_sha256,\n",
+            "",
+            InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts,
+            "Async deployment parity contract accepted unequal published JavaScript.");
+        AssertMutationRejected(
+            asyncLoweringReceiptTarget,
+            "Condition=\"'$(InspectWebExpectedAsyncLowering)' == 'runtime' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'\"",
+            "Condition=\"false\"",
+            ValidateAsyncLoweringReceiptTarget,
+            "Async-lowering receipt target accepted runtime projects without the feature.");
+        AssertMutationRejected(
+            asyncLoweringReceiptTarget,
+            "Condition=\"'$(InspectWebExpectedAsyncLowering)' == 'compiler' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) == 'True'\"",
+            "Condition=\"false\"",
+            ValidateAsyncLoweringReceiptTarget,
+            "Async-lowering receipt target accepted compiler projects with the feature.");
+        AssertMutationRejected(
             coreClrStagingWorkflow,
             "            -p:UseMonoRuntime=false \\\n",
             "",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted the Mono runtime.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "          node inspect-web/scripts/runtime-cohort-pin.ts export \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted a missing shared runtime pin.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "            --source \"$DOTNET_DAILY_FEED\" \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted workload installation without the daily feed.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "            --configfile \"$nuget_config\" \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted publish restore without its mapped cohort feeds.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "                <package pattern=\"Microsoft.DotNet.ILCompiler\" />\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted verifier restore without the daily NativeAOT compiler.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "          RestoreConfigFile=\"$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config\" \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted runtime verification without its mapped cohort feeds.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "            -p:PublishReadyToRun=false \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted implicit ReadyToRun behavior.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "            eng/test-inspect-web-package-adoption-gate.sh \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted a skipped package operation.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
             "            -p:WasmBuildNative=false \\\n",
@@ -269,6 +404,21 @@ internal static class PromotionWorkflowContract
             "",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted Azure app build.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            """
+                  - name: Compare compiler-async and runtime-async receipts
+                    shell: bash
+                    run: |
+                      eng/verify-inspect-web-async-deployment.sh \
+                        --compare \
+                        artifacts/inspect-web-compiler-publish/async-lowering.json \
+                        artifacts/inspect-web-coreclr-publish/async-lowering.json
+
+            """,
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted removal of the paired receipt comparison.");
 
         const string productionJob =
             """
@@ -323,10 +473,10 @@ internal static class PromotionWorkflowContract
             "Staging workflow contract accepted write permission.");
         AssertMutationRejected(
             stagingWorkflow,
-            "    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n",
+            "    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n",
             """
                 steps:
-                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
                     with:
                       ref: ${{ github.event.pull_request.head.sha }}
             """,
@@ -334,11 +484,34 @@ internal static class PromotionWorkflowContract
             "Staging workflow contract accepted PR-head checkout.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
-            "  workflow_dispatch:\n",
-            "  workflow_dispatch:\n  pull_request_target:\n",
+            "  workflow_call:\n",
+            "  workflow_call:\n  pull_request_target:\n",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted pull_request_target.");
-
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "          ref: ${{ inputs.source_sha }}\n",
+            "          ref: ${{ github.sha }}\n",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted checkout outside the promoted revision.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "          artifact-ids: ${{ inputs.artifact_id }}\n",
+            "          name: inspect-web-site\n",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted artifact selection by name.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "          run-id: ${{ inputs.staging_run_id }}\n",
+            "          run-id: ${{ github.run_id }}\n",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted the caller run as artifact authority.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "      cancel-in-progress: false\n",
+            "      cancel-in-progress: true\n",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted cancellation between promotions.");
         AssertRejected(
             coreClrStagingWorkflow +
             """
@@ -352,6 +525,32 @@ internal static class PromotionWorkflowContract
             """,
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted an extra environment-scoped job.");
+    }
+
+    private static void ValidateRuntimeSdkGlobalJsonOverride(
+        string workflow,
+        string sdkVersionExpression,
+        string context)
+    {
+        string expected =
+            "          cat > global.json <<EOF\n" +
+            "          {\n" +
+            "            \"sdk\": {\n" +
+            "              \"version\": \"__SDK_VERSION__\",\n" +
+            "              \"rollForward\": \"disable\",\n" +
+            "              \"allowPrerelease\": true\n" +
+            "            }\n" +
+            "          }\n" +
+            "          EOF\n";
+        expected = expected.Replace(
+                    "__SDK_VERSION__",
+                    sdkVersionExpression,
+                    StringComparison.Ordinal);
+        if (!workflow.Contains(expected, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"{context} must select its installed SDK through global.json.");
+        }
     }
 
     private static void ValidatePromotion(string workflow)
@@ -468,8 +667,7 @@ internal static class PromotionWorkflowContract
             GetRequiredMapping(setup, "with", "production setup step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["dotnet-version"] = "11.0.x",
-                ["dotnet-quality"] = "preview",
+                ["dotnet-version"] = "11.0.100-rc.1.26425.128",
             },
             "production setup step.with");
 
@@ -486,6 +684,7 @@ internal static class PromotionWorkflowContract
             {
                 ["GH_TOKEN"] = "${{ secrets.GITHUB_TOKEN }}",
                 ["STAGING_RUN_ID"] = "${{ inputs.staging_run_id }}",
+                ["ALLOW_MANUAL_STAGING"] = "${{ inputs.allow_manual_staging }}",
                 ["EXPECTED_SHA"] = "${{ needs.resolve.outputs.sha }}",
                 ["EXPECTED_ATTEMPT"] = "${{ needs.resolve.outputs.run_attempt }}",
                 ["EXPECTED_ARTIFACT_ID"] =
@@ -504,6 +703,7 @@ internal static class PromotionWorkflowContract
               "$STAGING_RUN_ID" \
               720 \
               "$RUNNER_TEMP/revalidated-inspect-web" \
+              "$ALLOW_MANUAL_STAGING" \
               "$EXPECTED_SHA" \
               "$EXPECTED_ATTEMPT" \
               "$EXPECTED_ARTIFACT_ID" \
@@ -572,6 +772,7 @@ internal static class PromotionWorkflowContract
                 ["skip_api_build"] = "true",
             },
             "production deploy step.with");
+
     }
 
     private static void ValidateStaging(string workflow)
@@ -619,7 +820,7 @@ internal static class PromotionWorkflowContract
             {
                 ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
                 ["DOTNET_NOLOGO"] = "true",
-                ["DOTNET_SDK_VERSION"] = "11.0.100-preview.6.26359.118",
+                ["DOTNET_SDK_VERSION"] = "11.0.100-rc.1.26425.128",
             },
             "staging workflow.env");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "staging workflow");
@@ -641,12 +842,12 @@ internal static class PromotionWorkflowContract
             "jobs.build");
         RequireScalarValue(build, "runs-on", "ubuntu-26.04", "jobs.build");
         YamlSequenceNode buildSteps = GetRequiredSequence(build, "steps", "jobs.build");
-        if (buildSteps.Children.Count != 9)
+        if (buildSteps.Children.Count != 10)
         {
             throw new InvalidOperationException(
                 "Staging build must contain checkout, .NET and Node setup, " +
-                "workload install, frontend build, site and API publish, artifact " +
-                "verification, and artifact upload steps.");
+                "workload install, frontend build, site and API publish, async and " +
+                "artifact verification, and artifact upload steps.");
         }
         YamlMappingNode checkout =
             RequireStep(buildSteps, 0, null, "jobs.build");
@@ -690,7 +891,7 @@ internal static class PromotionWorkflowContract
             {
                 ["node-version"] = "24",
                 ["cache"] = "npm",
-                ["cache-dependency-path"] = "prototypes/inspect-web/package-lock.json",
+                ["cache-dependency-path"] = "inspect-web/package-lock.json",
             },
             "staging Node setup step.with");
 
@@ -712,7 +913,7 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["name"] = "Build browser frontend",
-                ["working-directory"] = "prototypes/inspect-web",
+                ["working-directory"] = "inspect-web",
                 ["run"] =
                     "npm ci\n" +
                     "npm run build\n" +
@@ -727,15 +928,19 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(publish, "shell", "bash", "staging publish step");
         const string ExpectedPublish =
             """
-            version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
+            rm -rf artifacts/inspect-web-compiler-async-receipts
+            version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
-              prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+              inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
               -c Release \
               --output artifacts/inspect-web-publish \
               -p:VersionPrefix="$version" \
               -p:SourceRevisionId="$GITHUB_SHA" \
-              -p:BuildTimestampUtc="$built_at"
+              -p:BuildTimestampUtc="$built_at" \
+              -p:InspectWebExpectedAsyncLowering=compiler \
+              -p:InspectWebAsyncLoweringReceiptDirectory="$GITHUB_WORKSPACE/artifacts/inspect-web-compiler-async-receipts" \
+              -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
             """;
         if (GetRequiredScalar(publish, "run", "staging publish step").TrimEnd() !=
             ExpectedPublish)
@@ -744,23 +949,32 @@ internal static class PromotionWorkflowContract
                 "Staging publish command does not match the trusted contract.");
         }
 
-        ValidateManagedApiPublish(
+        ValidateAsyncDeploymentCheck(
             RequireStep(
                 buildSteps,
                 6,
-                "Publish MSDL managed API",
+                "Verify compiler-async deployment",
+                "jobs.build"),
+            CompilerAsyncDeploymentCheck,
+            "compiler-async deployment verification step");
+
+        ValidateManagedApiPublish(
+            RequireStep(
+                buildSteps,
+                7,
+                "Publish Inspect Web managed API",
                 "jobs.build"),
             "artifacts/inspect-web-publish/api",
             "staging managed API publish step");
 
         YamlMappingNode buildVerify =
-            RequireStep(buildSteps, 7, "Verify staged site artifact", "jobs.build");
+            RequireStep(buildSteps, 8, "Verify staged site artifact", "jobs.build");
         ValidateDeploymentArtifactVerification(
             buildVerify,
             "staging build artifact verification step");
 
         YamlMappingNode upload =
-            RequireStep(buildSteps, 8, "Upload staged site artifact", "jobs.build");
+            RequireStep(buildSteps, 9, "Upload staged site artifact", "jobs.build");
         RequireExactKeys(
             upload,
             ["name", "uses", "with"],
@@ -777,6 +991,7 @@ internal static class PromotionWorkflowContract
                 ["name"] = "inspect-web-site",
                 ["path"] = "artifacts/inspect-web-publish",
                 ["if-no-files-found"] = "error",
+                ["overwrite"] = "true",
                 ["retention-days"] = "30",
                 ["include-hidden-files"] = "true",
             },
@@ -886,107 +1101,202 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging workflow root");
         RequireExactKeys(
             root,
-            ["name", "on", "permissions", "concurrency", "env", "jobs"],
+            ["name", "on", "permissions", "env", "jobs"],
             "CoreCLR staging workflow");
         RequireScalarValue(
             root,
             "name",
             "Deploy inspect-web CoreCLR staging",
             "CoreCLR staging workflow");
-        ValidateStagingTrigger(
+        ValidateCoreClrStagingTrigger(
             GetRequiredMapping(root, "on", "CoreCLR staging workflow"));
         RequireExactScalarValues(
             GetRequiredMapping(root, "permissions", "CoreCLR staging workflow"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
+                ["actions"] = "read",
                 ["contents"] = "read",
             },
             "CoreCLR staging workflow.permissions");
-        RequireExactScalarValues(
-            GetRequiredMapping(root, "concurrency", "CoreCLR staging workflow"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["group"] = "deploy-inspect-web-coreclr-staging",
-                ["cancel-in-progress"] = "true",
-            },
-            "CoreCLR staging workflow.concurrency");
         RequireExactScalarValues(
             GetRequiredMapping(root, "env", "CoreCLR staging workflow"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
+                ["DOTNET_DOTNETUP_DATA_DIR"] =
+                    "${{ github.workspace }}/artifacts/dotnetup-data",
                 ["DOTNET_NOLOGO"] = "true",
-                ["DOTNET_SDK_VERSION"] = "11.0.100-preview.7.26381.103",
+                ["DOTNET_ROOT"] =
+                    "${{ github.workspace }}/artifacts/dotnet-coreclr",
             },
             "CoreCLR staging workflow.env");
 
         YamlMappingNode jobs =
             GetRequiredMapping(root, "jobs", "CoreCLR staging workflow");
-        RequireExactKeys(jobs, ["build", "deploy"], "CoreCLR staging jobs");
+        RequireExactKeys(jobs, ["publish"], "CoreCLR staging jobs");
 
-        YamlMappingNode build =
-            GetRequiredMapping(jobs, "build", "CoreCLR staging jobs");
+        YamlMappingNode publishJob =
+            GetRequiredMapping(jobs, "publish", "CoreCLR staging jobs");
         RequireExactKeys(
-            build,
-            ["name", "if", "runs-on", "steps"],
-            "CoreCLR jobs.build");
+            publishJob,
+            ["name", "concurrency", "environment", "runs-on", "steps"],
+            "CoreCLR jobs.publish");
         RequireScalarValue(
-            build,
+            publishJob,
             "name",
-            "Build CoreCLR staging artifact",
-            "CoreCLR jobs.build");
+            "Build and publish promoted CoreCLR comparison",
+            "CoreCLR jobs.publish");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                publishJob,
+                "concurrency",
+                "CoreCLR jobs.publish"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["group"] = "deploy-inspect-web-coreclr-staging",
+                ["cancel-in-progress"] = "false",
+            },
+            "CoreCLR jobs.publish.concurrency");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                publishJob,
+                "environment",
+                "CoreCLR jobs.publish"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] = "inspect-web-coreclr-staging",
+                ["url"] = "https://coreclr.dotnet-inspect.ca",
+            },
+            "CoreCLR jobs.publish.environment");
         RequireScalarValue(
-            build,
-            "if",
-            "github.ref == 'refs/heads/main'",
-            "CoreCLR jobs.build");
-        RequireScalarValue(
-            build,
+            publishJob,
             "runs-on",
             "ubuntu-26.04",
-            "CoreCLR jobs.build");
+            "CoreCLR jobs.publish");
 
-        YamlSequenceNode buildSteps =
-            GetRequiredSequence(build, "steps", "CoreCLR jobs.build");
-        if (buildSteps.Children.Count != 9)
+        YamlSequenceNode publishSteps =
+            GetRequiredSequence(publishJob, "steps", "CoreCLR jobs.publish");
+        if (publishSteps.Children.Count != 15)
         {
             throw new InvalidOperationException(
-                "CoreCLR staging build must contain checkout, .NET and Node setup, " +
-                "workload install, frontend build, site and API publish, verification, " +
-                "and artifact upload steps.");
+                "CoreCLR publish must build and deploy the promoted product identity.");
         }
 
         YamlMappingNode checkout =
-            RequireStep(buildSteps, 0, null, "CoreCLR jobs.build");
-        RequireExactKeys(checkout, ["uses"], "CoreCLR staging build checkout");
+            RequireStep(publishSteps, 0, null, "CoreCLR jobs.publish");
+        RequireExactKeys(
+            checkout,
+            ["uses", "with"],
+            "CoreCLR staging build checkout");
         RequireScalarValue(
             checkout,
             "uses",
             CheckoutAction,
             "CoreCLR staging build checkout");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                checkout,
+                "with",
+                "CoreCLR staging build checkout"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["ref"] = "${{ inputs.source_sha }}",
+            },
+            "CoreCLR staging build checkout.with");
+
+        YamlMappingNode compilerArtifact =
+            RequireStep(
+                publishSteps,
+                1,
+                "Download compiler-async staging artifact",
+                "CoreCLR jobs.build");
+        RequireExactKeys(
+            compilerArtifact,
+            ["name", "uses", "with"],
+            "CoreCLR compiler artifact download step");
+        RequireScalarValue(
+            compilerArtifact,
+            "uses",
+            DownloadArtifactAction,
+            "CoreCLR compiler artifact download step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                compilerArtifact,
+                "with",
+                "CoreCLR compiler artifact download step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["artifact-ids"] = "${{ inputs.artifact_id }}",
+                ["path"] = "artifacts/inspect-web-compiler-publish",
+                ["github-token"] = "${{ secrets.GITHUB_TOKEN }}",
+                ["repository"] = "${{ github.repository }}",
+                ["run-id"] = "${{ inputs.staging_run_id }}",
+                ["digest-mismatch"] = "error",
+            },
+            "CoreCLR compiler artifact download step.with");
 
         YamlMappingNode setup =
-            RequireStep(buildSteps, 1, "Setup .NET", "CoreCLR jobs.build");
+            RequireStep(
+                publishSteps,
+                3,
+                "Install pinned .NET 12 SDK",
+                "CoreCLR jobs.publish");
         RequireExactKeys(
             setup,
-            ["name", "uses", "with"],
+            ["name", "shell", "run"],
             "CoreCLR staging setup step");
         RequireScalarValue(
             setup,
-            "uses",
-            SetupDotnetAction,
+            "shell",
+            "bash",
             "CoreCLR staging setup step");
-        RequireExactScalarValues(
-            GetRequiredMapping(setup, "with", "CoreCLR staging setup step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
+        const string ExpectedSdkInstall =
+            """
+            set -euo pipefail
+            pin_env="$RUNNER_TEMP/inspect-web-runtime-cohort.env"
+            node inspect-web/scripts/runtime-cohort-pin.ts export \
+              --pin inspect-web/runtime-cohort-pin.json \
+              --output "$pin_env"
+            set -a
+            source "$pin_env"
+            set +a
+            cat "$pin_env" >> "$GITHUB_ENV"
+            dotnetup_dir="$RUNNER_TEMP/dotnetup"
+            getter_script="$RUNNER_TEMP/get-dotnetup.sh"
+            mkdir -p "$dotnetup_dir" "$DOTNET_ROOT" "$DOTNET_DOTNETUP_DATA_DIR"
+            curl -fsSL --retry 3 \
+              https://aka.ms/dotnet/dotnetup/daily/get-dotnetup.sh \
+              -o "$getter_script"
+            bash "$getter_script" --install-dir "$dotnetup_dir"
+            "$dotnetup_dir/dotnetup" sdk install "$DOTNET_SDK_VERSION" \
+              --install-path "$DOTNET_ROOT" \
+              --untracked \
+              --set-default-install false \
+              --interactive false
+            cat > global.json <<EOF
             {
-                ["dotnet-version"] = "${{ env.DOTNET_SDK_VERSION }}",
-            },
-            "CoreCLR staging setup step.with");
+              "sdk": {
+                "version": "$DOTNET_SDK_VERSION",
+                "rollForward": "disable",
+                "allowPrerelease": true
+              }
+            }
+            EOF
+            echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
+            test "$("$DOTNET_ROOT/dotnet" --version)" = "$DOTNET_SDK_VERSION"
+            """;
+        if (GetRequiredScalar(
+                setup,
+                "run",
+                "CoreCLR staging setup step").TrimEnd() != ExpectedSdkInstall)
+        {
+            throw new InvalidOperationException(
+                "CoreCLR staging SDK installation does not match the trusted contract.");
+        }
 
         YamlMappingNode setupNode =
             RequireStep(
-                buildSteps,
+                publishSteps,
                 2,
                 "Setup Node",
                 "CoreCLR jobs.build");
@@ -1008,29 +1318,149 @@ internal static class PromotionWorkflowContract
             {
                 ["node-version"] = "24",
                 ["cache"] = "npm",
-                ["cache-dependency-path"] = "prototypes/inspect-web/package-lock.json",
+                ["cache-dependency-path"] = "inspect-web/package-lock.json",
             },
             "CoreCLR staging Node setup step.with");
 
         YamlMappingNode install =
             RequireStep(
-                buildSteps,
-                3,
+                publishSteps,
+                4,
                 "Install browser Wasm workload",
                 "CoreCLR jobs.build");
-        RequireExactScalarValues(
+        RequireExactKeys(
             install,
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["name"] = "Install browser Wasm workload",
-                ["run"] = "dotnet workload install wasm-tools",
-            },
+            ["name", "shell", "run"],
             "CoreCLR staging workload step");
+        RequireScalarValue(
+            install,
+            "shell",
+            "bash",
+            "CoreCLR staging workload step");
+        const string ExpectedWorkloadInstall =
+            """
+            set -euo pipefail
+            dotnet workload install "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+              --skip-manifest-update \
+              --source "$DOTNET_DAILY_FEED" \
+              --source "$DOTNET_NUGET_FEED"
+
+            cohort_dir=artifacts/inspect-web-coreclr-runtime-cohort
+            rm -rf "$cohort_dir"
+            mkdir -p "$cohort_dir"
+            dotnet --info > "$cohort_dir/dotnet-info.txt"
+            dotnet workload list > "$cohort_dir/workload-list.txt"
+
+            test "$(dotnet --version)" = "$DOTNET_SDK_VERSION"
+            test "$(dotnet --list-runtimes | awk '$1 == "Microsoft.NETCore.App" { print $2 }')" = "$DOTNET_RUNTIME_VERSION"
+            manifest="$DOTNET_ROOT/sdk-manifests/$DOTNET_SDK_FEATURE_BAND/$INSPECT_WEB_RUNTIME_WORKLOAD_MANIFEST/$DOTNET_SDK_VERSION/WorkloadManifest.json"
+            jq -e \
+              --arg sdk "$DOTNET_SDK_VERSION" \
+              --arg runtime "$DOTNET_RUNTIME_VERSION" \
+              --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+              --slurpfile pin inspect-web/runtime-cohort-pin.json \
+              '
+                . as $manifest
+                | $pin[0] as $pin
+                | .workloads[$workload].packs as $packs
+                | .version == $sdk
+                  and $packs == $pin.workload.packIds
+                  and all($packs[]; . as $id | $manifest.packs[$id].version == $runtime)
+              ' "$manifest" >/dev/null
+
+            for pack in \
+              Microsoft.NET.Runtime.WebAssembly.Sdk \
+              Microsoft.NETCore.App.Runtime.Mono.browser-wasm \
+              Microsoft.NETCore.App.Runtime.browser-wasm \
+              Microsoft.NETCore.App.Runtime.AOT.linux-x64.Cross.browser-wasm; do
+              test -d "$DOTNET_ROOT/packs/$pack/$DOTNET_RUNTIME_VERSION"
+            done
+            webassembly_pack_nupkg="$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$DOTNET_RUNTIME_VERSION.nupkg"
+            test -f "$webassembly_pack_nupkg"
+            vmr_repository=$(unzip -p "$webassembly_pack_nupkg" '*.nuspec' \
+              | sed -n 's/.*<repository[^>]*url="\([^"]*\)"[^>]*>.*/\1/p')
+            vmr_commit=$(unzip -p "$webassembly_pack_nupkg" '*.nuspec' \
+              | sed -n 's/.*<repository[^>]*commit="\([^"]*\)"[^>]*>.*/\1/p')
+            test "$vmr_repository" = "$DOTNET_VMR_REPOSITORY"
+            test "$vmr_commit" = "$DOTNET_VMR_COMMIT"
+
+            target_framework=$(dotnet msbuild \
+              inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+              -getProperty:TargetFramework \
+              -nologo)
+            test "$target_framework" = "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK"
+            runtime_pack="$DOTNET_ROOT/packs/Microsoft.NETCore.App.Runtime.browser-wasm/$DOTNET_RUNTIME_VERSION/runtimes/browser-wasm/native"
+            native_wasm_sha256=$(sha256sum "$runtime_pack/dotnet.native.wasm" | awk '{print $1}')
+            native_javascript_sha256=$(sha256sum "$runtime_pack/dotnet.native.js" | awk '{print $1}')
+
+            jq \
+              --arg sdk "$DOTNET_SDK_VERSION" \
+              --arg runtime "$DOTNET_RUNTIME_VERSION" \
+              --arg feature_band "$DOTNET_SDK_FEATURE_BAND" \
+              --arg daily_feed "$DOTNET_DAILY_FEED" \
+              --arg nuget_feed "$DOTNET_NUGET_FEED" \
+              --arg target_framework "$target_framework" \
+              --arg vmr_commit "$vmr_commit" \
+              --arg vmr_repository "$vmr_repository" \
+              --arg native_wasm_sha256 "$native_wasm_sha256" \
+              --arg native_javascript_sha256 "$native_javascript_sha256" \
+              --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+              '
+                . as $manifest
+                | .workloads[$workload].packs as $packs
+                | {
+                    schema: 2,
+                    sdk: {
+                      version: $sdk,
+                      featureBand: $feature_band
+                    },
+                    runtime: {
+                      name: "Microsoft.NETCore.App",
+                      version: $runtime,
+                      implementation: "CoreCLR",
+                      source: {
+                        repository: $vmr_repository,
+                        commit: $vmr_commit
+                      },
+                      assets: {
+                        nativeWasmSha256: $native_wasm_sha256,
+                        nativeJavaScriptSha256: $native_javascript_sha256
+                      }
+                    },
+                    targetFramework: $target_framework,
+                    configuration: {
+                      asyncLowering: "runtime",
+                      publishReadyToRun: false,
+                      wasmBuildNative: false
+                    },
+                    workload: {
+                      id: $workload,
+                      manifestVersion: .version,
+                      sources: [$daily_feed, $nuget_feed],
+                      packs: [
+                        $packs[] as $id
+                        | {
+                            id: $id,
+                            version: $manifest.packs[$id].version
+                          }
+                      ]
+                    }
+                  }
+              ' "$manifest" > "$cohort_dir/runtime-cohort.json"
+            """;
+        if (GetRequiredScalar(
+                install,
+                "run",
+                "CoreCLR staging workload step").TrimEnd() != ExpectedWorkloadInstall)
+        {
+            throw new InvalidOperationException(
+                "CoreCLR staging workload installation does not match the trusted contract.");
+        }
 
         YamlMappingNode frontend =
             RequireStep(
-                buildSteps,
-                4,
+                publishSteps,
+                5,
                 "Build browser frontend",
                 "CoreCLR jobs.build");
         RequireExactScalarValues(
@@ -1038,10 +1468,11 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["name"] = "Build browser frontend",
-                ["working-directory"] = "prototypes/inspect-web",
+                ["working-directory"] = "inspect-web",
                 ["run"] =
                     "npm ci\n" +
                     "npm run build\n" +
+                    "npx playwright install --with-deps firefox\n" +
                     "grep -q '<script type=\"importmap\"></script>' dist/index.html\n" +
                     "grep -Eq '<link rel=\"preload\" id=\"webassembly\"[[:space:]]*/?>' dist/index.html\n",
             },
@@ -1049,8 +1480,8 @@ internal static class PromotionWorkflowContract
 
         YamlMappingNode publish =
             RequireStep(
-                buildSteps,
-                5,
+                publishSteps,
+                6,
                 "Publish CoreCLR browser app",
                 "CoreCLR jobs.build");
         RequireExactKeys(
@@ -1064,20 +1495,58 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging publish step");
         const string ExpectedPublish =
             """
-            version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
+            rm -rf artifacts/inspect-web-coreclr-publish artifacts/inspect-web-runtime-async-receipts
+            nuget_config="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config"
+            cat > "$nuget_config" <<EOF
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="dotnet-workload" value="$DOTNET_ROOT/library-packs" />
+                <add key="dotnet12" value="$DOTNET_DAILY_FEED" />
+                <add key="nuget.org" value="$DOTNET_NUGET_FEED" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="dotnet-workload">
+                  <package pattern="Microsoft.NET.Sdk.WebAssembly.Pack" />
+                </packageSource>
+                <packageSource key="dotnet12">
+                  <package pattern="Microsoft.AspNetCore.App.*" />
+                  <package pattern="Microsoft.DotNet.ILCompiler" />
+                  <package pattern="Microsoft.NET.ILLink.Tasks" />
+                  <package pattern="Microsoft.NETCore.App.*" />
+                  <package pattern="runtime.*.Microsoft.DotNet.ILCompiler" />
+                </packageSource>
+                <packageSource key="nuget.org">
+                  <package pattern="*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            EOF
+            version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
-              prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+              inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
               -c Release \
               --output artifacts/inspect-web-coreclr-publish \
+              --configfile "$nuget_config" \
               -p:VersionPrefix="$version" \
-              -p:SourceRevisionId="$GITHUB_SHA" \
+              -p:SourceRevisionId="${{ inputs.source_sha }}" \
               -p:BuildTimestampUtc="$built_at" \
               -p:Features=runtime-async=on \
               -p:UseMonoRuntime=false \
+              -p:PublishReadyToRun=false \
               -p:WasmBuildNative=false \
               -p:WasmNestedPublishAppDependsOn= \
-              -p:WasmEnableExceptionHandling=true
+              -p:WasmEnableExceptionHandling=true \
+              -p:InspectWebExpectedAsyncLowering=runtime \
+              -p:InspectWebAsyncLoweringReceiptDirectory="$GITHUB_WORKSPACE/artifacts/inspect-web-runtime-async-receipts" \
+              -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
+            mkdir -p artifacts/inspect-web-coreclr-publish/runtime-cohort
+            cp artifacts/inspect-web-coreclr-runtime-cohort/dotnet-info.txt \
+              artifacts/inspect-web-coreclr-runtime-cohort/workload-list.txt \
+              artifacts/inspect-web-coreclr-runtime-cohort/runtime-cohort.json \
+              artifacts/inspect-web-coreclr-publish/runtime-cohort/
             """;
         if (GetRequiredScalar(
                 publish,
@@ -1088,29 +1557,72 @@ internal static class PromotionWorkflowContract
                 "CoreCLR staging publish command does not match the trusted contract.");
         }
 
+        ValidateAsyncDeploymentCheck(
+            RequireStep(
+                publishSteps,
+                7,
+                "Verify runtime-async deployment",
+                "CoreCLR jobs.build"),
+            RuntimeAsyncDeploymentCheck,
+            "runtime-async deployment verification step");
+
+        YamlMappingNode packageOperation =
+            RequireStep(
+                publishSteps,
+                8,
+                "Test CoreCLR package operation",
+                "CoreCLR jobs.build");
+        RequireExactKeys(
+            packageOperation,
+            ["name", "shell", "run"],
+            "CoreCLR package operation step");
+        RequireScalarValue(
+            packageOperation,
+            "shell",
+            "bash",
+            "CoreCLR package operation step");
+        if (GetRequiredScalar(
+                packageOperation,
+                "run",
+                "CoreCLR package operation step").TrimEnd()
+            != CoreClrPackageOperationCheck)
+        {
+            throw new InvalidOperationException(
+                "CoreCLR package operation does not match the trusted contract.");
+        }
+
         ValidateManagedApiPublish(
             RequireStep(
-                buildSteps,
-                6,
-                "Publish MSDL managed API",
+                publishSteps,
+                9,
+                "Publish Inspect Web managed API",
                 "CoreCLR jobs.build"),
             "artifacts/inspect-web-coreclr-publish/api",
             "CoreCLR managed API publish step");
 
         YamlMappingNode buildVerify =
             RequireStep(
-                buildSteps,
-                7,
+                publishSteps,
+                10,
                 "Verify CoreCLR site artifact",
                 "CoreCLR jobs.build");
         ValidateCoreClrArtifactVerification(
             buildVerify,
             "CoreCLR build artifact verification step");
 
+        ValidateAsyncDeploymentCheck(
+            RequireStep(
+                publishSteps,
+                11,
+                "Compare compiler-async and runtime-async receipts",
+                "CoreCLR jobs.build"),
+            PairedAsyncDeploymentCheck,
+            "paired async deployment comparison step");
+
         YamlMappingNode upload =
             RequireStep(
-                buildSteps,
-                8,
+                publishSteps,
+                12,
                 "Upload CoreCLR staged site artifact",
                 "CoreCLR jobs.build");
         RequireExactKeys(
@@ -1137,87 +1649,17 @@ internal static class PromotionWorkflowContract
             },
             "CoreCLR staging artifact upload step.with");
 
-        YamlMappingNode deploy =
-            GetRequiredMapping(jobs, "deploy", "CoreCLR staging jobs");
-        RequireExactKeys(
-            deploy,
-            ["name", "needs", "if", "environment", "runs-on", "steps"],
-            "CoreCLR jobs.deploy");
-        RequireScalarValue(deploy, "needs", "build", "CoreCLR jobs.deploy");
-        RequireScalarValue(
-            deploy,
-            "name",
-            "Publish CoreCLR staging",
-            "CoreCLR jobs.deploy");
-        RequireScalarValue(
-            deploy,
-            "if",
-            "github.ref == 'refs/heads/main'",
-            "CoreCLR jobs.deploy");
-        RequireScalarValue(
-            deploy,
-            "runs-on",
-            "ubuntu-26.04",
-            "CoreCLR jobs.deploy");
-        RequireExactScalarValues(
-            GetRequiredMapping(
-                deploy,
-                "environment",
-                "CoreCLR jobs.deploy"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["name"] = "inspect-web-coreclr-staging",
-                ["url"] = "https://coreclr.dotnet-inspect.ca",
-            },
-            "CoreCLR jobs.deploy.environment");
-
-        YamlSequenceNode deploySteps =
-            GetRequiredSequence(deploy, "steps", "CoreCLR jobs.deploy");
-        if (deploySteps.Children.Count != 3)
-        {
-            throw new InvalidOperationException(
-                "CoreCLR staging deployment must contain only artifact download, " +
-                "artifact verification, and deploy steps.");
-        }
-
-        YamlMappingNode download =
-            RequireStep(
-                deploySteps,
-                0,
-                "Download CoreCLR staged site artifact");
-        RequireExactKeys(
-            download,
-            ["name", "uses", "with"],
-            "CoreCLR staging artifact download step");
-        RequireScalarValue(
-            download,
-            "uses",
-            DownloadArtifactAction,
-            "CoreCLR staging artifact download step");
-        RequireExactScalarValues(
-            GetRequiredMapping(
-                download,
-                "with",
-                "CoreCLR staging artifact download step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["name"] = "inspect-web-coreclr-site",
-                ["path"] = "artifacts/inspect-web-coreclr-publish",
-                ["digest-mismatch"] = "error",
-            },
-            "CoreCLR staging artifact download step.with");
-
         YamlMappingNode deployVerify =
             RequireStep(
-                deploySteps,
-                1,
+                publishSteps,
+                13,
                 "Verify CoreCLR staged site artifact");
         ValidateCoreClrArtifactVerification(
             deployVerify,
             "CoreCLR staging artifact verification step");
 
         YamlMappingNode deployStep =
-            RequireStep(deploySteps, 2, "Deploy to CoreCLR staging");
+            RequireStep(publishSteps, 14, "Deploy to CoreCLR staging");
         RequireExactKeys(
             deployStep,
             ["name", "uses", "with"],
@@ -1257,7 +1699,7 @@ internal static class PromotionWorkflowContract
         string command =
             GetRequiredScalar(step, "run", context).Trim();
         string expected =
-            "dotnet publish prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj "
+            "dotnet publish inspect-web/msdl-proxy/MsdlProxy.csproj "
             + $"-c Release --output {output}";
         if (command != expected)
         {
@@ -1272,11 +1714,172 @@ internal static class PromotionWorkflowContract
     {
         RequireExactKeys(step, ["name", "shell", "run"], context);
         RequireScalarValue(step, "shell", "bash", context);
-        if (GetRequiredScalar(step, "run", context).TrimEnd() !=
-            CoreClrDeploymentFilesCheck)
+        ValidateArtifactVerificationScript(
+            GetRequiredScalar(step, "run", context),
+            "runtime",
+            coreClr: true,
+            context);
+    }
+
+    private static void ValidateAsyncDeploymentCheck(
+        YamlMappingNode step,
+        string expected,
+        string context)
+    {
+        RequireExactKeys(step, ["name", "shell", "run"], context);
+        RequireScalarValue(step, "shell", "bash", context);
+        if (GetRequiredScalar(step, "run", context).TrimEnd() != expected)
         {
             throw new InvalidOperationException(
                 $"{context} does not match the trusted contract.");
+        }
+    }
+
+    private static void ValidateAsyncDeploymentVerifier(string script)
+    {
+        string[] required =
+        [
+            "if [[ \"${1:-}\" == \"--compare\" ]]",
+            "commonTopLevel(compiler)",
+            "compiler.assemblies.map(commonAssembly)",
+            "\"$repo_root/inspect-web/scripts/verify-async-lowering.cs\"",
+            "-getProperty:VersionPrefix",
+            "\"$repo_root/eng/generate-inspect-web-engine-facade.sh\" \\\n  --contract",
+            "\"$declarations\" \\\n  \"$version_prefix\"",
+            "--context DotnetInspect.Web.InspectWebJsExportContext",
+            "/^DotnetInspect\\.Web\\.Interop\\.([A-Z][A-Za-z0-9]*)$/",
+            "compiled InspectWebJsExportContext does not declare the exact facade set",
+            "\"$tsc\" -p \"$compiled_sources/tsconfig.json\"",
+            "differs from the freshly compiled context source",
+            "\"$repo_root/inspect-web/scripts/verify-published-engine-facades.ts\"",
+            "\"$site\" \\\n  deployment \\\n  \"$domain\"",
+            "\"$repo_root/inspect-web/scripts/verify-async-project-graph.ts\"",
+            "async_method_count: census.async_method_count",
+            "assembly_count: assemblies.length",
+            "js_export_method_count: census.js_export_method_count",
+            "repository_projects: graph.repository_projects",
+            "repository_project_count: graph.repository_project_count",
+            "repository_project_sha256: graph.repository_project_sha256",
+            "generated_source_sha256: sha256(sourcePath)",
+            "declaration_sha256: sha256(declarationPath)",
+            "published_js_sha256: sha256(javascriptPath)",
+            "published_webcil_sha256: sha256(",
+            "schema: 5",
+        ];
+        string[] missing = required
+            .Where(value =>
+                script.Split(value, StringSplitOptions.None).Length != 2)
+            .ToArray();
+        if (missing.Length != 0)
+        {
+            throw new InvalidOperationException(
+                "Inspect-web async deployment verifier does not contain each "
+                + "trusted evidence step exactly once. Missing or duplicate: ["
+                + string.Join(", ", missing)
+                + "].");
+        }
+    }
+
+    private static void InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet(
+        string script)
+    {
+        string[] required =
+        [
+            "InspectWebJsExportContext",
+            "census.assemblies.map",
+            "assert.equal(census.assembly_count, 7)",
+            "assert.ok(\n  census.js_export_method_count > 0,",
+            "generated_source_file:",
+            "generated_source_sha256:",
+            "declaration_file:",
+            "declaration_sha256:",
+            "published_js_file:",
+            "published_js_sha256:",
+            "published_webcil_file:",
+            "published_webcil_sha256:",
+            "repository_projects:",
+            "repository_project_sha256:",
+            "smoke.initialized_facades",
+            "schema: 5",
+        ];
+        string[] assemblies =
+        [
+            "DotnetInspect.Web",
+            "DotnetInspect.Web.Interop.Analysis",
+            "DotnetInspect.Web.Interop.CallGraph",
+            "DotnetInspect.Web.Interop.Catalog",
+            "DotnetInspect.Web.Interop.Metadata",
+            "DotnetInspect.Web.Interop.Package",
+            "DotnetInspect.Web.Interop.Source",
+        ];
+        string[] missing = required
+            .Concat(assemblies.Select(assembly => $"  \"{assembly}\","))
+            .Where(value => !script.Contains(value, StringComparison.Ordinal))
+            .ToArray();
+        if (missing.Length != 0
+            || script.Contains("\"DotnetInspect.Web.Core\"", StringComparison.Ordinal)
+            || script.Contains("readdirSync(assemblyDirectory)", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet failed. "
+                + "Missing: ["
+                + string.Join(", ", missing)
+                + "].");
+        }
+    }
+
+    private static void
+        InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts(string script)
+    {
+        string[] required =
+        [
+            "assert.deepEqual(\n  commonTopLevel(compiler),\n  commonTopLevel(runtime)",
+            "assert.deepEqual(\n  compiler.assemblies.map(commonAssembly),\n  runtime.assemblies.map(commonAssembly)",
+            "generated_source_sha256: assembly.generated_source_sha256",
+            "declaration_sha256: assembly.declaration_sha256",
+            "published_js_sha256: assembly.published_js_sha256",
+            "repository_projects: receipt.repository_projects",
+            "repository_project_sha256: receipt.repository_project_sha256",
+            "receipt.compiler_async_method_count",
+            "receipt.runtime_async_method_count",
+            "assembly.compiler_async_method_count",
+            "assembly.runtime_async_method_count",
+        ];
+        string[] missing = required
+            .Where(value => !script.Contains(value, StringComparison.Ordinal))
+            .ToArray();
+        if (missing.Length != 0)
+        {
+            throw new InvalidOperationException(
+                "InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts "
+                + "failed. Missing: ["
+                + string.Join(", ", missing)
+                + "].");
+        }
+    }
+
+    private static void ValidateAsyncLoweringReceiptTarget(string target)
+    {
+        string[] required =
+        [
+            "BeforeTargets=\"CoreCompile\"",
+            "Condition=\"'$(InspectWebExpectedAsyncLowering)' != 'compiler' And '$(InspectWebExpectedAsyncLowering)' != 'runtime'\"",
+            "Condition=\"'$(InspectWebExpectedAsyncLowering)' == 'runtime' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'\"",
+            "Condition=\"'$(InspectWebExpectedAsyncLowering)' == 'compiler' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) == 'True'\"",
+            "File=\"$(InspectWebAsyncLoweringReceiptDirectory)/$(MSBuildProjectName).txt\"",
+            "Lines=\"$(MSBuildProjectFullPath)\"",
+        ];
+        string[] missing = required
+            .Where(value =>
+                target.Split(value, StringSplitOptions.None).Length != 2)
+            .ToArray();
+        if (missing.Length != 0)
+        {
+            throw new InvalidOperationException(
+                "Inspect-web async-lowering receipt target does not contain each "
+                + "trusted compile receipt step exactly once. Missing or duplicate: ["
+                + string.Join(", ", missing)
+                + "].");
         }
     }
 
@@ -1286,12 +1889,211 @@ internal static class PromotionWorkflowContract
     {
         RequireExactKeys(step, ["name", "shell", "run"], context);
         RequireScalarValue(step, "shell", "bash", context);
-        if (GetRequiredScalar(step, "run", context).TrimEnd() !=
-            DeploymentFilesCheck)
+        ValidateArtifactVerificationScript(
+            GetRequiredScalar(step, "run", context),
+            "compiler",
+            coreClr: false,
+            context);
+    }
+
+    private static void ValidateArtifactVerificationScript(
+        string script,
+        string lowering,
+        bool coreClr,
+        string context)
+    {
+        string expected = BuildArtifactVerificationScript(lowering, coreClr);
+        if (script.TrimEnd() != expected)
         {
             throw new InvalidOperationException(
-                $"{context} does not match the trusted contract.");
+                $"{context} does not match the trusted artifact verification contract.");
         }
+    }
+
+    private static string BuildArtifactVerificationScript(
+        string lowering,
+        bool coreClr)
+    {
+        string publishRoot = coreClr
+            ? "artifacts/inspect-web-coreclr-publish"
+            : "artifacts/inspect-web-publish";
+        string compilerCount = lowering == "compiler"
+            ? ".compiler_async_method_count == .async_method_count"
+            : ".compiler_async_method_count == 0";
+        string runtimeCount = lowering == "runtime"
+            ? ".runtime_async_method_count == .async_method_count"
+            : ".runtime_async_method_count == 0";
+        string coreClrChecks = coreClr
+            ? $$"""
+              test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
+              test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.wasm' | wc -l)" -eq 1
+              grep -q GetDotNetRuntimeHeap "$site"/_framework/dotnet.native.*.js
+              cohort={{publishRoot}}/runtime-cohort
+              test -f "$cohort/dotnet-info.txt"
+              test -f "$cohort/workload-list.txt"
+              jq -e \
+                --arg sdk "$DOTNET_SDK_VERSION" \
+                --arg feature_band "$DOTNET_SDK_FEATURE_BAND" \
+                --arg runtime "$DOTNET_RUNTIME_VERSION" \
+                --arg repository "$DOTNET_VMR_REPOSITORY" \
+                --arg commit "$DOTNET_VMR_COMMIT" \
+                --arg target_framework "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK" \
+                --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+                --arg daily_feed "$DOTNET_DAILY_FEED" \
+                --arg nuget_feed "$DOTNET_NUGET_FEED" \
+                --slurpfile pin inspect-web/runtime-cohort-pin.json \
+                '
+                .schema == 2
+                and .sdk == {
+                  version: $sdk,
+                  featureBand: $feature_band
+                }
+                and .runtime.name == "Microsoft.NETCore.App"
+                and .runtime.version == $runtime
+                and .runtime.implementation == "CoreCLR"
+                and .runtime.source == {
+                  repository: $repository,
+                  commit: $commit
+                }
+                and (.runtime.assets.nativeWasmSha256 | test("^[0-9a-f]{64}$"))
+                and (.runtime.assets.nativeJavaScriptSha256 | test("^[0-9a-f]{64}$"))
+                and .targetFramework == $target_framework
+                and .configuration == {
+                  asyncLowering: "runtime",
+                  publishReadyToRun: false,
+                  wasmBuildNative: false
+                }
+                and .workload.id == $workload
+                and .workload.manifestVersion == $sdk
+                and .workload.sources == [$daily_feed, $nuget_feed]
+                and .workload.packs == [
+                  $pin[0].workload.packIds[] | {
+                    id: .,
+                    version: $runtime
+                  }
+                ]
+              ' "$cohort/runtime-cohort.json" >/dev/null
+              test "$(sha256sum "$site"/_framework/dotnet.native.*.wasm | awk '{print $1}')" = \
+                "$(jq -r '.runtime.assets.nativeWasmSha256' "$cohort/runtime-cohort.json")"
+              test "$(sha256sum "$site"/_framework/dotnet.native.*.js | awk '{print $1}')" = \
+                "$(jq -r '.runtime.assets.nativeJavaScriptSha256' "$cohort/runtime-cohort.json")"
+              """
+            : "";
+        const string Template =
+            """
+            set -euo pipefail
+            site=__PUBLISH_ROOT__/wwwroot
+            api=__PUBLISH_ROOT__/api
+            index="$site/index.html"
+            receipt=__PUBLISH_ROOT__/async-lowering.json
+            test -f "$index"
+            jq -e '
+              .schema == 5
+              and .method == "InspectionEngine.AsyncLoweringCanary"
+              and .lowering == "__LOWERING__"
+              and .result == "inspect-web-async-lowering-ok"
+              and .facade_count == 7
+              and .assembly_count == 7
+              and .js_export_method_count > 0
+              and .async_method_count > 0
+              and __COMPILER_COUNT__
+              and __RUNTIME_COUNT__
+              and .repository_project_count > 0
+              and (.repository_projects | length) == .repository_project_count
+              and .repository_projects == (.repository_projects | sort | unique)
+              and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
+              and ([.assemblies[].name] == [
+                "DotnetInspect.Web",
+                "DotnetInspect.Web.Interop.Analysis",
+                "DotnetInspect.Web.Interop.CallGraph",
+                "DotnetInspect.Web.Interop.Catalog",
+                "DotnetInspect.Web.Interop.Metadata",
+                "DotnetInspect.Web.Interop.Package",
+                "DotnetInspect.Web.Interop.Source"
+              ])
+              and ([.assemblies[].module] == [
+                "inspect-web-host",
+                "inspect-web-analysis",
+                "inspect-web-call-graph",
+                "inspect-web-catalog",
+                "inspect-web-metadata",
+                "inspect-web-package",
+                "inspect-web-source"
+              ])
+              and all(.assemblies[];
+                .file == (.name + ".dll")
+                and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$"))
+                and .generated_source_file == (.name + ".ts")
+                and (.generated_source_sha256 | test("^[0-9a-f]{64}$"))
+                and .declaration_file == (.module + ".d.ts")
+                and (.declaration_sha256 | test("^[0-9a-f]{64}$"))
+                and .published_js_file == (.module + ".js")
+                and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
+                and .webcil_assembly == .name
+                and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
+                and (.published_webcil_file | test("^DotnetInspect\\.Web(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+                and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
+                and .js_export_method_count > 0
+                and .async_method_count > 0
+                and __COMPILER_COUNT__
+                and __RUNTIME_COUNT__)
+              and ([.assemblies[].js_export_method_count] | add) == .js_export_method_count
+              and ([.assemblies[].async_method_count] | add) == .async_method_count
+              and ([.assemblies[].compiler_async_method_count] | add) == .compiler_async_method_count
+              and ([.assemblies[].runtime_async_method_count] | add) == .runtime_async_method_count
+              and .smoke.initialized_facades == [.assemblies[] | {
+                assembly: .name,
+                module: .module
+              }]
+              and .smoke.sdk_create_count == 1
+              and .smoke.sdk_runtime_count == 1
+              and .smoke.entry_point_count == 0
+              and .smoke.async_lowering_canary == "inspect-web-async-lowering-ok"
+            ' "$receipt" >/dev/null
+            expected_modules=$(jq -r '.assemblies[].published_js_file' "$receipt" | sort)
+            published_modules=$(find "$site" -maxdepth 1 -type f -name 'inspect-web-*.js' -printf '%f\n' | sort)
+            test "$published_modules" = "$expected_modules"
+            while IFS=$'\t' read -r js_file js_sha webcil_file webcil_sha; do
+              test "$(sha256sum "$site/$js_file" | awk '{print $1}')" = "$js_sha"
+              test "$(sha256sum "$site/_framework/$webcil_file" | awk '{print $1}')" = "$webcil_sha"
+            done < <(jq -r '.assemblies[] | [.published_js_file, .published_js_sha256, .published_webcil_file, .published_webcil_sha256] | @tsv' "$receipt")
+            test ! -f "$site/inspect-web-engine.js"
+            test ! -f "$site/inspect-web-engine.ts"
+            test -f "$site/staticwebapp.config.json"
+            test -f "$api/host.json"
+            test -f "$api/functions.metadata"
+            test -f "$api/worker.config.json"
+            test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
+            jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
+            manifest="$site/manifest.json"
+            test -f "$manifest"
+            jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
+            vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
+            while IFS= read -r asset; do
+              [[ "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
+              test -f "$site/$asset"
+            done <<< "$vite_assets"
+            vite_entry=$(jq -er '.["index.html"].file' "$manifest")
+            grep -Fq "src=\"/$vite_entry\"" "$index"
+            vite_stylesheets=$(jq -er '.["index.html"].css | if length > 0 then join("\n") else error("missing Vite stylesheet") end' "$manifest")
+            while IFS= read -r stylesheet; do
+              grep -Fq "href=\"/$stylesheet\"" "$index"
+            done <<< "$vite_stylesheets"
+            dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
+            test -n "$dotnet_module"
+            test -f "$site/_framework/$dotnet_module"
+            import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
+            module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
+            test "$import_map_line" -lt "$module_line"
+            __CORECLR_CHECKS__
+            """;
+        return Template
+            .Replace("__PUBLISH_ROOT__", publishRoot, StringComparison.Ordinal)
+            .Replace("__LOWERING__", lowering, StringComparison.Ordinal)
+            .Replace("__COMPILER_COUNT__", compilerCount, StringComparison.Ordinal)
+            .Replace("__RUNTIME_COUNT__", runtimeCount, StringComparison.Ordinal)
+            .Replace("__CORECLR_CHECKS__", coreClrChecks, StringComparison.Ordinal)
+            .TrimEnd();
     }
 
     private static void ValidatePromotionTrigger(YamlMappingNode on)
@@ -1304,7 +2106,7 @@ internal static class PromotionWorkflowContract
             GetRequiredMapping(dispatch, "inputs", "promotion workflow_dispatch");
         RequireExactKeys(
             inputs,
-            ["staging_run_id", "confirm"],
+            ["staging_run_id", "allow_manual_staging", "confirm"],
             "promotion workflow_dispatch.inputs");
         RequireExactScalarValues(
             GetRequiredMapping(
@@ -1318,6 +2120,20 @@ internal static class PromotionWorkflowContract
                 ["required"] = "true",
             },
             "promotion staging_run_id input");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                inputs,
+                "allow_manual_staging",
+                "promotion workflow_dispatch.inputs"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["description"] =
+                    "Allow an operator-dispatched staging run instead of a main-push run",
+                ["required"] = "true",
+                ["default"] = "false",
+                ["type"] = "boolean",
+            },
+            "promotion allow_manual_staging input");
         RequireExactScalarValues(
             GetRequiredMapping(
                 inputs,
@@ -1353,6 +2169,64 @@ internal static class PromotionWorkflowContract
             throw new InvalidOperationException(
                 "Staging workflow_dispatch must not declare inputs.");
         }
+    }
+
+    private static void ValidateCoreClrStagingTrigger(YamlMappingNode on)
+    {
+        RequireExactKeys(on, ["workflow_call"], "CoreCLR staging workflow.on");
+        YamlMappingNode workflowCall =
+            GetRequiredMapping(on, "workflow_call", "CoreCLR staging workflow.on");
+        RequireExactKeys(
+            workflowCall,
+            ["inputs"],
+            "CoreCLR staging workflow.on.workflow_call");
+        YamlMappingNode inputs =
+            GetRequiredMapping(
+                workflowCall,
+                "inputs",
+                "CoreCLR staging workflow.on.workflow_call");
+        RequireExactKeys(
+            inputs,
+            ["staging_run_id", "source_sha", "artifact_id"],
+            "CoreCLR staging workflow_call.inputs");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                inputs,
+                "staging_run_id",
+                "CoreCLR staging workflow_call.inputs"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["description"] =
+                    "Staging run whose exact site artifact was promoted",
+                ["required"] = "true",
+                ["type"] = "string",
+            },
+            "CoreCLR staging_run_id input");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                inputs,
+                "source_sha",
+                "CoreCLR staging workflow_call.inputs"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["description"] = "Exact product commit promoted to production",
+                ["required"] = "true",
+                ["type"] = "string",
+            },
+            "CoreCLR source_sha input");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                inputs,
+                "artifact_id",
+                "CoreCLR staging workflow_call.inputs"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["description"] =
+                    "Exact staged site artifact promoted to production",
+                ["required"] = "true",
+                ["type"] = "string",
+            },
+            "CoreCLR artifact_id input");
     }
 
     private static void ValidateResolveSteps(YamlSequenceNode steps)
@@ -1418,8 +2292,7 @@ internal static class PromotionWorkflowContract
             GetRequiredMapping(setup, "with", "resolution setup step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["dotnet-version"] = "11.0.x",
-                ["dotnet-quality"] = "preview",
+                ["dotnet-version"] = "11.0.100-rc.1.26425.128",
             },
             "resolution setup step.with");
 
@@ -1437,6 +2310,7 @@ internal static class PromotionWorkflowContract
             {
                 ["GH_TOKEN"] = "${{ secrets.GITHUB_TOKEN }}",
                 ["STAGING_RUN_ID"] = "${{ inputs.staging_run_id }}",
+                ["ALLOW_MANUAL_STAGING"] = "${{ inputs.allow_manual_staging }}",
             },
             "staging evidence step.env");
         const string ExpectedValidation =
@@ -1444,7 +2318,8 @@ internal static class PromotionWorkflowContract
             bash eng/validate-inspect-web-promotion.sh \
               "$STAGING_RUN_ID" \
               720 \
-              "$GITHUB_OUTPUT"
+              "$GITHUB_OUTPUT" \
+              "$ALLOW_MANUAL_STAGING"
             """;
         if (GetRequiredScalar(validate, "run", "staging evidence step").TrimEnd() !=
             ExpectedValidation)

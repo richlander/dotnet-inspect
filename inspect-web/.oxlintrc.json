@@ -1,0 +1,115 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "jsdoc",
+    "promise"
+  ],
+  "env": {
+    "browser": true,
+    "es2022": true
+  },
+  "options": {
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "error",
+    "typeAware": true
+  },
+  "overrides": [
+    {
+      "files": [
+        "scripts/*.ts",
+        "test/**/*.ts",
+        "vite.config.ts"
+      ],
+      "env": {
+        "browser": false,
+        "node": true
+      }
+    },
+    {
+      "files": [
+        "DotnetInspect.Web/wwwroot/inspect-web-host.js",
+        "DotnetInspect.Web/wwwroot/inspect-web-package.js",
+        "DotnetInspect.Web/wwwroot/inspect-web-metadata.js",
+        "DotnetInspect.Web/wwwroot/inspect-web-analysis.js",
+        "DotnetInspect.Web/wwwroot/inspect-web-source.js",
+        "DotnetInspect.Web/wwwroot/inspect-web-call-graph.js",
+        "DotnetInspect.Web/wwwroot/inspect-web-catalog.js"
+      ],
+      "rules": {
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off",
+        "typescript/use-unknown-in-catch-callback-variable": "off"
+      }
+    },
+    {
+      "files": [
+        "DotnetInspect.Web/facades/inspect-web-host.ts",
+        "DotnetInspect.Web/facades/inspect-web-package.ts",
+        "DotnetInspect.Web/facades/inspect-web-metadata.ts",
+        "DotnetInspect.Web/facades/inspect-web-analysis.ts",
+        "DotnetInspect.Web/facades/inspect-web-source.ts",
+        "DotnetInspect.Web/facades/inspect-web-call-graph.ts",
+        "DotnetInspect.Web/facades/inspect-web-catalog.ts",
+        "multi-facade-canary/facades/alpha.ts",
+        "multi-facade-canary/facades/beta.ts",
+        "managed-operation-bridge-canary/facades/bridge.ts"
+      ],
+      "rules": {
+        "typescript/no-redundant-type-constituents": "off",
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off",
+        "typescript/no-unsafe-type-assertion": "off"
+      }
+    }
+  ],
+  "rules": {
+    "eslint/no-underscore-dangle": "off",
+    "import/no-unassigned-import": [
+      "error",
+      {
+        "allow": [
+          "prismjs/components/*"
+        ]
+      }
+    ],
+    "typescript/no-floating-promises": [
+      "error",
+      {
+        "allowForKnownSafeCalls": [
+          {
+            "from": "package",
+            "name": "test",
+            "package": "node:test"
+          }
+        ]
+      }
+    ],
+    "typescript/no-misused-promises": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/only-throw-error": "error",
+    "typescript/prefer-promise-reject-errors": "error",
+    "typescript/restrict-plus-operands": "error",
+    "typescript/use-unknown-in-catch-callback-variable": "error",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/prefer-add-event-listener": "off"
+  }
+}

@@ -24,7 +24,16 @@ public sealed record CSharpStructuralDiffDocument
     public const int CurrentSchemaVersion = 1;
 
     /// <summary>Current correspondence and structural-comparison methodology.</summary>
-    public const int CurrentMethodologyVersion = 1;
+    /// <remarks>
+    /// Bumped from 1 to 2 when <see cref="CSharpUnmatchedNodeReason.InferredDeclaration"/>
+    /// was introduced: replaying a version-1 artifact whose null-provenance
+    /// declaration node was recorded as <c>Unsupported</c> now reissues
+    /// <c>InferredDeclaration</c> for the same shape, so the replay-equality
+    /// check in this record's constructor would otherwise reject it with a
+    /// misleadingly generic mismatch error. The version gate above makes that
+    /// invalidation explicit instead.
+    /// </remarks>
+    public const int CurrentMethodologyVersion = 2;
 
     /// <summary>Creates and validates one portable structural diff.</summary>
     public CSharpStructuralDiffDocument(

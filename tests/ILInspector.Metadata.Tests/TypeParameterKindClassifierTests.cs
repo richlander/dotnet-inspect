@@ -1890,15 +1890,22 @@ public class TypeParameterKindClassifierTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && _assemblies.TryGetValue(
-                    reference.Identity.Name,
-                    out ResolvedAssemblyReference? assembly)
+                reference.Identity.Name,
+                out ResolvedAssemblyReference? assembly)
                 ? AssemblyBindingSelection.Found(assembly)
                 : AssemblyBindingSelection.NotFound();
+        }
     }
 
     sealed class MissingPolicy : IAssemblyBindingPolicy
@@ -1906,8 +1913,15 @@ public class TypeParameterKindClassifierTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NotFound();
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.NotFound();
+        }
     }
 }

@@ -1,0 +1,833 @@
+name: Inspect Web controlled runtime cohort
+
+on:
+  workflow_call:
+    outputs:
+      evidence_artifact_name:
+        description: Exact accepted cohort evidence artifact
+        value: ${{ jobs.benchmark.outputs.evidence_artifact_name }}
+    inputs:
+      dotnet_sdk_version:
+        description: Candidate SDK version to validate instead of the checked-in pin
+        required: false
+        type: string
+      dotnet_sdk_feature_band:
+        description: Candidate SDK feature band
+        required: false
+        type: string
+      dotnet_runtime_version:
+        description: Candidate runtime/workload version
+        required: false
+        type: string
+      dotnet_vmr_commit:
+        description: Candidate dotnet/dotnet VMR commit
+        required: false
+        type: string
+      samples:
+        description: Samples per admitted runtime
+        required: false
+        type: number
+        default: 5
+      member_count:
+        description: Distinct member-facts operations per sample
+        required: false
+        type: number
+        default: 10
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: Samples per admitted runtime
+        required: true
+        type: number
+        default: 5
+      member_count:
+        description: Distinct member-facts operations per sample
+        required: true
+        type: number
+        default: 10
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inspect-web-runtime-cohort
+  cancel-in-progress: false
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+  MONO_DOTNET_SDK_VERSION: '11.0.100-rc.1.26425.128'
+
+jobs:
+  frontend:
+    name: Build shared frontend
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Build frontend
+        working-directory: inspect-web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          mkdir -p ../artifacts/runtime-cohort-frontend
+          cp -a dist ../artifacts/runtime-cohort-frontend/dist
+          (
+            cd dist
+            find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum
+          ) > ../artifacts/runtime-cohort-frontend/frontend-sha256.txt
+
+      - name: Upload frontend
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspect-web-runtime-cohort-frontend
+          path: artifacts/runtime-cohort-frontend
+          if-no-files-found: error
+          retention-days: 1
+
+  mono:
+    name: Build Mono control
+    needs: frontend
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.MONO_DOTNET_SDK_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Download shared frontend
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-runtime-cohort-frontend
+          path: artifacts/runtime-cohort-frontend
+          digest-mismatch: error
+
+      - name: Prepare build
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet workload install wasm-experimental
+          npm ci --prefix inspect-web
+          rm -rf inspect-web/dist
+          cp -a artifacts/runtime-cohort-frontend/dist inspect-web/dist
+          (
+            cd inspect-web/dist
+            find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum
+          ) | cmp - artifacts/runtime-cohort-frontend/frontend-sha256.txt
+
+      - name: Publish Mono control
+        shell: bash
+        run: |
+          set -euo pipefail
+          output=artifacts/runtime-cohort-sites/mono
+          receipt_dir=artifacts/runtime-cohort-mono-async-receipts
+          rm -rf "$output" "$receipt_dir"
+          version=$(dotnet msbuild \
+            src/DotnetInspect.Cli/DotnetInspect.Cli.csproj \
+            -getProperty:VersionPrefix \
+            -nologo)
+          built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          dotnet publish \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            -c Release \
+            --output "$output" \
+            -p:VersionPrefix="$version" \
+            -p:SourceRevisionId="$GITHUB_SHA" \
+            -p:BuildTimestampUtc="$built_at" \
+            -p:InspectWebExpectedAsyncLowering=compiler \
+            -p:InspectWebAsyncLoweringReceiptDirectory="$GITHUB_WORKSPACE/$receipt_dir" \
+            -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
+          eng/verify-inspect-web-async-deployment.sh \
+            compiler \
+            inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+            "$output/wwwroot" \
+            "$output/async-lowering.json" \
+            "$receipt_dir"
+          cp artifacts/runtime-cohort-frontend/frontend-sha256.txt "$output/"
+
+          (
+            cd "$output/wwwroot"
+            find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum
+          ) > "$output/site-sha256.txt"
+          sdk_version=$(dotnet --version)
+          runtime_version=$(dotnet --list-runtimes \
+            | awk '$1 == "Microsoft.NETCore.App" && $2 ~ /^11\./ { print $2 }' \
+            | sort -V \
+            | tail -n 1)
+          test -n "$runtime_version"
+          jq -n \
+            --arg source_commit "$GITHUB_SHA" \
+            --arg sdk_version "$sdk_version" \
+            --arg runtime_version "$runtime_version" \
+            --arg frontend_manifest_sha256 \
+              "$(sha256sum artifacts/runtime-cohort-frontend/frontend-sha256.txt | awk '{print $1}')" \
+            --arg site_manifest_sha256 \
+              "$(sha256sum "$output/site-sha256.txt" | awk '{print $1}')" \
+            --arg async_receipt_sha256 \
+              "$(sha256sum "$output/async-lowering.json" | awk '{print $1}')" \
+            '{
+              schema: 1,
+              name: "mono",
+              role: "required",
+              sourceCommit: $source_commit,
+              frontendManifestSha256: $frontend_manifest_sha256,
+              siteManifestSha256: $site_manifest_sha256,
+              asyncLoweringReceiptSha256: $async_receipt_sha256,
+              runtimeCohortReceiptSha256: null,
+              runtime: {
+                implementation: "Mono",
+                sdkVersion: $sdk_version,
+                runtimeVersion: $runtime_version,
+                workload: "wasm-experimental",
+                vmrCommit: null,
+                nativeWasmSha256: null,
+                nativeJavaScriptSha256: null
+              },
+              configuration: {
+                asyncLowering: "compiler",
+                publishReadyToRun: false,
+                publishReadyToRunComposite: null,
+                wasmBuildNative: false
+              }
+            }' > "$output/runtime-variant.json"
+
+      - name: Upload Mono control
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspect-web-runtime-cohort-mono
+          path: artifacts/runtime-cohort-sites/mono
+          if-no-files-found: error
+          retention-days: 1
+
+  coreclr:
+    name: Build ${{ matrix.name }}
+    needs: frontend
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: coreclr-il
+            role: required
+            ready_to_run: 'false'
+          - name: coreclr-r2r
+            role: candidate
+            ready_to_run: 'true'
+    env:
+      DOTNET_DOTNETUP_DATA_DIR: ${{ github.workspace }}/artifacts/dotnetup-data-${{ matrix.name }}
+      DOTNET_ROOT: ${{ github.workspace }}/artifacts/dotnet-${{ matrix.name }}
+      RUNTIME_COHORT_RUNTIME_VERSION_OVERRIDE: ${{ inputs.dotnet_runtime_version || '' }}
+      RUNTIME_COHORT_SDK_FEATURE_BAND_OVERRIDE: ${{ inputs.dotnet_sdk_feature_band || '' }}
+      RUNTIME_COHORT_SDK_VERSION_OVERRIDE: ${{ inputs.dotnet_sdk_version || '' }}
+      RUNTIME_COHORT_VMR_COMMIT_OVERRIDE: ${{ inputs.dotnet_vmr_commit || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Install pinned .NET 12 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin_env="$RUNNER_TEMP/inspect-web-runtime-cohort.env"
+          node inspect-web/scripts/runtime-cohort-pin.ts export \
+            --pin inspect-web/runtime-cohort-pin.json \
+            --output "$pin_env"
+          set -a
+          source "$pin_env"
+          set +a
+          cat "$pin_env" >> "$GITHUB_ENV"
+          mv global.json "$RUNNER_TEMP/repository-global.json"
+          dotnetup_dir="$RUNNER_TEMP/dotnetup"
+          getter_script="$RUNNER_TEMP/get-dotnetup.sh"
+          mkdir -p "$dotnetup_dir" "$DOTNET_ROOT" "$DOTNET_DOTNETUP_DATA_DIR"
+          curl -fsSL --retry 3 \
+            https://aka.ms/dotnet/dotnetup/daily/get-dotnetup.sh \
+            -o "$getter_script"
+          bash "$getter_script" --install-dir "$dotnetup_dir"
+          "$dotnetup_dir/dotnetup" sdk install "$DOTNET_SDK_VERSION" \
+            --install-path "$DOTNET_ROOT" \
+            --untracked \
+            --set-default-install false \
+            --interactive false
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$DOTNET_SDK_VERSION",
+              "rollForward": "disable",
+              "allowPrerelease": true
+            }
+          }
+          EOF
+          echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
+          test "$("$DOTNET_ROOT/dotnet" --version)" = "$DOTNET_SDK_VERSION"
+
+      - name: Download shared frontend
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-runtime-cohort-frontend
+          path: artifacts/runtime-cohort-frontend
+          digest-mismatch: error
+
+      - name: Install browser Wasm workload
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet workload install "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+            --skip-manifest-update \
+            --source "$DOTNET_DAILY_FEED" \
+            --source "$DOTNET_NUGET_FEED"
+
+          cohort_dir=artifacts/runtime-cohort-${{ matrix.name }}-runtime
+          rm -rf "$cohort_dir"
+          mkdir -p "$cohort_dir"
+          dotnet --info > "$cohort_dir/dotnet-info.txt"
+          dotnet workload list > "$cohort_dir/workload-list.txt"
+          test "$(dotnet --version)" = "$DOTNET_SDK_VERSION"
+          test "$(dotnet --list-runtimes \
+            | awk '$1 == "Microsoft.NETCore.App" { print $2 }')" \
+            = "$DOTNET_RUNTIME_VERSION"
+          manifest="$DOTNET_ROOT/sdk-manifests/$DOTNET_SDK_FEATURE_BAND/$INSPECT_WEB_RUNTIME_WORKLOAD_MANIFEST/$DOTNET_SDK_VERSION/WorkloadManifest.json"
+          jq -e \
+            --arg sdk "$DOTNET_SDK_VERSION" \
+            --arg runtime "$DOTNET_RUNTIME_VERSION" \
+            --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+            --slurpfile pin inspect-web/runtime-cohort-pin.json \
+            '
+              . as $manifest
+              | $pin[0] as $pin
+              | .workloads[$workload].packs as $packs
+              | .version == $sdk
+                and $packs == $pin.workload.packIds
+                and all($packs[]; . as $id |
+                  $manifest.packs[$id].version == $runtime)
+            ' "$manifest" >/dev/null
+
+          webassembly_pack_nupkg="$DOTNET_ROOT/library-packs/microsoft.net.sdk.webassembly.pack.$DOTNET_RUNTIME_VERSION.nupkg"
+          test -f "$webassembly_pack_nupkg"
+          vmr_repository=$(unzip -p "$webassembly_pack_nupkg" '*.nuspec' \
+            | sed -n 's/.*<repository[^>]*url="\([^"]*\)"[^>]*>.*/\1/p')
+          vmr_commit=$(unzip -p "$webassembly_pack_nupkg" '*.nuspec' \
+            | sed -n 's/.*<repository[^>]*commit="\([^"]*\)"[^>]*>.*/\1/p')
+          test "$vmr_repository" = "$DOTNET_VMR_REPOSITORY"
+          test "$vmr_commit" = "$DOTNET_VMR_COMMIT"
+
+          target_framework=$(dotnet msbuild \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            -getProperty:TargetFramework \
+            -nologo)
+          test "$target_framework" = "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK"
+          runtime_pack="$DOTNET_ROOT/packs/Microsoft.NETCore.App.Runtime.browser-wasm/$DOTNET_RUNTIME_VERSION/runtimes/browser-wasm/native"
+          native_wasm_sha256=$(sha256sum \
+            "$runtime_pack/dotnet.native.wasm" | awk '{print $1}')
+          native_javascript_sha256=$(sha256sum \
+            "$runtime_pack/dotnet.native.js" | awk '{print $1}')
+
+          jq \
+            --arg sdk "$DOTNET_SDK_VERSION" \
+            --arg runtime "$DOTNET_RUNTIME_VERSION" \
+            --arg feature_band "$DOTNET_SDK_FEATURE_BAND" \
+            --arg daily_feed "$DOTNET_DAILY_FEED" \
+            --arg nuget_feed "$DOTNET_NUGET_FEED" \
+            --arg target_framework "$target_framework" \
+            --arg vmr_commit "$vmr_commit" \
+            --arg vmr_repository "$vmr_repository" \
+            --arg native_wasm_sha256 "$native_wasm_sha256" \
+            --arg native_javascript_sha256 "$native_javascript_sha256" \
+            --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+            --argjson ready_to_run "${{ matrix.ready_to_run }}" \
+            '
+              . as $manifest
+              | .workloads[$workload].packs as $packs
+              | {
+                  schema: 2,
+                  sdk: {
+                    version: $sdk,
+                    featureBand: $feature_band
+                  },
+                  runtime: {
+                    name: "Microsoft.NETCore.App",
+                    version: $runtime,
+                    implementation: "CoreCLR",
+                    source: {
+                      repository: $vmr_repository,
+                      commit: $vmr_commit
+                    },
+                    assets: {
+                      nativeWasmSha256: $native_wasm_sha256,
+                      nativeJavaScriptSha256: $native_javascript_sha256
+                    }
+                  },
+                  targetFramework: $target_framework,
+                  configuration: ({
+                    asyncLowering: "runtime",
+                    publishReadyToRun: $ready_to_run,
+                    wasmBuildNative: false
+                  } + if $ready_to_run then {
+                    publishReadyToRunComposite: false,
+                    readyToRunContainer: "wasm"
+                  } else {} end),
+                  workload: {
+                    id: $workload,
+                    manifestVersion: .version,
+                    sources: [$daily_feed, $nuget_feed],
+                    packs: [
+                      $packs[] as $id
+                      | {
+                          id: $id,
+                          version: $manifest.packs[$id].version
+                        }
+                    ]
+                  }
+                }
+            ' "$manifest" > "$cohort_dir/runtime-cohort.json"
+
+      - name: Prepare build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix inspect-web
+          rm -rf inspect-web/dist
+          cp -a artifacts/runtime-cohort-frontend/dist inspect-web/dist
+          (
+            cd inspect-web/dist
+            find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum
+          ) | cmp - artifacts/runtime-cohort-frontend/frontend-sha256.txt
+
+      - name: Publish ${{ matrix.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          output=artifacts/runtime-cohort-sites/${{ matrix.name }}
+          receipt_dir=artifacts/runtime-cohort-${{ matrix.name }}-async-receipts
+          cohort_dir=artifacts/runtime-cohort-${{ matrix.name }}-runtime
+          rm -rf "$output" "$receipt_dir"
+          nuget_config="$RUNNER_TEMP/runtime-cohort-${{ matrix.name }}-NuGet.Config"
+          cat > "$nuget_config" <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="dotnet-workload" value="$DOTNET_ROOT/library-packs" />
+              <add key="dotnet12" value="$DOTNET_DAILY_FEED" />
+              <add key="nuget.org" value="$DOTNET_NUGET_FEED" />
+            </packageSources>
+            <packageSourceMapping>
+              <packageSource key="dotnet-workload">
+                <package pattern="Microsoft.NET.Sdk.WebAssembly.Pack" />
+              </packageSource>
+              <packageSource key="dotnet12">
+                <package pattern="Microsoft.AspNetCore.App.*" />
+                <package pattern="Microsoft.DotNet.ILCompiler" />
+                <package pattern="Microsoft.NET.ILLink.Tasks" />
+                <package pattern="Microsoft.NETCore.App.*" />
+                <package pattern="runtime.*.Microsoft.DotNet.ILCompiler" />
+              </packageSource>
+              <packageSource key="nuget.org">
+                <package pattern="*" />
+              </packageSource>
+            </packageSourceMapping>
+          </configuration>
+          EOF
+          version=$(dotnet msbuild \
+            src/DotnetInspect.Cli/DotnetInspect.Cli.csproj \
+            -getProperty:VersionPrefix \
+            -nologo)
+          built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          ready_to_run_arguments=(
+            "-p:PublishReadyToRun=${{ matrix.ready_to_run }}"
+          )
+          if [[ "${{ matrix.ready_to_run }}" == "true" ]]; then
+            ready_to_run_arguments+=("-p:PublishReadyToRunComposite=false")
+          fi
+          dotnet publish \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            -c Release \
+            --output "$output" \
+            --configfile "$nuget_config" \
+            -p:VersionPrefix="$version" \
+            -p:SourceRevisionId="$GITHUB_SHA" \
+            -p:BuildTimestampUtc="$built_at" \
+            -p:Features=runtime-async=on \
+            -p:UseMonoRuntime=false \
+            "${ready_to_run_arguments[@]}" \
+            -p:WasmBuildNative=false \
+            -p:WasmNestedPublishAppDependsOn= \
+            -p:WasmEnableExceptionHandling=true \
+            -p:InspectWebExpectedAsyncLowering=runtime \
+            -p:InspectWebAsyncLoweringReceiptDirectory="$GITHUB_WORKSPACE/$receipt_dir" \
+            -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
+          mkdir -p "$output/runtime-cohort"
+          cp "$cohort_dir/dotnet-info.txt" \
+            "$cohort_dir/workload-list.txt" \
+            "$cohort_dir/runtime-cohort.json" \
+            "$output/runtime-cohort/"
+          if [[ "${{ matrix.ready_to_run }}" == "true" ]]; then
+            node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
+              --record \
+              "$output/wwwroot" \
+              inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
+              "$output/runtime-cohort"
+          fi
+          RestoreConfigFile="$nuget_config" \
+            eng/verify-inspect-web-async-deployment.sh \
+              runtime \
+              inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+              "$output/wwwroot" \
+              "$output/async-lowering.json" \
+              "$receipt_dir"
+          site="$output/wwwroot"
+          runtime_receipt="$output/runtime-cohort/runtime-cohort.json"
+          test "$(find "$site/_framework" -maxdepth 1 -type f \
+            -name 'dotnet.native.*.wasm' | wc -l)" -eq 1
+          test "$(find "$site/_framework" -maxdepth 1 -type f \
+            -name 'dotnet.native.*.js' | wc -l)" -eq 1
+          test "$(sha256sum "$site"/_framework/dotnet.native.*.wasm \
+            | awk '{print $1}')" \
+            = "$(jq -r '.runtime.assets.nativeWasmSha256' "$runtime_receipt")"
+          test "$(sha256sum "$site"/_framework/dotnet.native.*.js \
+            | awk '{print $1}')" \
+            = "$(jq -r '.runtime.assets.nativeJavaScriptSha256' "$runtime_receipt")"
+          cp artifacts/runtime-cohort-frontend/frontend-sha256.txt "$output/"
+
+          (
+            cd "$output/wwwroot"
+            find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum
+          ) > "$output/site-sha256.txt"
+          jq -n \
+            --arg name "${{ matrix.name }}" \
+            --arg role "${{ matrix.role }}" \
+            --arg source_commit "$GITHUB_SHA" \
+            --arg sdk_version "$DOTNET_SDK_VERSION" \
+            --arg runtime_version "$DOTNET_RUNTIME_VERSION" \
+            --arg vmr_commit "$DOTNET_VMR_COMMIT" \
+            --arg native_wasm_sha256 \
+              "$(jq -r '.runtime.assets.nativeWasmSha256' "$output/runtime-cohort/runtime-cohort.json")" \
+            --arg native_javascript_sha256 \
+              "$(jq -r '.runtime.assets.nativeJavaScriptSha256' "$output/runtime-cohort/runtime-cohort.json")" \
+            --arg frontend_manifest_sha256 \
+              "$(sha256sum artifacts/runtime-cohort-frontend/frontend-sha256.txt | awk '{print $1}')" \
+            --arg site_manifest_sha256 \
+              "$(sha256sum "$output/site-sha256.txt" | awk '{print $1}')" \
+            --arg async_receipt_sha256 \
+              "$(sha256sum "$output/async-lowering.json" | awk '{print $1}')" \
+            --arg runtime_cohort_receipt_sha256 \
+              "$(sha256sum "$output/runtime-cohort/runtime-cohort.json" | awk '{print $1}')" \
+            --argjson ready_to_run "${{ matrix.ready_to_run }}" \
+            '{
+              schema: 1,
+              name: $name,
+              role: $role,
+              sourceCommit: $source_commit,
+              frontendManifestSha256: $frontend_manifest_sha256,
+              siteManifestSha256: $site_manifest_sha256,
+              asyncLoweringReceiptSha256: $async_receipt_sha256,
+              runtimeCohortReceiptSha256: $runtime_cohort_receipt_sha256,
+              runtime: {
+                implementation: "CoreCLR",
+                sdkVersion: $sdk_version,
+                runtimeVersion: $runtime_version,
+                workload: "wasm-tools",
+                vmrCommit: $vmr_commit,
+                nativeWasmSha256: $native_wasm_sha256,
+                nativeJavaScriptSha256: $native_javascript_sha256
+              },
+              configuration: {
+                asyncLowering: "runtime",
+                publishReadyToRun: $ready_to_run,
+                publishReadyToRunComposite:
+                  (if $ready_to_run then false else null end),
+                wasmBuildNative: false
+              }
+            }' > "$output/runtime-variant.json"
+
+      - name: Upload ${{ matrix.name }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspect-web-runtime-cohort-${{ matrix.name }}
+          path: artifacts/runtime-cohort-sites/${{ matrix.name }}
+          if-no-files-found: error
+          retention-days: 1
+
+  benchmark:
+    name: Admit and measure cohort
+    needs:
+      - mono
+      - coreclr
+    outputs:
+      evidence_artifact_name: ${{ steps.evidence.outputs.name }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    env:
+      BENCHMARK_SAMPLES: ${{ inputs.samples || '5' }}
+      BENCHMARK_MEMBER_COUNT: ${{ inputs.member_count || '10' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.MONO_DOTNET_SDK_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Download Mono control
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-runtime-cohort-mono
+          path: ${{ runner.temp }}/runtime-cohort/sites/mono
+          digest-mismatch: error
+
+      - name: Download CoreCLR IL
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-runtime-cohort-coreclr-il
+          path: ${{ runner.temp }}/runtime-cohort/sites/coreclr-il
+          digest-mismatch: error
+
+      - name: Download CoreCLR R2R
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-runtime-cohort-coreclr-r2r
+          path: ${{ runner.temp }}/runtime-cohort/sites/coreclr-r2r
+          digest-mismatch: error
+
+      - name: Prepare admission harness
+        working-directory: inspect-web
+        run: |
+          npm ci
+          npx playwright install --with-deps firefox
+
+      - name: Build fixture resolver
+        run: >
+          dotnet build
+          tools/InspectWebFixtureResolver/InspectWebFixtureResolver.csproj
+          -c Release
+
+      - name: Admit runtime variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/runtime-cohort"
+          evidence="$root/evidence"
+          mkdir -p "$evidence/admission" "$evidence/sites"
+          for name in mono coreclr-il coreclr-r2r; do
+            (
+              cd "$root/sites/$name/wwwroot"
+              sha256sum --check --quiet ../site-sha256.txt
+            )
+            mkdir -p "$evidence/sites/$name"
+            cp "$root/sites/$name/runtime-variant.json" \
+              "$root/sites/$name/frontend-sha256.txt" \
+              "$root/sites/$name/site-sha256.txt" \
+              "$root/sites/$name/async-lowering.json" \
+              "$evidence/sites/$name/"
+            if [[ -d "$root/sites/$name/runtime-cohort" ]]; then
+              cp -a "$root/sites/$name/runtime-cohort" \
+                "$evidence/sites/$name/runtime-cohort"
+            fi
+          done
+
+          for name in mono coreclr-il coreclr-r2r; do
+            rm -rf inspect-web/test-results
+            set +e
+            INSPECT_WEB_FIXTURE_RESOLVER_NO_BUILD=1 \
+            INSPECT_WEB_PACKAGE_ADOPTION_SITE="$root/sites/$name/wwwroot" \
+              eng/test-inspect-web-package-adoption-gate.sh \
+                --grep 'drives the production opening, join, occurrence, and rejection contracts' \
+                2>&1 | tee "$evidence/admission/$name.log"
+            status=${PIPESTATUS[0]}
+            set -e
+            printf '%s\n' "$status" \
+              > "$evidence/admission/$name.exit-code"
+            if [[ -d inspect-web/test-results ]]; then
+              cp -a inspect-web/test-results \
+                "$evidence/admission/$name-test-results"
+            fi
+          done
+
+      - name: Record cohort admission
+        id: cohort
+        shell: bash
+        run: |
+          set +e
+          node inspect-web/scripts/record-runtime-cohort.ts record \
+            --source-commit "$GITHUB_SHA" \
+            --evidence-root "$RUNNER_TEMP/runtime-cohort/evidence" \
+            --output "$RUNNER_TEMP/runtime-cohort/evidence/runtime-cohort.json"
+          status=$?
+          set -e
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Benchmark admitted variants
+        id: benchmark
+        if: steps.cohort.outputs.exit_code == '0'
+        working-directory: inspect-web
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/runtime-cohort"
+          evidence="$root/evidence"
+          receipt="$evidence/runtime-cohort.json"
+          pids=()
+          cleanup() {
+            for pid in "${pids[@]}"; do
+              kill "$pid" 2>/dev/null || true
+            done
+          }
+          trap cleanup EXIT
+
+          site_arguments=()
+          index=0
+          while IFS= read -r name; do
+            port=$((4191 + index))
+            INSPECT_WEB_PACKAGE_ADOPTION_SITE="$root/sites/$name/wwwroot" \
+            INSPECT_WEB_PACKAGE_ADOPTION_PORT="$port" \
+              node scripts/serve-package-adoption-gate.ts \
+                > "$evidence/$name-server.log" 2>&1 &
+            pids+=("$!")
+            ready=false
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent \
+                  "http://127.0.0.1:$port/query" >/dev/null; then
+                ready=true
+                break
+              fi
+              sleep 1
+            done
+            test "$ready" = true
+            site_arguments+=(--site "$name=http://127.0.0.1:$port/query")
+            index=$((index + 1))
+          done < <(jq -r '.benchmarkSites[]' "$receipt")
+
+          set +e
+          npm run benchmark:published -- \
+            "${site_arguments[@]}" \
+            --samples "$BENCHMARK_SAMPLES" \
+            --member-count "$BENCHMARK_MEMBER_COUNT" \
+            --output "$evidence/report.json" \
+            --trend-output "$evidence/trend-point.json" \
+            2>&1 | tee "$evidence/benchmark.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$status" == "0" ]]; then
+            node scripts/record-runtime-cohort.ts benchmark \
+              --cohort "$receipt" \
+              --report "$evidence/report.json" \
+              --trend "$evidence/trend-point.json" \
+              --output "$evidence/benchmark-receipt.json"
+          fi
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Publish cohort summary
+        if: always()
+        shell: bash
+        run: |
+          receipt="$RUNNER_TEMP/runtime-cohort/evidence/runtime-cohort.json"
+          report="$RUNNER_TEMP/runtime-cohort/evidence/report.json"
+          {
+            echo "## Inspect Web controlled runtime cohort"
+            echo
+            if [[ ! -f "$receipt" ]]; then
+              echo "The cohort exited before producing an admission receipt."
+              exit 0
+            fi
+            jq -r '
+              "**Cohort:** `\(.status)`  \n" +
+              "**Source commit:** `\(.sourceCommit)`\n\n" +
+              "| Variant | Role | Admission | SDK | Runtime | R2R |\n" +
+              "| --- | --- | --- | --- | --- | --- |\n" +
+              ([.variants[] |
+                "| \(.name) | \(.role) | \(.admission.status) | " +
+                "\(.publication.runtime.sdkVersion) | " +
+                "\(.publication.runtime.runtimeVersion) | " +
+                "\(.publication.configuration.publishReadyToRun) |"
+              ] | join("\n"))
+            ' "$receipt"
+            if [[ -f "$report" ]]; then
+              echo
+              jq -r '
+                "| Site | Succeeded | Failed | Startup median (ms) | " +
+                  "Warm package median (ms) | Member ops/s median | " +
+                  "Warm comparison median (ms) |\n" +
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n" +
+                ([.summaries[] |
+                  "| \(.site) | \(.successfulSamples) | " +
+                  "\(.failedSamples) | " +
+                  "\(.startupMilliseconds.median // "n/a") | " +
+                  "\(.warmPackageMilliseconds.median // "n/a") | " +
+                  "\(.memberOperationsPerSecond.median // "n/a") | " +
+                  "\(.warmMethodComparisonMilliseconds.median // "n/a") |"
+                ] | join("\n"))
+              ' "$report"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Name cohort evidence
+        id: evidence
+        if: always()
+        shell: bash
+        run: |
+          echo "name=inspect-web-runtime-cohort-${{ github.run_id }}-${{ github.run_attempt }}" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Upload cohort evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.evidence.outputs.name }}
+          path: ${{ runner.temp }}/runtime-cohort/evidence
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Require accepted cohort measurement
+        if: always()
+        shell: bash
+        run: |
+          test "${{ steps.cohort.outputs.exit_code }}" = "0"
+          test "${{ steps.benchmark.outputs.exit_code }}" = "0"
+          evidence="$RUNNER_TEMP/runtime-cohort/evidence"
+          jq -e '.status == "accepted"' \
+            "$evidence/runtime-cohort.json" >/dev/null
+          jq -e '.comparison.comparable == true' \
+            "$evidence/report.json" >/dev/null
+          test -f "$evidence/trend-point.json"
+          test -f "$evidence/benchmark-receipt.json"

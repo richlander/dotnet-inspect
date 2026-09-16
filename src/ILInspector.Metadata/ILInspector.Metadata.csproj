@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -14,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="dotnet-inspect.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
     <!-- The renderer tests cross a subsystem boundary to build projection
          fixtures with the same containment policy the projector applies,
@@ -26,7 +27,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
-    <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\Inspector.Artifacts\Inspector.Artifacts.csproj" />
+    <ProjectReference Include="..\Inspector.Findings\Inspector.Findings.csproj" />
+    <ProjectReference Include="..\Inspector.Resources\Inspector.Resources.csproj" />
     <ProjectReference Include="..\InertText\InertText.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
   </ItemGroup>

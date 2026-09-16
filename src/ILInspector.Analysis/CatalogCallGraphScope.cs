@@ -46,6 +46,17 @@ public sealed class GraphEdgeEvidence
 }
 
 /// <summary>
+/// One physical call site whose catalog correspondence resolves to an exact
+/// method definition in another participant.
+/// </summary>
+public sealed record CatalogResolvedCallSite(
+    CatalogCallGraphParticipant Source,
+    MethodIdentity SourceMethod,
+    CatalogCallGraphParticipant Target,
+    MethodIdentity TargetMethod,
+    DirectCall Call);
+
+/// <summary>
 /// One physical call site whose exact selected definition belongs to a
 /// different identity of the graph's primary assembly.
 /// </summary>
@@ -126,9 +137,11 @@ public sealed class CatalogCallGraphScope : IDisposable
         {
             ArgumentNullException.ThrowIfNull(participant);
             ValidateParticipant(participant);
+            LibraryBodyModuleIdentity moduleIdentity =
+                participant.Index.ModuleIdentity;
             var artifact = (
-                participant.Assembly.Identity,
-                ModuleVersionId(participant.Index));
+                moduleIdentity.AssemblyIdentity!,
+                moduleIdentity.ModuleVersionId);
             if (artifacts.TryGetValue(
                     artifact,
                     out CatalogCallGraphParticipant? canonical))
@@ -205,6 +218,23 @@ public sealed class CatalogCallGraphScope : IDisposable
     public int StorageNodeCount => Graph.StorageNodeCount;
     public int StorageEdgeCount => Graph.StorageEdgeCount;
     public CatalogCallGraphDiagnostics Diagnostics => Graph.Diagnostics;
+
+    /// <summary>
+    /// Enumerates exact call sites from one participant to another without
+    /// applying traversal depth or node bounds.
+    /// </summary>
+    public ImmutableArray<CatalogResolvedCallSite> ResolvedCalls(
+        LibraryBodyIndex source,
+        LibraryBodyIndex target)
+    {
+        CatalogCallGraphParticipant sourceParticipant =
+            Participant(source);
+        CatalogCallGraphParticipant targetParticipant =
+            Participant(target);
+        return Graph.ResolvedCalls(
+            sourceParticipant,
+            targetParticipant);
+    }
 
     public CallTreeNode BuildCallerTree(
         LibraryBodyIndex root,
@@ -302,13 +332,15 @@ public sealed class CatalogCallGraphScope : IDisposable
     static void ValidateParticipant(
         CatalogCallGraphParticipant participant)
     {
-        MethodIdentity? method =
-            participant.Index.DeclaredMethods.FirstOrDefault();
-        if (method is not null
-            && !string.Equals(
-                method.AssemblyName,
-                participant.Assembly.Identity.Name,
-                StringComparison.OrdinalIgnoreCase))
+        LibraryBodyModuleIdentity moduleIdentity =
+            participant.Index.ModuleIdentity;
+        if (moduleIdentity.AssemblyIdentity is not { } assemblyIdentity
+            || !assemblyIdentity.IsEquivalentTo(
+                participant.Assembly.Identity)
+            || participant.Assembly.Registration.ModuleVersionId
+                is { } registeredModuleVersionId
+            && registeredModuleVersionId
+                != moduleIdentity.ModuleVersionId)
         {
             throw new ArgumentException(
                 "The assembly descriptor does not describe the body index.",
@@ -316,9 +348,56 @@ public sealed class CatalogCallGraphScope : IDisposable
         }
     }
 
-    static Guid ModuleVersionId(LibraryBodyIndex index) =>
-        index.DeclaredMethods.FirstOrDefault()?.ModuleVersionId
-            ?? Guid.Empty;
+    internal static bool ExactFallbackSignaturesMatch(
+        MemberRef callSite,
+        MethodIdentity definition)
+    {
+        MemberRef definitionMember =
+            CallTreeMember.FromDefinition(definition);
+        return LibraryBodyAsyncSiblingSignatureMatcher
+                .AsyncSiblingTypesMatch(
+                GenericMemberIdentity.OpenDeclaringType(
+                    callSite.DeclaringType),
+                GenericMemberIdentity.OpenDeclaringType(
+                    definitionMember.DeclaringType))
+            && LibraryBodyAsyncSiblingSignatureMatcher
+                .AsyncSiblingTypesMatch(
+                    IdentityParameters(callSite),
+                    IdentityParameters(definitionMember))
+            && LibraryBodyAsyncSiblingSignatureMatcher
+                .AsyncSiblingTypesMatch(
+                    callSite.OpenSignatureReturn,
+                    definitionMember.OpenSignatureReturn);
+    }
+
+    static ImmutableArray<TypeRef> IdentityParameters(MemberRef member)
+    {
+        const byte CallingConventionMask = 0x0F;
+        const byte VarargCallingConvention = 0x05;
+
+        ImmutableArray<TypeRef> parameters =
+            member.OpenSignatureParameters;
+        if ((member.SignatureHeader & CallingConventionMask)
+                == VarargCallingConvention
+            && member.RequiredParameterCount >= 0
+            && member.RequiredParameterCount <= parameters.Length)
+        {
+            return parameters[..member.RequiredParameterCount];
+        }
+
+        return parameters;
+    }
+
+    internal static bool IsResolvedExactTarget(
+        CallKind kind,
+        MethodIdentity target) =>
+        kind is CallKind.Call or CallKind.NewObject
+        || kind == CallKind.CallVirtual
+            && !target.IsVirtualDispatchOpen;
+
+    internal static string ExactPlanMemberIdentity(MemberRef member) =>
+        LibraryBodyAsyncSiblingSignatureMatcher
+            .ExactAsyncSiblingMemberIdentity(member);
 
     sealed class ScopeGraph : IDisposable
     {
@@ -332,6 +411,9 @@ public sealed class CatalogCallGraphScope : IDisposable
         readonly CatalogCallGraphDiagnostics _diagnostics;
         readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredDefinition>>
             _definitionsByIdentity;
+        readonly Dictionary<
+            GraphNodeIdentity,
+            AssemblyReferenceIdentity?> _resolutionAssembliesByIdentity;
         readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredEdge>>
             _forward;
         readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredEdge>>
@@ -398,6 +480,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         .ThenBy(
                             definition => definition.Method.MetadataToken)
                         .ToImmutableArray());
+            _resolutionAssembliesByIdentity =
+                ResolutionAssemblies(definitions, callSites);
             _forward = edges
                 .GroupBy(edge => edge.Caller.Evidence.Identity)
                 .ToDictionary(
@@ -589,7 +673,13 @@ public sealed class CatalogCallGraphScope : IDisposable
             try
             {
                 foreach (PlanEntry plan in plans.Values)
+                {
                     plan.Projection = plan.Plan.Project(context);
+                    plan.ResolutionAssemblyIdentity =
+                        plan.Plan
+                            .DeclaringTypeResolutionAssemblyIdentity(
+                                context);
+                }
 
                 var storedDefinitions =
                     ImmutableArray.CreateBuilder<StoredDefinition>(
@@ -606,6 +696,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         Evidence(
                             definition.Storage,
                             definition.Plan.Projection!),
+                        definition.Plan.Plan,
+                        definition.Plan.ResolutionAssemblyIdentity,
                         definition.HasBody,
                         definition.Diagnostic);
                     storedDefinitions.Add(stored);
@@ -625,7 +717,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                         callSite.Call,
                         Evidence(
                             callSite.Storage,
-                            callSite.Plan.Projection!));
+                            callSite.Plan.Projection!),
+                        callSite.Plan.Plan,
+                        callSite.Plan.ResolutionAssemblyIdentity);
                     storedCallSites.Add(stored);
                     if (definitionLocations.TryGetValue(
                             (
@@ -679,6 +773,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                 GraphNodeStorageKey? parentEdgeCallerDefinition = null)
             {
                 GraphNodeIdentity identity = evidence.Identity;
+                AssemblyReferenceIdentity? definitionAssemblyIdentity =
+                    DefinitionAssemblyIdentityFor(identity);
+                AssemblyReferenceIdentity? resolutionAssemblyIdentity =
+                    ResolutionAssemblyIdentityFor(identity);
                 bool external = !string.Equals(
                     assembly,
                     targetAssembly,
@@ -713,6 +811,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         parentEdgeCallSites:
                             parentEdgeCallSites,
                         parentEdgeCallerDefinition:
@@ -748,6 +850,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         parentEdgeCallSites:
                             parentEdgeCallSites,
                         parentEdgeCallerDefinition:
@@ -770,6 +876,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         parentEdgeCallSites:
                             parentEdgeCallSites,
                         parentEdgeCallerDefinition:
@@ -824,6 +934,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                         signals,
                         source),
                     evidence,
+                    definitionAssemblyIdentity:
+                        definitionAssemblyIdentity,
+                    resolutionAssemblyIdentity:
+                        resolutionAssemblyIdentity,
                     parentEdgeCallSites:
                         parentEdgeCallSites,
                     parentEdgeCallerDefinition:
@@ -873,6 +987,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                     evidence = evidence.WithDefinitionStorage(
                         definition.Evidence.Storage);
                 }
+                AssemblyReferenceIdentity? definitionAssemblyIdentity =
+                    DefinitionAssemblyIdentityFor(identity);
+                AssemblyReferenceIdentity? resolutionAssemblyIdentity =
+                    ResolutionAssemblyIdentityFor(identity);
                 string assembly =
                     definition?.Participant.Assembly.Identity.Name
                     ?? member.DeclaringType.Assembly;
@@ -915,6 +1033,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
                         parentEdgeCallSites,
@@ -939,6 +1061,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
                         parentEdgeCallSites,
@@ -961,6 +1087,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
                         parentEdgeCallSites,
@@ -1033,6 +1163,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                         signals,
                         source),
                     evidence,
+                    definitionAssemblyIdentity:
+                        definitionAssemblyIdentity,
+                    resolutionAssemblyIdentity:
+                        resolutionAssemblyIdentity,
                     definition?.Diagnostic,
                     hasUnresolvedDispatch,
                     parentEdgeCallSites,
@@ -1046,6 +1180,115 @@ public sealed class CatalogCallGraphScope : IDisposable
                 depth: 0,
                 inLoop: false,
                 hasVirtualDispatchOccurrence: false);
+        }
+
+        internal ImmutableArray<CatalogResolvedCallSite> ResolvedCalls(
+            CatalogCallGraphParticipant source,
+            CatalogCallGraphParticipant target)
+        {
+            var calls =
+                ImmutableArray.CreateBuilder<CatalogResolvedCallSite>();
+            Dictionary<string, StoredDefinition[]> targetsByName =
+                _definitions
+                    .Where(definition =>
+                        ReferenceEquals(
+                            definition.Participant,
+                            target))
+                    .GroupBy(
+                        definition => definition.Method.Name,
+                        StringComparer.Ordinal)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.ToArray(),
+                        StringComparer.Ordinal);
+            foreach (StoredEdge edge in _edges)
+            {
+                if (!ReferenceEquals(edge.Caller.Participant, source)
+                    || !targetsByName.TryGetValue(
+                        edge.Call.Callee.Name,
+                        out StoredDefinition[]? candidates))
+                {
+                    continue;
+                }
+
+                StoredDefinition[] matches =
+                [
+                    .. candidates.Where(definition =>
+                        CorrespondsTo(
+                            edge.Callee,
+                            definition,
+                            target.Assembly.Identity)),
+                ];
+                if (matches.Length != 1)
+                    continue;
+
+                StoredDefinition targetDefinition = matches[0];
+                calls.Add(
+                    new CatalogResolvedCallSite(
+                        source,
+                        edge.Caller.Method,
+                        target,
+                        targetDefinition.Method,
+                        edge.Call with
+                        {
+                            ExactTarget = IsResolvedExactTarget(
+                                edge.Call.Kind,
+                                targetDefinition.Method),
+                        }));
+            }
+
+            return
+            [
+                .. calls
+                    .OrderBy(
+                        call => CallTreeMember
+                            .ToQualifiedDisplayString(
+                                call.SourceMethod),
+                        StringComparer.Ordinal)
+                    .ThenBy(
+                        call => call.SourceMethod.MetadataToken)
+                    .ThenBy(
+                        call => CallTreeMember
+                            .ToQualifiedDisplayString(
+                                call.TargetMethod),
+                        StringComparer.Ordinal)
+                    .ThenBy(
+                        call => call.TargetMethod.MetadataToken)
+                    .ThenBy(call => call.Call.ILOffset)
+                    .ThenBy(call => call.Call.OperandToken),
+            ];
+        }
+
+        static bool CorrespondsTo(
+            StoredCallSite callSite,
+            StoredDefinition definition,
+            AssemblyReferenceIdentity targetIdentity)
+        {
+            if (callSite.Evidence.Correspondence
+                    is CatalogMemberJoinProjection.Issued
+                        callProjection
+                && definition.Evidence.Correspondence
+                    is CatalogMemberJoinProjection.Issued
+                        definitionProjection
+                && definition.Plan.CorrespondsTo(
+                    callSite.Plan,
+                    definitionProjection,
+                    callProjection))
+            {
+                return true;
+            }
+
+            TypeRef declaringType =
+                GenericMemberIdentity.OpenDeclaringType(
+                    callSite.Call.Callee.DeclaringType);
+            return declaringType.Resolution?.Origin
+                    is TypeReferenceOrigin.AssemblyReference reference
+                && reference.Assembly.IsEquivalentTo(targetIdentity)
+                && GraphNodeIdentity.FromMember(callSite.Call.Callee)
+                    == GraphNodeIdentity.FromMethod(definition.Method)
+                && ExactFallbackSignaturesMatch(
+                    callSite.Call.Callee,
+                    definition.Method);
         }
 
         public void Dispose() => _context.Dispose();
@@ -1075,8 +1318,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                 $"method token 0x{rootMethodToken:X8}");
             var storage = GraphNodeStorageKey.Definition(
                 root.Assembly,
-                root.Index.DeclaredMethods.FirstOrDefault()
-                    ?.ModuleVersionId ?? Guid.Empty,
+                root.Index.ModuleIdentity.ModuleVersionId,
                 rootMethodToken);
             return (
                 member,
@@ -1092,6 +1334,70 @@ public sealed class CatalogCallGraphScope : IDisposable
                 out ImmutableArray<StoredDefinition> definitions)
                 ? definitions[0]
                 : null;
+
+        AssemblyReferenceIdentity? DefinitionAssemblyIdentityFor(
+            GraphNodeIdentity identity)
+        {
+            if (!_definitionsByIdentity.TryGetValue(
+                    identity,
+                    out ImmutableArray<StoredDefinition> definitions)
+                || definitions.IsDefaultOrEmpty)
+            {
+                return null;
+            }
+
+            AssemblyReferenceIdentity first =
+                definitions[0].Participant.Assembly.Identity;
+            return definitions.All(definition =>
+                    definition.Participant.Assembly.Identity
+                        .IsEquivalentTo(first))
+                ? first
+                : null;
+        }
+
+        static Dictionary<
+            GraphNodeIdentity,
+            AssemblyReferenceIdentity?> ResolutionAssemblies(
+                ImmutableArray<StoredDefinition> definitions,
+                ImmutableArray<StoredCallSite> callSites)
+        {
+            var result = new Dictionary<
+                GraphNodeIdentity,
+                AssemblyReferenceIdentity?>();
+            IEnumerable<(
+                GraphNodeIdentity Identity,
+                AssemblyReferenceIdentity? Assembly)> observations =
+                definitions.Select(definition => (
+                    definition.Evidence.Identity,
+                    definition.ResolutionAssemblyIdentity))
+                .Concat(
+                    callSites.Select(callSite => (
+                        callSite.Evidence.Identity,
+                        callSite.ResolutionAssemblyIdentity)));
+            foreach ((GraphNodeIdentity identity,
+                AssemblyReferenceIdentity? assembly) in observations)
+            {
+                if (assembly is null)
+                    continue;
+                if (!result.TryGetValue(
+                        identity,
+                        out AssemblyReferenceIdentity? existing))
+                {
+                    result.Add(identity, assembly);
+                    continue;
+                }
+                if (existing is not null
+                    && !existing.IsEquivalentTo(assembly))
+                {
+                    result[identity] = null;
+                }
+            }
+            return result;
+        }
+
+        AssemblyReferenceIdentity? ResolutionAssemblyIdentityFor(
+            GraphNodeIdentity identity) =>
+            _resolutionAssembliesByIdentity.GetValueOrDefault(identity);
 
         internal CallTreeNode Detach(CallTreeNode root)
         {
@@ -1197,7 +1503,8 @@ public sealed class CatalogCallGraphScope : IDisposable
         {
             var key = new PlanKey(
                 source.Registration,
-                GraphNodeIdentity.FromMember(member));
+                GraphNodeIdentity.FromMember(member),
+                ExactPlanMemberIdentity(member));
             if (plans.TryGetValue(key, out PlanEntry? existing))
                 return existing;
 
@@ -1213,6 +1520,8 @@ public sealed class CatalogCallGraphScope : IDisposable
             ImmutableArray<CallTreeNode> children,
             CallTreePerf perf,
             GraphNodeEvidence evidence,
+            AssemblyReferenceIdentity? definitionAssemblyIdentity = null,
+            AssemblyReferenceIdentity? resolutionAssemblyIdentity = null,
             AnalysisDiagnostic? diagnostic = null,
             bool hasUnresolvedDispatch = false,
             ImmutableArray<DirectCall> parentEdgeCallSites = default,
@@ -1220,6 +1529,10 @@ public sealed class CatalogCallGraphScope : IDisposable
             new(member, kind, status, children, perf)
             {
                 GraphEvidence = evidence,
+                DefinitionAssemblyIdentity =
+                    definitionAssemblyIdentity,
+                ResolutionAssemblyIdentity =
+                    resolutionAssemblyIdentity,
                 Diagnostic = diagnostic,
                 HasUnresolvedDispatch =
                     hasUnresolvedDispatch,
@@ -1266,11 +1579,14 @@ public sealed class CatalogCallGraphScope : IDisposable
             internal CatalogMemberCorrespondencePlan Plan { get; } =
                 plan;
             internal CatalogMemberJoinProjection? Projection { get; set; }
+            internal AssemblyReferenceIdentity?
+                ResolutionAssemblyIdentity { get; set; }
         }
 
         readonly record struct PlanKey(
             AssemblyAcquisitionRegistration Source,
-            GraphNodeIdentity Member);
+            GraphNodeIdentity Member,
+            string ExactMember);
 
         sealed record PendingDefinition(
             CatalogCallGraphParticipant Participant,
@@ -1294,6 +1610,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                 MethodIdentity method,
                 MemberRef member,
                 GraphNodeEvidence evidence,
+                CatalogMemberCorrespondencePlan plan,
+                AssemblyReferenceIdentity?
+                    resolutionAssemblyIdentity,
                 bool hasBody,
                 AnalysisDiagnostic? diagnostic)
             {
@@ -1301,6 +1620,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                 Method = method;
                 Member = member;
                 Evidence = evidence;
+                Plan = plan;
+                ResolutionAssemblyIdentity =
+                    resolutionAssemblyIdentity;
                 HasBody = hasBody;
                 Diagnostic = diagnostic;
                 Signals = participant.Index.GetMethodSignals()
@@ -1313,6 +1635,9 @@ public sealed class CatalogCallGraphScope : IDisposable
             internal MethodIdentity Method { get; }
             internal MemberRef Member { get; }
             internal GraphNodeEvidence Evidence { get; }
+            internal CatalogMemberCorrespondencePlan Plan { get; }
+            internal AssemblyReferenceIdentity?
+                ResolutionAssemblyIdentity { get; }
             internal bool HasBody { get; }
             internal AnalysisDiagnostic? Diagnostic { get; }
             internal MethodSignals Signals { get; }
@@ -1321,7 +1646,10 @@ public sealed class CatalogCallGraphScope : IDisposable
         sealed record StoredCallSite(
             CatalogCallGraphParticipant Participant,
             DirectCall Call,
-            GraphNodeEvidence Evidence);
+            GraphNodeEvidence Evidence,
+            CatalogMemberCorrespondencePlan Plan,
+            AssemblyReferenceIdentity?
+                ResolutionAssemblyIdentity);
 
         sealed record StoredEdge(
             StoredDefinition Caller,

@@ -7,24 +7,61 @@ description: Map how code connects — implementors and subclasses, extension me
 # dotnet-inspect: relationships and dependency graphs
 
 Use this skill to map how code connects: what implements or extends a type, what
-it depends on, and who calls it. Dependency views already render as trees; add
-`--mermaid` for a standalone diagram or `--markdown --mermaid` to embed one.
-Member Call Graphs instead default to Markdown edge tables and offer an
-explicit `--tree` path view.
+it depends on, and who calls it. Dependency graphs and Member Call Graphs share
+the same graph gestures: add `--tree` for a standalone path view, `--mermaid`
+for a standalone diagram, or `--markdown --mermaid` to embed one.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
 ```
 
-Scope any of these commands the same way: `--project path/to.csproj` (restored
-project references), `--package Foo` (repeatable), `--library path.dll`,
-`--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (curated
-Microsoft.* sets), and `--tfm net9.0`. For `implements` and `extensions`, use
-`--package-prefix Azure.AI` to search every package under a NuGet ID prefix;
-`depends` does not accept `--package-prefix`.
+With a positional type, scope relationship commands with
+`--project path/to.csproj`, repeatable `--package Foo`, `--library path.dll`,
+`--platform`, `--extensions`, `--aspnetcore`, and `--tfm net9.0`. Without a
+positional type, `depends` treats repeatable `--package`, `--nuspec`,
+`--library`, and `--project` options as explicit roots; exclusive
+`--package-prefix PREFIX` admits up to 500 package roots by default and can be
+bounded explicitly with `--max-packages`.
 
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
+
+## What does the root declare directly?
+
+`depends -S Dependencies` reports normalized direct declarations without
+requesting transitive traversal. Select `Dependencies,Failures` when a mixed
+root request should retain usable declaration rows while also reporting roots
+that could not be inspected.
+
+```bash
+dnx dotnet-inspect -y -- depends \
+  --package Newtonsoft.Json --tfm net8.0
+dnx dotnet-inspect -y -- depends \
+  --project ./src/App/App.csproj \
+  --nuspec ./artifacts/App.nuspec \
+  -S "Dependencies,Failures"
+dnx dotnet-inspect -y -- depends \
+  --package-prefix Microsoft.Extensions --tfm net10.0 -v:n
+```
+
+## Would the platform supply a direct dependency?
+
+`depends -S Pruning` explicitly compares each selected direct declaration's
+source-authorized package candidate with one exact installed platform
+inventory. It requires `--tfm`; the default family is `runtime`, and
+`--platform-family aspnetcore` selects ASP.NET Core. The section does not
+traverse or remove graph edges.
+
+```bash
+dnx dotnet-inspect -y -- depends \
+  --package System.Text.Json@9.0.0 \
+  --tfm net11.0 \
+  -S Pruning
+```
+
+Read `Candidate` as the selected package version and `Platform Provides` as
+separate comparison evidence. An older platform-provided version produces
+`PackageRetained`; it is not selected as a downgrade.
 
 ## What implements or extends it?
 
@@ -42,15 +79,56 @@ dnx dotnet-inspect -y -- extensions string --project ./src/App/App.csproj -v:n
 
 ## What does it depend on?
 
-`depends Type` walks dependency graphs upward — type hierarchy, library
-references, or package dependencies, depending on scope. Add `--mermaid` for a
-diagram.
+`depends Type` walks a type hierarchy inside its search scopes. Asset mode
+omits the positional type and walks explicit package manifests, restored
+projects, and library references. `--depth 1` includes direct edges only;
+omitting it follows the complete authorized graph. Shared targets remain
+distinct incoming edges and appear as revisits in tree output. `-D`, `-S`,
+`--table`, `--tsv`, `--jsonl`, `--json`, `--count`, `--rows`, and `-n` address
+the existing section and logical-row contracts. For positional type mode only,
+unprojected `--json` is now the complete camelCase
+`TypeDependencySectionResult`, not the former flattened presentation graph.
 
 ```bash
 dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
+dnx dotnet-inspect -y -- depends Int128 --table --rows 1..10
+dnx dotnet-inspect -y -- depends NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --tfm net8.0 \
+  --envelope
+dnx dotnet-inspect -y -- depends NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --tfm net8.0 \
+  --json
+dnx dotnet-inspect -y -- depends \
+  --project ./src/App/App.csproj \
+  --depth 2 \
+  -S "Dependency Graph,Dependencies"
+dnx dotnet-inspect -y -- depends \
+  --package Microsoft.Extensions.Hosting@10.0.0 \
+  --depth 1 \
+  --tree
 ```
+
+`--envelope` is a presence-only service-output selector implemented only for
+positional `depends <type>`. It implies JSON and emits
+`schema_version: 1`, `result_kind: "type-dependencies"`, the same Content as
+the paired `--json` command, Share, and ordered diagnostics. The Content keeps
+the complete dependency relationships plus the selected
+`rowSelection.relationships`; dependency enums remain numeric.
+The service constructs Share for both JSON modes, but `--json` emits Content
+only; `--envelope` exposes Share.
+
+With `--envelope`, use `--compact` for minified JSON. `--depth` remains
+traversal, and `--rows` or `-n`/`--head`/`--tail` remain semantic relationship
+selection. Do not combine it with `--json`, another format, Discover or schema
+modes, `-S`, explicit `-v`, Count, fields/columns, decoration, projections, or
+rendered-line clipping. `--verbose`, `--info`, and `--tips` remain on stderr;
+explicit `--share` retains the existing final-line URL/packet policy. Asset
+mode, Discover, Count, Library Diff, and `--evidence-envelope` have not adopted
+this transport.
 
 ## Who calls it? (reverse edges)
 
@@ -89,14 +167,34 @@ dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 
 ## What does it integrate with? (ecosystem)
 
+All integrations are enabled by default. Discover and narrow the ordinary
+Integration result with canonical ecosystem identities:
+
+```bash
+dnx dotnet-inspect -y -- library -Q Integrations
+dnx dotnet-inspect -y -- library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
+dnx dotnet-inspect -y -- library MyLibrary.dll -S "Integration: Aspire" --where "ecosystem=ecosystem.aspire" --jsonl
+```
+
+Omitting `-S` with this predicate selects the Integration family. Use a concrete
+section for tabular output. An empty filtered result is not absence of all
+Integration support; full-library presence and Census remain unchanged.
+Unsupported IDs and combinations fail explicitly. Do not combine the ecosystem
+predicate with Performance Triage or Body Shapes queries.
+This option belongs to `library`, not `package --library` or `graph`.
+
 `graph integrations` compares an explicit package set inside one
 binding-consistent target. Repeat `--package name[@version]`, provide the shared
 `--tfm`, and add `--relationship <id>` only when the default Integration family
 should be narrowed. This is an induced set, not a traversal: it has no direction
 or depth. Markdown is an edge table by default; `--tree`, `--mermaid`, `--json`,
 `--jsonl`, `--count`, and `--rows` project the same logical relationships.
-Binding failures usually mean a package that owns the missing endpoint was not
-included; they remain visible and produce a nonzero exit.
+Missing `api.extension` or `integration.observed` endpoints whose assemblies are
+absent from the explicit package set remain outside the induced graph; add the
+owning package to admit those relationships. A missing
+`integration.opportunity` target and other binding failures -- unavailable,
+ambiguous, rejected, or selected outside the active context -- remain visible
+and produce a nonzero exit.
 
 ```bash
 dnx dotnet-inspect -y -- graph integrations \

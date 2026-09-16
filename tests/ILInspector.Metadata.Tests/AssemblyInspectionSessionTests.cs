@@ -1,6 +1,8 @@
 using System.Linq;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
+using Inspector.Resources;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata.Tests;
@@ -20,6 +22,133 @@ public class AssemblyInspectionSessionTests
     {
         using var session = AssemblyInspectionSession.Open(SelfPath);
         Assert.True(session.HasMetadata);
+    }
+
+    [Fact]
+    public void ResourceOwnershipContract_IsDeclared()
+    {
+        Assert.NotNull(
+            typeof(AssemblyInspectionSession)
+                .GetCustomAttributes(
+                    typeof(ResourceOwnershipAttribute),
+                    inherit: false)
+                .Single());
+        Assert.Contains(
+            typeof(IResourceSnapshotSource<AssemblyInspectionSession>),
+            typeof(AssemblyInspectionSession).GetInterfaces());
+    }
+
+    [Fact]
+    public void Snapshot_ReturnsDetachedDataFromTheLiveSession()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+
+        string assemblyName = session.Snapshot(
+            SelfName,
+            static (snapshot, expectedName) =>
+            {
+                Assert.Equal(
+                    expectedName,
+                    snapshot.Value.AssemblyInfo().AssemblyName);
+                return snapshot.Value.AssemblyInfo().AssemblyName
+                    ?? throw new InvalidOperationException(
+                        "The test assembly has no assembly name.");
+            });
+
+        Assert.Equal(SelfName, assemblyName);
+    }
+
+    [Fact]
+    public void Snapshot_UsesLiveSessionAndReturnsDetachedProjectionWithoutCopyingIt()
+    {
+        MetadataTableProjection projection;
+        MetadataTableProjection? callbackProjection = null;
+        using (var session = AssemblyInspectionSession.Open(SelfPath))
+        {
+            projection = session.Snapshot(
+                new MetadataProjectionOptions
+                {
+                    Tables = [TableIndex.Assembly],
+                },
+                (snapshot, options) =>
+                {
+                    Assert.Same(session, snapshot.Value);
+                    callbackProjection =
+                        snapshot.Value.MetadataTables(options);
+                    return callbackProjection;
+                });
+        }
+
+        Assert.Same(callbackProjection, projection);
+        MetadataTableView table = Assert.Single(projection.Tables);
+        Assert.Equal(TableIndex.Assembly, table.Index);
+        Assert.Equal("Assembly", table.Name);
+        Assert.Single(table.Rows);
+    }
+
+    [Fact]
+    public void Snapshot_PropagatesFailureAndLeavesTheSessionUsable()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        var failure = new InvalidOperationException("snapshot failed");
+
+        InvalidOperationException thrown =
+            Assert.Throws<InvalidOperationException>(
+                () => session.Snapshot<object?, object?>(
+                    state: null,
+                    (snapshot, state) =>
+                    {
+                        Assert.True(snapshot.Value.HasMetadata);
+                        Assert.Null(state);
+                        throw failure;
+                    }));
+
+        Assert.Same(failure, thrown);
+        Assert.True(session.HasMetadata);
+    }
+
+    [Fact]
+    public void Snapshot_RejectsDisposedSessionBeforeInvokingCallback()
+    {
+        var session = AssemblyInspectionSession.Open(SelfPath);
+        session.Dispose();
+        bool invoked = false;
+
+        Assert.Throws<ObjectDisposedException>(
+            () => session.Snapshot(
+                state: 0,
+                (snapshot, state) =>
+                {
+                    invoked = true;
+                    return state;
+                }));
+        Assert.False(invoked);
+    }
+
+    [Fact]
+    public void BorrowedSessionSnapshot_UsesTheLenderLifetime()
+    {
+        using var context = PdbContext.Open(SelfPath);
+        using var session = AssemblyInspectionSession.Borrow(context);
+
+        Assert.Equal(
+            SelfName,
+            session.Snapshot(
+                state: 0,
+                static (snapshot, _) =>
+                    snapshot.Value.AssemblyInfo().AssemblyName));
+
+        context.Dispose();
+        bool invoked = false;
+        Assert.Throws<ObjectDisposedException>(
+            () => session.Snapshot(
+                state: 0,
+                (snapshot, state) =>
+                {
+                    invoked = true;
+                    return state;
+                }));
+        Assert.False(invoked);
     }
 
     [Fact]

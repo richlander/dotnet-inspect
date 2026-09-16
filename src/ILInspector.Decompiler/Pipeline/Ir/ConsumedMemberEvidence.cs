@@ -12,6 +12,13 @@ public readonly record struct ConsumedMemberEvidence(
     bool AllowTargetRoot = false)
 {
     /// <summary>
+    /// Whether ReturnToSender may reconstruct this member in a compile-back
+    /// shell. Fidelity and unsafe-context consumers still observe excluded
+    /// members.
+    /// </summary>
+    public bool IncludeInCompileBackClosure { get; init; } = true;
+
+    /// <summary>
     /// Whether this consumed member may seed a closure member requirement on the
     /// target root itself. Construction/initialization contexts set
     /// <see cref="AllowTargetRoot"/> directly (a constructor or initializer setter
@@ -71,6 +78,21 @@ public readonly record struct ConsumedMemberEvidence(
                 break;
             case DelegateCreation creation:
                 evidence.Add(new(Method: creation.Method));
+                if (creation.Constructor is { } delegateConstructor)
+                    evidence.Add(new(Method: delegateConstructor) { IncludeInCompileBackClosure = false });
+                break;
+            case AnonymousObject { Constructor: { } constructor }:
+                evidence.Add(new(Method: constructor) { IncludeInCompileBackClosure = false });
+                break;
+            case ArrayLiteral { InitializationMethod: { } initialize }:
+                evidence.Add(new(Method: initialize) { IncludeInCompileBackClosure = false });
+                break;
+            case CollectionExpression collection:
+                foreach (var method in collection.ConsumedMemberRefs)
+                    evidence.Add(new(Method: method) { IncludeInCompileBackClosure = false });
+                break;
+            case SliceExpression { SliceMethod: { } slice }:
+                evidence.Add(new(Method: slice) { IncludeInCompileBackClosure = false });
                 break;
             case IncrementDecrement { ConsumedMethod: { } operatorMethod }:
                 evidence.Add(new(Method: operatorMethod));
@@ -92,6 +114,30 @@ public readonly record struct ConsumedMemberEvidence(
                         evidence.Add(new(Field: field));
                 }
                 break;
+            case AwaitExpression awaitExpression:
+                foreach (var method in awaitExpression.ConsumedMemberRefs)
+                    evidence.Add(new(Method: method));
+                break;
+            case InterpolatedStringExpression interpolation:
+                foreach (var method in interpolation.ConsumedMemberRefs)
+                    evidence.Add(new(Method: method) { IncludeInCompileBackClosure = false });
+                break;
+            case PositionalPattern positionalPattern:
+                if (positionalPattern.ConsumedDeconstructMethod is { } positionalDeconstruct)
+                    evidence.Add(new(Method: positionalDeconstruct));
+                break;
+            case ChainedAssignment chainedAssignment:
+                foreach (var target in chainedAssignment.Targets)
+                {
+                    if (target.Accessor is { } accessor)
+                        evidence.Add(new(Method: accessor));
+                    if (target.Field is { } field)
+                        evidence.Add(new(Field: field));
+                }
+                break;
+            case PatternSwitchExpressionArm { Subpattern: { } subpattern }:
+                evidence.Add(new(Method: subpattern.Accessor));
+                break;
             case ForeachStatement foreachStatement:
                 foreach (var method in foreachStatement.ConsumedMemberRefs)
                     evidence.Add(new(Method: method));
@@ -109,6 +155,9 @@ public readonly record struct ConsumedMemberEvidence(
             case LoadFieldAddress address:
                 evidence.Add(new(Field: address.Field));
                 break;
+            case FixedBufferElementAddress address:
+                evidence.Add(new(Field: address.BufferField));
+                break;
             case NullCoalescingFieldAssignment assignment:
                 evidence.Add(new(Field: assignment.Field));
                 break;
@@ -120,6 +169,13 @@ public readonly record struct ConsumedMemberEvidence(
                 AddFromInitializerEntries(initializer.Entries, evidence);
                 break;
             case WithExpression withExpression:
+                if (withExpression.CloneMethod is { } clone)
+                {
+                    evidence.Add(new(Method: clone)
+                    {
+                        IncludeInCompileBackClosure = false,
+                    });
+                }
                 evidence.Add(new(RecordShellType: withExpression.ResultType));
                 AddFromInitializerEntries(withExpression.Entries, evidence);
                 break;

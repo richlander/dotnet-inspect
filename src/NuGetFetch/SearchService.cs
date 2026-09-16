@@ -8,8 +8,9 @@ namespace NuGetFetch;
 /// </summary>
 public partial class SearchService
 {
+    private const int InitialPrefixCandidatePageSize = 20;
     private const int PrefixSearchPageSize = 100;
-    private const int MaxPrefixSearchPages = 32;
+    private const int MaxPrefixSearchPages = 100;
     private readonly HttpClient _client;
     private readonly NuGetFetchOptions _options;
     private readonly bool _retryTransientRequests;
@@ -99,6 +100,39 @@ public partial class SearchService
         bool prerelease,
         AuthenticationHeaderValue? auth,
         NuGetOperationDeadline operation)
+        => await SearchPageAsync(
+            query,
+            skip,
+            take,
+            prerelease,
+            auth,
+            NuGetApi.DeserializeSearchResponseAsync,
+            operation).ConfigureAwait(false);
+
+    private async Task<IReadOnlyList<SearchResult>> SearchPrefixCandidatePageAsync(
+        string query,
+        int skip,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        NuGetOperationDeadline operation)
+        => await SearchPageAsync(
+            query,
+            skip,
+            take,
+            prerelease,
+            auth,
+            NuGetApi.DeserializePrefixSearchResponseAsync,
+            operation).ConfigureAwait(false);
+
+    private async Task<IReadOnlyList<SearchResult>> SearchPageAsync(
+        string query,
+        int skip,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        Func<Stream, CancellationToken, ValueTask<SearchResponse?>> deserialize,
+        NuGetOperationDeadline operation)
     {
         string pre = prerelease ? "true" : "false";
         if (!SearchRequestUri.TryCompose(
@@ -137,9 +171,9 @@ public partial class SearchService
 
             return await NuGetMetadataReader.ReadResponseAsync(
                 response,
-                NuGetApi.DeserializeSearchResponseAsync,
+                deserialize,
                 _options,
-                _client.Timeout,
+                operation.RequestTimeout,
                 requestToken).ConfigureAwait(false);
         }
 
@@ -211,41 +245,195 @@ public partial class SearchService
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
     {
-        List<SearchResult> matches = [];
-        var matchedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var observedResults = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        int skip = 0;
+        PrefixSearchResult result = await SearchByPrefixWithStateAsync(
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip: null,
+            cancellationToken).ConfigureAwait(false);
+        if (result.Completion
+            is PrefixSearchCompletion.SourcePageLimitReached
+                or PrefixSearchCompletion.ClientPageLimitReached
+            && result.Matches.Count < take)
+        {
+            throw new InvalidOperationException(
+                "NuGet prefix-search pagination ended before the requested result count could be established.");
+        }
+
+        return result.Matches;
+    }
+
+    /// <summary>
+    /// Searches by package-ID prefix while retaining whether a source or client
+    /// pagination boundary prevented an exhaustive answer.
+    /// </summary>
+    public async Task<PrefixSearchResult> SearchByPrefixWithStateAsync(
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        AuthenticationHeaderValue? auth = null,
+        int? maximumSkip = null,
+        CancellationToken cancellationToken = default)
+    {
         using var operation = new NuGetOperationDeadline(
             _options,
             _client.Timeout,
             cancellationToken);
+        return await SearchByPrefixWithStateAsync(
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            operation).ConfigureAwait(false);
+    }
 
-        for (int pageNumber = 0;
-            pageNumber < MaxPrefixSearchPages && matches.Count < take;
-            pageNumber++)
+    internal async Task<PrefixSearchResult> SearchByPrefixWithStateAsync(
+        string prefix,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        int? maximumSkip,
+        NuGetOperationDeadline operation)
+    {
+        PrefixSearchCursor cursor = CreatePrefixSearchCursor(
+            prefix, take, prerelease, auth, maximumSkip);
+        List<SearchResult> matches = [];
+        while (!cursor.IsCompleted)
         {
-            IReadOnlyList<SearchResult> page = await SearchPageAsync(
-                prefix,
-                skip,
-                PrefixSearchPageSize,
-                prerelease,
-                auth,
-                operation).ConfigureAwait(false);
-            if (page.Count == 0)
-                return matches;
+            PrefixSearchPage page =
+                await cursor.ReadNextAsync(operation).ConfigureAwait(false);
+            matches.AddRange(page.Matches);
+        }
 
+        operation.ThrowIfExpired();
+        return new PrefixSearchResult(matches, cursor.Completion!.Value);
+    }
+
+    internal PrefixSearchCursor CreatePrefixSearchCursor(
+        string prefix,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        int? maximumSkip) =>
+        CreatePrefixSearchCursor(
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            includeVersionHistory: true);
+
+    internal PrefixSearchCursor CreatePrefixCandidateCursor(
+        string prefix,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        int? maximumSkip) =>
+        CreatePrefixSearchCursor(
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            includeVersionHistory: false);
+
+    private PrefixSearchCursor CreatePrefixSearchCursor(
+        string prefix,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        int? maximumSkip,
+        bool includeVersionHistory)
+    {
+        if (maximumSkip < 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumSkip));
+
+        return new PrefixSearchCursor(
+            this,
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            includeVersionHistory);
+    }
+
+    internal sealed record PrefixSearchPage(
+        IReadOnlyList<SearchResult> Matches,
+        PrefixSearchCompletion? Completion);
+
+    internal sealed class PrefixSearchCursor(
+        SearchService service,
+        string prefix,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        int? maximumSkip,
+        bool includeVersionHistory)
+    {
+        private readonly HashSet<string> _matchedIds =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _observedResults =
+            new(StringComparer.OrdinalIgnoreCase);
+        private int _pageSize = includeVersionHistory
+            ? PrefixSearchPageSize
+            : InitialPrefixCandidatePageSize;
+        private int _skip;
+        private int _pageNumber;
+
+        internal PrefixSearchCompletion? Completion { get; private set; }
+        internal bool IsCompleted => Completion.HasValue;
+
+        internal async Task<PrefixSearchPage> ReadNextAsync(
+            NuGetOperationDeadline operation)
+        {
+            operation.ThrowIfExpired();
+            if (_matchedIds.Count >= take)
+            {
+                Completion = PrefixSearchCompletion.ClientPageLimitReached;
+                return new([], Completion);
+            }
+
+            IReadOnlyList<SearchResult> page = includeVersionHistory
+                ? await service.SearchPageAsync(
+                    prefix,
+                    _skip,
+                    _pageSize,
+                    prerelease,
+                    auth,
+                    operation).ConfigureAwait(false)
+                : await service.SearchPrefixCandidatePageAsync(
+                    prefix,
+                    _skip,
+                    _pageSize,
+                    prerelease,
+                    auth,
+                    operation).ConfigureAwait(false);
+            _pageNumber++;
+            if (page.Count == 0)
+            {
+                Completion = PrefixSearchCompletion.Complete;
+                return new([], Completion);
+            }
+
+            List<SearchResult> matches = [];
             bool madeProgress = false;
             foreach (SearchResult result in page)
             {
                 operation.ThrowIfExpired();
-                madeProgress |= observedResults.Add(
+                madeProgress |= _observedResults.Add(
                     $"{result.Id.Length}:{result.Id}{result.Version}");
                 if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                    && matchedIds.Add(result.Id))
+                    && _matchedIds.Add(result.Id))
                 {
                     matches.Add(result);
-                    if (matches.Count == take)
+                    if (_matchedIds.Count == take)
+                    {
+                        Completion = PrefixSearchCompletion.TakeReached;
                         break;
+                    }
                 }
             }
 
@@ -253,14 +441,48 @@ public partial class SearchService
                 throw new InvalidOperationException(
                     "NuGet search pagination repeated a page without making progress.");
 
-            skip += page.Count;
+            if (!includeVersionHistory
+                && matches.Count * 2 < page.Count)
+            {
+                _pageSize = Math.Min(_pageSize * 2, PrefixSearchPageSize);
+            }
+
+            _skip += page.Count;
+            if (!IsCompleted)
+            {
+                Completion = _pageNumber >= MaxPrefixSearchPages
+                    ? PrefixSearchCompletion.ClientPageLimitReached
+                    : maximumSkip is int skipLimit && _skip > skipLimit
+                        ? PrefixSearchCompletion.SourcePageLimitReached
+                        : null;
+            }
+
+            operation.ThrowIfExpired();
+            return new(matches, Completion);
         }
-
-        if (matches.Count < take)
-            throw new InvalidOperationException(
-                $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
-
-        operation.ThrowIfExpired();
-        return matches;
     }
+}
+
+/// <summary>Why a package-prefix search stopped.</summary>
+public enum PrefixSearchCompletion
+{
+    /// <summary>The source returned an empty page.</summary>
+    Complete,
+
+    /// <summary>The caller's requested match count was reached.</summary>
+    TakeReached,
+
+    /// <summary>The source's documented skip boundary was reached.</summary>
+    SourcePageLimitReached,
+
+    /// <summary>The client's bounded page ceiling was reached.</summary>
+    ClientPageLimitReached,
+}
+
+/// <summary>A bounded prefix-search result with explicit completion state.</summary>
+public sealed record PrefixSearchResult(
+    IReadOnlyList<SearchResult> Matches,
+    PrefixSearchCompletion Completion)
+{
+    public bool Truncated => Completion != PrefixSearchCompletion.Complete;
 }

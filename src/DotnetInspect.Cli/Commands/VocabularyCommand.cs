@@ -1,0 +1,289 @@
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Views;
+using DotnetInspector.Sections;
+using DotnetInspector.Vocabulary;
+using Markout;
+
+namespace DotnetInspect.Cli.Commands;
+
+/// <summary>Renders product-owned query vocabularies as ordinary sections.</summary>
+public static class VocabularyCommand
+{
+    public const string Name = "vocabulary";
+    private static readonly IReadOnlyDictionary<string, string[]> NoCategories =
+        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+    private static readonly string[] DefaultIndexColumns = ["Section", "Summary", "Values"];
+
+    public static int Execute(VocabularyOptions options)
+    {
+        VocabularyDocument document = VocabularyCatalog.Document;
+        string[] sectionNames = [.. document.Sections.Select(section => section.Name)];
+        DocumentSchema schema = CreateSchema(document);
+        string[]? projectedColumns = ResolveProjectedColumns(options);
+        string[]? discover = NormalizeSectionIds(options.Discover, document);
+        string[]? select = NormalizeSectionIds(options.Select, document);
+        bool defaultSelection = options.Select is null && !options.SelectDefault;
+        string[]? renderedColumns = projectedColumns
+            ?? (defaultSelection && !options.JsonOutput ? DefaultIndexColumns : null);
+
+        if (options.Schema && options.Discover is null)
+        {
+            CommandError.Write("--schema requires -D/--discover.");
+            return 1;
+        }
+
+        if (options.Discover is not null)
+        {
+            return DiscoverOutput.Execute(
+                discover,
+                schema,
+                DiscoveryOutputRequest.Create(
+                    OutputFormatResolver.ResolveStored(
+                        options.Format,
+                        options.JsonOutput,
+                        options.PlainText,
+                        options.Tabular,
+                        options.Tsv,
+                        options.Jsonl),
+                    options.Tree,
+                    options.Format == OutputFormat.Table,
+                    options.NoHeader,
+                    projection: options));
+        }
+
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            select,
+            sectionNames,
+            infoSections: [VocabularyCatalog.SectionsSection],
+            NoCategories,
+            selectDefault: options.SelectDefault);
+        if (SelectOutput.WriteUnresolved(selection))
+            return 1;
+
+        HashSet<string> selectedNames = selection.Sections
+            ?? new HashSet<string>(
+                [VocabularyCatalog.SectionsSection],
+                StringComparer.OrdinalIgnoreCase);
+        VocabularySection[] sections =
+        [
+            .. document.Sections.Where(section => selectedNames.Contains(section.Name)),
+        ];
+
+        if (!ProjectionDiagnostics.ValidateProjection(
+                schema,
+                selectedNames,
+                fields: options.Fields,
+                columns: options.Columns))
+        {
+            return 1;
+        }
+        VocabularySection[] renderedSections = renderedColumns is { Length: > 0 }
+            ?
+            [
+                .. sections.Where(section =>
+                    schema.ValidateProjection(section.Name, renderedColumns)
+                        .Resolved.Length > 0),
+            ]
+            : sections;
+        if (!TryApplyRowSelection(
+                renderedSections,
+                options.RowSelection,
+                document,
+                out renderedSections))
+        {
+            return 1;
+        }
+
+        if (options.Count)
+        {
+            if (sections.Length == 1)
+            {
+                CountOutput.WriteCount(renderedSections[0].Values.Length);
+            }
+            else
+            {
+                string[] orderedSections = [.. sections.Select(section => section.Name)];
+                if (!CountOutput.ValidateMapFormat(
+                        options.Format,
+                        orderedSections,
+                        options.Tree))
+                {
+                    return 1;
+                }
+
+                var renderedNames = renderedSections
+                    .ToDictionary(
+                        section => section.Name,
+                        section => section.Values.Length,
+                        StringComparer.OrdinalIgnoreCase);
+                var projection = new CountProjection();
+                foreach (VocabularySection section in sections)
+                {
+                    projection.SetRows(
+                        section.Name,
+                        renderedNames.GetValueOrDefault(section.Name));
+                }
+                CountOutput.Write(
+                    projection,
+                    orderedSections,
+                    options.Format,
+                    options.NoHeader);
+            }
+            return 0;
+        }
+
+        if (options.Tabular && sections.Length != 1)
+        {
+            CommandError.Write(
+                "Tabular vocabulary output requires exactly one selected section; "
+                + "use -S <section>.");
+            return 1;
+        }
+
+        if (options.JsonOutput && projectedColumns is not { Length: > 0 })
+        {
+            Console.WriteLine(VocabularyJson.Serialize(document, renderedSections));
+            return 0;
+        }
+
+        VocabularyView view = VocabularyView.Create(renderedSections);
+        if (options.JsonOutput)
+        {
+            OutputFormatter.WriteProjectedJson(
+                Console.Out,
+                projectedColumns,
+                fields: null,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        VocabularyViewContext.Default,
+                        writerOptions),
+                maxRows: null);
+            return 0;
+        }
+
+        if (options.Tabular)
+        {
+            OutputFormatter.WriteProjectedTable(
+                Console.Out,
+                showHeader: !options.NoHeader,
+                options.Tsv,
+                options.Jsonl,
+                renderedColumns,
+                fields: null,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        VocabularyViewContext.Default,
+                        writerOptions),
+                maxRows: null);
+            return 0;
+        }
+
+        var markdownOptions = OutputFormatter.CreateProjectedWriterOptions(
+            renderedColumns,
+            fields: null,
+            rows: null);
+        MarkoutSerializer.Serialize(
+            view,
+            Console.Out,
+            options.PlainText
+                ? new PlainTextFormatter()
+                : new MarkdownFormatter(),
+            VocabularyViewContext.Default,
+            markdownOptions);
+        return 0;
+    }
+
+    private static bool TryApplyRowSelection(
+        VocabularySection[] sections,
+        RowSelectionIntent<string>? rowSelection,
+        VocabularyDocument document,
+        out VocabularySection[] selectedSections)
+    {
+        selectedSections = sections;
+        if (rowSelection is null || rowSelection.Operations.Count == 0)
+            return true;
+
+        RowsCohortResult<string, VocabularyRow> result =
+            RowsCohortExecutor.ApplyUnordered(
+                [
+                    .. sections.Select(section =>
+                        RowsCohortSequence<string, VocabularyRow>.Create(
+                            section.Id,
+                            section.Values)),
+                ],
+                rowSelection);
+        if (!result.IsSuccess)
+        {
+            RowsCohortSemanticFailure<string> failure = result.Failure!;
+            VocabularySection section = document.Sections.Single(
+                candidate => candidate.Id == failure.Identity);
+            CommandError.Write(
+                $"Vocabulary row selection stage "
+                + $"{failure.Failure.StageNumber} for '{section.Name}' "
+                + $"requires row {failure.Failure.RequiredPosition}, but only "
+                + $"{failure.Failure.AvailableCount} rows are available.");
+            selectedSections = [];
+            return false;
+        }
+
+        selectedSections =
+        [
+            .. sections.Zip(
+                result.RowSets,
+                static (section, rowSet) =>
+                    section with { Values = [.. rowSet.Values] }),
+        ];
+        return true;
+    }
+
+    private static DocumentSchema CreateSchema(VocabularyDocument document)
+    {
+        var schema = new DocumentSchema();
+        foreach (VocabularySection section in document.Sections)
+        {
+            schema.Add(
+                section.Name,
+                "column",
+                [.. section.Fields.Select(field => field.Label)]);
+        }
+        return schema;
+    }
+
+    private static string[]? NormalizeSectionIds(
+        string[]? values,
+        VocabularyDocument document)
+    {
+        if (values is null)
+            return null;
+
+        return
+        [
+            .. values.Select(value =>
+                document.Sections.FirstOrDefault(section =>
+                    section.Id.Equals(value, StringComparison.OrdinalIgnoreCase))?.Name
+                ?? value),
+        ];
+    }
+
+    private static string[]? ResolveProjectedColumns(VocabularyOptions options)
+    {
+        if (options.Columns is not { Length: > 0 })
+            return options.Fields is { Length: > 0 } ? options.Fields : null;
+        if (options.Fields is not { Length: > 0 })
+            return options.Columns;
+
+        return
+        [
+            .. options.Columns
+                .Concat(options.Fields)
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+    }
+}

@@ -22,7 +22,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/dotnet-inspect/dotnet-inspect.csproj" />
+    <ProjectReference Include="../../src/DotnetInspect.Cli/DotnetInspect.Cli.csproj" />
   </ItemGroup>
 
 </Project>

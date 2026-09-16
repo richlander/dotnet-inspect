@@ -17,7 +17,7 @@ public class TypeFiltersTests
     // Nested-qualified names (metadata form, Outer+Inner) must detect the
     // synthesized inner segment even though the leading segment is user code.
     [InlineData("Outer+<GetRegisteredTypes>d__10", true)]
-    [InlineData("DotnetInspector.Commands.TypeCommand+<>c__DisplayClass21_0", true)]
+    [InlineData("DotnetInspect.Cli.Commands.TypeCommand+<>c__DisplayClass21_0", true)]
     [InlineData("Outer+Middle+<Run>d__0", true)]
     // Non-generated nested types must not be flagged.
     [InlineData("Outer+Inner", false)]

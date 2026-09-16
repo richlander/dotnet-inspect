@@ -2776,15 +2776,22 @@ public class ConstraintResolutionHardeningTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
-                    is AssemblyBindingTarget.AssemblyReference reference
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
+                is AssemblyBindingTarget.AssemblyReference reference
                 && map.TryGetValue(
-                    reference.Identity.Name,
-                    out ResolvedAssemblyReference? assembly)
-                    ? AssemblyBindingSelection.Found(assembly)
-                    : AssemblyBindingSelection.NotFound();
+                reference.Identity.Name,
+                out ResolvedAssemblyReference? assembly)
+                ? AssemblyBindingSelection.Found(assembly)
+                : AssemblyBindingSelection.NotFound();
+        }
     }
 
     sealed class MissingPolicy : IAssemblyBindingPolicy
@@ -2792,8 +2799,15 @@ public class ConstraintResolutionHardeningTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NotFound();
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.NotFound();
+        }
     }
 }

@@ -8,10 +8,12 @@ description: Inspect source mapped by Portable PDB and SourceLink data — map f
 
 Use this skill to get source mapped by the Portable PDB. dotnet-inspect
 verifies local files and GitHub committed blobs read through `--repo` against
-the PDB checksum. A network `PDB Source` fetch also verifies the checksum
-and requires the final redirect origin to match before returning the body. Use
-`library -S "SourceLink: Integrity"` for opt-in verification of every
-fetchable, non-embedded compiler-source document. If no usable PDB or
+the PDB checksum. A network `PDB Source` fetch follows redirects permitted by
+the host transport and returns the body only when it matches that checksum; it
+does not treat the final destination as source provenance. Use
+`library -S "SourceLink: Integrity"` for opt-in verification that every
+fetchable, non-embedded compiler-source document preserves its attributed
+repository and revision through redirects. If no usable PDB or
 checksum-matching source is available locally or through SourceLink, use the
 always-local `decompiler` skill.
 
@@ -59,8 +61,10 @@ dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Sou
 ```
 
 `--repo` requires a fully qualified clone path and applies only to
-`raw.githubusercontent.com` SourceLink URLs. It is consulted before fetching
-the source body remotely; package or PDB acquisition may still use the network.
+`raw.githubusercontent.com` SourceLink URLs. Member PDB Source, printable type
+Source Files, printable member Source Locations, and implementation-diff PDB
+source consult the clone before fetching the source body remotely. Package or
+PDB acquisition may still use the network.
 
 ## URL forms
 
