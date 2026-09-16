@@ -8,6 +8,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 
+using CSharpText;
 using DotnetInspector.Services;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
@@ -31,14 +32,10 @@ namespace ILInspector.DecompilerHarness;
 /// to a different contract body changed the measured program shape
 /// (docs/decompiler-taste.md), invisible to the validity check.
 ///
-/// Unlike <see cref="ValidityCheck"/>'s per-method <c>__Shell</c> — which cannot
-/// see the declaring type's fields, so any <c>this.field</c> reference fails to
-/// bind as noise — this recompiles each member inside a reconstructed shape of
-/// its REAL declaring type: the type declaration, every field, every sibling and
-/// nested member as a throwing stub, and the one target member's real decompiled
-/// body. The C# analog of the IL round-trip suite's full-skeleton scaffold
-/// (IlasmScaffold.BuildCompilationUnit). Fields in scope mean a dropped or
-/// mis-bound field access surfaces as a body diff, not a compile error.
+/// Raised standalone fidelity uses product-artifact ReturnToSender. The
+/// structured evaluation APIs and lowered standalone fidelity retain the legacy
+/// whole-module skeleton for claims that still depend on reconstructed
+/// declarations.
 /// </summary>
 static class FidelityCheck
 {
@@ -204,6 +201,208 @@ static class FidelityCheck
             fidelityUnavailableExamples, recompileFailExamples, contextFailExamples, zeroSignal);
         phaseTimings?.Report();
         return 0;
+    }
+
+    public static Task<int> RunReturnToSender(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        int maxExamples,
+        bool timings = false,
+        int zeroSignalGuard = 0)
+        => RunReturnToSender(
+            assemblies,
+            cap,
+            maxExamples,
+            timings,
+            zeroSignalGuard,
+            static (assemblyPath, targets) => ReturnToSenderFidelityEvaluator.EvaluateAsync(
+                assemblyPath,
+                targets,
+                "product-artifact RTS; compile-back-floor=false",
+                CaptureMode.ProductArtifact));
+
+    internal static async Task<int> RunReturnToSender(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        int maxExamples,
+        bool timings,
+        int zeroSignalGuard,
+        Func<string, IReadOnlyList<CompileBackTarget>, Task<ReturnToSenderFidelityEvaluator.Evaluation>> evaluate)
+    {
+        var phaseTimings = timings ? new ReturnToSenderFidelityTimings() : null;
+        string? typeFilter = Environment.GetEnvironmentVariable("CB_TYPE");
+        IReadOnlyList<CompileBackTarget> selected = phaseTimings is null
+            ? SelectReturnToSenderTargets(assemblies, cap, typeFilter)
+            : phaseTimings.MeasureSelection(() => SelectReturnToSenderTargets(assemblies, cap, typeFilter));
+
+        var zeroSignal = zeroSignalGuard > 0 ? new ZeroSignalGuard(zeroSignalGuard, cap) : null;
+        int probeCount = zeroSignal is null
+            ? selected.Count
+            : Math.Min(zeroSignalGuard, selected.Count);
+        var results = new List<CompileBackResult>(selected.Count);
+        if (probeCount > 0)
+        {
+            var probe = selected.Take(probeCount).ToArray();
+            results.AddRange(phaseTimings is null
+                ? await EvaluateReturnToSenderTargets(probe, evaluate)
+                : await phaseTimings.MeasureEvaluation(
+                    () => EvaluateReturnToSenderTargets(probe, evaluate)));
+            Observe(zeroSignal, results);
+        }
+
+        if (zeroSignal?.ShouldRerunWithoutGuard == true && probeCount < selected.Count)
+        {
+            var remainder = selected.Skip(probeCount).ToArray();
+            results.AddRange(phaseTimings is null
+                ? await EvaluateReturnToSenderTargets(remainder, evaluate)
+                : await phaseTimings.MeasureEvaluation(
+                    () => EvaluateReturnToSenderTargets(remainder, evaluate)));
+        }
+
+        Console.WriteLine("Standalone fidelity engine: product-artifact RTS (raised; compile-back-floor=false)");
+        Console.WriteLine(
+            $"Standalone candidate population: {selected.Count} planned "
+            + $"(global cap {cap}; {results.Count} evaluated)");
+        if (Environment.GetEnvironmentVariable("CB_CLUSTER") is not null
+            || Environment.GetEnvironmentVariable("CB_DUMP") is not null)
+        {
+            Console.WriteLine(
+                "Legacy reconstruction controls CB_CLUSTER and CB_DUMP apply only to --lowered.");
+        }
+
+        ReportReturnToSender(results, maxExamples, zeroSignal);
+        phaseTimings?.Report();
+        return 0;
+    }
+
+    internal static IReadOnlyList<CompileBackTarget> SelectReturnToSenderTargets(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        string? typeFilter = null)
+    {
+        if (cap <= 0)
+            return [];
+
+        var selected = new List<CompileBackTarget>(Math.Min(cap, 4096));
+        using var metadata = CorpusMetadata.Create(assemblies);
+        foreach (var assemblyPath in assemblies)
+        {
+            int remaining = cap - selected.Count;
+            if (remaining <= 0)
+                break;
+
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
+            RegisterSourceContext(source, metadata);
+            var reader = source.Reader;
+            var targetApiIndex = CreateTargetApiIndex(source.Pe);
+            foreach (var candidate in IrImporter.GetStableSampleCandidates(
+                         source,
+                         remaining,
+                         candidate => IsStandaloneReturnToSenderCandidate(
+                             reader,
+                             candidate,
+                             typeFilter,
+                             targetApiIndex)))
+            {
+                var signatureShape = MetadataMemberSignatureShape.Create(
+                    reader,
+                    candidate.MethodHandle);
+                string signature = signatureShape.Shape is { } shape
+                    ? MemberSignatureShapeCodec.Encode(shape)
+                    : "";
+                selected.Add(new CompileBackTarget(
+                    assemblyPath,
+                    candidate.TypeName,
+                    candidate.MethodName,
+                    candidate.Overload,
+                    signature,
+                    MetadataMethodAddress.Create(reader, candidate.MethodHandle)));
+            }
+        }
+
+        return selected;
+    }
+
+    static bool IsStandaloneReturnToSenderCandidate(
+        MetadataReader reader,
+        IrImporter.StableSampleCandidate candidate,
+        string? typeFilter,
+        IReadOnlyDictionary<int, (ApiType Type, ApiMember Member)> targetApiIndex)
+    {
+        var typeDef = reader.GetTypeDefinition(candidate.TypeDefHandle);
+        if (!typeDef.GetDeclaringType().IsNil
+            || ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct)
+            || (typeFilter is not null
+                && !candidate.TypeName.Contains(typeFilter, StringComparison.Ordinal))
+            || IsGeneratedType(reader, typeDef, candidate.TypeName))
+        {
+            return false;
+        }
+
+        var method = reader.GetMethodDefinition(candidate.MethodHandle);
+        int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(
+            candidate.MethodHandle);
+        return !IsGeneratedMethod(reader, method, candidate.MethodName)
+            && targetApiIndex.TryGetValue(token, out var entry)
+            && CSharpMemberArtifactEligibility.IsRepresentable(
+                entry.Type,
+                entry.Member);
+    }
+
+    static async Task<IReadOnlyList<CompileBackResult>> EvaluateReturnToSenderTargets(
+        IReadOnlyList<CompileBackTarget> targets,
+        Func<string, IReadOnlyList<CompileBackTarget>, Task<ReturnToSenderFidelityEvaluator.Evaluation>> evaluate)
+    {
+        var results = new List<CompileBackResult>(targets.Count);
+        foreach (var assemblyTargets in targets.GroupBy(
+                     target => target.AssemblyPath,
+                     StringComparer.Ordinal))
+        {
+            var requested = assemblyTargets.ToArray();
+            var evaluation = await evaluate(assemblyTargets.Key, requested);
+            if (evaluation.CompileBackFloorAppliedMethods != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Raised standalone RTS applied the compile-back floor to "
+                    + $"{evaluation.CompileBackFloorAppliedMethods} methods.");
+            }
+            if (evaluation.Results.Count != requested.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Raised standalone RTS returned {evaluation.Results.Count} results "
+                    + $"for {requested.Length} selected methods.");
+            }
+
+            results.AddRange(evaluation.Results);
+        }
+
+        return results;
+    }
+
+    static void Observe(ZeroSignalGuard? zeroSignal, IReadOnlyList<CompileBackResult> results)
+    {
+        if (zeroSignal is null)
+            return;
+
+        int exact = results.Count(result => result.Status == CompileBackStatus.Exact);
+        int diffCount = results.Count(result =>
+            result.Status is CompileBackStatus.OpcodeDiff or CompileBackStatus.OperandDiff);
+        int recompileFail = results.Count(result => result.Status == CompileBackStatus.RecompileFail);
+        int contextFail = results.Count(result => result.Status == CompileBackStatus.ContextFail);
+        var recompileFailCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var result in results.Where(result => result.Status == CompileBackStatus.RecompileFail))
+        {
+            string code = DiagnosticCode(result.Detail);
+            recompileFailCodes[code] = recompileFailCodes.GetValueOrDefault(code) + 1;
+        }
+
+        zeroSignal.Observe(
+            results.Count,
+            exact,
+            diffCount,
+            recompileFail,
+            contextFail,
+            recompileFailCodes);
     }
 
     public static async Task<int> RunMethodDelta(
@@ -404,9 +603,10 @@ static class FidelityCheck
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
     /// per rendered method, without printing. This is the testable entry point the
-    /// xunit gate uses to assert the green set stays contract-exact; <see cref="Run"/>
-    /// is the console-reporting entry point. Shares all of the skeleton-emission and
-    /// opcode-comparison machinery so the two paths can never drift.
+    /// xunit gate uses to assert the green set stays contract-exact;
+    /// <see cref="Run"/> is the legacy console-reporting entry point. Shares all
+    /// of the skeleton-emission and opcode-comparison machinery so those legacy
+    /// paths can never drift.
     /// </summary>
     /// <param name="typeFilter">
     /// Optional predicate over the full type name, applied before any decompile or
@@ -877,6 +1077,39 @@ static class FidelityCheck
             Console.WriteLine($"  compilation create         : {Ms(_compilationCreateTicks)}");
             Console.WriteLine($"  emit                       : {Ms(_emitTicks)}");
             Console.WriteLine($"  opcode compare             : {Ms(_opcodeCompareTicks)}");
+        }
+    }
+
+    sealed class ReturnToSenderFidelityTimings
+    {
+        long _selectionTicks;
+        long _evaluationTicks;
+
+        public T MeasureSelection<T>(Func<T> action)
+            => Measure(ref _selectionTicks, action);
+
+        public async Task<T> MeasureEvaluation<T>(Func<Task<T>> action)
+        {
+            long start = Stopwatch.GetTimestamp();
+            try { return await action(); }
+            finally { _evaluationTicks += Stopwatch.GetTimestamp() - start; }
+        }
+
+        static T Measure<T>(ref long ticks, Func<T> action)
+        {
+            long start = Stopwatch.GetTimestamp();
+            try { return action(); }
+            finally { ticks += Stopwatch.GetTimestamp() - start; }
+        }
+
+        public void Report()
+        {
+            static string Ms(long ticks) => $"{ticks * 1000.0 / Stopwatch.Frequency:F1} ms";
+
+            Console.WriteLine();
+            Console.WriteLine("RTS fidelity timings:");
+            Console.WriteLine($"  target selection : {Ms(_selectionTicks)}");
+            Console.WriteLine($"  RTS evaluation   : {Ms(_evaluationTicks)}");
         }
     }
 
@@ -2926,6 +3159,117 @@ static class FidelityCheck
         }
     }
 
+    static void ReportReturnToSender(
+        IReadOnlyList<CompileBackResult> results,
+        int maxExamples,
+        ZeroSignalGuard? zeroSignal)
+    {
+        string Pct(int count) => results.Count == 0
+            ? "0"
+            : $"{100.0 * count / results.Count:F2}%";
+
+        int exact = results.Count(result => result.Status == CompileBackStatus.Exact);
+        int opcodeDiff = results.Count(result => result.Status == CompileBackStatus.OpcodeDiff);
+        int operandDiff = results.Count(result => result.Status == CompileBackStatus.OperandDiff);
+        int fidelityUnavailable = results.Count(result =>
+            result.Status == CompileBackStatus.FidelityUnavailable);
+        int notFull = results.Count(result => result.Status == CompileBackStatus.NotFull);
+        int recompileFail = results.Count(result => result.Status == CompileBackStatus.RecompileFail);
+        int contextFail = results.Count(result => result.Status == CompileBackStatus.ContextFail);
+
+        Console.WriteLine($"RETURN-TO-SENDER over {results.Count} evaluated methods");
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  exact (contract v{CurrentContractVersion}): {exact} ({Pct(exact)}) — EH-blind");
+        Console.WriteLine(
+            $"  opcode diff (Full) : {opcodeDiff} ({Pct(opcodeDiff)}) — recompiled to a different opcode stream");
+        Console.WriteLine(
+            $"  operand diff (Full): {operandDiff} ({Pct(operandDiff)}) — opcode names matched; operand or target differed");
+        Console.WriteLine($"  fidelity unavailable: {fidelityUnavailable} ({Pct(fidelityUnavailable)})");
+        Console.WriteLine($"  not Full           : {notFull} ({Pct(notFull)})");
+        Console.WriteLine($"  recompile fail     : {recompileFail} ({Pct(recompileFail)})");
+        Console.WriteLine($"  context fail       : {contextFail} ({Pct(contextFail)})");
+
+        var recompileFailCodes = results
+            .Where(result => result.Status == CompileBackStatus.RecompileFail)
+            .GroupBy(result => DiagnosticCode(result.Detail), StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.Ordinal)
+            .ToArray();
+        if (recompileFailCodes.Length != 0)
+        {
+            Console.WriteLine("  recompile-fail by code:");
+            foreach (var group in recompileFailCodes)
+                Console.WriteLine($"    {group.Key}: {group.Count()}");
+        }
+
+        zeroSignal?.Report();
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.OpcodeDiff,
+            "Opcode-diff examples (Full)",
+            maxExamples,
+            includeOpcodes: true);
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.OperandDiff,
+            "Operand-diff examples (Full; EH-blind)",
+            maxExamples,
+            includeOpcodes: true);
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.FidelityUnavailable,
+            "Fidelity-unavailable examples",
+            maxExamples,
+            includeOpcodes: false);
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.NotFull,
+            "Not-Full examples",
+            maxExamples,
+            includeOpcodes: false);
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.RecompileFail,
+            "Recompile-fail examples",
+            maxExamples,
+            includeOpcodes: false);
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.ContextFail,
+            "Context-fail examples",
+            maxExamples,
+            includeOpcodes: false);
+    }
+
+    static void PrintReturnToSenderExamples(
+        IReadOnlyList<CompileBackResult> results,
+        CompileBackStatus status,
+        string heading,
+        int maxExamples,
+        bool includeOpcodes)
+    {
+        var matching = results.Where(result => result.Status == status).ToArray();
+        if (matching.Length == 0)
+            return;
+
+        Console.WriteLine();
+        Console.WriteLine(ExampleHeading(heading, Math.Min(maxExamples, matching.Length), matching.Length));
+        foreach (var result in matching.Take(maxExamples))
+        {
+            Console.WriteLine($"  {result.Type}::{result.Method}");
+            if (includeOpcodes)
+            {
+                Console.WriteLine($"    orig : {result.OriginalOpcodes}");
+                Console.WriteLine($"    recmp: {result.RecompiledOpcodes}");
+            }
+            else if (!string.IsNullOrWhiteSpace(result.Detail))
+            {
+                Console.WriteLine($"    {result.Detail}");
+            }
+        }
+    }
+
     static string ExampleHeading(string title, int shown, int total)
         => shown == total ? $"{title} ({total}):" : $"{title} (showing {shown} of {total}):";
 
@@ -4182,46 +4526,56 @@ static class FidelityCheck
     static Dictionary<int, (ApiType Type, ApiMember Member)> TargetApiIndex(PEReader pe)
         => TargetApiIndexCache.GetValue(pe, static p =>
         {
-            var index = new Dictionary<int, (ApiType Type, ApiMember Member)>();
             try
             {
-                // includeAll: the harness evaluates non-public methods too, so
-                // index the whole surface — otherwise internal/private targets
-                // silently miss the migration and retain the legacy signature
-                // emitter this change replaces (#3062 review).
-                foreach (var type in ApiSurfaceExtractor.Extract(p, includeAll: true).Types)
-                    foreach (var member in type.Members)
-                    {
-                        if (member.MetadataToken is { } token)
-                        {
-                            if (member.Kind == "extension-method")
-                                index.TryAdd(token, (type, member));
-                            else
-                                index[token] = (type, member);
-                        }
-                        if (member.Kind == "property"
-                            && !member.Name.Contains('.', StringComparison.Ordinal))
-                        {
-                            if (member.GetterToken is { } getterToken)
-                                index.TryAdd(getterToken, (type, member));
-                            if (member.SetterToken is { } setterToken)
-                                index.TryAdd(setterToken, (type, member));
-                        }
-                        if (member.Kind == "event")
-                        {
-                            if (member.AdderToken is { } adderToken)
-                                index.TryAdd(adderToken, (type, member));
-                            if (member.RemoverToken is { } removerToken)
-                                index.TryAdd(removerToken, (type, member));
-                        }
-                    }
+                return CreateTargetApiIndex(p);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 // Honest degradation: targets fall back to the harness signature path.
+                return [];
             }
-            return index;
         });
+
+    static Dictionary<int, (ApiType Type, ApiMember Member)> CreateTargetApiIndex(
+        PEReader pe)
+    {
+        var index = new Dictionary<int, (ApiType Type, ApiMember Member)>();
+        // includeAll: the harness evaluates non-public methods too, so
+        // index the whole surface — otherwise internal/private targets
+        // silently miss the migration and retain the legacy signature
+        // emitter this change replaces (#3062 review).
+        foreach (var type in ApiSurfaceExtractor.Extract(pe, includeAll: true).Types)
+        {
+            foreach (var member in type.Members)
+            {
+                if (member.MetadataToken is { } token)
+                {
+                    if (member.Kind == "extension-method")
+                        index.TryAdd(token, (type, member));
+                    else
+                        index[token] = (type, member);
+                }
+                if (member.Kind == "property"
+                    && !member.Name.Contains('.', StringComparison.Ordinal))
+                {
+                    if (member.GetterToken is { } getterToken)
+                        index.TryAdd(getterToken, (type, member));
+                    if (member.SetterToken is { } setterToken)
+                        index.TryAdd(setterToken, (type, member));
+                }
+                if (member.Kind == "event")
+                {
+                    if (member.AdderToken is { } adderToken)
+                        index.TryAdd(adderToken, (type, member));
+                    if (member.RemoverToken is { } removerToken)
+                        index.TryAdd(removerToken, (type, member));
+                }
+            }
+        }
+
+        return index;
+    }
 
     /// <summary>
     /// The product's whole-member render for a target method — the CSharp-owned

@@ -613,7 +613,22 @@ static class Program
         }
 
         if (fidelityCheck)
-            return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered, fidelityTimings, fidelityZeroSignalGuard);
+        {
+            return lowered
+                ? FidelityCheck.Run(
+                    assemblies,
+                    compileCap,
+                    maxExamples,
+                    lowered: true,
+                    timings: fidelityTimings,
+                    zeroSignalGuard: fidelityZeroSignalGuard)
+                : await FidelityCheck.RunReturnToSender(
+                    assemblies,
+                    compileCap,
+                    maxExamples,
+                    fidelityTimings,
+                    fidelityZeroSignalGuard);
+        }
 
         if (returnToSender)
             return await ReturnToSender.Run(assemblies, cap, maxExamples);
@@ -2356,8 +2371,8 @@ static class Program
                                 recompilable C# at a lower altitude. With
                                 --validity-check: measure the lowered output's compile
                                 rate instead of the shipped output's. With
-                                --fidelity-check: roundtrip the lowered view through the
-                                compiler and compare opcode streams.
+                                --fidelity-check: use the labelled legacy whole-module
+                                evaluator for the lowered view.
           --step-limit <N>      with --dump: replay to step N and dump the IR
                                 right before that rewrite.
           --il                  with --dump: prepend the annotated-IL import
@@ -2385,7 +2400,9 @@ static class Program
                                 violations against JSON baseline <f>.
           --emit-validity-defects <f>    with --validity-check, write per-method defect codes to <f>
           --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
-          --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --fidelity-check        select stable raised methods, round-trip product C# through
+                                floor-disabled ReturnToSender, and compare contract bodies.
+                                With --lowered, use the labelled legacy whole-module evaluator.
           --idempotence-check     run the IR pipeline twice and report methods the
                                 second run still rewrites (ordering gaps / instability);
                                 bucketed by the pass that fired. Zero is the target.
@@ -2614,11 +2631,12 @@ static class Program
                                 the same typed schema, partition, methodology,
                                 and Git-provenance rules used by append.
                                 Reads no assemblies and runs no decompiler.
-          --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
-                                skeleton emit, parse, compilation create, emit, and opcode compare
+          --fidelity-timings      with raised --fidelity-check: print target-selection and
+                                ReturnToSender evaluation time. With --lowered, print legacy
+                                collect/render, skeleton, parse, compilation, emit, and compare phases.
           --fidelity-zero-signal-guard <n>
                                 with --fidelity-check: probe the first N methods and stop early
-                                when they contain no Exact/OpcodeDiff rows and one failure bucket
+                                when they contain no Exact/OpcodeDiff/OperandDiff rows and one failure bucket
                                 dominates, reporting the population as zero-signal/uncheckable.
           --type-check          whole-type source oracle — compose each public type
                                 and compare its namespace, kind, modifiers, and member

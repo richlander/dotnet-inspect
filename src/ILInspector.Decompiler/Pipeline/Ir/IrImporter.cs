@@ -482,9 +482,13 @@ public static class IrImporter
 
     /// <summary>
     /// Evaluates a deterministic hash-ranked sample of method bodies from the
-    /// assembly. Returns candidates that can be built in parallel.
+    /// assembly. An optional predicate filters metadata candidates before
+    /// ranking. Returns candidates that can be built in parallel.
     /// </summary>
-    public static IEnumerable<StableSampleCandidate> GetStableSampleCandidates(MetadataSource source, int sampleSize)
+    public static IEnumerable<StableSampleCandidate> GetStableSampleCandidates(
+        MetadataSource source,
+        int sampleSize,
+        Func<StableSampleCandidate, bool>? predicate = null)
     {
         var reader = source.Reader;
         var candidates = new List<MethodCandidate>();
@@ -502,6 +506,14 @@ public static class IrImporter
                 seen[memberName] = overloadIndex + 1;
 
                 if (method.RelativeVirtualAddress == 0)
+                    continue;
+                var stableCandidate = new StableSampleCandidate(
+                    typeName,
+                    memberName,
+                    overloadIndex,
+                    typeDefHandle,
+                    methodHandle);
+                if (predicate is not null && !predicate(stableCandidate))
                     continue;
                 string key = StableSampleKey(reader, typeDef, method, typeName, memberName);
                 candidates.Add(new MethodCandidate(

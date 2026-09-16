@@ -6,6 +6,7 @@ using ILInspector.DecompilerHarness;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -17,6 +18,374 @@ namespace ILInspector.Decompiler.Tests;
 [Collection(ConsoleMutatorCollection.Name)]
 public class FidelityCheckGeneratedFilterTests
 {
+    [Fact]
+    public void SelectReturnToSenderTargets_UsesStableSetAcrossMetadataOrder()
+    {
+        var firstAssembly = CompileFixture("""
+            public static class StableSelectionFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+                public static int Gamma(int value) => value + 3;
+            }
+            """, assemblyName: "StableSelection");
+        var reorderedAssembly = CompileFixture("""
+            public static class StableSelectionFixture
+            {
+                public static int Gamma(int value) => value + 3;
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+            }
+            """, assemblyName: "StableSelection");
+        try
+        {
+            var first = FidelityCheck.SelectReturnToSenderTargets([firstAssembly], cap: 2)
+                .Select(target => $"{target.Type}::{target.Method}{target.Signature}")
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            var reordered = FidelityCheck.SelectReturnToSenderTargets([reorderedAssembly], cap: 2)
+                .Select(target => $"{target.Type}::{target.Method}{target.Signature}")
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+
+            Assert.Equal(first, reordered);
+        }
+        finally
+        {
+            DeleteFixture(firstAssembly);
+            DeleteFixture(reorderedAssembly);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_AppliesGlobalCapAndTypeFilterBeforeSampling()
+    {
+        var firstAssembly = CompileFixture("""
+            public static class FirstAssemblyFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+            }
+            """, assemblyName: "FirstAssembly");
+        string excludedMethods = string.Join(
+            Environment.NewLine,
+            Enumerable.Range(0, 32)
+                .Select(index =>
+                    $"    public static int Hidden{index}(int value) => value + {index + 7};"));
+        var secondAssembly = CompileFixture($$"""
+            using System.CodeDom.Compiler;
+
+            public static class IncludedType
+            {
+                public static int Gamma(int value) => value + 3;
+                public static int Delta(int value) => value + 4;
+
+                [GeneratedCode("fixture", "1.0")]
+                public static int Generated(int value) => value + 5;
+
+                public static class NestedType
+                {
+                    public static int Nested(int value) => value + 6;
+                }
+            }
+
+            public static class ExcludedType
+            {
+            {{excludedMethods}}
+            }
+            """, assemblyName: "SecondAssembly");
+        try
+        {
+            var globallyCapped = FidelityCheck.SelectReturnToSenderTargets(
+                [firstAssembly, secondAssembly],
+                cap: 3);
+
+            Assert.Equal(3, globallyCapped.Count);
+            Assert.Equal(2, globallyCapped.Count(target => target.AssemblyPath == firstAssembly));
+            Assert.Equal(1, globallyCapped.Count(target => target.AssemblyPath == secondAssembly));
+            Assert.All(globallyCapped, target => Assert.NotNull(target.Address));
+
+            var reversed = FidelityCheck.SelectReturnToSenderTargets(
+                [secondAssembly, firstAssembly],
+                cap: 3);
+            Assert.All(reversed, target => Assert.Equal(secondAssembly, target.AssemblyPath));
+
+            Assert.Equal(
+                2,
+                FidelityCheck.SelectReturnToSenderTargets([firstAssembly], cap: 5).Count);
+
+            var filtered = FidelityCheck.SelectReturnToSenderTargets(
+                [secondAssembly],
+                cap: 1,
+                typeFilter: "IncludedType");
+            var filteredTarget = Assert.Single(filtered);
+            Assert.Equal("IncludedType", filteredTarget.Type);
+
+            using var source = MetadataSource.Open(secondAssembly);
+            var unfilteredWinner = Assert.Single(
+                IrImporter.GetStableSampleCandidates(source, sampleSize: 1));
+            Assert.Equal("ExcludedType", unfilteredWinner.TypeName);
+        }
+        finally
+        {
+            DeleteFixture(firstAssembly);
+            DeleteFixture(secondAssembly);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsUnrepresentableArtifactIdentitiesBeforeSampling()
+    {
+        string assemblyPath = CreateUnrepresentableIdentityFixture();
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: 2);
+
+            Assert.Equal(2, selected.Count);
+            Assert.Contains(selected, target => target.Method == "Good");
+            Assert.Contains(selected, target => target.Method == "event");
+            Assert.DoesNotContain(selected, target => target.Type.Contains(
+                "bad-namespace",
+                StringComparison.Ordinal));
+            Assert.DoesNotContain(selected, target => target.Method is "bad-name" or "BadSignature");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void FidelityCheckCommand_DispatchesRaisedToNativeAndLoweredToLegacy()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneDispatchFixture
+            {
+                public static int Target(int value) => value + 1;
+            }
+            """);
+        try
+        {
+            HarnessRun raised = RunHarness(
+                "--fidelity-check",
+                "--compile-cap",
+                "1",
+                assemblyPath);
+            Assert.True(
+                raised.ExitCode == 0,
+                $"Raised harness exit {raised.ExitCode}:{Environment.NewLine}{raised.Output}");
+            Assert.Contains(
+                "Standalone fidelity engine: product-artifact RTS (raised; compile-back-floor=false)",
+                raised.Output);
+            Assert.DoesNotContain("COMPILE-BACK over", raised.Output);
+
+            HarnessRun lowered = RunHarness(
+                "--fidelity-check",
+                "--lowered",
+                "--compile-cap",
+                "1",
+                assemblyPath);
+            Assert.True(
+                lowered.ExitCode == 0,
+                $"Lowered harness exit {lowered.ExitCode}:{Environment.NewLine}{lowered.Output}");
+            Assert.Contains("COMPILE-BACK over", lowered.Output);
+            Assert.DoesNotContain(
+                "Standalone fidelity engine: product-artifact RTS",
+                lowered.Output);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunReturnToSender_RejectsCompileBackFloor()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneFloorFixture
+            {
+                public static int Target(int value) => value + 1;
+            }
+            """);
+        string? originalType = Environment.GetEnvironmentVariable("CB_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", null);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                FidelityCheck.RunReturnToSender(
+                    [assemblyPath],
+                    cap: 1,
+                    maxExamples: 5,
+                    timings: false,
+                    zeroSignalGuard: 0,
+                    (_, targets) => Task.FromResult(
+                        new ReturnToSenderFidelityEvaluator.Evaluation(
+                            targets.Select(target => new FidelityCheck.CompileBackResult(
+                                target.Type,
+                                target.Method,
+                                target.Overload,
+                                target.Signature,
+                                FidelityCheck.CompileBackStatus.Exact,
+                                "ret",
+                                "ret",
+                                Detail: null,
+                                Capture: FidelityCheck.CaptureMode.ProductArtifact,
+                                CaptureDetail: "product-artifact RTS; compile-back-floor")).ToArray(),
+                            CompileBackFloorAppliedMethods: 1))));
+
+            Assert.Contains("applied the compile-back floor", error.Message);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", originalType);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunReturnToSender_ReportsCompleteNativePopulationInSelectedOrder()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneNativeFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+            }
+            """);
+        var originalOut = Console.Out;
+        string? originalType = Environment.GetEnvironmentVariable("CB_TYPE");
+        string? originalCluster = Environment.GetEnvironmentVariable("CB_CLUSTER");
+        string? originalDump = Environment.GetEnvironmentVariable("CB_DUMP");
+        try
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", null);
+            Environment.SetEnvironmentVariable("CB_CLUSTER", "1");
+            Environment.SetEnvironmentVariable("CB_DUMP", null);
+            var requested = new List<FidelityCheck.CompileBackTarget>();
+            using var writer = new StringWriter();
+            Console.SetOut(writer);
+
+            int exitCode = await FidelityCheck.RunReturnToSender(
+                [assemblyPath],
+                cap: 2,
+                maxExamples: 5,
+                timings: false,
+                zeroSignalGuard: 0,
+                (path, targets) =>
+                {
+                    Assert.Equal(assemblyPath, path);
+                    requested.AddRange(targets);
+                    var results = targets.Select((target, index) => new FidelityCheck.CompileBackResult(
+                        target.Type,
+                        target.Method,
+                        target.Overload,
+                        target.Signature,
+                        index == 0
+                            ? FidelityCheck.CompileBackStatus.Exact
+                            : FidelityCheck.CompileBackStatus.NotFull,
+                        "ldarg.0 ret",
+                        "ldarg.0 ret",
+                        Detail: null,
+                        Capture: FidelityCheck.CaptureMode.ProductArtifact,
+                        CaptureDetail: "product-artifact RTS; compile-back-floor=false")).ToArray();
+                    return Task.FromResult(
+                        new ReturnToSenderFidelityEvaluator.Evaluation(
+                            results,
+                            CompileBackFloorAppliedMethods: 0));
+                });
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal(2, requested.Count);
+            Assert.All(requested, target => Assert.NotNull(target.Address));
+            string output = writer.ToString();
+            Assert.Contains(
+                "Standalone fidelity engine: product-artifact RTS (raised; compile-back-floor=false)",
+                output);
+            Assert.Contains(
+                "Standalone candidate population: 2 planned (global cap 2; 2 evaluated)",
+                output);
+            Assert.Contains($"exact (contract v{FidelityCheck.CurrentContractVersion}): 1", output);
+            Assert.Contains("not Full           : 1", output);
+            Assert.Contains(
+                "Legacy reconstruction controls CB_CLUSTER and CB_DUMP apply only to --lowered.",
+                output);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Environment.SetEnvironmentVariable("CB_TYPE", originalType);
+            Environment.SetEnvironmentVariable("CB_CLUSTER", originalCluster);
+            Environment.SetEnvironmentVariable("CB_DUMP", originalDump);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunReturnToSender_ZeroSignalGuardStopsAfterNativeProbe()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneZeroSignalFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+                public static int Gamma(int value) => value + 3;
+            }
+            """);
+        var originalOut = Console.Out;
+        string? originalType = Environment.GetEnvironmentVariable("CB_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", null);
+            int evaluated = 0;
+            using var writer = new StringWriter();
+            Console.SetOut(writer);
+
+            int exitCode = await FidelityCheck.RunReturnToSender(
+                [assemblyPath],
+                cap: 3,
+                maxExamples: 5,
+                timings: false,
+                zeroSignalGuard: 2,
+                (_, targets) =>
+                {
+                    evaluated += targets.Count;
+                    return Task.FromResult(
+                        new ReturnToSenderFidelityEvaluator.Evaluation(
+                            targets.Select(target => new FidelityCheck.CompileBackResult(
+                                target.Type,
+                                target.Method,
+                                target.Overload,
+                                target.Signature,
+                                FidelityCheck.CompileBackStatus.ContextFail,
+                                "",
+                                "",
+                                "native-context-failure",
+                                FidelityCheck.CaptureMode.ProductArtifact,
+                                "product-artifact RTS; compile-back-floor=false")).ToArray(),
+                            CompileBackFloorAppliedMethods: 0));
+                });
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal(2, evaluated);
+            string output = writer.ToString();
+            Assert.Contains(
+                "Standalone candidate population: 3 planned (global cap 3; 2 evaluated)",
+                output);
+            Assert.Contains(
+                "zero-signal guard : stopped after 2 of requested 3",
+                output);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Environment.SetEnvironmentVariable("CB_TYPE", originalType);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     [Fact]
     public void Evaluate_PreservesIteratorPropertyDeclarationOrder()
     {
@@ -2008,14 +2377,17 @@ public class FidelityCheckGeneratedFilterTests
             result.Detail);
     }
 
-    static string CompileFixture(string source, bool allowUnsafe = false)
+    static string CompileFixture(
+        string source,
+        bool allowUnsafe = false,
+        string assemblyName = "fixture")
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, "fixture.dll");
+        var path = Path.Combine(directory, $"{assemblyName}.dll");
         var references = RoslynTestReferences.TrustedPlatform.AsEnumerable();
         var compilation = CSharpCompilation.Create(
-            Path.GetFileNameWithoutExtension(path),
+            assemblyName,
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
             references,
             new CSharpCompilationOptions(
@@ -2028,6 +2400,122 @@ public class FidelityCheckGeneratedFilterTests
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return path;
     }
+
+    static string CreateUnrepresentableIdentityFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "UnrepresentableIdentity.dll");
+
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("UnrepresentableIdentity"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule("UnrepresentableIdentity");
+        TypeBuilder badSignatureType = module.DefineType(
+            "bad-namespace.BadType",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        DefineConstantMethod(badSignatureType, "Hidden", typeof(int));
+
+        TypeBuilder goodType = module.DefineType(
+            "GoodType",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        DefineConstantMethod(goodType, "Good", typeof(int));
+        DefineConstantMethod(goodType, "event", typeof(int));
+        DefineConstantMethod(goodType, "bad-name", typeof(int));
+        MethodBuilder badSignature = goodType.DefineMethod(
+            "BadSignature",
+            MethodAttributes.Public | MethodAttributes.Static,
+            badSignatureType,
+            Type.EmptyTypes);
+        ILGenerator badSignatureBody = badSignature.GetILGenerator();
+        badSignatureBody.Emit(OpCodes.Ldnull);
+        badSignatureBody.Emit(OpCodes.Ret);
+
+        badSignatureType.CreateType();
+        goodType.CreateType();
+        assembly.Save(path);
+        return path;
+    }
+
+    static void DefineConstantMethod(
+        TypeBuilder type,
+        string name,
+        Type returnType)
+    {
+        MethodBuilder method = type.DefineMethod(
+            name,
+            MethodAttributes.Public | MethodAttributes.Static,
+            returnType,
+            Type.EmptyTypes);
+        ILGenerator body = method.GetILGenerator();
+        body.Emit(OpCodes.Ldc_I4_1);
+        body.Emit(OpCodes.Ret);
+    }
+
+    static HarnessRun RunHarness(params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo(DotnetHost())
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = AuthoredCorpusRatchetTests.FindRepositoryRoot(),
+        };
+        startInfo.ArgumentList.Add(HarnessBinary());
+        foreach (string argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+        startInfo.Environment.Remove("CB_TYPE");
+        startInfo.Environment.Remove("CB_CLUSTER");
+        startInfo.Environment.Remove("CB_DUMP");
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start DecompilerHarness.");
+        string output = process.StandardOutput.ReadToEnd();
+        string error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        return new HarnessRun(
+            process.ExitCode,
+            output + error);
+    }
+
+    static string DotnetHost()
+    {
+        string? root = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            string path = Path.Combine(
+                root,
+                OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+            if (File.Exists(path))
+                return path;
+        }
+
+        return "dotnet";
+    }
+
+    static string HarnessBinary()
+    {
+        string path = Path.Combine(
+            AuthoredCorpusRatchetTests.FindRepositoryRoot(),
+            "tools",
+            "DecompilerHarness",
+            "bin",
+            "Release",
+            "net11.0",
+            "decompiler-harness.dll");
+        Assert.True(File.Exists(path), $"The harness binary is missing: {path}.");
+        return path;
+    }
+
+    readonly record struct HarnessRun(int ExitCode, string Output);
 
     static void DeleteFixture(string assemblyPath)
     {

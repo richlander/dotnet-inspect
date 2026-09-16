@@ -152,8 +152,9 @@ legacy reference pass. The daily real-world Deep Inspect census explicitly
 selects `rts-cutover` to retain the paired comparison ledger. Baselines that
 have not yet migrated must explicitly select `compile-back`; the PR quick,
 classic state-machine, and net11 opt-in consumers do so until their own #6199
-adoption slices land. Standalone fidelity and changed-method consumers retain
-their existing contracts.
+adoption slices land. Raised standalone and changed-method fidelity use
+floor-disabled product-artifact RTS; lowered and architecture-specific
+whole-module consumers retain their labelled legacy contracts.
 
 The goal is not to make every PR fight every boss. The goal is to make the
 highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
@@ -1057,6 +1058,34 @@ codegen defect can neither mask nor manufacture a type/binding artifact defect:
 
 See [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md) for
 the flags, buckets, and current baselines.
+
+### Standalone fidelity population
+
+Bare raised `--fidelity-check` is a broad product-artifact RTS measurement, not
+a whole-module reconstruction sweep. Before running an oracle, it selects
+concrete methods from live metadata whose product C# type, namespace, member,
+parameter, generic-parameter, and referenced-signature identities are exactly
+representable on non-generated top-level classes and structs. `CB_TYPE`
+filters that population first. Stable
+hash ranking then chooses up to the remaining caller-ordered global
+`--compile-cap` for each assembly. The cap is a maximum, so an input set with
+fewer eligible methods produces a shorter, explicitly reported run.
+
+Each planned method is bound to a `MetadataMethodAddress`. Every method
+submitted to the native evaluator receives exactly one floor-disabled result in
+candidate order. Missing output and assembly-context failure remain explicit
+`ContextFail`; a product body below `Full` remains `NotFull`; no legacy result
+can replace either outcome. `--fidelity-zero-signal-guard N` probes the first
+`N` methods of the fixed population and, when useful or mixed signal exists,
+continues without re-evaluating the probe. The report distinguishes the planned
+and evaluated counts when the guard stops. Native `--fidelity-timings` reports
+selection and RTS evaluation rather than the legacy skeleton phases.
+
+The lowered command remains the labelled legacy whole-module rail because the
+product artifact provider has no lowered request. `CB_CLUSTER`, `CB_DUMP`, and
+the legacy skeleton phase timings describe only that rail. Structured
+`FidelityCheck.Evaluate` gates keep their existing whole-module contract until
+their owning evidence migrates separately.
 
 ### Changed-method plateau decisions
 
