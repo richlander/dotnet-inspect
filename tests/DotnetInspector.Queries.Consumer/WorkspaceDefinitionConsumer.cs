@@ -26,10 +26,6 @@ public static class WorkspaceDefinitionConsumer
         {
             InspectionDefinitionScenarioPreparationResult.Version2 prepared =>
                 prepared.Definitions,
-            InspectionDefinitionScenarioPreparationResult
-                .LegacyCompatibilityRequired =>
-                throw new InvalidOperationException(
-                    "The scenario requires schema-version-1 compatibility execution."),
             InspectionDefinitionScenarioPreparationResult.Version1 =>
                 throw new InvalidOperationException(
                     "The scenario is a schema-version-1 composition."),
