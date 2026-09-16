@@ -71,6 +71,66 @@ Single-seed and peer-seed requests form the **seeded** mode family. Issue #4133
 used **ad hoc** for both peer seeds and induced sets; the distinction above
 preserves whether the user named graph anchors or only bounded the input.
 
+## CLI placement target
+
+Top-level `graph` owns graph execution that first constructs or reopens a
+Workspace. Its input may be inline Workspace registrations or a canonical
+Workspace packet. A packet remains owned by
+[Workspace definitions](workspace-definitions.md): Graph consumes the decoded
+definition and any separately admitted portable query payload rather than
+inventing another packet grammar or interpreting browser presentation state.
+
+The Workspace may be Type-oriented or Package-oriented without changing its
+identity:
+
+- a Type seed can orient traversal while Package registrations supply scope;
+- Package seeds can orient an induced or peer graph while a Type lens explains
+  their evidence;
+- subject lens, seed kind, and Workspace membership remain independent axes.
+
+Top-level Graph admits single-seed, peer-seed, induced-set, and future path
+requests. Supplying one seed does not make it a subject-local command when the
+request also constructs or reopens the broader Workspace.
+
+Subject graph children provide the local counterpart:
+
+```text
+package graph
+library graph
+type graph
+member graph
+```
+
+Each subject command resolves one subject through its ordinary source grammar,
+forms the minimum owner-defined local inspection scope, binds that subject as
+the one primary seed, and invokes the same host-neutral Graph request. A local
+graph may accept focused companion scope required by its producer, such as an
+explicit caller population, but it does not accept a Workspace packet or
+arbitrary participant registration. Use top-level `graph` when the Workspace
+itself is part of the request.
+
+This is a placement distinction, not two graph semantics:
+
+```text
+subject graph
+  -> local scope + one typed primary seed
+  -> Inspection Graph request
+
+top-level graph
+  -> Workspace definition or packet + graph mode
+  -> Inspection Graph request
+```
+
+Direct subject sections such as Calls, Callers, Dependencies, References, and
+Extensions remain local evidence views. A subject graph child is justified
+only when it returns bounded topology with typed relationships, occurrences,
+limits, and failures. The existing member `Call Graph` section is the first
+migration candidate; permanent duplicate section and child entrances to the
+same graph operation are not the target.
+
+Exact CLI option spelling and packet-query adoption are deferred to focused
+implementation designs. This placement target is currently **unverified**.
+
 Related:
 
 - [Inspection graph document](inspection-graph-document.md) owns the typed
@@ -264,6 +324,11 @@ gates the package-coordinate-to-typed-request composition, and
 `IntegrationsCommand_ExposesInducedSetInputsWithoutTraversal` gates the command
 surface. Query-level induced-set gates remain authoritative for admission and
 producer planning.
+
+Under the target placement, this remains a top-level Workspace Graph mode. It
+may later consume equivalent inline Workspace registrations or a Workspace
+packet, but it does not move beneath one arbitrary Package merely because every
+current input is a Package coordinate.
 
 ## Relationship-specific admission
 

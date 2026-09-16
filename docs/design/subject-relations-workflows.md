@@ -223,9 +223,10 @@ Preserve their useful workflows, not their command tokens.
 | `vocabulary` | Discover the tool's query terms and their meanings. |
 | `ecosystem` | Discover ecosystem identities, concepts/bindings and configured contributions: the ecosystem vocabulary used across queries. |
 | `find` | Locate packages, libraries, types and members, with exact reopening context. Ecosystem selection narrows its candidate population. |
-| Subject commands plus `@Relations` | Primary single-subject relation experience, with the subject's existing resolution and sharing path. |
+| Subject commands plus `@Relations` | Primary local direct-relation experience, with the subject's existing resolution and sharing path. |
+| Subject `graph` children | Local single-seed topology over the already selected Package, Library, Type, or Member. |
 | Subject shortcut flags | High-value entry points such as `--depends` select the subject's section preset, rather than starting another resolver or inspection pipeline. |
-| `graph` | Retain independently useful peer-seed, induced-set and path questions. A section-backed dependency mode can host the existing heterogeneous root-set workflow. |
+| Top-level `graph` | Construct or reopen a Workspace, including a canonical Workspace packet, for single-seed, peer-seed, induced-set and path questions. The seed or lens may be Type- or Package-oriented. A section-backed dependency mode can host the existing heterogeneous root-set workflow. |
 | Removed verbs | Extension and implementer discovery move to subject sections; dependencies move to subject sections or the explicit root-set graph mode. Ecosystem catalog discovery stays on `ecosystem`. |
 
 The ecosystem identity is a product-level join key between catalog knowledge,
@@ -249,6 +250,12 @@ Conversely, forcing multi-root dependency or peer-graph questions through an
 arbitrary fake subject would make the subject model worse. Removing `depends`
 therefore requires both a convenient single-subject path and a complete
 root-set replacement, not just renaming its type mode.
+
+The same boundary applies when top-level Graph has only one seed: if the
+request constructs or reopens a Workspace, Graph remains the operation-first
+surface. A subject `graph` child forms only the owner-defined local scope around
+the already selected subject. Both paths consume the same typed graph request
+and retain the same relationship directions and physical evidence.
 
 ## Worked example: replace the verbs, keep the workflows
 
