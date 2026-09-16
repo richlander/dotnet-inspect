@@ -215,7 +215,9 @@ narrower:
   the canonical arity suffixes of its complete definition name. Missing or
   contradictory generic arity is unavailable rather than display-normalized.
   A TypeRef scoped to the inspected module uses its exact local TypeDef's
-  introduced parameter counts; an unresolved or ambiguous local reference is
+  introduced parameter counts from one reader-scoped, bounded TypeDef identity
+  index; index construction is charged before name materialization and shared
+  across signature providers. An unresolved or ambiguous local reference is
   unavailable rather than treated as a non-generic named type.
   Array shapes are recursively admitted only when C# type syntax preserves
   their complete identity: vectors remain supported, multidimensional arrays

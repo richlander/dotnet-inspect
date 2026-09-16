@@ -12,6 +12,11 @@ namespace ILInspector.Metadata;
 internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, GenericContext?>
 {
     public static TypeNodeProvider Instance { get; } = new();
+    // Signature helpers create separate providers, so local-definition work is
+    // shared at the reader boundary rather than repeated per decoded member.
+    static readonly ConditionalWeakTable<
+        MetadataReader,
+        ReaderTypeDefinitionIndexCache> LocalTypeDefinitions = new();
     readonly Action<string>? _beforeRetain;
     readonly Action<int>? _beforeMaterialize;
     readonly ConditionalWeakTable<MetadataReader, ReaderNameCache> _readerNames = new();
@@ -137,7 +142,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         return ReadNamedType(read, rawTypeKind);
     }
 
-    static MetadataTypeNameParts? WithTrustedLocalReferenceArity(
+    MetadataTypeNameParts? WithTrustedLocalReferenceArity(
         MetadataReader reader,
         TypeReferenceHandle handle,
         MetadataTypeNameParts metadataName)
@@ -166,20 +171,22 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         {
             return null;
         }
-        if (MetadataTypeDeclarationProbe.ProbeDefinition(reader, valid.Name)
-            is not TypeDeclarationResult.Defined defined)
+        MetadataTypeDefinitionIndex definitions =
+            LocalTypeDefinitions.GetValue(
+                reader,
+                static _ => new ReaderTypeDefinitionIndexCache())
+            .GetOrCreate(reader, _beforeMaterialize);
+        if (!definitions.TryGetUniqueDefinition(
+                valid.Name,
+                out TypeDefinitionHandle definition))
         {
             return null;
         }
 
-        EntityHandle definition =
-            MetadataTokens.EntityHandle(defined.Definition.Value);
-        return definition.Kind == HandleKind.TypeDefinition
-            ? WithTrustedArity(
-                reader,
-                (TypeDefinitionHandle)definition,
-                metadataName)
-            : null;
+        return WithTrustedArity(
+            reader,
+            definition,
+            metadataName);
     }
 
     TypeNode ReadNamedType(
@@ -336,6 +343,26 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
             _retainedCharacters += characters;
             return true;
+        }
+    }
+
+    sealed class ReaderTypeDefinitionIndexCache
+    {
+        readonly object _gate = new();
+        MetadataTypeDefinitionIndex? _index;
+
+        internal MetadataTypeDefinitionIndex GetOrCreate(
+            MetadataReader reader,
+            Action<int>? beforeMaterialize)
+        {
+            lock (_gate)
+            {
+                return _index ??=
+                    MetadataTypeDefinitionIndex.Create(
+                        reader,
+                        definitionVisited: null,
+                        beforeMaterialize: beforeMaterialize);
+            }
         }
     }
 
