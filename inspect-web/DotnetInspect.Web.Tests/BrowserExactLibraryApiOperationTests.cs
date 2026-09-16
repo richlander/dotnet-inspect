@@ -9,6 +9,12 @@ using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Tests;
 
+[CollectionDefinition(
+    "Exact Library API operations",
+    DisableParallelization = true)]
+public sealed class BrowserExactLibraryApiOperationCollection;
+
+[Collection("Exact Library API operations")]
 [SupportedOSPlatform("browser")]
 public sealed class BrowserExactLibraryApiOperationTests
 {
