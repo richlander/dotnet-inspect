@@ -6,6 +6,7 @@ src/Inspector.Artifacts.Workspaces
 src/DotnetInspector.Cache
 src/DotnetInspector.DependencyManifests
 src/DotnetInspector.Ecosystems
+src/DotnetInspector.Libraries
 src/DotnetInspector.Networking
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
