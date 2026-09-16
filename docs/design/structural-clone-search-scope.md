@@ -7,7 +7,7 @@ originally established under
 [#6282](https://github.com/richlander/dotnet-inspect/issues/6282) and revised
 under [#6289](https://github.com/richlander/dotnet-inspect/issues/6289), within
 the Diff, Clone, and immersive-viewer experience tracked by
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 Stages 2 and 3 below are implemented under
 [#6303](https://github.com/richlander/dotnet-inspect/issues/6303) by the
 Queries-owned `WorkspaceStructuralCloneSearchQuery` and gated by its focused
@@ -490,7 +490,7 @@ clone-assisted differ.
 | CLI host | Request binding, advanced work controls, Markout lowering, and disclosure |
 | Inspect Web | Breadth and candidate-discovery controls, operation lifetime, master/detail interaction, navigation, and host-native rendering |
 
-The counted production-adoption path under #5083 has seven stages:
+The counted production-adoption path under #7213 has seven stages:
 
 1. Lock this contract and transfer Clone candidate-scope ownership from the
    Browser Package target design.

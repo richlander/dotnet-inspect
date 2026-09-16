@@ -103,7 +103,7 @@ milestones total;
 CLI adoption uses S1-S3 and browser adoption S1/S2/S4/S5. S2 and S3 travel
 together in [#5970](https://github.com/richlander/dotnet-inspect/issues/5970)
 rather than leaving another unconsumed substrate. Browser ownership
-remains under [#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+remains under [#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 
 S6 removes the now-uncalled Research member-plus-PDB wrapper and its
 Source-specific member-result scaffolding. It deliberately retains broad CLI

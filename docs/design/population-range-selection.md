@@ -4,7 +4,7 @@
 
 Status: **proposed; not implemented**. This focused pattern is tracked with
 [#6987](https://github.com/richlander/dotnet-inspect/issues/6987), within
-[Compare delivery #5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[Compare delivery #7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 It owns the selection obligation introduced by a population-creating range:
 
 > Ranges that create a population need an explicit consumer selector.
