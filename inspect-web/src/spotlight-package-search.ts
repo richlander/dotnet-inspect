@@ -1,4 +1,5 @@
 import { assertNever } from "./data.ts";
+import { parsePackageQuery } from "./package-controls.ts";
 import type {
   SpotlightPackageHit,
   SpotlightScope,
@@ -111,6 +112,10 @@ export function createSpotlightPackageSearch<TSchedule>(
       }
       if (!packageScopeIsActive()) {
         state.spotlightPackageSearch = settledPackageSearch(current);
+        return;
+      }
+      if (parsePackageQuery(query)?.explicitVersion === true) {
+        state.spotlightPackageSearch = { status: "idle" };
         return;
       }
       if (query.length < 2) {
