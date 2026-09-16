@@ -108,23 +108,25 @@ applied and no term draft is open. Choosing a palette entry opens one empty
 draft and focuses its operand without starting source work. Applying the draft
 requires a nonempty operand, retains the exact `(key, operator, value)` triple,
 and starts a replacement query only when the package input is nonblank.
+Draft and active-term editor values survive unrelated rerenders and mode
+switches; they remain separate from executable request terms until Apply.
+Cancel discards a draft, Remove discards the corresponding active editor with
+its term, and leaving Package Query discards all unapplied editor values.
 Package Query remains the authority for vocabulary, NuGet package-ID
 validation, duplicate-after-binding rejection, bounds, and failures; a planning
 rejection is a visible expected query failure and performs no acquisition.
 
 Applied terms are individually editable and removable. Apply or remove
-preserves package input, prerelease selection, and selected facets, clears the
-separate assembly-pattern mode, and starts a replacement query when the package
-input is runnable. Repeated `depends` terms remain separate active rows and AND
-through the product planner. The Browser does not pre-collapse exact or
-case-variant duplicates, reinterpret the operand, or infer a term from evidence
-text. Product-issued term attribution remains structured across the Browser
-engine boundary.
+preserves package input, prerelease selection, and selected facets, and starts
+a replacement query when the package input is runnable. Repeated
+`depends` terms remain separate active rows and AND through the product planner.
+The Browser does not pre-collapse exact or case-variant duplicates, reinterpret
+the operand, or infer a term from evidence text. Product-issued term
+attribution remains structured across the Browser engine boundary.
 
 This delivery keeps request state in memory only. Portable intent resolution,
 payload encoding, `/query` URL persistence, Workspace packet attachment,
-assembly-pattern conversion, and parameterless-facet retirement remain later
-owner slices under #6971 and #6972.
+and parameterless-facet retirement remain later owner slices: #6971 and #6972.
 
 Rows carry the highest evidence tier used by the request: `search-metadata`
 for basic discovery, `nuspec` for explicit manifest evaluation, or

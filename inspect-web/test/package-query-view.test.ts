@@ -198,7 +198,12 @@ test("an empty term draft is editable but not part of the executable request", (
     state: {
       request,
       outcome: emptyOutcome(),
-      termDraft: TERMS[0]!,
+      termDraft: {
+        descriptor: TERMS[0]!,
+        operator: "eq",
+        value: "",
+      },
+      termEdits: [],
     },
     availableFacets: FACETS,
     availableTerms: TERMS,
@@ -209,6 +214,39 @@ test("an empty term draft is editable but not part of the executable request", (
   assert.match(html, /data-query-term-form="draft"/);
   assert.match(html, /data-query-term-draft-value/);
   assert.match(html, /placeholder="Microsoft\.Extensions\.Hosting"/);
+});
+
+test("pending term edits survive full view rerenders", () => {
+  const request = withTerm(
+    createQueryRequest("Microsoft.*"),
+    TERMS[0]!,
+    "eq",
+    "Microsoft.Extensions.Hosting");
+  const html = renderPackageQueryView({
+    state: {
+      request,
+      outcome: emptyOutcome(),
+      termDraft: {
+        descriptor: TERMS[0]!,
+        operator: "eq",
+        value: "Microsoft.Extensions.Logging",
+      },
+      termEdits: [{
+        operator: "eq",
+        value: "Microsoft.Extensions.DependencyInjection",
+      }],
+    },
+    availableFacets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-query-term-form="0"[\s\S]*value="Microsoft\.Extensions\.DependencyInjection"/);
+  assert.match(
+    html,
+    /data-query-term-form="draft"[\s\S]*value="Microsoft\.Extensions\.Logging"/);
 });
 test("candidate and local match bounds are independently disclosed before and during inspection", () => {
   for (const request of [
@@ -1214,6 +1252,8 @@ test("bindPackageQueryView applies exact term values and keeps empty drafts idle
     onTermAdd: key => calls.push(`add:${key}`),
     onTermApply: (index, termOperator, termValue, searchText) =>
       calls.push(`apply:${index}:${termOperator}:${termValue}:${searchText}`),
+    onTermEdit: (index, termOperator, termValue) =>
+      calls.push(`edit:${index}:${termOperator}:${termValue}`),
     onTermDraftCancel: () => calls.push("draft-cancel"),
     onTermRemove: (index, searchText) =>
       calls.push(`remove:${index}:${searchText}`),
@@ -1232,6 +1272,7 @@ test("bindPackageQueryView applies exact term values and keeps empty drafts idle
 
   assert.deepEqual(calls, [
     "add:depends",
+    "edit:null:eq:  Microsoft.Extensions.Hosting  ",
     "apply:null:eq:  Microsoft.Extensions.Hosting  :Microsoft.*",
     "remove:0:Microsoft.*",
     "draft-cancel",

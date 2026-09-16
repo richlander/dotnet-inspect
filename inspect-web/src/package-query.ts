@@ -33,6 +33,15 @@ export interface QueryTermDescriptor {
   example: string;
 }
 
+interface QueryTermEditor {
+  operator: string;
+  value: string;
+}
+
+interface QueryTermDraft extends QueryTermEditor {
+  descriptor: QueryTermDescriptor;
+}
+
 /** One unresolved term retained exactly as the user applied it. */
 interface QueryTerm {
   descriptor: QueryTermDescriptor;
@@ -386,11 +395,17 @@ export interface PackageQueryDataSource {
 export interface PackageQueryState {
   request: QueryRequest | null;
   outcome: QueryOutcome;
-  termDraft?: QueryTermDescriptor | null;
+  termDraft?: QueryTermDraft | null;
+  termEdits?: readonly (QueryTermEditor | null)[];
 }
 
 export function initialQueryState(): PackageQueryState {
-  return { request: null, outcome: idleOutcome(), termDraft: null };
+  return {
+    request: null,
+    outcome: idleOutcome(),
+    termDraft: null,
+    termEdits: [],
+  };
 }
 
 export interface PackageQueryController {

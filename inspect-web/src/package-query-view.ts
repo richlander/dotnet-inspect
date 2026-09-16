@@ -33,6 +33,11 @@ export interface PackageQueryBindingActions {
     value: string,
     prefix: string,
   ) => void;
+  onTermEdit?: (
+    index: number | null,
+    operator: string,
+    value: string,
+  ) => void;
   onTermDraftCancel?: () => void;
   onTermRemove?: (index: number, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
@@ -350,35 +355,42 @@ function bindPackageQueryTerms(
     .forEach(form => {
       const termValue = form.querySelector<HTMLInputElement>(
         "[data-query-term-value]");
-      if (termValue) {
-        const clearError = () => termValue.setCustomValidity("");
-        termValue.addEventListener("input", clearError);
-        termValue.addEventListener("change", clearError);
+      const termOperator =
+        form.querySelector<HTMLInputElement | HTMLSelectElement>(
+          "[data-query-term-operator]");
+      const indexText = form.dataset.queryTermForm;
+      const index = indexText === "draft" ? null : Number(indexText);
+      if (index !== null && (!Number.isInteger(index) || index < 0)) {
+        throw new Error("Package-query term index is invalid.");
       }
+      const retainEdit = () => {
+        if (!termValue || !termOperator) return;
+        actions.onTermEdit?.(index, termOperator.value, termValue.value);
+      };
+      if (termValue) {
+        const updateValue = () => {
+          termValue.setCustomValidity("");
+          retainEdit();
+        };
+        termValue.addEventListener("input", updateValue);
+        termValue.addEventListener("change", updateValue);
+      }
+      termOperator?.addEventListener("change", retainEdit);
       form.addEventListener("submit", event => {
         event.preventDefault();
-        const value = form.querySelector<HTMLInputElement>(
-          "[data-query-term-value]");
-        const operator = form.querySelector<HTMLInputElement | HTMLSelectElement>(
-          "[data-query-term-operator]");
-        if (!value || !operator) {
+        if (!termValue || !termOperator) {
           throw new Error("Package-query term controls are incomplete.");
         }
-        value.setCustomValidity("");
-        if (value.value.trim().length === 0) {
-          value.setCustomValidity("Enter a term value.");
-          value.reportValidity();
+        termValue.setCustomValidity("");
+        if (termValue.value.trim().length === 0) {
+          termValue.setCustomValidity("Enter a term value.");
+          termValue.reportValidity();
           return;
-        }
-        const indexText = form.dataset.queryTermForm;
-        const index = indexText === "draft" ? null : Number(indexText);
-        if (index !== null && (!Number.isInteger(index) || index < 0)) {
-          throw new Error("Package-query term index is invalid.");
         }
         actions.onTermApply?.(
           index,
-          operator.value,
-          value.value,
+          termOperator.value,
+          termValue.value,
           prefixInput()?.value ?? "");
       });
     });
@@ -589,18 +601,20 @@ function renderTermControls(
   const applied = state.request?.terms ?? [];
   const draft = state.termDraft;
   const active = [
-    ...applied.map((term, index) =>
-      renderTermEditor(
+    ...applied.map((term, index) => {
+      const edit = state.termEdits?.[index];
+      return renderTermEditor(
         term.descriptor,
-        term.operator,
-        term.value,
+        edit?.operator ?? term.operator,
+        edit?.value ?? term.value,
         index,
-        escapeHtml)),
+        escapeHtml);
+    }),
     ...(draft
       ? [renderTermEditor(
-          draft,
-          draft.operators[0] ?? "",
-          "",
+          draft.descriptor,
+          draft.operator,
+          draft.value,
           null,
           escapeHtml)]
       : []),

@@ -11735,6 +11735,7 @@ async function selectWorkspaceApplicationScope() {
 function closePackageQueryRoute() {
   navigationSequence.begin();
   state.packageQueryState.termDraft = null;
+  state.packageQueryState.termEdits = [];
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
   if (state.packageQueryOpenedFromApp) {
@@ -11859,7 +11860,11 @@ function addPackageQueryTerm(termKey: string) {
     return;
   }
 
-  state.packageQueryState.termDraft = descriptor;
+  state.packageQueryState.termDraft = {
+    descriptor,
+    operator: descriptor.operators[0] ?? "",
+    value: "",
+  };
   state.packageQueryNavigationError = "";
   render();
   afterCurrentNavigationFrame(() =>
@@ -11874,7 +11879,7 @@ function applyPackageQueryTerm(
   text: string,
 ) {
   const descriptor = index === null
-    ? state.packageQueryState.termDraft
+    ? state.packageQueryState.termDraft?.descriptor
     : state.packageQueryState.request?.terms[index]?.descriptor;
   if (!descriptor) {
     state.packageQueryNavigationError =
@@ -11887,17 +11892,46 @@ function applyPackageQueryTerm(
   const request = index === null
     ? withTerm(current, descriptor, operator, value)
     : replaceTerm(current, index, operator, value);
-  state.packageQueryState.termDraft = null;
+  if (index === null) {
+    state.packageQueryState.termDraft = null;
+  } else {
+    const edits = [...(state.packageQueryState.termEdits ?? [])];
+    edits[index] = null;
+    state.packageQueryState.termEdits = edits;
+  }
   submitPackageQueryRequest(request);
 }
 
 function removePackageQueryTerm(index: number, text: string) {
   const current = preparePackageQueryControlRequest(text);
+  state.packageQueryState.termEdits =
+    (state.packageQueryState.termEdits ?? []).filter(
+      (_edit, termIndex) => termIndex !== index);
   submitPackageQueryRequest(withoutTerm(current, index));
 }
 
+function editPackageQueryTerm(
+  index: number | null,
+  operator: string,
+  value: string,
+) {
+  if (index === null) {
+    const draft = state.packageQueryState.termDraft;
+    if (draft) state.packageQueryState.termDraft = {
+      ...draft,
+      operator,
+      value,
+    };
+    return;
+  }
+  if (!state.packageQueryState.request?.terms[index]) return;
+  const edits = [...(state.packageQueryState.termEdits ?? [])];
+  edits[index] = { operator, value };
+  state.packageQueryState.termEdits = edits;
+}
+
 function cancelPackageQueryTermDraft() {
-  const descriptor = state.packageQueryState.termDraft;
+  const descriptor = state.packageQueryState.termDraft?.descriptor;
   state.packageQueryState.termDraft = null;
   render();
   if (!descriptor) return;
@@ -12013,6 +12047,7 @@ const packageQueryActions: PackageQueryBindingActions = {
   onFacetToggle: togglePackageQueryFacet,
   onTermAdd: addPackageQueryTerm,
   onTermApply: applyPackageQueryTerm,
+  onTermEdit: editPackageQueryTerm,
   onTermDraftCancel: cancelPackageQueryTermDraft,
   onTermRemove: removePackageQueryTerm,
   onSourceChange: changePackageQuerySource,

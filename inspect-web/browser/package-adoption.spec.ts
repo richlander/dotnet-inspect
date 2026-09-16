@@ -990,6 +990,11 @@ test.describe("Package Query website over real Wasm", () => {
     const draft = page.locator("[data-query-term-draft-value]");
     await expect(draft).toBeFocused();
     expect(searchRequests).toBe(0);
+    await draft.fill("Microsoft.Extensions.Hosting");
+    await page.locator('[data-query-mode="changes"]').click();
+    await page.locator('[data-query-mode="packages"]').click();
+    await expect(draft).toHaveValue("Microsoft.Extensions.Hosting");
+    expect(searchRequests).toBe(0);
     await draft.fill("   ");
     await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
     await expect(draft).toHaveJSProperty("validationMessage", "Enter a term value.");
@@ -1007,6 +1012,11 @@ test.describe("Package Query website over real Wasm", () => {
 
     const firstValue =
       page.locator('[data-query-term-form="0"] [data-query-term-value]');
+    await firstValue.fill("Microsoft.Extensions.DependencyInjection");
+    await page.locator('[data-query-term-add="depends"]').click();
+    await expect(firstValue)
+      .toHaveValue("Microsoft.Extensions.DependencyInjection");
+    await page.locator("[data-query-term-draft-cancel]").click();
     await firstValue.fill("not a package id");
     const beforeInvalid = searchRequests;
     await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
