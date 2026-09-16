@@ -52,9 +52,10 @@ the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-
 The envelope owner's proposed
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
 adds a typed companion without changing that content boundary. Its planned
-`--evidence-envelope` consumer is separate adoption work in #7117, available
-only in Debug builds under the shared envelope policy. It is not a new rung in
-this ladder or an already available output option.
+`--evidence-envelope <path>` consumer is tracked by
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293), with the
+dependency value adopted under #7117. It is a Debug-only diagnostic attachment,
+not a new rung in this ladder or an already available output option.
 
 ### Implementation status
 
@@ -139,7 +140,7 @@ The adopting Release gate assignments are:
   Browser managed-export boundary: subject identity and provenance survive
   without test-deserializer compensation.
 
-### Two serialization boundaries
+### Service and content serialization boundaries
 
 For the same completed operation, with no additional content-output selection
 or projection:
@@ -147,6 +148,7 @@ or projection:
 | Option | Layer | Logical operation |
 | --- | --- | --- |
 | `--envelope` | Service | `envelope.ToJson()` |
+| `--evidence-envelope <path>` | Service attachment | `enrichedEnvelope.ToJson(path)` |
 | `--json` | Content | `envelope.Content.ToJson()` |
 
 `ToJson()` is contract notation, not a required CLR instance method.
@@ -155,6 +157,13 @@ It is JSON-only, not a format-independent wrapper that can be rendered as a
 Markdown document, table, TSV, or JSONL stream. `--json` selects JSON encoding
 for content; with an admitted output projection it serializes that projected
 content under the [projected-JSON contract](projected-json.md).
+
+`--evidence-envelope <path>` selects the evidence-enabled service form and one
+complete enriched JSON attachment while leaving the ordinary primary-output
+choice in force. It may accompany `--envelope`, in which case stdout receives
+the baseline envelope and the file receives the enriched envelope. Both values
+come from the same evidence-enabled invocation; the baseline stdout value is
+the enriched value's `Inspection` projection.
 
 The unprojected content value decoded from `--json` must equal the Content
 subtree decoded from `--envelope`. They use the same owner-issued content
@@ -177,8 +186,15 @@ Output shapes, fields, rows, and format lowering act on content, not on the
 envelope's members. Service passthrough serializes the already constructed
 envelope without content-output shaping, host enrichment, or a second
 inspection. A CLI view model is not a substitute for the Content subtree.
-An incompatible output-shaping request must be rejected rather than ignored
-or used to manufacture a filtered envelope.
+An incompatible output-shaping request beside `--envelope` must be rejected
+rather than ignored or used to manufacture a filtered envelope.
+
+An evidence attachment is orthogonal to ordinary content presentation.
+Ordinary section, row, field, and format controls retain their existing
+admission and primary-output meaning; they do not filter the attachment's
+baseline Content or Evidence after service completion. A semantic selection
+already bound into the service request still affects both values under its
+owner's contract.
 
 This does not bypass semantic selection. Subject, endpoints, operation mode,
 and selections bound by the content owner into the resolved operation plan
@@ -227,11 +243,14 @@ diagnostics are empty. The later Library scenario remains
 ### Envelope transport
 
 This section owns the public CLI wire contract for `--envelope` and the
-supported Debug-only CLI wire contract for `--evidence-envelope`. The input is
-one completed, owner-issued service value. The output is one JSON object, not a
-document rendering or a stream of independently inspected items. An operation
-over several participants must have one owner-issued aggregate content value;
-transport does not concatenate envelopes or invent an aggregation model.
+supported Debug-only CLI wire contract for
+`--evidence-envelope <path>`. The input is one completed, owner-issued service
+value. `--envelope` writes one JSON object to stdout.
+`--evidence-envelope <path>` writes one enriched JSON object to its file while
+ordinary primary output continues. Neither is a document rendering or a stream
+of independently inspected items. An operation over several participants must
+have one owner-issued aggregate content value; transport does not concatenate
+envelopes or invent an aggregation model.
 
 The baseline object's required members are:
 
@@ -243,10 +262,11 @@ The baseline object's required members are:
 | `share` | Object, non-null | Complete owner-issued Share outcome. |
 | `diagnostics` | Array | Ordered diagnostics; `[]` when empty, never omitted. |
 
-`--evidence-envelope` adds one required non-null `evidence` member to this
+The evidence attachment adds one required non-null `evidence` member to this
 same object. Ordinary `--envelope` omits that member, rather than writing
 `null`. CLR composition's `Inspection` property does not introduce wire
-nesting. There is no second baseline copy or transport-created success flag.
+nesting. There is no second baseline copy inside the attachment or a
+transport-created success flag.
 
 The two framing members belong to the CLI transport, not to the shared CLR
 envelope. The pair `(result_kind, schema_version)` identifies the complete
@@ -293,11 +313,18 @@ document is useful human output but is not `LibraryApiDiffOutcome`.
 
 ### Admission and option interactions
 
-Both envelope options are public, presence-only options, with no short alias
-or optional value. They fix JSON encoding; they do not require `--json`.
-Zero-arity validation follows
-[CLI option-value validation](cli-option-value-validation.md).
-`--raw` keeps its unrelated URL-shape meaning.
+`--envelope` remains a public presence-only option.
+`--evidence-envelope <path>` is a Debug-only option with exactly one required,
+non-empty file value. Neither has a short alias or requires `--json`.
+Missing, blank, or option-shaped evidence paths are rejected by
+[CLI option-value validation](cli-option-value-validation.md); `-` is not a
+stdout shorthand. `--raw` keeps its unrelated URL-shape meaning.
+
+The evidence path is resolved against the invocation's current directory
+during admission. Its parent directory must already exist, and a directory is
+not a file destination. A successful write may replace an existing regular
+file, but only through the [atomic publication](#stdout-diagnostics-and-failure)
+boundary below. The host does not create a directory tree or infer a filename.
 
 Support is admitted per resolved command operation, not merely per command
 name. Its registration binds the result kind/version, complete closed content
@@ -315,17 +342,28 @@ Evidence capture intent reaches the service before execution, under the
 [enrichment contract](inspection-envelope.md#request-and-capture-boundary).
 Serialization never recaptures evidence or projects Share.
 
-| Alongside an envelope option | Rule |
-| --- | --- |
-| The other envelope option, or `--json` | Reject: these select different output boundaries, not cumulative modifiers. |
-| Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing presentation choices, including explicit choices equal to a rendering default. |
-| `--compact` | Where admitted, changes JSON whitespace only. Otherwise reject; never silently ignore it. |
-| `--share[=url\|packet]` | Where sharing is supported, preserve its existing stderr and exit contract using this envelope's Share. |
-| `--verbose`, `--trace`, `--info`, `--tips` | Where supported, retain their stderr-only role; they do not request service evidence. |
-| Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. |
-| `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. |
-| `--fields`, `--columns`, `--bare`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. |
-| Discover, schema/query help, or another content operation | Require that operation's own envelope registration; never fall through an early ordinary-output return. |
+| Input or modifier | With `--envelope` | With `--evidence-envelope <path>` |
+| --- | --- | --- |
+| The other envelope option | Admit: baseline envelope to stdout and enrichment to the file. | Admit the paired destinations. |
+| `--json` | Reject competing primary JSON boundaries. | Admit ordinary Content JSON on stdout. |
+| Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
+| `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
+| `--share[=url\|packet]` | Preserve its existing stderr and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. |
+| `--verbose`, `--trace`, `--info`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
+| Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
+| `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
+| `--fields`, `--columns`, `--bare`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. | Retain ordinary primary-output behavior without shaping the attachment. |
+| `--out <path>` | Require explicit adoption of complete baseline-envelope file output. | Admit an ordinary output destination when it is distinct from the evidence destination. |
+| Discover, schema/query help, or another content operation | Require that operation's own envelope registration. | Require that operation's own evidence registration; never fall through an early ordinary-output return. |
+
+When both explicit destinations are present, their normalized absolute paths
+must be distinct using ordinal-ignore-case comparison on every host. This
+portable, conservative rule deliberately rejects case-only path pairs even on
+a case-sensitive filesystem so the same invocation cannot admit them on a
+case-insensitive Windows, macOS, or mounted filesystem. An equal destination is
+rejected before inspection or destination mutation. Shell redirection, hard
+links, and excluded symlink/reparse behavior are not explicit CLI destinations
+and add no alias-detection claim.
 
 The semantic-versus-presentation rule follows the actual operation contract,
 not the option's name. For example, a service-issued Count result can be
@@ -334,12 +372,10 @@ as that operation. A Library Diff classification filter applied only by
 `LibraryApiDiffOutput` is likewise not an input to the shared comparison.
 Transport adoption does not move either algorithm into a service by fiat.
 
-Implicit rendering defaults do not decorate, window, or suppress the JSON
-payload. Ordinary semantic defaults and capability limits still apply.
+Implicit rendering defaults do not decorate, window, or suppress an envelope
+JSON payload. Ordinary semantic defaults and capability limits still apply.
 Every explicitly requested modifier must be honored in its admitted role or
-rejected. This includes output destinations: an existing file-output route
-needs explicit adoption preserving the complete payload; otherwise reject
-the combination. Shell redirection requires no additional CLI capability.
+rejected. Shell redirection requires no additional CLI capability.
 
 ### Stdout, diagnostics, and failure
 
@@ -348,14 +384,29 @@ followed by a newline. Whitespace and object-property order are not semantic
 contracts. No headings, ANSI styling, progress, tips, Share scalar, or
 rendered-line truncation enters that payload.
 
-The complete value must be representable and serialized before its first
-stdout byte is committed. A serialization failure reports a bounded error
-on stderr, exits nonzero, and leaves stdout empty. It does not retry through
-a content renderer, omit an unsupported part, or create an error-shaped
-replacement envelope. This applies equally to paired unprojected Content
-JSON. Buffering strategy is an implementation choice, not a new content
-size limit. A sink failure during the actual write may leave partial bytes;
-it remains an I/O failure, never a successfully delivered envelope.
+The complete baseline envelope must be representable and serialized before its
+first stdout byte is committed. Its serialization failure reports a bounded
+error on stderr, exits nonzero, and leaves stdout empty. It does not retry
+through a content renderer, omit an unsupported part, or create an error-shaped
+replacement envelope. This applies equally to paired unprojected Content JSON.
+Buffering strategy is an implementation choice, not a new content size limit.
+A stdout sink failure may leave partial bytes; it remains an I/O failure, never
+a successfully delivered envelope.
+
+The evidence attachment is serialized completely before its destination is
+mutated. Publication writes a same-directory temporary file, closes it, and
+atomically moves it over the destination. Serialization or publication failure
+removes the temporary artifact and leaves an existing destination byte-for-byte
+unchanged or an absent destination absent. The ordinary primary output is still
+written, then the command reports the attachment failure and exits nonzero.
+The operation's existing nonzero result remains nonzero when attachment
+delivery succeeds.
+
+Successful attachment publication writes one contained locator line to stderr:
+`Evidence envelope: <effective-path>`. It appears after ordinary diagnostics
+but before an explicitly requested Share scalar that must remain the final
+non-empty stderr line. Failure writes a bounded contained error naming the
+effective path. Raw envelope JSON never enters stderr.
 
 An owner-issued partial or non-success Content is still serializable content:
 write its complete envelope and retain the operation's exit-status policy.
@@ -406,7 +457,14 @@ likewise exercise their public command entry point:
 - demonstrate visible pre-commit serialization failure with empty stdout,
   using the product writer rather than a harness-produced replacement;
 - when evidence is adopted, preserve the baseline subtree, deliver the
-  concrete Evidence, and reject unavailable capture without fallback.
+  concrete Evidence, and reject unavailable capture without fallback;
+- preserve ordinary primary output with and without the attachment, including
+  ordinary `--out`, `--json`, rendered shapes, and paired `--envelope`;
+- prove atomic replace-on-success and unchanged or absent destinations after
+  serialization and publication failures, including exact and case-only
+  same-path preflight; and
+- prove the contained stderr locator, Share ordering, explicit nonzero failure,
+  and absence of raw envelope JSON from stderr.
 
 Use the authentic Npgsql type-dependency scenario recorded above and, for the
 second adopter, the existing `System.Text.Json@9.0.0..10.0.0` comparison, with
@@ -1234,8 +1292,8 @@ the caller made.
 
 These modifiers describe content output. For an adopted envelope-producing
 route, unprojected `--json` means the owner-issued Content value under
-[the content/service boundary](#two-serialization-boundaries), not a rendering
-of the service envelope.
+[the content/service boundary](#service-and-content-serialization-boundaries),
+not a rendering of the service envelope.
 
 | Flag | Effect |
 | --- | --- |

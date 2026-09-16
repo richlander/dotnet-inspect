@@ -145,6 +145,7 @@ public static class PackageVersionCellMetadataInspector
                             committed,
                             contribution.Binding,
                             evidence,
+                            request.ApiInspection,
                             cancellationToken)
                         .ConfigureAwait(false);
                 }
@@ -243,6 +244,7 @@ public static class PackageVersionCellMetadataInspector
             WorkspaceScopeOperationResult.Committed committed,
             PackageRootBinding binding,
             PackageVersionCellMetadataInspectionEvidence evidence,
+            PackageVersionCellApiInspectionRequest? apiInspection,
             CancellationToken cancellationToken)
     {
         WorkspacePackageOccurrenceDescriptor occurrence =
@@ -258,33 +260,48 @@ public static class PackageVersionCellMetadataInspector
                 "The committed package Root did not publish query admission.");
         }
 
-        ArtifactRootResult<AssemblyContextResult<MetadataImageOverview>>
+        ArtifactRootResult<PackageVersionCellMetadataInspectionOutcome.Available>
             query = await workspace.ExecutePackageRootQueryAsync(
                     correspondence,
                     ready.Generation,
-                    static (realization, token) =>
+                    (realization, token) =>
                     {
                         token.ThrowIfCancellationRequested();
-                        AssemblyContextResult<MetadataImageOverview> result =
+                        AssemblyContextResult<MetadataImageOverview> metadata =
                             realization.HasAssemblyContexts
                                 ? AssemblyContextMetadataImageQuery.Execute(
                                     realization.SurfaceGroup)
                                 : new([]);
                         token.ThrowIfCancellationRequested();
-                        return ValueTask.FromResult(result);
+                        PackageVersionCellApiInspectionResult? api = null;
+                        if (apiInspection is not null)
+                        {
+                            AssemblyContextApiSurfaceResult surfaces =
+                                realization.HasAssemblyContexts
+                                    ? AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                                        realization.SurfaceGroup,
+                                        apiInspection.Scope,
+                                        apiInspection.Limits)
+                                    : new(new([]), ApiAccessibility.Buckets([]));
+                            api = new(apiInspection, surfaces, token);
+                        }
+                        token.ThrowIfCancellationRequested();
+                        return ValueTask.FromResult(
+                            new PackageVersionCellMetadataInspectionOutcome.Available(
+                                evidence,
+                                metadata,
+                                api));
                     },
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         return query switch
         {
             ArtifactRootResult<
-                AssemblyContextResult<MetadataImageOverview>>.Available
+                PackageVersionCellMetadataInspectionOutcome.Available>.Available
                     available =>
-                new PackageVersionCellMetadataInspectionOutcome.Available(
-                    evidence,
-                    available.Value),
+                available.Value,
             ArtifactRootResult<
-                AssemblyContextResult<MetadataImageOverview>>.Rejected
+                PackageVersionCellMetadataInspectionOutcome.Available>.Rejected
                     rejected =>
                 WorkspaceFailure(
                     evidence,
