@@ -1162,7 +1162,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
                 ResolveEffects(admission, calls));
 
-        Assert.Equal(2, complete.Snapshot.Effects.Length);
+        Assert.Equal(3, complete.Snapshot.Effects.Length);
         Assert.Contains(
             complete.Snapshot.Effects,
             effect =>
@@ -1173,6 +1173,11 @@ public sealed partial class DirectCallDefinitionResolutionTests
             effect =>
                 effect.DirectCall.Call.Caller.Name
                     == "BindClosedGenericReferences");
+        Assert.Contains(
+            complete.Snapshot.Effects,
+            effect =>
+                effect.DirectCall.Call.Caller.Name
+                    == "BindGuidGenericReferences");
     }
 
     [Fact]
@@ -1204,7 +1209,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
                 ResolveEffects(admission, calls));
 
-        Assert.Equal(2, complete.Snapshot.Effects.Length);
+        Assert.Equal(3, complete.Snapshot.Effects.Length);
         Assert.Contains(
             complete.Snapshot.Effects,
             effect =>
@@ -1215,6 +1220,11 @@ public sealed partial class DirectCallDefinitionResolutionTests
             effect =>
                 effect.DirectCall.Call.Caller.Name
                     == "BindClosedGenericReferences");
+        Assert.Contains(
+            complete.Snapshot.Effects,
+            effect =>
+                effect.DirectCall.Call.Caller.Name
+                    == "BindGuidGenericReferences");
     }
 
     [Fact]

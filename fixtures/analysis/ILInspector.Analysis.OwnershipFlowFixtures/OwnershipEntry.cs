@@ -220,6 +220,11 @@ public static class Entry
             42,
             static item => new BindingBox<int> { Value = item });
 
+    public static BindingOutcome BindGuidGenericReferences() =>
+        new BindingOpenOwner<Guid>().Apply(
+            Guid.Empty,
+            static item => new BindingBox<Guid> { Value = item });
+
     public static BindingOutcome InvokeMalformedCallback() =>
         new BindingOwnerWithExtra<byte, int>()
             .BindMalformedCallback(42);

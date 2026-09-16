@@ -1262,16 +1262,24 @@ internal static class ResourceEffectOccurrenceBinder
                 resolved = null!;
                 return false;
             }
+            ResourceEffectSelectorBinder.MatchResult callBound =
+                ResourceEffectSelectorBinder.TryResolveType(
+                    type,
+                    directCall,
+                    out resolved);
+            if (callBound.Kind
+                == ResourceEffectSelectorBinder.MatchKind.Match)
+            {
+                return true;
+            }
             if (type.Kind
                 is TypeRefKind.GenericParameter
-                    or TypeRefKind.MethodGenericParameter)
+                    or TypeRefKind.MethodGenericParameter
+                || callBound.Kind
+                    != ResourceEffectSelectorBinder.MatchKind.Incomplete)
             {
-                return ResourceEffectSelectorBinder.TryResolveType(
-                        type,
-                        directCall,
-                        out resolved)
-                    .Kind
-                    == ResourceEffectSelectorBinder.MatchKind.Match;
+                resolved = null!;
+                return false;
             }
 
             ResolvedResourceEffectType? element = null;
