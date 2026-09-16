@@ -205,6 +205,9 @@ public static class SectionNames
     /// <summary>Type-level section ranking members by call-graph leverage (direct callers, fanout, depth, loop calls).</summary>
     public const string TopLeverage = "Top Leverage";
 
+    /// <summary>Objective method-body measurements and overload-family call counts.</summary>
+    public const string ImplementationProfiles = "Implementation Profiles";
+
     /// <summary>Section for safe, local optimization opportunities inferred from IL/body evidence.</summary>
     public const string PerformanceTriage = "Performance Triage";
 
