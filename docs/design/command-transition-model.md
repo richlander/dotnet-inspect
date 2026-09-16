@@ -722,24 +722,42 @@ These are proposed examples, not currently executable new syntax:
 ```bash
 # Compare Libraries acquired from two package versions
 dotnet-inspect library diff --package System.Text.Json@9.0.0..10.0.0 \
-  --endpoints --envelope
+  --envelope
 
 # Evaluate the selected Type across the version population
 dotnet-inspect type diff Markout.MarkoutWriterOptions \
-  --package Markout@0.33.0..0.35.2 --history --at all --envelope
+  --package Markout@0.33.0..0.35.2 --history --envelope
 
 # Count versions without acquiring inspection payloads
 dotnet-inspect package Markout@0.33.0..0.35.2 --count --envelope
 
 # Count changed destination versions for the selected Member
 dotnet-inspect member diff System.Text.Json.JsonSerializer Deserialize:1 \
-  --package System.Text.Json@9.0.0..10.0.0 --history --at all --count
+  --package System.Text.Json@9.0.0..10.0.0 --history --count
+
+# Sample endpoints and an intermediate checkpoint within the full population
+dotnet-inspect type diff System.Text.Json.JsonSerializer \
+  --package System.Text.Json@9.0.0..10.0.0 \
+  --history --at endpoints --at 9.0.5
+
+# Select one manual-bisection probe; the caller decides the next range
+dotnet-inspect type diff System.Text.Json.JsonSerializer \
+  --package System.Text.Json@9.0.0..10.0.0 \
+  --history --at endpoints --at midpoint
+
+# Equivalent range inferred from exact checkpoint versions
+dotnet-inspect type diff System.Text.Json.JsonSerializer \
+  --package System.Text.Json --history \
+  --at 9.0.0 --at 9.0.5 --at 10.0.0
 ```
 
-Source ranges consumed by subject Diff require `--endpoints` or an admitted
-`--history`; the selectors are mutually exclusive and neither is the default.
-Count on a source-range Diff request reduces its owner's admitted cohort and
-does not choose the missing mode. Type/Member History consumes the History
+Plain subject Diff consumes its two endpoints; an admitted `--history` selects
+temporal inspection. There is no standalone `--endpoints` flag.
+The History owner's [operation and checkpoint contract](diff-history.md#explicit-range-consumers)
+defines full evaluation by default and optional `--at` restriction, including
+`endpoints`, `midpoint`, and exact-checkpoint range inference. Count on a source-range
+Diff request reduces its owner's admitted cohort and does not change the
+operation. Type/Member History consumes the History
 owner's [Changed Versions cohort](diff-history.md#subject-specific-history-count),
 including its evidence and section-selection rules. Only the Package
 version-population request uses Count alone as its consumer. `--envelope`
@@ -747,10 +765,11 @@ selects output, not an operation. The History owner's recorded future Package
 version-row counting intent does not admit a `package diff` command here.
 
 The [population-range rule](population-range-selection.md) is unchanged:
-creating a population needs a consumer; filtering declared rows does not
-need another. A `--rows` range cannot supply a missing source-range consumer.
-History still requires explicit `--at` for payload evaluation; an admitted
-History request without it discovers only.
+creating a population needs a consumer, which the explicitly named subject
+Diff supplies; filtering declared rows does not need another. A `--rows`
+range cannot supply a missing operation. History authorizes bounded evaluation;
+Package version listing and Count retain metadata-only discovery. `--at`
+without History is rejected on Diff rather than silently changing its arity.
 
 Initial History remains package-scoped Type/Member Findings. Library-wide,
 Platform, and local multi-version History remain unsupported. Existing
@@ -817,7 +836,7 @@ it does not retain forwarding aliases, hidden routes, or a legacy execution
 fallback. Obsolete-input handling must prevent silent package routing, while
 legitimate subject identifiers remain addressable through established named
 source/selector forms.
-Classify the route removals and explicit source-range consumer requirement as
+Classify the route removals, changed History evaluation default, and Count unit as
 **intentionally breaking** under
 [CLI change classification](cli-change-classification.md).
 
@@ -829,8 +848,10 @@ not silently reclassified as an unsupported command. Any deliberate capability
 retirement beyond the approved command/default removals requires a separate
 decision. The separately approved #7229
 [History Count revision](diff-history.md#subject-specific-history-count)
-supersedes arbitrary selected-cohort Timeline counts for Type/Member History;
-its changed count unit is disclosed with this cutover.
+supersedes arbitrary selected-cohort Timeline counts for Type/Member History.
+Its accompanying operation/checkpoint revision supersedes the proposed
+`--endpoints` requirement and Timeline's no-`--at` discovery behavior. Disclose
+the changed count unit and evaluation authorization with this cutover.
 
 Update help, discovery, completion, replay/probe generation, README, shipped
 skills, and active examples with the executable cutover. Do not change current
@@ -1072,9 +1093,9 @@ inspect -> diff -> timeline
 The approved target retains the subject while selecting the operation:
 
 ```text
-library -> library diff --endpoints
-type    -> type diff (--endpoints | --history)
-member  -> member diff (--endpoints | --history)
+library -> library diff
+type    -> type diff [--history [--at ...]]
+member  -> member diff [--history [--at ...]]
 package range -> package range --count
 ```
 
