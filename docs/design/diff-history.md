@@ -328,11 +328,17 @@ resource-free source receipt. The receipt atomically binds:
 - the exact `MetadataTypeDefinitionName` and `MemberAnchor` selected in that
   Library; and
 - the correspondence-ready `ApiDeclarationKind`, formed once from the
-  source-selection `MemberTargetKind` under the existing Queries mapping.
+  source-selection `MemberTargetKind` under the existing Queries mapping; and
+- one History-owned `FindingSubject`, issued from that same exact Type and
+  Member selection for unchanged use by every matched-Analysis invocation.
 
 These fields come from one source selection and cannot be independently
-substituted. The receipt is detached structural binding evidence, not package
-opening authority. In particular,
+substituted. Receipt construction binds the `FindingSubject` to the selected
+declaration; callers do not supply an independently derived per-Workspace or
+per-Version subject. Its identity key does not incorporate a Workspace,
+metadata token, display ordinal, or destination Version. The receipt is
+detached structural binding evidence, not package opening authority. In
+particular,
 `StructuralSubjectIdentity.MemberSubject` is not the portable seed: it remains
 associated with its issuing live Workspace and is never supplied to a
 different Workspace.
@@ -356,9 +362,9 @@ is live. To consume the existing matched-Member Analysis query, it invokes
 strict API coordinate correspondence internally with that same source
 observation as both endpoints and with the resolved pair-local `MemberSubject`
 and declaration kind. An exact internal self-correspondence feeds native
-Analysis for the baseline Member. It is producer-adapter evidence only: History
-publishes the detached baseline Finding observation and receipt, not a
-same-Version declaration edge.
+Analysis for the baseline Member with the receipt's `FindingSubject`. It is
+producer-adapter evidence only: History publishes the detached baseline Finding
+observation and receipt, not a same-Version declaration edge.
 
 A non-exact internal self-correspondence or baseline Analysis non-success
 remains the baseline evaluation's native non-success. It does not erase a
@@ -370,7 +376,9 @@ prepared source and destination cells in one fresh bounded Workspace. It
 exact-binds the same detached source receipt against that source cell,
 producing a new Workspace-local `MemberSubject` associated with the pair's
 source observation, and invokes strict API coordinate correspondence with the
-receipt's stored `ApiDeclarationKind`.
+receipt's stored `ApiDeclarationKind`. Exact destination Analysis reuses the
+receipt's same `FindingSubject` value unchanged; it never derives a subject
+from pair-local or destination-local state.
 
 Exact binding is not another selector resolution. It does not parse display
 text, replay an ordinal or digest, infer declaration kind from `MemberAnchor`,
@@ -760,6 +768,12 @@ The implementation slices must supply Release gates for:
   declaration edge, and retaining that observation after its Workspace closes;
 - internal baseline correspondence or Analysis non-success remaining visible
   without erasing a valid receipt or preventing later independent checkpoints;
+- baseline and checkpoint matched-Analysis invocations reusing the receipt's
+  same `FindingSubject`, with equal subject keys across at least three detached
+  observations and successful exact-identity Finding correlation;
+- rejection of receipt construction from an independently supplied
+  `FindingSubject`, and no subject key dependence on Workspace identity,
+  metadata token, display ordinal, or destination Version;
 - at least three checkpoints whose two non-source pairs re-execute the exact
   source cell, exact-bind the same detached receipt into different pair-local
   Workspaces, consume its stored declaration kind, and never replay the

@@ -237,8 +237,9 @@ This operation is step 2 of the seven-step temporal ownership path:
 2. Package version-cell Metadata and explicit API Finding evidence — this owner.
 3. Exact matched API Member to implementation Analysis — owned by
    [matched API Member Analysis](matched-api-member-analysis.md).
-4. Diff History detached baseline receipt, exact pair-local source binding, and
-   direct source-to-checkpoint correspondence — owned by
+4. Diff History detached baseline receipt with stable Finding subject, exact
+   pair-local source binding, and direct source-to-checkpoint correspondence —
+   owned by
    [Diff History inspection](diff-history.md).
 5. Bounded PackageHouse baseline-cell and source/destination cell-pair
    Analysis — #7248.
