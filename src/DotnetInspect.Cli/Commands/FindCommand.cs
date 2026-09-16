@@ -542,7 +542,6 @@ public class FindCommand
             Verbosity.Minimal =>
             [
                 PackageAssemblyQuerySections.Candidates,
-                PackageAssemblyQuerySections.PopulationFailures,
             ],
             _ => null,
         };

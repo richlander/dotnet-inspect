@@ -441,6 +441,52 @@ public sealed class PackageAssemblyQueryOutputTests
             FindCommand.WriteAssemblyQueryOutput(
                 view,
                 new FindOptions { Count = true }));
+
+        FindOptions[] formats =
+        [
+            new(),
+            new()
+            {
+                JsonOutput = true,
+                CompactJson = true,
+            },
+            new()
+            {
+                Tabular = true,
+                Tsv = true,
+            },
+            new()
+            {
+                Tabular = true,
+                Jsonl = true,
+            },
+        ];
+        foreach (FindOptions format in formats)
+        {
+            var minimal = await ConsoleCapture.RunAsync(() =>
+            {
+                FindCommand.WriteAssemblyQueryOutput(
+                    view,
+                    format with { Verbosity = Verbosity.Minimal });
+                return Task.FromResult(0);
+            });
+            Assert.DoesNotContain(
+                failure.Package,
+                minimal.Output,
+                StringComparison.Ordinal);
+
+            var expanded = await ConsoleCapture.RunAsync(() =>
+            {
+                FindCommand.WriteAssemblyQueryOutput(
+                    view,
+                    format with { Verbosity = Verbosity.Normal });
+                return Task.FromResult(0);
+            });
+            Assert.Contains(
+                failure.Package,
+                expanded.Output,
+                StringComparison.Ordinal);
+        }
     }
 
     [Fact]
