@@ -2375,12 +2375,18 @@ public static class ApiSurfaceExtractor
                     context,
                     beforeRetain,
                     beforeDecodeWork);
-                if (constraintTypeName is "System.ValueType" or "System.Object")
-                    continue;
-                if (ConstraintTypeDefinitionNameReader.Read(
+                IReadOnlyList<MetadataTypeDefinitionName>? definitionNames =
+                    ConstraintTypeDefinitionNameReader.Read(
                         reader,
                         constraint.Type,
-                        context) is not { } definitionNames)
+                        context);
+                if (IsExactPseudoConstraint(
+                        constraintTypeName,
+                        definitionNames))
+                {
+                    continue;
+                }
+                if (definitionNames is null)
                 {
                     constraintTypeDefinitionNamesAvailable = false;
                 }
@@ -2432,6 +2438,22 @@ public static class ApiSurfaceExtractor
 
         constraintResolution?.Track(subject, tracked);
         return parameters;
+    }
+
+    private static bool IsExactPseudoConstraint(
+        string constraintTypeName,
+        IReadOnlyList<MetadataTypeDefinitionName>? definitionNames)
+    {
+        if (definitionNames is not [var definitionName]
+            || definitionName.Namespace != "System"
+            || definitionName.Segments is not [var simpleName])
+        {
+            return false;
+        }
+
+        return (constraintTypeName, simpleName) is
+            ("System.Object", "Object")
+            or ("System.ValueType", "ValueType");
     }
 
     private static string FormatConstraintType(

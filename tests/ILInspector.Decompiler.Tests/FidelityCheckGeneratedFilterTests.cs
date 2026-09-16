@@ -2605,6 +2605,14 @@ public class FidelityCheckGeneratedFilterTests
             resolutionScope: default,
             @namespace: metadata.GetOrAddString("System"),
             name: metadata.GetOrAddString("IDisposable"));
+        TypeReferenceHandle @object = metadata.AddTypeReference(
+            resolutionScope: default,
+            @namespace: metadata.GetOrAddString("System"),
+            name: metadata.GetOrAddString("Object"));
+        TypeReferenceHandle valueType = metadata.AddTypeReference(
+            resolutionScope: default,
+            @namespace: metadata.GetOrAddString("System"),
+            name: metadata.GetOrAddString("ValueType"));
 
         var methodSignature = new BlobBuilder();
         methodSignature.WriteByte(0x10);
@@ -2645,29 +2653,38 @@ public class FidelityCheckGeneratedFilterTests
             metadata.AddTypeSpecification(
                 metadata.GetOrAddBlob(badIndexConstraint)));
 
-        MethodDefinitionHandle modifiedMethod = metadata.AddMethodDefinition(
-            MethodAttributes.Public | MethodAttributes.Static,
-            MethodImplAttributes.IL,
-            metadata.GetOrAddString("ModifiedConstraint"),
-            metadata.GetOrAddBlob(methodSignature),
-            AddBody(),
-            MetadataTokens.ParameterHandle(1));
-        GenericParameterHandle modifiedParameter = metadata.AddGenericParameter(
-            modifiedMethod,
-            GenericParameterAttributes.None,
-            metadata.GetOrAddString("U"),
-            index: 0);
-        var modifiedConstraint = new BlobBuilder();
-        modifiedConstraint.WriteByte(0x1F);
-        modifiedConstraint.WriteCompressedInteger(
-            (MetadataTokens.GetRowNumber(modifier) << 2) | 1);
-        modifiedConstraint.WriteByte(0x12);
-        modifiedConstraint.WriteCompressedInteger(
-            (MetadataTokens.GetRowNumber(disposable) << 2) | 1);
-        metadata.AddGenericParameterConstraint(
-            modifiedParameter,
-            metadata.AddTypeSpecification(
-                metadata.GetOrAddBlob(modifiedConstraint)));
+        void AddModifiedConstraintMethod(
+            string name,
+            TypeReferenceHandle underlyingType)
+        {
+            MethodDefinitionHandle method = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(methodSignature),
+                AddBody(),
+                MetadataTokens.ParameterHandle(1));
+            GenericParameterHandle parameter = metadata.AddGenericParameter(
+                method,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("U"),
+                index: 0);
+            var constraint = new BlobBuilder();
+            constraint.WriteByte(0x1F);
+            constraint.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(modifier) << 2) | 1);
+            constraint.WriteByte(0x12);
+            constraint.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(underlyingType) << 2) | 1);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(constraint)));
+        }
+
+        AddModifiedConstraintMethod("ModifiedConstraint", disposable);
+        AddModifiedConstraintMethod("ModifiedObjectConstraint", @object);
+        AddModifiedConstraintMethod("ModifiedValueTypeConstraint", valueType);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
