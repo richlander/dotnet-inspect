@@ -16,8 +16,8 @@ The CLI production host adopts those contracts through
 `tests/DotnetInspect.Cli.Tests/PackageChangesCommandTests.cs`. Browser/Wasm
 adopts the shared inspection boundary and progressive Worker transport through
 [#7068](https://github.com/richlander/dotnet-inspect/issues/7068), and the
-[Package Changes experience](package-changes-experience.md) owns `/query`
-state and rendering. Historical security changes remain unsupported because no
+[Package Activity experience](package-activity-experience.md) owns
+`/activity` state and rendering. Historical security changes remain unsupported because no
 owner supplies the required before/after
 evidence. The CLI placement correction is tracked by
 [#7009](https://github.com/richlander/dotnet-inspect/issues/7009).
@@ -261,9 +261,9 @@ Browser acquisition uses the full NuGet V3 Catalog source and GitHub reviewed
 advisories only through the fixed same-origin public-evidence bridge. The
 operation has a 120-second Browser deadline, a 115-second source/advisory
 deadline, and a 25-second per-request timeout, leaving terminal classification
-to the existing managed-operation and Browser deadline owners. Query-state
-adoption and `/query` presentation belong to the focused
-[Package Changes experience](package-changes-experience.md).
+to the existing managed-operation and Browser deadline owners. Browser state
+adoption and `/activity` presentation belong to the focused
+[Package Activity experience](package-activity-experience.md).
 
 Illustrative rendering, using synthetic package/evidence records:
 
@@ -295,9 +295,13 @@ is not required merely because the report is package-aware.
 [#6124](https://github.com/richlander/dotnet-inspect/issues/6124) enumerates
 eight delivery steps: contract/evidence; source acquisition; security
 evidence; shared report query; shared presentation; CLI adoption; browser
-adoption; and end-to-end evidence/docs. The named production consumers are
-both hosts. This proposal introduces one query owner, retires no architecture,
-and depends on separate owner work for missing source/security capabilities.
+adoption; and end-to-end evidence/docs. Six are complete. Two independent
+production slices remain: #7179 moves the Browser report to `/activity` and
+retires the `/query` peer mode, while #7175 renames the CLI and Browser surface
+to Package Activity. Together they complete steps 7 and 8. The named production
+consumers are both hosts. This proposal introduces one query owner, retires no
+architecture, and depends on separate owner work for missing source/security
+capabilities.
 
 The shared-query Release gates cover the default 42-day range and explicit
 bounds, exact-set and literal-prefix scope, exact-coordinate evidence
@@ -313,8 +317,8 @@ executable scope. Browser transport adoption demonstrates package-set lookup,
 paired interval validation, strict bounded wire decoding, ordered progressive
 publication before terminal settlement, semantic partial completion inside a
 physically successful envelope, managed cancellation, and the fixed Catalog
-source/deadline composition. The focused Package Changes experience gates
-query state, terminal reconciliation, typed rendering, bounded DOM, and
+source/deadline composition. The focused Package Activity experience gates
+browser state, terminal reconciliation, typed rendering, bounded DOM, and
 real-Wasm publication.
 
 The shared-presentation Release gates run the real query over controlled NuGet
