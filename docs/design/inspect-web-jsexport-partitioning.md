@@ -588,20 +588,21 @@ and closed-shape validation remained at or below 1 ms.
 
 All other managed calls use the closed ordinary-operation catalog in
 [`engine-worker-ordinary.ts`](../../inspect-web/src/engine-worker-ordinary.ts).
-Its 49 entries are named at build time across Package (19), Metadata (8),
+Its 47 entries are named at build time across Package (17), Metadata (8),
 Analysis (7), Source (9), Call Graph (2), and Catalog (4). Callers cannot send a
 module, facade, or member name. Arguments and results cross as inert JSON trees
-only, bounded to 8,388,608 characters, 64 nesting levels, and 262,144
+only, bounded to 16,777,216 characters, 64 nesting levels, and 524,288
 collection entries. The production projection for the immutable
-`System.Text.Json@10.0.0/net10.0` package measures 3,843,729 JSON characters and
-137,151 collection entries; both exceed the former 1,048,576-character and
-65,536-entry bounds. The larger finite envelope admits that complete ordinary
-package surface with approximately twice its observed capacity in each
-dimension, and the published package-adoption gate acquires the same coordinate
-through the normal product path as its durable pathological case. The reader
-rejects accessors, symbols, prototype drift, sparse or extended arrays, cycles,
-functions, `undefined`, and non-finite numbers rather than converting malformed
-data into an empty or partial result.
+`Aspire.Hosting@13.5.4/net8.0` package measures 11,749,773 JSON characters and
+340,284 collection entries, crossing both former 8,388,608-character and
+262,144-entry bounds. The doubled finite envelope admits that complete
+ordinary package surface with 43% character and 54% collection-entry headroom.
+The neighboring immutable `AWSSDK.S3@4.0.103.3/net8.0` projection measures
+7,564,206 characters and 228,645 entries. The published package-adoption gate
+acquires Aspire.Hosting through the normal product path as the durable
+pathological case. The reader rejects accessors, symbols, prototype drift,
+sparse or extended arrays, cycles, functions, `undefined`, and non-finite
+numbers rather than converting malformed data into an empty or partial result.
 
 Page consumers await formerly synchronous managed behavior. Workspace packet
 encoding and decoding, demo resolution, Spotlight ranking, package-cache
