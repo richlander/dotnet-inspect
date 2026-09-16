@@ -1149,6 +1149,60 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_DiscoveryGlob_DoesNotExposeExactOnlySection(
+        bool schema)
+    {
+        var args = new List<string>
+        {
+            "member",
+            "System.String",
+            "Contains",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            "Clone*",
+        };
+        if (schema)
+            args.Add("--schema");
+        args.AddRange(["--table", "--tips", "q"]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.NotEqual(0, exit);
+        Assert.DoesNotContain("Rank", output);
+        Assert.Contains("Section 'Clone*' not found", error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_DiscoveryExactName_RetainsExactOnlySection(
+        bool schema)
+    {
+        var args = new List<string>
+        {
+            "member",
+            "System.String",
+            "Contains:1",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            SectionNames.CloneCandidates,
+        };
+        if (schema)
+            args.Add("--schema");
+        args.AddRange(["--table", "--tips", "q"]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Rank", output);
+    }
+
+    [Theory]
     [InlineData("@Calls")]
     [InlineData("@Source")]
     [InlineData("@Audit")]

@@ -93,6 +93,30 @@ public class SelectResolverTests
     }
 
     [Fact]
+    public void ResolveSelect_ExactOnlySectionsAreExcludedOnlyFromExpansion()
+    {
+        string[] sections = ["Clone Candidates", "Methods"];
+        IReadOnlySet<string> exactOnly =
+            new HashSet<string>(
+                ["Clone Candidates"],
+                StringComparer.OrdinalIgnoreCase);
+
+        SelectResult wildcard = SelectResolver.ResolveSelectAsSections(
+            ["Clone*"],
+            sections,
+            exactOnlySections: exactOnly);
+        SelectResult direct = SelectResolver.ResolveSelectAsSections(
+            ["Clone Candidates"],
+            sections,
+            exactOnlySections: exactOnly);
+
+        Assert.Null(wildcard.Sections);
+        Assert.Empty(wildcard.ExactSections);
+        Assert.Equal(["Clone Candidates"], direct.Sections);
+        Assert.Equal(["Clone Candidates"], direct.ExactSections);
+    }
+
+    [Fact]
     public void ResolveSelect_LegacyAlias_ResolvesToRenamedSection()
     {
         // The "Optimization Opportunities" section was renamed to "Performance Triage";

@@ -209,6 +209,28 @@ public sealed class InspectionPlanningTests
         Assert.Empty(result.UnresolvedSelectors);
     }
 
+    [Theory]
+    [InlineData("Clone*")]
+    [InlineData("Implementation*")]
+    [InlineData("Finding*")]
+    [InlineData("Signat*")]
+    public void SectionDemandIndex_ExactOnlyGlobDoesNotPromoteTarget(
+        string selector)
+    {
+        SectionDemandClassification result =
+            ApiSectionDemandIndex.Classify(
+                InspectionSurface.Member,
+                [selector],
+                selectDefault: false,
+                InspectionTargetRequirement.MemberSet);
+
+        Assert.Equal(
+            InspectionTargetRequirement.MemberSet,
+            result.RequiredTarget);
+        Assert.Empty(result.MatchedSections);
+        Assert.Empty(result.UnresolvedSelectors);
+    }
+
     [Fact]
     public void SectionDemandIndex_AllSelectorDoesNotPromoteTarget()
     {

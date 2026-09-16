@@ -114,6 +114,7 @@ public sealed record StructuralSchemaProjection(
     IReadOnlyDictionary<string, string[]> SectionCategories,
     IReadOnlySet<string>? ListedCategoryDoors,
     IReadOnlySet<string> CatalogHiddenSections,
+    IReadOnlySet<string> ExactOnlySections,
     ImmutableDictionary<string, StructuralSectionInput> SectionInputs);
 
 public sealed record StructuralDiscoveryRequest(
@@ -849,6 +850,8 @@ public static class StructuralViewRegistry
         IReadOnlySet<string>? listedCategoryDoors = null;
         IReadOnlySet<string> catalogHiddenSections =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlySet<string> exactOnlySections =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         switch (route.Catalog)
         {
             case InspectionCatalogIdentity.Package:
@@ -942,6 +945,10 @@ public static class StructuralViewRegistry
                     pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     pipeline.GetCatalogHiddenSections();
+                exactOnlySections =
+                    ApiMemberSectionPipelines.GetExactOnlySections(
+                        route.Catalog
+                            == InspectionCatalogIdentity.ApiMemberOverload);
                 break;
             }
             default:
@@ -1012,6 +1019,7 @@ public static class StructuralViewRegistry
             categories,
             listedCategoryDoors,
             catalogHiddenSections,
+            exactOnlySections,
             inputs);
     }
 
@@ -1047,13 +1055,16 @@ public static class StructuralViewRegistry
                 projection.DefaultSectionNames,
                 projection.SectionCategories,
                 request.SelectDefault
-                && !hasExplicitSelection);
+                && !hasExplicitSelection,
+                projection.ExactOnlySections);
             if (SelectOutput.WriteUnresolved(result))
                 return 1;
             if (result.Sections is { Count: > 0 })
                 selectedSections.UnionWith(result.Sections);
         }
-        if (selectedSections.Count > 0)
+        if (selectedSections.Count > 0
+            || hasExplicitSelection
+            || request.SelectDefault)
             schema = FilterSchema(schema, selectedSections);
 
         return DiscoverOutput.Execute(
@@ -1073,7 +1084,8 @@ public static class StructuralViewRegistry
                 ? null
                 : projection.CatalogHiddenSections,
             listedCategoryDoors:
-                projection.ListedCategoryDoors);
+                projection.ListedCategoryDoors,
+            exactOnlySections: projection.ExactOnlySections);
     }
 
     public static int Execute(
@@ -1363,7 +1375,8 @@ public static class StructuralViewRegistry
                     projection.SelectableSectionNames,
                     projection.DefaultSectionNames,
                     projection.SectionCategories,
-                    routeRequest.SelectDefault);
+                    routeRequest.SelectDefault,
+                    projection.ExactOnlySections);
             IReadOnlyList<string> discoverySections =
                 hasSelection
                     ? [.. selection.Sections ?? []]
@@ -1388,7 +1401,9 @@ public static class StructuralViewRegistry
                         discoverySections,
                         infoSections: [],
                         discoveryCategories,
-                        selectDefault: false)
+                        selectDefault: false,
+                        exactOnlySections:
+                            projection.ExactOnlySections)
                     : selection;
             bool completeCatalog =
                 !hasSelection

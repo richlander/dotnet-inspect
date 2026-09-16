@@ -612,27 +612,8 @@ public class ApiCommand
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
         }
-        string[] exactOnlySections =
-            options is MemberOptions
-            && ApiMemberSectionPipelines
-                .UsesOverloadInventoryPipeline(options)
-                ?
-                [
-                    SectionNames.MemberIndex,
-                    SectionNames.FindingCensus,
-                    SectionNames.CloneCandidates,
-                    SectionNames.ImplementationProfiles,
-                    SectionNames.Signature,
-                    SectionNames.CustomAttributes,
-                ]
-                :
-                [
-                    SectionNames.MemberIndex,
-                    SectionNames.FindingCensus,
-                    SectionNames.CloneCandidates,
-                    SectionNames.ImplementationProfiles,
-                ];
-        foreach (string section in exactOnlySections)
+        foreach (string section in
+                 ApiMemberSectionPipelines.GetExactOnlySections(options))
         {
             (options, string? selectionError) =
                 NormalizeExactOnlySectionSelection(
@@ -1633,7 +1614,9 @@ public class ApiCommand
                 discover,
                 discoveryScope,
                 infoSections: [],
-                categories);
+                categories,
+                exactOnlySections:
+                    ApiMemberSectionPipelines.GetExactOnlySections(options));
             var discoveredSections = new HashSet<string>(
                 resolved.Sections ?? [],
                 StringComparer.OrdinalIgnoreCase);
@@ -3655,7 +3638,9 @@ public class ApiCommand
             sectionCostAnnotations: displayAnnotations,
             sectionCategories: ApiMemberSectionPipelines.GetCategoryMap(memberPipeline),
             catalogHiddenSections: catalogHiddenSections,
-            listedCategoryDoors: memberPipeline.GetListedCategoryDoors());
+            listedCategoryDoors: memberPipeline.GetListedCategoryDoors(),
+            exactOnlySections:
+                ApiMemberSectionPipelines.GetExactOnlySections(options));
     }
 
     /// <summary>

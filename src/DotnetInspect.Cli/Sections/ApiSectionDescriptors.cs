@@ -629,6 +629,25 @@ public static class ApiMemberSectionDescriptors
 /// </summary>
 public static class ApiMemberSectionPipelines
 {
+    private static readonly IReadOnlySet<string> CommonExactOnlySections =
+        new HashSet<string>(
+            [
+                SectionNames.MemberIndex,
+                SectionNames.FindingCensus,
+                SectionNames.CloneCandidates,
+                SectionNames.ImplementationProfiles,
+            ],
+            StringComparer.OrdinalIgnoreCase);
+
+    private static readonly IReadOnlySet<string> OverloadExactOnlySections =
+        new HashSet<string>(
+            [
+                .. CommonExactOnlySections,
+                SectionNames.Signature,
+                SectionNames.CustomAttributes,
+            ],
+            StringComparer.OrdinalIgnoreCase);
+
     private static readonly string[] AuditSections =
     [
         SectionNames.UnsafeMembers,
@@ -740,6 +759,20 @@ public static class ApiMemberSectionPipelines
               MemberDigest: null,
               MemberFilter.Count: > 0
            };
+
+    public static IReadOnlySet<string> GetExactOnlySections(ApiOptions options)
+        => UsesOverloadInventoryPipeline(options)
+            ? OverloadExactOnlySections
+            : CommonExactOnlySections;
+
+    public static IReadOnlySet<string> GetExactOnlySections(
+        bool overloadInventory)
+        => overloadInventory
+            ? OverloadExactOnlySections
+            : CommonExactOnlySections;
+
+    public static IReadOnlySet<string> AllExactOnlySections =>
+        OverloadExactOnlySections;
 
     public static IReadOnlyDictionary<string, string[]> GetCategoryMap(
         SectionPipeline<ApiType> pipeline)

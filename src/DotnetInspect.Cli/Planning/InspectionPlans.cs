@@ -299,7 +299,12 @@ public sealed record ResolvedMemberInspectionPlan(
             descriptor.SectionNames,
             defaultSections,
             descriptor.Categories,
-            intent.Sections.SelectDefault);
+            intent.Sections.SelectDefault,
+            catalog == InspectionCatalogIdentity.ApiType
+                ? null
+                : ApiMemberSectionPipelines.GetExactOnlySections(
+                    catalog
+                        == InspectionCatalogIdentity.ApiMemberOverload));
 
         return new ResolvedMemberInspectionPlan(
             intent,
@@ -493,7 +498,9 @@ public static class ApiSectionDemandIndex
             [.. demandSelectors],
             KnownSectionNames,
             infoSections: null,
-            CategoriesFor(baseRequirement));
+            CategoriesFor(baseRequirement),
+            exactOnlySections:
+                ApiMemberSectionPipelines.AllExactOnlySections);
         InspectionTargetRequirement requirement = baseRequirement;
         if (surface != InspectionSurface.Type)
         {
@@ -507,7 +514,9 @@ public static class ApiSectionDemandIndex
                     sectionSelectors,
                     KnownSectionNames,
                     infoSections: null,
-                    categories: null);
+                    categories: null,
+                    exactOnlySections:
+                        ApiMemberSectionPipelines.AllExactOnlySections);
             foreach (string section in sectionDemand.Sections ?? [])
             {
                 if (MemberRequirements.TryGetValue(

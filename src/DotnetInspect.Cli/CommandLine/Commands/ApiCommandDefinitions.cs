@@ -485,7 +485,11 @@ public static class ApiCommandDefinitions
                             memberCatalogHiddenSections,
                         listedCategoryDoors:
                             memberCategories.Keys.ToHashSet(
-                                StringComparer.OrdinalIgnoreCase));
+                                StringComparer.OrdinalIgnoreCase),
+                        exactOnlySections:
+                            ApiMemberSectionPipelines
+                                .GetExactOnlySections(
+                                    overloadInventory: false));
 
                 case MemberOptionsParser.ShowHelp:
                     CommandError.Write("Type name or source required.");
