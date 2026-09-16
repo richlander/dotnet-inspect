@@ -2427,7 +2427,13 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
   await expect(page.getByText("Opening the selected Library...")).toHaveCount(0);
   await releaseFacade(page, "finish-platform-library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await page.reload();
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
+  await releaseFacade(page, "finish-platform-library");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "platform")).toHaveCount(0);
 });
 
 test("Spotlight framework Library failure stays outside Platform presentation", async ({ page }) => {

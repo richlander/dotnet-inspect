@@ -2410,6 +2410,7 @@ async function restorePlatformHistoryView(
     platformLibraryKey(row),
     row.pack,
     {
+      deferPlatformPresentation: true,
       scopeOnly: true,
       navigationSeq,
       tfm: view.platform?.tfm,
@@ -5309,8 +5310,14 @@ function renderScopeBar(
 ) {
   const sc = scope();
   const selected = selectedType();
+  const rootScopes: readonly WorkspaceScope[] =
+    state.rootKind === "platform"
+      && !navigationHistory.snapshot().stack.some(entry =>
+        entry.view.rootKind === "platform" && entry.view.atPackageRoot)
+      ? []
+      : [state.rootKind];
   availableScopes ??= [
-    state.rootKind,
+    ...rootScopes,
     ...(selectedLibrary() ? ["library" as const] : []),
     ...(selected ? ["type" as const] : []),
     ...(selected && memberGroups(selected).length ? ["member" as const] : []),
@@ -15560,12 +15567,12 @@ async function restoreWorkspaceFromLocation(
           : "The shared workspace coordinates did not remain distinct after resolution."));
     return;
   }
-
   if (loadedPlatformTarget) {
-    installPlatformTarget(loadedPlatformTarget);
     if (loc.library) {
       const opened = await openPlatformLibrary(loc.library, loc.libraryPack ?? "", {
-        scopeOnly: true, navigationSeq,
+        deferPlatformPresentation: true,
+        scopeOnly: true,
+        navigationSeq,
         tfm: loadedPlatformTarget.tfm, version: loadedPlatformTarget.version,
       });
       if (!navigationSequence.isCurrent(navigationSeq)) return;
@@ -15578,6 +15585,7 @@ async function restoreWorkspaceFromLocation(
       if (failure) { failRestore(failure); return; }
       applyDeepLink(deep);
     } else {
+      installPlatformTarget(loadedPlatformTarget);
       if (loc.type || loc.memberAnchor || loc.memberSignature || loc.section || loc.lens || loc.libraryLens) {
         failRestore("A shared Platform inspection requires an exact Library.");
         return;
