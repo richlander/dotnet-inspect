@@ -431,6 +431,9 @@ exceptions and cancellation propagate rather than entering that mapping.
 
 `ArtifactAssemblyProjection` is immutable, content-free, and bound to one
 in-process artifact generation. It is not a durable or serializable identity.
+Its construction and property mutation remain internal to the Metadata owner;
+public consumers receive owner-issued values and cannot synthesize or rewrite
+their Artifact, MVID, or assembly-identity binding.
 `Registration.Generation` must be the same owner-issued object exposed by
 `Registration.Artifact.Generation`. `Registration.Artifact` must be the exact
 `ArtifactIdentity` from the selected
