@@ -1882,7 +1882,8 @@ public record ImplementationProfileRow(
     public string Member { get; init; } = Member;
 
     [MarkoutPropertyName("Member Token")]
-    public string MemberToken { get; init; } = MemberToken;
+    public string MemberToken { get; init; } =
+        LibraryViewText.Contain(MemberToken);
 
     [MarkoutPropertyName("Evidence Method")]
     [MarkoutSkipNull]
@@ -1966,7 +1967,7 @@ public record ImplementationProfileRow(
     [MarkoutPropertyName("Overload Relationships")]
     [MarkoutSkipNull]
     public string? OverloadRelationships { get; init; } =
-        OverloadRelationships;
+        LibraryViewText.Contain(OverloadRelationships);
 
     public bool Complete { get; init; } = Complete;
 
