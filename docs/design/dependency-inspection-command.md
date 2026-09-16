@@ -125,6 +125,10 @@ CLI-focused design neither changes nor blocks that host.
 The Debug service-evidence adopter in #7117 is shared host-neutral work despite
 this command's CLI presentation ownership. It composes the existing Package
 Dependency Evidence outcome without moving its normalization contract.
+It is the third slice of the diagnostic-sidecar composition tracked by
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293), consuming
+the generic attachment contract and CLI sidecar transport without redefining
+either owner.
 [Network request evidence](https://github.com/richlander/dotnet-inspect/issues/7287)
 and the
 [CLI network-diagnostic migration](https://github.com/richlander/dotnet-inspect/issues/7289)
@@ -627,7 +631,9 @@ demonstration that diagnostic registration disappears from retail compilation.
 This section owns the dependency inspection service's concrete `TEvidence`,
 capture request, and association with baseline Content. The generic
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
-owns the envelope, lifetime, delivery, and Debug-only availability policy.
+owns the envelope, capture lifetime, transport-neutral attachment permission,
+and Debug-only availability policy. [Output Shapes](output-shapes.md#envelope-transport)
+owns CLI sidecar admission, publication, diagnostics, and failure behavior.
 Package Dependency Evidence continues to own normalized package facts.
 
 The first adopter is asset-mode dependency inspection. Positional type
@@ -744,9 +750,14 @@ Debug views but stop owning duplicated production:
 
 The CLI's complete machine transport is
 `EvidenceInspectionEnvelope<DependencyInspectionContent,
-DependencyInspectionEvidenceDocument>` under `--evidence-envelope`.
-Presentation sections and row shaping remain incompatible with that transport
-as specified by [Output Shapes](output-shapes.md#envelope-transport).
+DependencyInspectionEvidenceDocument>` in the file named by
+`--evidence-envelope <path>`. The option preserves the ordinary primary
+presentation on stdout or its distinct `--out` destination. Section selection
+and row shaping continue to affect that ordinary presentation without shaping
+Content or Evidence inside the attachment. When paired with `--envelope`, the
+baseline envelope on stdout equals the attachment's `Inspection` value and
+both derive from the same evidence-enabled execution, as specified by
+[Output Shapes](output-shapes.md#envelope-transport).
 
 The Debug Browser/Wasm consumer receives the same closed evidence type and
 the same `DependencyInspectionContent`, then renders an owner-selected
@@ -773,7 +784,11 @@ pathological fixtures. They cover:
 - matching runtime JSON and generated Browser/Wasm types for the complete
   closed enrichment.
 
-Debug CLI demonstrations cover full envelope delivery and each thin diagnostic
+The Debug CLI public-entry gates required by Output Shapes additionally cover
+ordinary tree, JSON, and selected diagnostic-section output while the sidecar
+receives the complete closed enrichment; paired `--envelope` baseline
+equality; and ordinary output plus nonzero status when sidecar publication
+fails. Demonstrations use the restored CLI project and each thin diagnostic
 view. A Debug Browser/Wasm demonstration consumes the same evidence value.
 These gates do not verify the already documented Release host-surface absence,
 which remains **unverified** under the generic envelope policy.
