@@ -76,6 +76,7 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:System.Reflection.Metadata.MetadataReader", banned);
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
         Assert.Contains("T:ILInspector.Decompiler.MemberBodyProducer", banned);
+        Assert.Contains("T:ILInspector.Decompiler.CSharpDecompilerService", banned);
         Assert.Contains("T:ILInspector.SourceLink.SourceLinkService", banned);
         Assert.Contains("T:ILInspector.SourceLink.SourceLinkInspector", banned);
         Assert.Contains("T:ILInspector.Instructions.IlAssemblyDiff", banned);

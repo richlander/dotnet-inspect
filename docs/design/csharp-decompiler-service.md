@@ -7,7 +7,9 @@ owns its `CSharpDecompilerService` boundary, tracked in
 [#7216](https://github.com/richlander/dotnet-inspect/issues/7216): the decompiler
 producer step of [#6512](https://github.com/richlander/dotnet-inspect/issues/6512)
 and project 4 of [#7177](https://github.com/richlander/dotnet-inspect/issues/7177).
-The service is planned; this contract does not present it as implemented.
+The service is implemented and consumed by the shared source-query family.
+SourceHouse composition and the broader host-envelope adoption remain separate
+steps of #6512.
 
 > Given caller-selected assembly content, one exact type or member in that
 > content, a binding policy, explicit supplied-PDB or no-PDB input, rendering
@@ -136,15 +138,15 @@ The immediate production consumer is the shared source-query family:
 type/member source and CLI member/source-diff comparisons already use that
 family. The path has three steps:
 
-1. Lock this focused producer contract.
-2. Implement the service over `MemberBodyProducer` and explicit symbol input.
-3. Replace that query's direct member/type producer calls, supplying the PDB
-   already selected by its acquisition stage, and exercise both hosts.
+1. The focused producer contract was locked in #7217.
+2. `CSharpDecompilerService` composes `MemberBodyProducer` with explicit symbol
+   input and detached method-addressed evidence.
+3. The shared query uses the service for member/type fallback and source
+   comparisons, supplying the PDB already selected by its acquisition stage.
+   Both hosts consume that query family.
 
-Steps 2 and 3 should land together unless a smaller implementation slice has
-its own real production consumer. SourceHouse later consumes the same service
-when its composition lands under #6512; this producer does not wait for that
-future House to become useful.
+SourceHouse later consumes the same service when its composition lands under
+the broader #6512 plan; this producer becomes useful before that future House.
 
 Retire direct composer calls in the adopted shared-query path. Other existing
 `MemberBodyProducer` consumers remain supported until their own adoption;
@@ -162,25 +164,27 @@ Direct CLI listings outside this shared-query path remain part of that broader
 adoption. Existing CLI Markout/code output and browser code viewers remain the
 host lowering boundaries; this producer introduces no alternative formatter.
 
-## Evidence plan
+## Evidence
 
 The real motivating input is dotnet/runtime's `System.Text.Json`, alongside
 existing compiler-produced symbol-name, property/accessor, and whole-type
-fixtures. Gates added with implementation must cover:
+fixtures. The Release gates are:
 
-- no-PDB mode beside available embedded and adjacent PDBs;
-- supplied-PDB-only local names, wrong/unreadable supplied PDB, and pathless
-  input;
-- preservation of every contributing accessor/body's diagnostics and fidelity;
-- complete versus partial/failed/absent declarations and budget exhaustion;
-- cancellation and input-scope settlement; and
-- byte parity with the current composer when effective inputs, symbols, and
-  rendering options are the same.
+| Claim | Gate |
+| --- | --- |
+| Explicit no-PDB and supplied-PDB behavior, applicability failures, pathless input, and input-scope settlement | `CSharpDecompilerServiceTests` |
+| Native method/accessor evidence, aggregate fidelity and options, absence, cancellation, and finite composition work | `CSharpDecompilerServiceTests` |
+| Supplied PDB bytes outlive the caller's acquisition scope | `PortablePdbSnapshotTests` |
+| Same-effective-input composer parity for member/type output | `CSharpDecompilerServiceTests`, with `MemberBodyProducerMemberRenderTests` and `MemberBodyProducerTypedBodyTests` as neighboring evidence |
+| Authored-source preference, selected symbols, exact-target isolation, fallback, and typed incomplete/non-Full evidence | `AssemblyContextSourceQueryTests` |
+| CLI source comparisons and shared presentation | CLI member/source-diff tests and `MemberSourceDiffPresentationTests` |
+| Browser source operations and failure-detail adapters | `BrowserTypeSourceOperationTests`, `BrowserSourceComparisonOperationTests`, and the source cases in `BrowserEngineBoundaryTests` |
+| Published Browser/Wasm source-comparison transport | `eng/test-inspect-web-source-comparison-gate.sh` |
 
-These new service properties are **unverified until implementation gates land**.
-Existing `MemberBodyProducerMemberRenderTests`, `MemberBodyProducerTypedBodyTests`,
-`ContentShapedMemberProjectionTests`, and `AssemblyContextSourceQueryTests`
-provide neighboring evidence, not proof of this unimplemented service.
+The published browser gate uses deterministic source fixtures through the real
+worker/facade path. It is not a live NuGet or GitHub acquisition claim. Supplied
+symbols can intentionally change spelling relative to a prior implicit or
+no-symbol request; the parity claim holds only when effective inputs match.
 
 The [correctness pipeline](../decompiler-correctness-pipeline.md) determines
 the required Release gates for the actual changed surfaces. This design does
