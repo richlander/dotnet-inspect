@@ -48,6 +48,17 @@ public sealed class PackageVersionCellMetadataInspectionRequest
         PackageHouseTargetContext targetContext,
         PackageVersionCellMetadataInspectionLimits limits,
         DateTimeOffset workspaceDeadline)
+        : this(cell, operation, targetContext, limits, workspaceDeadline, null)
+    {
+    }
+
+    public PackageVersionCellMetadataInspectionRequest(
+        PackageHouseVersionPopulationCell cell,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext targetContext,
+        PackageVersionCellMetadataInspectionLimits limits,
+        DateTimeOffset workspaceDeadline,
+        PackageVersionCellApiInspectionRequest? apiInspection)
     {
         ArgumentNullException.ThrowIfNull(cell);
         ArgumentNullException.ThrowIfNull(operation);
@@ -70,6 +81,7 @@ public sealed class PackageVersionCellMetadataInspectionRequest
         Cell = cell;
         Limits = limits;
         WorkspaceDeadline = workspaceDeadline;
+        ApiInspection = apiInspection;
         HouseExecution = cell.PrepareExecution(
             operation,
             targetContext,
@@ -82,6 +94,8 @@ public sealed class PackageVersionCellMetadataInspectionRequest
     public PackageVersionCellMetadataInspectionLimits Limits { get; }
 
     public DateTimeOffset WorkspaceDeadline { get; }
+
+    public PackageVersionCellApiInspectionRequest? ApiInspection { get; }
 
     public PackageHouseVersionPopulationCellExecution HouseExecution
     {
@@ -274,14 +288,18 @@ public abstract record PackageVersionCellMetadataInspectionOutcome
     {
         internal Available(
             PackageVersionCellMetadataInspectionEvidence evidence,
-            AssemblyContextResult<MetadataImageOverview> metadata)
+            AssemblyContextResult<MetadataImageOverview> metadata,
+            PackageVersionCellApiInspectionResult? apiInspection = null)
             : base(evidence, cleanup: null)
         {
             ArgumentNullException.ThrowIfNull(metadata);
             Metadata = metadata;
+            ApiInspection = apiInspection;
         }
 
         public AssemblyContextResult<MetadataImageOverview> Metadata { get; }
+
+        public PackageVersionCellApiInspectionResult? ApiInspection { get; }
     }
 
     public sealed record NoContribution :

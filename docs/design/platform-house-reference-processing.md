@@ -99,11 +99,34 @@ resource-free value and composed receipt.
 Reference-only, reference-plus-implementation, and implementation-only role
 closure are gated in Release.
 
+Installed successful-result materialization is implemented in
+`DotnetInspector.PlatformHouse.Execution.Installed` under #7269. It accepts
+only owner-issued successful installed source results for one exact assembly
+demand, selects that assembly from each immutable source snapshot, and
+publishes the required views into one request-bounded Artifact generation.
+Installed coordinates and content facts remain source-specific provenance;
+`PlatformLibraryArtifactProvenance` binds each published item to its exact
+House realization contribution, and Metadata issues the exact Artifact
+projection consumed by the shared one-Library executor.
+
+The completed installed result returns the `LibraryContentOwner` and
+`ArtifactSetSession` as separate caller-owned authorities. Starting Artifact
+retirement while the Library remains live waits for the transferred content
+children; retiring the Library then permits Artifact retirement to complete.
+Terminal executor results and cancellation before the handoff retire every
+composition-owned content lease and the session before they escape. The
+materializer accepts explicit operation-consumed work, matching the shared
+executor, because the installed source contracts do not issue exact aggregate
+work observations. It neither guesses those observations nor turns selected
+payload size into a claim about all source work.
+
 The `Failed` House terminal arm and resource-free typed failure-stage evidence
-are implemented. Internal Library operation leases, cleanup-failure production
-by non-owning operations, whole-population realization, source-adapter Artifact
-materialization, and product adoption remain unverified. Their PlatformHouse
-adoption continues under #7237, #7177, and #6621 slice 5.
+are implemented, including installed Artifact publication and retirement
+stages. Internal Library operation leases, cleanup-failure production by
+non-owning operations, whole-population realization, source-adapter Artifact
+materialization for package-backed sources, and product adoption remain
+unverified. Further PlatformHouse adoption continues under #7177 and #6621
+slice 5; this installed materialization slice is tracked by #7269.
 
 This is one owner claim. The design specifies the House request, settlement,
 result, evidence-retention, and encapsulation contracts. It consumes the
@@ -1383,9 +1406,13 @@ owner in #6621 slice 3 implemented, step 6 is active. Step 6a, implemented
 under #7237, accepts already selected Artifact-backed content for one exact
 Library, closes its requested roles, constructs the shared Library owner and
 reference atomically, and transfers the owner beside a resource-free composed
-receipt. Step 6b adapts installed and package-backed source values into that
-Artifact-backed handoff; complete-population realization remains a later
-step-6 slice.
+receipt. Step 6b adapts source values into that Artifact-backed handoff. Step 6b.1,
+implemented under #7269, materializes successful installed reference and
+implementation values for one exact assembly demand while returning Artifact
+and Library ownership separately. Installed target/source selection and
+terminal source-attempt settlement remain with later orchestration. Step 6b.2
+will adapt package-backed values. Complete-population realization remains a
+later step-6 slice.
 
 The step-6 ownership correction was designed under
 [#6984](https://github.com/richlander/dotnet-inspect/issues/6984). It adopts
@@ -1579,7 +1606,9 @@ The implementation and adoption slices own these Release gates:
 | Typed ingress separation | A raw `PackageRef` cannot enter PlatformHouse, and a bare CLI selector cannot become an `AssemblyRef` or `PackageRef` without command-owned classification. |
 | Delegation preserves identity boundaries | An upstream platform delegation retains its package decision receipt outside PlatformHouse and cannot establish a platform-library or assembly identity from package spelling. |
 | Shared Library construction | The .NET 11 Platform `System.Text.Json` realization constructs one source-distinct `LibraryReference` with reference-pack `ApiAssembly` and runtime-pack `ImplementationAssembly` content, exact Platform target/source/provenance, and view correspondence; an equal-identity NuGet Library cannot substitute. |
+| Installed Artifact materialization | Successful installed reference-pack and implementation-layout `System.Text.Json` snapshots publish into one bounded Artifact generation without reopening installed files; source provenance, exact House contributions, Metadata projections, and Library roles remain correspondent. |
 | Owning realization handoff | Every completed one-Library and population realization transfers each `LibraryContentOwner` exactly once beside its matching resource-free reference; the House value, receipt, contribution, request, and cache retain no owner or Library lease. |
+| Separate installed authorities | Installed one-Library completion returns the Library owner and adjacent Artifact session separately; Artifact retirement waits while the Library retains content and completes after Library retirement. Terminal execution and cancellation return neither authority. |
 | Resource-free House boundary | Focused contract tests over contributions, completed House values, receipts, requests, and cache entries prove that they retain no live source handle or content obligation, Artifact owner or lease, Library owner or lease, callback, opener, stream, or disposal delegate. |
 | Internal Library access | PlatformHouse Metadata work reads exact content only through a fresh internal `LibraryOperationLease`; every borrow ends before `await`, and the lease settles before completion. |
 | Terminal owner disposition | Completed non-owning operations, unavailability, ambiguity, rejection, failure, incomplete completion, and cancellation retire every constructed owner the House does not return, including partially constructed multi-Library population work; only a completed owning `Realize` result transfers owners, and retirement failure remains visible. |
@@ -1615,10 +1644,28 @@ The implemented step-6a gates are:
   `PlatformHouseFailedOutcome_RetainsTypedResourceFreeEvidence` for the
   receipt and failure boundaries.
 
-Source-adapter adoption must add the real installed and package-backed
-`System.Text.Json` path before the full shared-Library construction row above
-is satisfied. Each later implementation slice adds the smallest gate covering
-its adopted property.
+The implemented step-6b.1 gates add the real installed `System.Text.Json`
+reference and implementation path, exact source-to-Artifact-to-Metadata
+correspondence, separate Library and Artifact authority retirement, and
+terminal/cancellation cleanup:
+
+- `InstalledSystemTextJson_TransfersLibraryAndArtifactAuthorities` covers the
+  real installed reference and runtime images, source provenance, Metadata
+  identity, role closure, owner transfer, borrowing, and ordered retirement;
+- `InstalledReferenceOnly_ClosesOneApiRole` and
+  `InstalledImplementationOnly_AssignsBothRoles` cover neighboring view shapes;
+- `ForeignSuccessfulResult_IsRejectedBeforePublication` and
+  `MissingPriorSourceEvidence_ReturnsTerminalAfterCleanup` cover exact
+  request/result pairing and terminal-path ownership;
+- `CancellationPrecedesArtifactOwnership` covers cancellation before Artifact
+  acceptance; and
+- `InstalledArtifactProvenance_IsResourceFree` and
+  `SuccessfulSourcePairing_IsAdapterIssued` cover the resource-free boundary
+  and owner-issued live-value/contribution association.
+
+Package-backed source adoption must add its equivalent real path before the
+full shared-Library construction row above is satisfied. Each later
+implementation slice adds the smallest gate covering its adopted property.
 
 The House carries typed operation data but defines no presentation. Markout
 and host-specific rendering are not part of this owner.
