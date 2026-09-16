@@ -2,7 +2,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections;
 
-public static class TypeDependencyRowQuery
+public static class TypeDependencyVocabulary
 {
     private static readonly RowQueryNamedOrder<TypeDependencyRelationship>
         TraversalOrder =
@@ -16,20 +16,20 @@ public static class TypeDependencyRowQuery
                         left.Ordinal.CompareTo(right.Ordinal)),
                 direction));
 
-    private static readonly RowQuerySchema<TypeDependencyRelationship>
-        Schema =
-        RowQuerySchema<TypeDependencyRelationship>.Create(
-            RowQuerySchemaIdentity.Create(),
+    private static readonly RowQueryVocabulary<TypeDependencyRelationship>
+        Vocabulary =
+        RowQueryVocabulary<TypeDependencyRelationship>.Create(
+            RowQueryVocabularyIdentity.Create(),
             [
-                TextField(
+                TextKey(
                     "Source",
                     static relationship =>
                         relationship.SourceTypeName),
-                TextField(
+                TextKey(
                     "Target",
                     static relationship =>
                         relationship.TargetTypeName),
-                KindField(),
+                KindKey(),
             ],
             [TraversalOrder],
             defaultBaselineOrder:
@@ -39,17 +39,17 @@ public static class TypeDependencyRowQuery
 
     public static RowQueryResolutionResult<TypeDependencyRelationship>
         Resolve(RowQueryIntent intent) =>
-        RowQueryResolver.Resolve(Schema, intent);
+        RowQueryResolver.Resolve(Vocabulary, intent);
 
     internal static bool Owns(
         ResolvedRowQueryPlan<TypeDependencyRelationship> plan) =>
-        ReferenceEquals(plan.SchemaIdentity, Schema.Identity);
+        ReferenceEquals(plan.VocabularyIdentity, Vocabulary.Identity);
 
-    private static RowQueryField<TypeDependencyRelationship> TextField(
+    private static RowQueryKey<TypeDependencyRelationship> TextKey(
         string key,
         Func<TypeDependencyRelationship, string> accessor) =>
-        RowQueryField<TypeDependencyRelationship>.Create(
-            RowQueryFieldIdentity.Create(),
+        RowQueryKey<TypeDependencyRelationship>.Create(
+            RowQueryKeyIdentity.Create(),
             key,
             [RowQueryOperator.Equals, RowQueryOperator.NotEquals],
             row => RowQueryValue<string>.Present(accessor(row)),
@@ -63,9 +63,9 @@ public static class TypeDependencyRowQuery
                 direction,
                 missingLast: false));
 
-    private static RowQueryField<TypeDependencyRelationship> KindField() =>
-        RowQueryField<TypeDependencyRelationship>.Create(
-            RowQueryFieldIdentity.Create(),
+    private static RowQueryKey<TypeDependencyRelationship> KindKey() =>
+        RowQueryKey<TypeDependencyRelationship>.Create(
+            RowQueryKeyIdentity.Create(),
             "Kind",
             [RowQueryOperator.Equals, RowQueryOperator.NotEquals],
             row => RowQueryValue<TypeDependencyRelationshipKind>.Present(

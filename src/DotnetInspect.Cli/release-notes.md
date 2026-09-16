@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Routes Inspect Web Package Activity at `/activity`, exposes it beside Query
+  and Workspace with Spotlight as the responsive alternate entry, and retires
+  the `/query` Packages/Activity peer mode while preserving report state,
+  cancellation, Worker operation, bridge, and wire contracts (#7179).
 - **Breaking:** Renames `package changes` to `package activity` and removes the
   old spelling with direct replacement guidance. Inspect Web now presents the
   same report as **Package Activity** while retaining the existing

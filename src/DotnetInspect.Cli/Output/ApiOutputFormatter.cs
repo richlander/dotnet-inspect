@@ -2730,6 +2730,8 @@ public static class ApiOutputFormatter
             Register(member.MetadataToken, drill);
             Register(member.GetterToken, drill);
             Register(member.SetterToken, drill);
+            Register(member.AdderToken, drill);
+            Register(member.RemoverToken, drill);
         }
 
         return map;
@@ -2771,6 +2773,192 @@ public static class ApiOutputFormatter
             .ToList();
         if (rows.Count > 0)
             view.TopLeverageRows = rows;
+    }
+
+    internal static void PopulateImplementationProfiles(
+        TypeView view,
+        ApiType type,
+        Analysis.LibraryBodyIndex index,
+        bool restrictToModelMembers = false,
+        int? selectedMethodToken = null)
+    {
+        var drillByToken = BuildMemberDrillMap(type);
+        LibraryMetadataService.ReportImplementationProfileDiagnostics(
+            index,
+            diagnostic => IncludesImplementationProfileDiagnostic(
+                diagnostic,
+                type,
+                drillByToken,
+                restrictToModelMembers,
+                selectedMethodToken));
+        var relationshipsByBody = index.OverloadRelationships()
+            .GroupBy(relationship => (
+                relationship.Caller.MetadataToken,
+                relationship.EvidenceMethod.MetadataToken))
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToArray());
+        var rows = index.ImplementationProfiles(
+                scope: method =>
+                    ApiAnalysisInspection.SameType(
+                        method.DeclaringType,
+                        type))
+            .Where(profile =>
+                selectedMethodToken is { } selected
+                    ? profile.Method.MetadataToken == selected
+                    : !restrictToModelMembers
+                        || drillByToken.ContainsKey(
+                            profile.Method.MetadataToken))
+            .Select(profile =>
+            {
+                drillByToken.TryGetValue(
+                    profile.Method.MetadataToken,
+                    out var drill);
+                relationshipsByBody.TryGetValue(
+                    (
+                        profile.Method.MetadataToken,
+                        profile.EvidenceMethod.MetadataToken),
+                    out var relationships);
+                return ToImplementationProfileRow(
+                    profile,
+                    relationships ?? [],
+                    drill,
+                    LibraryMetadataService.IsGeneratedMethod(
+                        profile.Method,
+                        index.GeneratedFrameworkTypes),
+                    includeDeclaringType: false);
+            })
+            .ToList();
+        if (rows.Count > 0)
+            view.ImplementationProfileRows = rows;
+    }
+
+    internal static bool IncludesImplementationProfileDiagnostic(
+        Analysis.AnalysisDiagnostic diagnostic,
+        ApiType type,
+        IReadOnlyDictionary<
+            int,
+            (string? Stable, string Visibility, string Selector)>
+            drillByToken,
+        bool restrictToModelMembers,
+        int? selectedMethodToken)
+    {
+        int methodToken =
+            diagnostic.SourceMethodToken
+            ?? diagnostic.MethodToken;
+        return (diagnostic.SourceDeclaringType
+                ?? diagnostic.DeclaringType) is { } diagnosticType
+            && ApiAnalysisInspection.SameType(
+                diagnosticType,
+                type)
+            && (selectedMethodToken is { } selected
+                ? methodToken == selected
+                : !restrictToModelMembers
+                    || drillByToken.ContainsKey(methodToken));
+    }
+
+    internal static ImplementationProfileRow
+        ToImplementationProfileRow(
+            Analysis.MethodImplementationProfile profile,
+            IReadOnlyCollection<Analysis.OverloadCallRelationship>
+                overloadRelationships,
+            (string? Stable, string Visibility, string Selector) drill,
+            bool generated,
+            bool includeDeclaringType)
+    {
+        string member = includeDeclaringType
+            ? FormatMethod(profile.Method)
+            : FormatMember(
+                null,
+                profile.Method.Name,
+                profile.Method.ParameterTypes,
+                []);
+        Analysis.OverloadCallRelationship[] orderedRelationships =
+        [
+            .. overloadRelationships
+                .OrderBy(relationship =>
+                    relationship.ILOffset)
+                .ThenBy(relationship =>
+                    relationship.Callee.MetadataToken)
+                .ThenBy(relationship =>
+                    relationship.Kind),
+        ];
+        string? overloadTargets = orderedRelationships.Length == 0
+            ? null
+            : string.Join(
+                ", ",
+                orderedRelationships
+                    .Select(relationship =>
+                        MarkoutInline.Code(FormatMember(
+                            null,
+                            relationship.Callee.Name,
+                            relationship.Callee.ParameterTypes,
+                            [])))
+                    .Distinct(StringComparer.Ordinal));
+        string? exactRelationships =
+            orderedRelationships.Length == 0
+                ? null
+                : string.Join(
+                    ", ",
+                    orderedRelationships.Select(
+                        relationship =>
+                            $"caller=0x{relationship.Caller.MetadataToken:x8};"
+                            + $"callee=0x{relationship.Callee.MetadataToken:x8};"
+                            + $"evidence=0x{relationship.EvidenceMethod.MetadataToken:x8};"
+                            + $"offset=IL_{relationship.ILOffset:X4};"
+                            + $"kind={relationship.Kind}"));
+
+        return new ImplementationProfileRow(
+            MarkoutInline.Code(member),
+            MarkoutInline.Code(
+                $"0x{profile.Method.MetadataToken:x8}"),
+            profile.EvidenceMethod == profile.Method
+                ? null
+                : MarkoutInline.Code(
+                    FormatMethod(profile.EvidenceMethod)),
+            MarkoutInline.Code(
+                $"0x{profile.EvidenceMethod.MetadataToken:x8}"),
+            profile.ILBytes,
+            profile.InstructionCount,
+            profile.DistinctOpcodeCount,
+            profile.BasicBlockCount,
+            profile.BranchCount,
+            profile.ConditionalBranchCount,
+            profile.SwitchCount,
+            profile.SwitchTargetCount,
+            profile.LoopCount,
+            profile.CatchCount
+                + profile.FilterCount
+                + profile.FinallyCount
+                + profile.FaultCount,
+            profile.CatchCount,
+            profile.FilterCount,
+            profile.FinallyCount,
+            profile.FaultCount,
+            profile.LocalCount,
+            profile.DirectCallCount,
+            profile.DistinctCalleeCount,
+            profile.AllocationCount,
+            profile.ThrowCount,
+            profile.Async ? "Yes" : null,
+            profile.Unsafe ? "Yes" : null,
+            profile.ReflectionCallCount,
+            profile.IncomingOverloadCallerCount,
+            profile.OutgoingOverloadTargetCount,
+            overloadTargets,
+            exactRelationships,
+            profile.IsComplete,
+            profile.IsComplete
+                ? null
+                : string.Join("; ", profile.IncompleteReasons),
+            drill.Visibility,
+            generated ? "generated" : null,
+            drill.Stable is { } stable
+                ? MarkoutInline.Code(stable)
+                : null,
+            drill.Selector is { } selector
+                ? MarkoutInline.Code(selector)
+                : null);
     }
 
     internal static UnsafeMemberRow ToUnsafeMemberRow(Analysis.UnsafeEvidence evidence, bool includeDeclaringType)

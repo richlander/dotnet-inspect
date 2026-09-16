@@ -7,6 +7,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -304,7 +305,11 @@ public sealed class SelectedSourceDiffTests
                     afterPath, "SourceDiff.Package", "2.0.0", AssemblySetSourceKind.Package, "net11.0"));
 
             Assert.True(result.Local.IsEmpty);
-            var pair = Assert.IsType<AssemblyMemberSourcePairResult>(result.SelectedSource);
+            var inspection =
+                Assert.IsType<
+                    InspectionEnvelope<AssemblyMemberSourcePairResult>>(
+                        result.SelectedSource);
+            AssemblyMemberSourcePairResult pair = inspection.Content;
             Assert.Equal(AssemblyMemberSourcePairStatus.Compared, pair.Status);
             Assert.False(pair.IsExact);
             var before = Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(pair.Before.Subject.Provenance);
@@ -343,7 +348,11 @@ public sealed class SelectedSourceDiffTests
             new VerboseLogger(false));
 
         Assert.True(result.Local.IsEmpty);
-        var pair = Assert.IsType<AssemblyMemberSourcePairResult>(result.SelectedSource);
+        var inspection =
+            Assert.IsType<
+                InspectionEnvelope<AssemblyMemberSourcePairResult>>(
+                    result.SelectedSource);
+        AssemblyMemberSourcePairResult pair = inspection.Content;
         Assert.Equal(AssemblyMemberSourcePairStatus.Compared, pair.Status);
         Assert.False(pair.IsExact);
         var before = Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(pair.Before);
