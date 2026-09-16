@@ -284,7 +284,7 @@ public sealed partial class WorkspaceScopeTests
         WorkspaceScopeSnapshot initial = await Current(workspace);
         using var cancellation = new CancellationTokenSource();
         WorkspaceScopeOperationResult.Committed? replacement = null;
-        Task<WorkspaceScopeOperationResult>? cancellationResult = null;
+        Task<WorkspaceScopeCancellationResult>? cancellationResult = null;
         WorkspaceScopePublicationOperationIdentity? operation = null;
         PackageRootBinding old = Binding("Cancelled.Package", onOpen: () =>
         {
@@ -319,7 +319,11 @@ public sealed partial class WorkspaceScopeTests
         Assert.Same(cancelled.Snapshot, await Current(workspace));
         Assert.Equal(clear ? [] : new[] { "Winning.Package" }, Names(cancelled.Snapshot));
         if (cancellationResult is not null)
-            Assert.Same(cancelled, await cancellationResult);
+        {
+            var settled = Assert.IsType<WorkspaceScopeCancellationResult.Settled>(
+                await cancellationResult);
+            Assert.Same(cancelled, settled.Settlement);
+        }
     }
 
     [Theory]
@@ -345,7 +349,7 @@ public sealed partial class WorkspaceScopeTests
                     TestContext.Current.CancellationToken)).AsTask().GetAwaiter().GetResult());
             cancellation.Cancel();
             time.Advance(TimeSpan.FromMinutes(10));
-            var noEffect = Assert.IsType<WorkspaceScopeOperationResult.NoEffect>(
+            var noEffect = Assert.IsType<WorkspaceScopeCancellationResult.ObservedNoEffect>(
                 workspace.CancelScopePreparationAsync(action).AsTask().GetAwaiter().GetResult());
             Assert.Same(replacement.Snapshot, noEffect.Snapshot);
         });
@@ -448,14 +452,14 @@ public sealed partial class WorkspaceScopeTests
         await using InspectionWorkspace foreign = new InspectionWorkspace();
         WorkspaceScopeSnapshot initial = await Current(workspace);
         WorkspaceScopeCancellationAction? action = null;
-        Task<WorkspaceScopeOperationResult>? cancellation = null;
+        Task<WorkspaceScopeCancellationResult>? cancellation = null;
         PackageRootBinding package = Binding("Cancelled.Package", onOpen: () =>
         {
             WorkspaceScopeSnapshot preparing = Current(workspace).GetAwaiter().GetResult();
             action = Assert.IsType<WorkspaceScopePreparationDescriptor>(preparing.Preparing).Cancellation;
             Assert.Same(workspace.Identity, action.Workspace);
             Assert.Same(preparing.Preparing.Operation, action.Operation);
-            var rejected = Assert.IsType<WorkspaceScopeOperationResult.Rejected>(
+            var rejected = Assert.IsType<WorkspaceScopeCancellationResult.Rejected>(
                 foreign.CancelScopePreparationAsync(action).AsTask().GetAwaiter().GetResult());
             Assert.Equal(WorkspaceScopeRejection.ForeignWorkspace, rejected.Reason);
             cancellation = workspace.CancelScopePreparationAsync(action).AsTask();
@@ -469,13 +473,15 @@ public sealed partial class WorkspaceScopeTests
                 Deadline, TestContext.Current.CancellationToken));
         Assert.NotNull(cancellation);
         Assert.NotNull(action);
-        Assert.Same(cancelled, await cancellation);
+        var settled = Assert.IsType<WorkspaceScopeCancellationResult.Settled>(
+            await cancellation);
+        Assert.Same(cancelled, settled.Settlement);
         Assert.Same(action.Operation, cancelled.Operation);
         Assert.Null(cancelled.Snapshot.Preparing);
 
         WorkspaceScopeSnapshot next = await Replace(workspace, Binding("Next.Package", onOpen: () =>
         {
-            var noEffect = Assert.IsType<WorkspaceScopeOperationResult.NoEffect>(
+            var noEffect = Assert.IsType<WorkspaceScopeCancellationResult.ObservedNoEffect>(
                 workspace.CancelScopePreparationAsync(action).AsTask().GetAwaiter().GetResult());
             Assert.NotNull(noEffect.Snapshot.Preparing);
             Assert.NotSame(action.Operation, noEffect.Snapshot.Preparing.Operation);
