@@ -4754,6 +4754,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     } else if (levelOneHeadingHadFocus) {
       focusLevelOneHeading();
     }
+    restorePackageRouteReturnFocus();
     return;
   }
   if (state.home) {
@@ -4766,6 +4767,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     else if (applicationMenuHadFocus) focusApplicationMenuButton(document);
     else if (workbenchSearchHadFocus) focusWorkbenchSearch(document);
     else if (levelOneHeadingHadFocus) focusLevelOneHeading();
+    restorePackageRouteReturnFocus();
     recordNav();
     if (options.synchronizeUrl !== false) syncUrl();
     return;
@@ -4801,9 +4803,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         }
         app.removeAttribute("tabindex");
       }
-      restorePackageQueryReturnFocus();
-      restorePackageActivityReturnFocus();
-      restorePackageQueryWorkspaceFocus();
+      restorePackageRouteReturnFocus();
       recordNav();
       if (!isProductHomeDemosPath(location.pathname) && options.synchronizeUrl !== false) syncUrl();
       return;
@@ -5085,9 +5085,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     }
     app.removeAttribute("tabindex");
   }
-  restorePackageQueryReturnFocus();
-  restorePackageActivityReturnFocus();
-  restorePackageQueryWorkspaceFocus();
+  restorePackageRouteReturnFocus();
   graphExplorer.afterRender(graphExplorerTarget());
   if (loadingPackageContent) return;
   recordNav();
@@ -11811,6 +11809,12 @@ function focusInspectionResult(navigationSeq: number): void {
       focusLevelOneHeading();
     }
   });
+}
+
+function restorePackageRouteReturnFocus() {
+  restorePackageQueryReturnFocus();
+  restorePackageActivityReturnFocus();
+  restorePackageQueryWorkspaceFocus();
 }
 
 function restorePackageQueryReturnFocus() {
