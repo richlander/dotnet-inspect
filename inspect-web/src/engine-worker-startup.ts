@@ -23,7 +23,7 @@ export interface EngineStartupClient {
   readonly catalog: Pick<EngineClient["catalog"], "listVocabulary" | "listHomeDemos">;
   readonly package: Pick<
     EngineClient["package"],
-    "listPackageChangesPackageSets" | "listPackageQueryFacets"
+    "listPackageChangesPackageSets" | "listPackageQueryCatalog"
   >;
 }
 
@@ -33,7 +33,7 @@ interface StartupReads {
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
   readonly listPackageChangesPackageSets:
     EngineStartupClient["package"]["listPackageChangesPackageSets"];
-  readonly listPackageQueryFacets: EngineStartupClient["package"]["listPackageQueryFacets"];
+  readonly listPackageQueryCatalog: EngineStartupClient["package"]["listPackageQueryCatalog"];
 }
 
 interface StartupOperation<TValue> {
@@ -67,7 +67,7 @@ export function registerEngineWorkerStartupOperations(
   register(
     engineStartupOperations.listPackageChangesPackageSets,
     reads.listPackageChangesPackageSets);
-  register(engineStartupOperations.listPackageQueryFacets, reads.listPackageQueryFacets);
+  register(engineStartupOperations.listPackageQueryCatalog, reads.listPackageQueryCatalog);
 }
 
 export function bindEngineWorkerStartupClient(
@@ -123,7 +123,7 @@ export function bindEngineWorkerStartupClient(
     package: {
       listPackageChangesPackageSets:
         bind(engineStartupOperations.listPackageChangesPackageSets),
-      listPackageQueryFacets: bind(engineStartupOperations.listPackageQueryFacets),
+      listPackageQueryCatalog: bind(engineStartupOperations.listPackageQueryCatalog),
     },
   };
 }

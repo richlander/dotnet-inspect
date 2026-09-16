@@ -157,6 +157,8 @@ internal sealed class WorkspaceProjectionContext(
 internal static class WorkspaceTypeResolutionProjectionManifest
 {
     internal const string OpenReadDenyRule = "ResolvedAssemblyReference.OpenRead: declared delegate; never read";
+    internal const string PackageAssetPathExclusionRule =
+        "The evidence model does not consume package-entry addressing.";
     internal const string ModuleHashRule = "ModuleFileReference.Hash: byte length and SHA-256 hexadecimal only";
     internal const string TextRule = "Lossless InertString(TextPolicy.Field)";
     internal const string ReferenceIdentityRule = "Operation-local exact reference identity";
@@ -282,7 +284,9 @@ internal static class WorkspaceTypeResolutionProjectionManifest
             new WorkspaceProjectionArm<AssemblyResolutionProvenance, E.Provenance,
                 AssemblyResolutionProvenance.PackageAsset, E.Provenance.PackageAsset>(
                 static (_, v) => new(Inert(v.PackageId), Inert(v.PackageVersion), InertOptional(v.Tfm), InertOptional(v.Rid)),
-                [Text("PackageId"), Text("PackageVersion"), Text("Tfm"), Text("Rid")]),
+                [Text("PackageId"), Text("PackageVersion"), Text("Tfm"), Text("Rid"),
+                    new("AssetPath", null, WorkspaceProjectionDisposition.Exclude,
+                        PackageAssetPathExclusionRule)]),
             new WorkspaceProjectionArm<AssemblyResolutionProvenance, E.Provenance,
                 AssemblyResolutionProvenance.PlatformAsset, E.Provenance.PlatformAsset>(
                 static (_, v) => new(Inert(v.Framework), InertOptional(v.FrameworkVersion), Inert(v.ResolverSource)),

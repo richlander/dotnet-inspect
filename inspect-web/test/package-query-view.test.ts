@@ -6,7 +6,6 @@ import {
   capturePackageQueryFocus,
   capturePackageQueryScroll,
   packageQueryNeedsMoreMatches,
-  parseExactPackageCoordinates,
   patchPackageQueryStream,
   renderPackageQueryView,
   restorePackageQueryFocus,
@@ -14,22 +13,20 @@ import {
   type PackageQueryBindingActions,
 } from "../src/package-query-view.ts";
 import {
-  appendAssessment,
   appendFailure,
   appendProgress,
   appendRows,
-  createAssemblyQueryRequest,
   createQueryRequest,
   emptyOutcome,
   initialQueryState,
   withCompletion,
   withFacet,
+  withTerm,
   type PackageQueryState,
-  type QueryAssemblyPatternDescriptor,
   type QueryFacetTerm,
-  type QueryRequest,
   type QueryResultRow,
   type QuerySourceSelection,
+  type QueryTermDescriptor,
 } from "../src/package-query.ts";
 import { fakeDom } from "./fake-dom.ts";
 
@@ -78,13 +75,15 @@ const FACETS: readonly QueryFacetTerm[] = [
   DOWNLOAD_FACET,
   SKILL_FACET,
 ];
-
-const ASSEMBLY_PATTERNS: readonly QueryAssemblyPatternDescriptor[] = [{
-  id: "package.query.assembly.ldstr-contains",
-  label: "Decoded string literal contains",
-  summary: "Ordinal substring over decoded IL ldstr occurrences.",
-  maximumOperandLength: 256,
-  maximumPackages: 5,
+const TERMS: readonly QueryTermDescriptor[] = [{
+  key: "depends",
+  label: "Direct dependency",
+  summary: "Matches a direct dependency in any group.",
+  weight: 10,
+  tier: "nuspec",
+  operators: ["eq"],
+  valueKind: "package-id",
+  example: "Microsoft.Extensions.Hosting",
 }];
 
 function row(packageId: string): QueryResultRow {
@@ -163,73 +162,92 @@ test("package options retain prerelease without Gallery controls", () => {
   assert.ok(html.indexOf('aria-label="Package query options"') < html.indexOf("<h2>Inspection facets</h2>"));
 });
 
-test("assembly controls render only from engine-issued descriptors", () => {
-  const withoutPatterns = renderPackageQueryView({
-    state: initialQueryState(),
-    availableFacets: FACETS,
-    escapeHtml,
-  });
-  const withPatterns = renderPackageQueryView({
-    state: initialQueryState(),
-    availableFacets: FACETS,
-    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
-    escapeHtml,
-  });
-
-  assert.doesNotMatch(withoutPatterns, /Assembly patterns/);
-  assert.match(withPatterns, /<details class="query-source-controls query-assembly-controls">/);
-  assert.match(withPatterns, /<summary>Assembly patterns<\/summary>/);
-  assert.match(withPatterns, /Decoded string literal contains/);
-  assert.match(withPatterns, /Ordinal substring over decoded IL ldstr occurrences/);
-  assert.match(withPatterns, /One exact ID@VERSION per line, up to 5/);
-  assert.match(withPatterns, /value="net10\.0"/);
-  assert.match(withPatterns, /maxlength="256"/);
-  assert.doesNotMatch(withPatterns, /regex|regular expression|byte pattern/i);
-});
-
-test("active assembly request opens controls and preserves its literal operand", () => {
-  const operand = "  literal * [value]  ";
-  const state: PackageQueryState = {
-    request: createAssemblyQueryRequest(
-      ASSEMBLY_PATTERNS[0]!.id,
-      operand,
-      ["Contoso.One@1.2.3", "Contoso.Two@4.5.6"],
-      "net10.0"),
-    outcome: emptyOutcome(),
-  };
+test("active terms render above the product-issued available-term palette", () => {
+  const request = withTerm(
+    withTerm(
+      createQueryRequest("Microsoft.*"),
+      TERMS[0]!,
+      "eq",
+      "Microsoft.Extensions.Hosting"),
+    TERMS[0]!,
+    "eq",
+    "Microsoft.Extensions.DependencyInjection");
   const html = renderPackageQueryView({
-    state,
+    state: {
+      request,
+      outcome: emptyOutcome(),
+    },
     availableFacets: FACETS,
-    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
+    availableTerms: TERMS,
     escapeHtml,
   });
 
-  assert.match(html, /query-assembly-controls" open/);
-  assert.match(html, /Contoso\.One@1\.2\.3\nContoso\.Two@4\.5\.6/);
-  assert.ok(html.includes(`value="${operand}"`));
-  assert.doesNotMatch(html, /package-query-assembly-rid/);
-  assert.doesNotMatch(
+  assert.ok(html.indexOf("<h2 id=\"query-active-terms-heading\">Active terms</h2>")
+    < html.indexOf("<h2 id=\"query-available-terms-heading\">Available terms</h2>"));
+  assert.match(html, /data-query-term-form="0"/);
+  assert.match(html, /data-query-term-form="1"/);
+  assert.match(html, /value="Microsoft\.Extensions\.Hosting"/);
+  assert.match(html, /value="Microsoft\.Extensions\.DependencyInjection"/);
+  assert.match(html, /data-query-term-add="depends"/);
+  assert.match(html, /Add Direct dependency/);
+});
+
+test("an empty term draft is editable but not part of the executable request", () => {
+  const request = createQueryRequest("Microsoft.*");
+  const html = renderPackageQueryView({
+    state: {
+      request,
+      outcome: emptyOutcome(),
+      termDraft: {
+        descriptor: TERMS[0]!,
+        operator: "eq",
+        value: "",
+      },
+      termEdits: [],
+    },
+    availableFacets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.deepEqual(request.terms, []);
+  assert.match(html, /data-query-term-form="draft"/);
+  assert.match(html, /data-query-term-draft-value/);
+  assert.match(html, /placeholder="Microsoft\.Extensions\.Hosting"/);
+});
+
+test("pending term edits survive full view rerenders", () => {
+  const request = withTerm(
+    createQueryRequest("Microsoft.*"),
+    TERMS[0]!,
+    "eq",
+    "Microsoft.Extensions.Hosting");
+  const html = renderPackageQueryView({
+    state: {
+      request,
+      outcome: emptyOutcome(),
+      termDraft: {
+        descriptor: TERMS[0]!,
+        operator: "eq",
+        value: "Microsoft.Extensions.Logging",
+      },
+      termEdits: [{
+        operator: "eq",
+        value: "Microsoft.Extensions.DependencyInjection",
+      }],
+    },
+    availableFacets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(
     html,
-    /data-query-facet="[^"]+"[\s\S]*aria-pressed="true"/);
+    /data-query-term-form="0"[\s\S]*value="Microsoft\.Extensions\.DependencyInjection"/);
+  assert.match(
+    html,
+    /data-query-term-form="draft"[\s\S]*value="Microsoft\.Extensions\.Logging"/);
 });
-
-test("exact package input accepts bounded ID@VERSION lines without normalizing coordinates", () => {
-  assert.deepEqual(
-    parseExactPackageCoordinates(
-      "  Contoso.MixedCase@1.2.3-preview.1  \nOther.Package@4.5.6",
-      5),
-    ["Contoso.MixedCase@1.2.3-preview.1", "Other.Package@4.5.6"]);
-  assert.equal(
-    parseExactPackageCoordinates("", 5),
-    "Enter at least one exact package as ID@VERSION.");
-  assert.equal(
-    parseExactPackageCoordinates("Contoso@1\nA@1\nB@1\nC@1\nD@1\nE@1", 5),
-    "Enter no more than 5 packages.");
-  assert.equal(
-    parseExactPackageCoordinates("Contoso.Latest", 5),
-    "Enter one exact ID@VERSION package per line.");
-});
-
 test("candidate and local match bounds are independently disclosed before and during inspection", () => {
   for (const request of [
     null,
@@ -556,128 +574,6 @@ test("streaming progress renders with and without matching rows", () => {
   assert.match(withRows, /14 of up to 20/);
 });
 
-test("assembly progress and scoped assessments render separately from matches and failures", () => {
-  const request = createAssemblyQueryRequest(
-    ASSEMBLY_PATTERNS[0]!.id,
-    "literal",
-    ["Contoso.Match@1.2.3", "Contoso.NoMatch@4.5.6"],
-    "net10.0");
-  const outcome = appendAssessment(
-    appendProgress(emptyOutcome(), {
-      phase: "assembly",
-      completed: 1,
-      limit: 2,
-    }),
-    {
-      packageId: "Contoso.NoMatch",
-      version: "4.5.6",
-      disposition: "NoMatch",
-      message:
-        "No decoded string literal contained the operand in the selected assembly.",
-      assetPath: "lib/net10.0/Contoso.NoMatch.dll",
-      rootRequest: "{\"kind\":\"package\"}",
-    });
-  const html = renderPackageQueryView({
-    state: { request, outcome },
-    availableFacets: FACETS,
-    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
-    escapeHtml,
-  });
-
-  assert.match(html, /Evaluating selected assemblies/);
-  assert.match(html, /Selected assemblies/);
-  assert.match(html, /1 of 2/);
-  assert.match(html, /Selected assembly outcomes/);
-  assert.match(html, /Contoso\.NoMatch@4\.5\.6 · No match/);
-  assert.match(html, /Selected assembly: lib\/net10\.0\/Contoso\.NoMatch\.dll/);
-  assert.match(html, /not the whole package/);
-  assert.doesNotMatch(html, /Some package source work failed/);
-});
-
-test("empty completed assembly query explains selected-assembly scope without Gallery guidance", () => {
-  const request = createAssemblyQueryRequest(
-    ASSEMBLY_PATTERNS[0]!.id,
-    "literal",
-    ["Contoso.ReferenceOnly@1.2.3"],
-    "net10.0");
-  const outcome = withCompletion(
-    appendAssessment(emptyOutcome(), {
-      packageId: "Contoso.ReferenceOnly",
-      version: "1.2.3",
-      disposition: "NotApplicable",
-      message: "The selector issued no implementation counterpart.",
-      assetPath: null,
-      rootRequest: "{\"kind\":\"package\"}",
-    }),
-    {
-      kind: "bounded",
-      reason:
-        "1 explicitly selected package; selector-issued primary implementation assembly",
-    });
-  const html = renderPackageQueryView({
-    state: { request, outcome },
-    availableFacets: FACETS,
-    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
-    escapeHtml,
-  });
-
-  assert.match(html, /No selected assembly matches/);
-  assert.match(html, /Not applicable/);
-  assert.match(html, /not a package-wide absence claim/);
-  assert.doesNotMatch(
-    html,
-    /Try a broader search|browse without search text|select fewer inspection facets/);
-});
-
-test("assembly rows carry the opaque Root request on workspace opening", () => {
-  const rootRequest =
-    "{\"kind\":\"package\",\"selection\":{\"framework\":\"net10.0\"}}";
-  const html = renderPackageQueryView({
-    state: {
-      request: createAssemblyQueryRequest(
-        ASSEMBLY_PATTERNS[0]!.id,
-        "literal",
-        ["Contoso.Match@1.2.3"],
-        "net10.0"),
-      outcome: appendRows(emptyOutcome(), [{
-        ...row("Contoso.Match"),
-        tier: "assembly",
-        rootRequest,
-      }]),
-    },
-    availableFacets: FACETS,
-    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
-    escapeHtml,
-  });
-
-  assert.match(html, /query-tier-assembly">assembly</);
-  assert.ok(html.includes(
-    `data-query-root-request="${escapeHtml(rootRequest)}"`));
-  assert.match(html, /Selector-issued primary implementation assembly/);
-  assert.doesNotMatch(html, /Lifetime downloads unavailable/);
-  assert.match(html, /1 assembly match · streaming…/);
-});
-
-test("package rows ignore Root requests and keep coordinate opening", () => {
-  const html = renderPackageQueryView({
-    state: {
-      request: createQueryRequest("Contoso"),
-      outcome: appendRows(emptyOutcome(), [{
-        ...row("Contoso.Package"),
-        rootRequest: "assembly-only-root",
-      }]),
-    },
-    availableFacets: FACETS,
-    availableAssemblyPatterns: ASSEMBLY_PATTERNS,
-    escapeHtml,
-  });
-
-  assert.match(
-    html,
-    /data-query-row-open="Contoso\.Package" data-query-row-version="1\.0\.0"/);
-  assert.doesNotMatch(html, /data-query-root-request/);
-});
-
 test("result rows render typed producer identity instead of a source literal", () => {
   const state: PackageQueryState = {
     request: createQueryRequest("Microsoft."),
@@ -971,6 +867,7 @@ class FakeElement {
     item: () => null,
   };
   private readonly listeners = new Map<string, EventListener[]>();
+  private readonly elements = new Map<string, FakeElement[]>();
 
   constructor(
     dataset: Record<string, string | undefined> = {},
@@ -984,6 +881,19 @@ class FakeElement {
     const listeners = this.listeners.get(type) ?? [];
     listeners.push(listener);
     this.listeners.set(type, listeners);
+  }
+
+  add(selector: string, ...elements: FakeElement[]) {
+    this.elements.set(selector, elements);
+    return elements;
+  }
+
+  // oxlint-disable-next-line typescript/no-unnecessary-type-parameters
+  querySelector<T extends Element>(selector: string): T | null {
+    const found = this.elements.get(selector)?.[0] ?? null;
+    // Test fake implements exactly the subset consumed by the binder.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    return found as unknown as T | null;
   }
 
   removeEventListener(type: string, listener: EventListener) {
@@ -1075,14 +985,30 @@ test("query focus snapshots restore semantic controls after a full render", () =
       replacement: new FakeElement({}, "package-query-prerelease"),
     },
     {
-      active: new FakeElement({}, "package-query-assembly-operand"),
-      selector: "#package-query-assembly-operand",
-      replacement: new FakeElement({}, "package-query-assembly-operand"),
-    },
-    {
       active: new FakeElement({ queryFacet: "downloads-1m" }),
       selector: "[data-query-facet]",
       replacement: new FakeElement({ queryFacet: "downloads-1m" }),
+    },
+    {
+      active: new FakeElement({ queryTermAdd: "depends" }),
+      selector: "[data-query-term-add]",
+      replacement: new FakeElement({ queryTermAdd: "depends" }),
+    },
+    {
+      active: new FakeElement({
+        queryTermIndex: "1",
+        queryTermControl: "value",
+      }),
+      selector: "[data-query-term-control]",
+      replacement: new FakeElement({
+        queryTermIndex: "1",
+        queryTermControl: "value",
+      }),
+    },
+    {
+      active: new FakeElement({ queryTermDraftControl: "value" }),
+      selector: "[data-query-term-draft-control]",
+      replacement: new FakeElement({ queryTermDraftControl: "value" }),
     },
     {
       active: new FakeElement({
@@ -1293,34 +1219,29 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
   ]);
 });
 
-test("bindPackageQueryView clears corrected assembly input and preserves the operand", () => {
+test("bindPackageQueryView applies exact term values and keeps empty drafts idle", () => {
   const root = new FakeRoot();
-  const form = new FakeElement({}, "package-query-assembly-form");
-  const pattern = new FakeElement({}, "package-query-assembly-pattern");
-  const selectedPattern = new FakeElement({
-    maximumPackages: "5",
-    maximumOperandLength: "256",
-  });
-  pattern.selectedOptions = { item: () => selectedPattern };
-  pattern.value = ASSEMBLY_PATTERNS[0]!.id;
-  const packages = new FakeElement({}, "package-query-assembly-packages");
-  packages.value = " Contoso.One@1.2.3 \nContoso.Two@4.5.6";
-  const operand = new FakeElement({}, "package-query-assembly-operand");
-  operand.value = "  literal * [value]  ";
-  const framework = new FakeElement({}, "package-query-assembly-tfm");
-  framework.value = " net10.0 ";
-  root.add("#package-query-assembly-form", form);
-  root.add("#package-query-assembly-pattern", pattern);
-  root.add("#package-query-assembly-packages", packages);
-  root.add("#package-query-assembly-operand", operand);
-  root.add("#package-query-assembly-tfm", framework);
-  const requests: QueryRequest[] = [];
-  let prevented = 0;
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Microsoft.*";
+  const add = new FakeElement({ queryTermAdd: "depends" });
+  const form = new FakeElement({ queryTermForm: "draft" });
+  const value = new FakeElement();
+  const operator = new FakeElement();
+  operator.value = "eq";
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  const remove = new FakeElement({ queryTermRemove: "0" });
+  const cancel = new FakeElement();
+  root.add("#package-query-prefix", prefix);
+  root.add("[data-query-term-add]", add);
+  root.add("[data-query-term-form]", form);
+  root.add("[data-query-term-remove]", remove);
+  root.add("[data-query-term-draft-cancel]", cancel);
+  const calls: string[] = [];
 
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onAssemblyRun: request => requests.push(request),
     onFacetToggle: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1328,33 +1249,35 @@ test("bindPackageQueryView clears corrected assembly input and preserves the ope
     onRowOpen: () => {},
     onRun: () => {},
     onSourceChange: () => {},
+    onTermAdd: key => calls.push(`add:${key}`),
+    onTermApply: (index, termOperator, termValue, searchText) =>
+      calls.push(`apply:${index}:${termOperator}:${termValue}:${searchText}`),
+    onTermEdit: (index, termOperator, termValue) =>
+      calls.push(`edit:${index}:${termOperator}:${termValue}`),
+    onTermDraftCancel: () => calls.push("draft-cancel"),
+    onTermRemove: (index, searchText) =>
+      calls.push(`remove:${index}:${searchText}`),
   });
-  packages.value = "Contoso.Latest";
-  form.dispatch("submit", fakeDom.event({
-    preventDefault() { prevented++; },
-  }));
-  assert.equal(
-    packages.customValidity,
-    "Enter one exact ID@VERSION package per line.");
-  assert.equal(packages.validityReports, 1);
-  assert.equal(requests.length, 0);
 
-  packages.value = " Contoso.One@1.2.3 \nContoso.Two@4.5.6";
-  packages.dispatch("input");
-  assert.equal(packages.customValidity, "");
-  form.dispatch("submit", fakeDom.event({
-    preventDefault() { prevented++; },
-  }));
+  add.dispatch("click");
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+  assert.equal(value.customValidity, "Enter a term value.");
+  assert.equal(value.validityReports, 1);
+  value.value = "  Microsoft.Extensions.Hosting  ";
+  value.dispatch("input");
+  assert.equal(value.customValidity, "");
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+  remove.dispatch("click");
+  cancel.dispatch("click");
 
-  assert.equal(prevented, 2);
-  assert.deepEqual(requests[0]?.assemblyPattern, {
-    patternId: ASSEMBLY_PATTERNS[0]!.id,
-    operand: "  literal * [value]  ",
-    packageCoordinates: ["Contoso.One@1.2.3", "Contoso.Two@4.5.6"],
-    targetFramework: "net10.0",
-  });
+  assert.deepEqual(calls, [
+    "add:depends",
+    "edit:null:eq:  Microsoft.Extensions.Hosting  ",
+    "apply:null:eq:  Microsoft.Extensions.Hosting  :Microsoft.*",
+    "remove:0:Microsoft.*",
+    "draft-cancel",
+  ]);
 });
-
 test("assembly row binding forwards the exact opaque Root request", () => {
   const root = new FakeRoot();
   const rootRequest =

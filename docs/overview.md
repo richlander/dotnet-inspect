@@ -383,7 +383,12 @@ substrates, and inspection producers that will extend that space.
   evaluation](design/package-query-assembly-evaluation.md) owner defines
   bounded one-candidate primary-assembly evaluation and resource-free
   package-plus-selected-asset semantic evidence without realizing unrelated
-  package assemblies. Its target
+  package assemblies. Its
+  [Package version-cell Metadata
+  inspection](design/package-version-cell-metadata-inspection.md) owner
+  composes one reporter-bound PackageHouse cell through a bounded ephemeral
+  Workspace and the existing Metadata image query, returning only detached
+  evidence after close. Its target
   [Find assembly-semantic query](design/find-assembly-semantic-query.md) owner
   composes one finite host-authorized exact-package population with that
   evaluator into ordered body-occurrence matches, per-candidate outcomes, and

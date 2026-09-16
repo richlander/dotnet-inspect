@@ -62,19 +62,40 @@ public sealed partial class DesktopPackageSourceComposition
     {
         ArgumentNullException.ThrowIfNull(cell);
         ArgumentNullException.ThrowIfNull(operation);
-        PackageHouseRequest request = cell.CreateRequest(
-            operation,
-            targetContext,
-            assetSelection,
-            libraryHandoff);
+        PackageHouseVersionPopulationCellExecution execution =
+            cell.PrepareExecution(
+                operation,
+                targetContext,
+                assetSelection,
+                libraryHandoff);
+        return ExecuteVersionPopulationCellAsync(
+            execution,
+            payloadAcquisition,
+            sourceOptions,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes one PackageHouse-issued exact version-population cell request.
+    /// </summary>
+    public Task<PackageHouseSettlement>
+        ExecuteVersionPopulationCellAsync(
+            PackageHouseVersionPopulationCellExecution execution,
+            PackagePayloadAcquisitionPlan? payloadAcquisition = null,
+            NuGetSourceOptions? sourceOptions = null,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(execution);
+        PackageHouseRequest request = execution.Request;
+        var demand = (PackageHouseDemand.Candidate)request.Demand;
         PackageSourceOperationLease sourceOperation =
             _sourceLease.IssueOperationLease(
                 cancellationToken,
-                operation.RequestTimeout,
-                operation.OperationTimeout);
+                request.Operation.RequestTimeout,
+                request.Operation.OperationTimeout);
         return ExecuteHouseCoreAsync(
             request,
-            cell.Candidate.Coordinate.PackageId,
+            demand.Value.Coordinate.PackageId,
             sourceOptions,
             payloadAcquisition,
             sourceOperation,

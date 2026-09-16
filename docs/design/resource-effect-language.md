@@ -692,7 +692,9 @@ An `outcome.test` is one of the bounded forms `bool[value]`, `enum[value]`,
 `exact-type[location;signature-location]`; signature locations include
 `signature-receiver`, `signature-parameter[N]`, and `signature-return`. These
 forms are parsed into typed terms; Analysis does not compare their display
-spelling.
+spelling. At an occurrence, `enum[value]` names a literal field on the exact
+enum TypeDef of the tested source. Analysis retains the literal FieldDef and
+normalized underlying integral value, so aliases denote the same outcome.
 
 Illustrative admitted statements are:
 
@@ -1026,6 +1028,24 @@ The shipped model must describe these facts as data:
    array of another runtime element type.
 7. Missing release, use after release, a reachable second release, and
    unsupported flow use the generic lifecycle outcome vocabulary.
+
+The shipped version-1 wrapper inventory is exact:
+
+- `Span<T>` and `ReadOnlySpan<T>` array constructors, array implicit
+  conversions, `Span<T>` to `ReadOnlySpan<T>` conversion, and both `Slice`
+  overloads;
+- `Memory<T>` and `ReadOnlyMemory<T>` array constructors, array implicit
+  conversions, `Memory<T>` to `ReadOnlyMemory<T>` conversion, both `Slice`
+  overloads, and `Span` views; and
+- array `MemoryExtensions.AsSpan<T>` and `AsMemory<T>` overloads with no
+  trailing argument, `int`, `Index`, `Range`, or `int, int`.
+
+The inventory deliberately excludes pointer and by-reference Span
+constructors, internal constructors, `MemoryManager<T>` and object
+constructors, `ArraySegment<T>` conversions, and string extension overloads.
+Direct conversions declare `throws=never`. Range- or index-bearing operations
+and `Memory<T>`/`ReadOnlyMemory<T>` Span views declare `throws=possible`
+because a backing `MemoryManager<T>` may throw while producing its Span.
 
 The current first-cut contract recognizes `Shared` pools. A non-Shared pool
 receiver reached by a matching `Rent` is incomplete until authority identity

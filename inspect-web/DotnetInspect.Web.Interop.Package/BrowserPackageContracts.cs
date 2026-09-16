@@ -271,15 +271,24 @@ public sealed record BrowserPackageQueryFacetDescriptor(
     string? DisplayGroupId,
     string? DisplayGroupLabel);
 
-public sealed record BrowserPackageQueryFacetCatalog(
-    BrowserPackageQueryFacetDescriptor[] Facets);
+public sealed record BrowserPackageQueryCatalog(
+    BrowserPackageQueryFacetDescriptor[] Facets,
+    BrowserPackageQueryTermDescriptor[] Terms);
 
-public sealed record BrowserPackageAssemblyQueryPattern(
-    string Id,
+public sealed record BrowserPackageQueryTermDescriptor(
+    string Key,
     string Label,
     string Summary,
-    int MaximumOperandLength,
-    int MaximumPackages);
+    int Weight,
+    BrowserPackageQueryFacetTier Tier,
+    string[] Operators,
+    string ValueKind,
+    string Example);
+
+public sealed record BrowserPackageQueryTerm(
+    string Key,
+    string Operator,
+    string Value);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEvidenceScope>))]
 public enum BrowserPackageQueryEvidenceScope
@@ -296,7 +305,8 @@ public sealed record BrowserPackageQueryEvidence(
     string Id,
     string Text,
     BrowserPackageQueryEvidenceScope Scope,
-    BrowserPackageQueryEvidenceSummary? Summary);
+    BrowserPackageQueryEvidenceSummary? Summary,
+    BrowserPackageQueryTerm? Term = null);
 
 public sealed record BrowserPackageQueryDeclaredDependency(
     string Id,
@@ -517,6 +527,17 @@ public sealed record BrowserPackageQueryResult(
     string? Diagnostic,
     string? Reason)
 {
+    internal static BrowserPackageQueryResult ExpectedFailure(string error) =>
+        new(
+            3,
+            BrowserPackageQueryResultKind.Failed,
+            null,
+            null,
+            BrowserPackageQueryOperationFailureKind.Expected,
+            error,
+            error,
+            null);
+
     internal static BrowserPackageQueryResult From(
         BrowserManagedOperationResult<
             BrowserPackageQueryEvent,
@@ -808,8 +829,8 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
-[JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
-[JsonSerializable(typeof(BrowserPackageAssemblyQueryPattern[]))]
+[JsonSerializable(typeof(BrowserPackageQueryCatalog))]
+[JsonSerializable(typeof(BrowserPackageQueryTerm[]))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageQueryDocument))]
 [JsonSerializable(typeof(BrowserPackageQueryInspection))]

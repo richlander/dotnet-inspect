@@ -49,7 +49,8 @@ internal static class MemberSearchService
                     request,
                     options.Tfm!,
                     logger.Log,
-                    cancellationToken);
+                    cancellationToken,
+                    FindSourceCollector.CreateWorkspacePlan(options));
             List<MemberFindResult> configuredResults =
                 configured is null
                 ? []
@@ -69,7 +70,9 @@ internal static class MemberSearchService
             };
         }
 
-        await using var workspace = new AssemblySetInspectionWorkspace();
+        await using var workspace =
+            new AssemblySetInspectionWorkspace(
+                FindSourceCollector.CreateWorkspacePlan(options));
         return new(
             await CollectMembersAsync(
                 options,

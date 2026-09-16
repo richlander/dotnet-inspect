@@ -41,6 +41,7 @@ const engineWorkerPackageQueryKind = "package-query";
 const maximumRequestCharacters = 1_048_576;
 const maximumEventCharacters = 1_048_576;
 const maximumCollectionItems = 4_096;
+const maximumQueryTerms = 24;
 const maximumOwnerItems = 4_096;
 // Match the PackageManifestFactsQuery owner limits while retaining the
 // pre-existing event budget for evidence and evidence previews.
@@ -91,9 +92,14 @@ interface EngineWorkerPackageQueryEvidenceSummary
 }
 
 interface EngineWorkerPackageQueryEvidence
-  extends Omit<BrowserPackageQueryEvidence, "scope" | "summary"> {
+  extends Omit<BrowserPackageQueryEvidence, "scope" | "summary" | "term"> {
   readonly scope: PackageQueryEvidenceScope;
   readonly summary: EngineWorkerPackageQueryEvidenceSummary | null;
+  readonly term: {
+    readonly key: string;
+    readonly operator: string;
+    readonly value: string;
+  } | null;
 }
 
 interface EngineWorkerPackageQueryRow
@@ -179,24 +185,20 @@ export interface EngineWorkerPackageQueryTerminal {
   readonly inspection: EngineWorkerPackageQueryInspection | null;
 }
 
-export type EngineWorkerPackageQueryInput =
-  | {
-      readonly kind: "query";
-      readonly searchText: string;
-      readonly facetIds: readonly string[];
-      readonly maximumCandidates: number;
-      readonly maximumMatches: number;
-      readonly includePrerelease: boolean;
-      readonly initialMatchCredit: number;
-    }
-  | {
-      readonly kind: "assembly";
-      readonly patternId: string;
-      readonly operand: string;
-      readonly packageCoordinates: readonly string[];
-      readonly targetFramework: string;
-      readonly initialMatchCredit: number;
-    };
+export interface EngineWorkerPackageQueryInput {
+  readonly kind: "query";
+  readonly searchText: string;
+  readonly facetIds: readonly string[];
+  readonly terms: readonly {
+    readonly key: string;
+    readonly operator: string;
+    readonly value: string;
+  }[];
+  readonly maximumCandidates: number;
+  readonly maximumMatches: number;
+  readonly includePrerelease: boolean;
+  readonly initialMatchCredit: number;
+}
 
 export interface EngineWorkerPackageQueryTerminalFailure {
   readonly failureKind: "Expected" | "Unexpected";
@@ -217,7 +219,6 @@ export type EngineWorkerPackageQueryFacade = Pick<
   PackageFacade,
   "cancelPackageQuery"
   | "requestPackageQueryMatches"
-  | "runPackageAssemblyQuery"
   | "runPackageQuery"
 >;
 
@@ -414,6 +415,36 @@ function stringArray(
     text(item, `${description}[${index}]`, budget));
 }
 
+function queryTerms(
+  value: unknown,
+  budget: PayloadBudget,
+): readonly {
+  readonly key: string;
+  readonly operator: string;
+  readonly value: string;
+}[] {
+  return arrayItems(
+    value,
+    "Package Query terms",
+    budget,
+    maximumQueryTerms,
+  ).map((item, index) => {
+    const term = dataRecord(
+      item,
+      ["key", "operator", "value"],
+      `Package Query terms[${index}]`,
+    );
+    return {
+      key: text(term.key, `Package Query terms[${index}].key`, budget),
+      operator: text(
+        term.operator,
+        `Package Query terms[${index}].operator`,
+        budget),
+      value: text(term.value, `Package Query terms[${index}].value`, budget),
+    };
+  });
+}
+
 function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
   const kindProperty = typeof value === "object" && value !== null
     ? Object.getOwnPropertyDescriptor(value, "kind")
@@ -431,6 +462,7 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
       "kind",
       "searchText",
       "facetIds",
+      "terms",
       "maximumCandidates",
       "maximumMatches",
       "includePrerelease",
@@ -446,6 +478,7 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
         input.facetIds,
         "Package Query facets",
         budget),
+      terms: queryTerms(input.terms, budget),
       maximumCandidates: integer(
         input.maximumCandidates,
         "Package Query candidate limit",
@@ -457,40 +490,6 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
       includePrerelease: booleanValue(
         input.includePrerelease,
         "Package Query prerelease selection"),
-      initialMatchCredit: integer(
-        input.initialMatchCredit,
-        "Package Query initial match credit",
-        1),
-    };
-  }
-  if (kindProperty.value === "assembly") {
-    const input = dataRecord(value, [
-      "kind",
-      "patternId",
-      "operand",
-      "packageCoordinates",
-      "targetFramework",
-      "initialMatchCredit",
-    ], "Package Query assembly request");
-    const packageCoordinates = stringArray(
-      input.packageCoordinates,
-      "Package Query package coordinates",
-      budget);
-    return {
-      kind: "assembly",
-      patternId: text(
-        input.patternId,
-        "Package Query pattern ID",
-        budget),
-      operand: text(
-        input.operand,
-        "Package Query pattern operand",
-        budget),
-      packageCoordinates,
-      targetFramework: text(
-        input.targetFramework,
-        "Package Query target framework",
-        budget),
       initialMatchCredit: integer(
         input.initialMatchCredit,
         "Package Query initial match credit",
@@ -539,7 +538,7 @@ function parseEvidence(
 ): EngineWorkerPackageQueryEvidence {
   const evidence = dataRecord(
     value,
-    ["id", "text", "scope", "summary"],
+    ["id", "text", "scope", "summary", "term"],
     "Package Query evidence",
   );
   return {
@@ -550,6 +549,26 @@ function parseEvidence(
       ["Package", "Query"] as const,
       "Package Query evidence scope"),
     summary: parseEvidenceSummary(evidence.summary, budget),
+    term: evidence.term === null
+      ? null
+      : (() => {
+          const term = dataRecord(
+            evidence.term,
+            ["key", "operator", "value"],
+            "Package Query evidence term",
+          );
+          return {
+            key: text(term.key, "Package Query evidence term key", budget),
+            operator: text(
+              term.operator,
+              "Package Query evidence term operator",
+              budget),
+            value: text(
+              term.value,
+              "Package Query evidence term value",
+              budget),
+          };
+        })(),
   };
 }
 
@@ -1527,25 +1546,20 @@ export function mapEngineWorkerPackageQueryCredit(
 function encodeQueryRequest(
   request: QueryRequest,
 ): BoundedPayloadDecodeResult<unknown> {
-  const payload: EngineWorkerPackageQueryInput =
-    request.assemblyPattern === undefined
-      ? {
-          kind: "query",
-          searchText: request.scopeQuery,
-          facetIds: request.facets.map(facet => facet.key),
-          maximumCandidates: request.requestedLimit,
-          maximumMatches: request.requestedMatchLimit,
-          includePrerelease: request.includePrerelease,
-          initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-        }
-      : {
-          kind: "assembly",
-          patternId: request.assemblyPattern.patternId,
-          operand: request.assemblyPattern.operand,
-          packageCoordinates: [...request.assemblyPattern.packageCoordinates],
-          targetFramework: request.assemblyPattern.targetFramework,
-          initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-        };
+  const payload: EngineWorkerPackageQueryInput = {
+    kind: "query",
+    searchText: request.scopeQuery,
+    facetIds: request.facets.map(facet => facet.key),
+    terms: request.terms.map(term => ({
+      key: term.descriptor.key,
+      operator: term.operator,
+      value: term.value,
+    })),
+    maximumCandidates: request.requestedLimit,
+    maximumMatches: request.requestedMatchLimit,
+    includePrerelease: request.includePrerelease,
+    initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+  };
   return engineWorkerPackageQueryInput.decode(payload);
 }
 
@@ -1684,24 +1698,16 @@ export function registerEngineWorkerPackageQueryOperation(
       const packageFacade = facade();
       const eventSink = createManagedEventSink(context);
       const result: BrowserPackageQueryResult =
-        input.kind === "query"
-          ? await packageFacade.runPackageQuery(
-              context.operation.operationId,
-              input.searchText,
-              JSON.stringify(input.facetIds),
-              input.maximumCandidates,
-              input.maximumMatches,
-              input.includePrerelease,
-              input.initialMatchCredit,
-              eventSink)
-          : await packageFacade.runPackageAssemblyQuery(
-              context.operation.operationId,
-              input.patternId,
-              input.operand,
-              JSON.stringify(input.packageCoordinates),
-              input.targetFramework,
-              input.initialMatchCredit,
-              eventSink);
+        await packageFacade.runPackageQuery(
+          context.operation.operationId,
+          input.searchText,
+          JSON.stringify(input.facetIds),
+          JSON.stringify(input.terms),
+          input.maximumCandidates,
+          input.maximumMatches,
+          input.includePrerelease,
+          input.initialMatchCredit,
+          eventSink);
       return mapEngineWorkerPackageQueryResult(result);
     },
     cancel: (operation, reason) =>

@@ -54,8 +54,8 @@ registerEngineWorkerStartupOperations(operations, {
     return (await import("/inspect-web-package.js"))
       .listPackageChangesPackageSets();
   },
-  async listPackageQueryFacets() {
-    return (await import("/inspect-web-package.js")).listPackageQueryFacets();
+  async listPackageQueryCatalog() {
+    return (await import("/inspect-web-package.js")).listPackageQueryCatalog();
   },
 });
 let sourceFacade: EngineWorkerTypeSourceFacade | undefined;

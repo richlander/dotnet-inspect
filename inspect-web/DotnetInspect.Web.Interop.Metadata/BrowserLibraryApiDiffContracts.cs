@@ -1,4 +1,6 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
@@ -20,7 +22,10 @@ public sealed record BrowserLibraryApiDiffResult(
     BrowserLibraryApiDiffFailureKind? FailureKind,
     string? Error,
     string? Diagnostic,
-    string? Reason);
+    string? Reason)
+{
+    public InspectionEnvelope<JsonElement>? Inspection { get; init; }
+}
 
 public sealed record BrowserLibraryApiDiffSucceeded(
     string LibraryIdentifier,

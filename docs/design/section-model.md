@@ -91,6 +91,12 @@ The whole-package listing is unbounded, so it remains outside every automatic
 verbosity preset even though it belongs to `@Package`. Explicitly selecting
 `@Package` requests the complete package-native lens.
 
+The `type` command's assembly type-list catalog uses `@Surface` as its sole
+base category. It contains the bounded `API Info` overview, public type and
+type-forwarder inventories, and `Inspection Failures`. Exact-type inspection
+uses the shared type/member-list catalog and is curated with the `member`
+command.
+
 ### Domain categories
 
 Domain categories are separate conceptual lenses. They are explicit doors and

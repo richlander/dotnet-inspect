@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -27,6 +28,7 @@ public static class FindOptionsParser
         Option<string[]> AssemblyOption,
         Option<bool> PlatformOption,
         Option<string[]> PlatformLibraryOption,
+        Option<string[]> EcosystemOption,
         Option<bool> ExtensionsOption,
         Option<bool> AspNetCoreOption,
         Option<string[]> ProjectOption,
@@ -69,6 +71,13 @@ public static class FindOptionsParser
         var literal = parseResult.GetValue(args.LiteralOption);
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
         var typeFilter = parseResult.GetValue(args.TypeFilterOption);
+        if (!TryParseEcosystems(
+                parseResult,
+                args.EcosystemOption,
+                out EcosystemPackId[]? ecosystems))
+        {
+            return new Invalid();
+        }
         bool packagePrefixSpecified =
             parseResult.GetResult(args.PackagePrefixOption)
                 is { Implicit: false };
@@ -144,6 +153,7 @@ public static class FindOptionsParser
             Pattern = pattern ?? "",
             Literal = literal,
             SourceSelection = selection,
+            Ecosystems = ecosystems,
             PackagePrefixLimitReached = packagePrefixLimitReached,
             Packages = [.. sources.Packages],
             Assemblies = [.. sources.Assemblies],
@@ -184,6 +194,60 @@ public static class FindOptionsParser
         return new Success(options, verbosity, tipLevel);
     }
 
+    private static bool TryParseEcosystems(
+        ParseResult parseResult,
+        Option<string[]> option,
+        out EcosystemPackId[]? ecosystems)
+    {
+        if (parseResult.GetResult(option) is not { Implicit: false })
+        {
+            ecosystems = null;
+            return true;
+        }
+
+        var selected = new List<EcosystemPackId>();
+        var seen = new HashSet<EcosystemPackId>();
+        foreach (string value in parseResult.GetValue(option) ?? [])
+        {
+            if (!EcosystemPackId.TryCreate(value, out EcosystemPackId? id))
+            {
+                CommandError.Write(
+                    $"Invalid ecosystem '{value}'. Use a canonical ID such as ecosystem.aspire.");
+                ecosystems = null;
+                return false;
+            }
+            if (!seen.Add(id))
+            {
+                CommandError.Write(
+                    $"Ecosystem '{id}' cannot be selected more than once.");
+                ecosystems = null;
+                return false;
+            }
+
+            switch (EcosystemPackCatalog.SelectWorkspaceRegistration(id))
+            {
+                case EcosystemWorkspaceRegistrationSelectionResult.Known:
+                    selected.Add(id);
+                    break;
+                case EcosystemWorkspaceRegistrationSelectionResult.Unavailable:
+                    CommandError.Write(
+                        $"Ecosystem '{id}' has no Workspace registration.");
+                    ecosystems = null;
+                    return false;
+                case EcosystemWorkspaceRegistrationSelectionResult.Unknown:
+                    CommandError.Write($"Unknown ecosystem '{id}'.");
+                    ecosystems = null;
+                    return false;
+                default:
+                    throw new InvalidOperationException(
+                        "Unexpected ecosystem Workspace registration outcome.");
+            }
+        }
+
+        ecosystems = [.. selected];
+        return true;
+    }
+
     private static bool ValidateLiteralQuery(
         ParseResult parseResult,
         SharedOptions opts,
@@ -199,6 +263,8 @@ public static class FindOptionsParser
             || parseResult.GetResult(args.PlatformOption)
                 is { Implicit: false }
             || parseResult.GetResult(args.PlatformLibraryOption)
+                is { Implicit: false }
+            || parseResult.GetResult(args.EcosystemOption)
                 is { Implicit: false }
             || parseResult.GetValue(args.ExtensionsOption)
             || parseResult.GetValue(args.AspNetCoreOption)
