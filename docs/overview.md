@@ -89,6 +89,11 @@ substrates, and inspection producers that will extend that space.
   Package-occurrence pair, using a complete selected population and a
   versionless structured assembly identity. Scope, acquisition, Metadata
   declaration correspondence, and Navigation retain their separate authority.
+  The proposed
+  [forwarded API coordinate correspondence](design/forwarded-api-coordinate-correspondence.md)
+  composes the paired destination entry's Metadata forwarding route with
+  strict declaration matching, retaining the actual defining Library and
+  native non-success without changing either Metadata contract.
   Its
   target [package dependency traversal](design/package-dependency-traversal.md)
   owner composes normalized declarations, exact source-authorized candidates,

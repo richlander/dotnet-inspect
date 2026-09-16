@@ -109,14 +109,17 @@ public sealed class PackageHouse
 {
     private readonly IPackageSourceAuthorization _sourceAuthorization;
     private readonly PackagePayloadAcquisitionPlan? _payloadAcquisition;
+    private readonly Action<string>? _log;
 
     public PackageHouse(
         IPackageSourceAuthorization sourceAuthorization,
-        PackagePayloadAcquisitionPlan? payloadAcquisition = null)
+        PackagePayloadAcquisitionPlan? payloadAcquisition = null,
+        Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
         _sourceAuthorization = sourceAuthorization;
         _payloadAcquisition = payloadAcquisition;
+        _log = log;
     }
 
     /// <summary>
@@ -339,7 +342,8 @@ public sealed class PackageHouse
                                 .DiscoverVersionsAsync(
                                     selection.PackageId,
                                     authorization,
-                                    discoveryContract)
+                                    discoveryContract,
+                                    _log)
                                 .ConfigureAwait(false);
                         failures = AdaptFailures(
                             request,
@@ -651,7 +655,8 @@ public sealed class PackageHouse
                         request.Range.PackageId,
                         authorization,
                         PackageVersionDiscoveryContract
-                            .CompleteVersionEnumeration)
+                            .CompleteVersionEnumeration,
+                        _log)
                     .ConfigureAwait(false);
                 List<PackageHouseFailure> failures =
                     AdaptFailures(
