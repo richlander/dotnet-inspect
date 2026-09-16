@@ -366,14 +366,27 @@ the pinned outcome-level host gate without changing the suite-owned IPv4 and
 IPv6 non-public destination-classification evidence used by independent
 desktop transports.
 
-If the selected MTP version cannot produce the independent discovery and
-execution identities required by the decompiler completeness receipt, that
-suite remains on its transitional host until its owner has an equally strong
-MTP-backed receipt. Aggregate MTP adoption elsewhere does not authorize
-weakening or removing that gate.
+`UntrustedDocuments.Tests` is the thirty-third migrated adopter. Its required
+untrusted-document CI and developer commands remain unfiltered. This path
+reuses the pinned outcome-level host gate without changing the suite-owned
+duplicate-property, malformed-JSON, DTD, external-entity, decoded-character
+budget, or ordinary parsing evidence.
 
-Until a repository adoption names and runs these outcome-level gates, the MTP
-host contract is **unverified**.
+`ILInspector.Decompiler.Tests` is the thirty-fourth and final migrated adopter.
+Its custom entry point retains `--gate` preset expansion but sends every
+ordinary execution through MTP. The suite's independent completeness receipt
+uses MTP's JSON-RPC `testing/discoverTests` protocol for the discovery
+reference, because MTP 1.9 deliberately disables user data consumers during a
+discovery request, and an MTP `IDataConsumer` for execution lifecycle events.
+Both surfaces carry the same `TestNodeUid`; the suite checker still requires
+every discovered case to start exactly once, every expected class to execute,
+and receipt outcomes to agree with the MTP xUnit report. The migration removes
+`ExplicitFilterGuard` rather than reimplementing MTP selector semantics. All 47
+repository xUnit executables now use MTP for direct execution.
+
+The migrated executables run these outcome-level gates in their ordinary
+Release test paths; suite-owned evidence remains additive where aggregate
+non-vacuity is not the complete claim.
 
 ## Non-claims
 

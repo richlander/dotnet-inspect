@@ -22,7 +22,12 @@ internal static class NavigationEvaluation
             return new(request, request.Basis, outcome);
         }
         NavigationEvaluationFacts facts = ready.Facts;
-        ValidateFacts(request.Workspace, request.Basis, facts, request.Occurrence);
+        ValidateFacts(
+            request.Workspace,
+            request.Basis,
+            facts,
+            request.Occurrence,
+            request.Operation);
         NavigationEvaluationResult evaluated = request.Operation == NavigationOperationKind.Maintenance
             ? Refresh(request, facts, registry)
             : Activate(request, facts, registry);
@@ -36,7 +41,8 @@ internal static class NavigationEvaluation
 
     internal static void ValidateFacts(
         InspectionWorkspaceIdentity workspace, NavigationWorkspaceSnapshot? basis,
-        NavigationEvaluationFacts facts, WorkspacePackageOccurrence? occurrence)
+        NavigationEvaluationFacts facts, WorkspacePackageOccurrence? occurrence,
+        NavigationOperationKind? operation = null)
     {
         ArgumentNullException.ThrowIfNull(facts);
         ArgumentNullException.ThrowIfNull(facts.Scope);
@@ -45,9 +51,15 @@ internal static class NavigationEvaluation
             throw new ArgumentException("Navigation facts require the exact Workspace.", nameof(facts));
         if (facts.NonReadyPackage is { } nonReady)
         {
-            if (facts.Package is not null || basis is null || occurrence != basis.ActiveOccurrence
+            bool retainedType =
+                operation == NavigationOperationKind.RetainedType;
+            if (facts.Package is not null || basis is null
+                || !retainedType
+                    && occurrence != basis.ActiveOccurrence
                 || nonReady.Occurrence.Occurrence != occurrence
-                || facts.Scope.Revision.Identity != basis.Scope.Revision.Identity
+                || !retainedType
+                    && facts.Scope.Revision.Identity
+                        != basis.Scope.Revision.Identity
                 || !facts.Scope.Packages.Any(row => row.Occurrence == occurrence
                     && ReferenceEquals(row.Realization, nonReady.Occurrence.Realization)))
                 throw new ArgumentException("Non-ready facts require unchanged exact occurrence membership.", nameof(facts));
@@ -82,6 +94,8 @@ internal static class NavigationEvaluation
     {
         NavigationWorkspaceSnapshot basis = request.Basis;
         NavigationActionTarget target = request.Target!;
+        if (target.Action.Kind == NavigationOperationKind.RetainedType)
+            return ActivateRetainedType(request, facts, registry, target);
         if (target.Action.Kind == NavigationOperationKind.Package)
         {
             if (facts.Package is null)
@@ -159,6 +173,138 @@ internal static class NavigationEvaluation
             };
         }
         throw new InvalidOperationException("Unknown admitted Navigation action.");
+    }
+
+    static NavigationEvaluationResult ActivateRetainedType(
+        NavigationEvaluationRequest request,
+        NavigationEvaluationFacts facts,
+        ViewFacetRegistry registry,
+        NavigationActionTarget target)
+    {
+        NavigationWorkspaceSnapshot basis = request.Basis;
+        var type =
+            (StructuralSubjectIdentity.TypeSubject)target.Subject;
+        if (facts.NonReadyPackage is { } nonReady)
+        {
+            return new(
+                request,
+                basis,
+                NonReadyOutcome(nonReady.Occurrence.Realization.Status));
+        }
+        if (facts.Package is null)
+        {
+            return new(
+                request,
+                basis,
+                new(
+                    NavigationOutcomeKind.Unavailable,
+                    Message:
+                        "The requested Package occurrence is no longer "
+                        + "available."));
+        }
+
+        var package = StructuralSubjectIdentity.ForPackage(
+            basis.Workspace,
+            facts.Package.Occurrence.Occurrence);
+        if (type.Library.Package != package)
+        {
+            return new(
+                request,
+                basis,
+                new(
+                    NavigationOutcomeKind.Rejected,
+                    NavigationRejectionKind.ForeignOccurrence,
+                    Message:
+                        "The requested Type does not belong to the prepared "
+                        + "Package occurrence."));
+        }
+
+        NavigationSubjectInventory inventory =
+            NavigationWorkspaceSnapshotEvaluation.ClassifySubjectInventory(
+                package,
+                facts.Package);
+        NavigationLibraryInventory? library =
+            inventory.Libraries.SingleOrDefault(
+                candidate => candidate.Subject == type.Library);
+        if (library is null)
+        {
+            return new(
+                request,
+                basis,
+                new(
+                    NavigationOutcomeKind.Rejected,
+                    NavigationRejectionKind.ForeignLibrary,
+                    Message:
+                        "The requested Library does not belong to the exact "
+                        + "Package occurrence."));
+        }
+
+        int matches = library.Types.Rows.Count(
+            candidate => candidate.Subject == type);
+        if (matches > 1)
+        {
+            return new(
+                request,
+                basis,
+                new(
+                    NavigationOutcomeKind.Ambiguous,
+                    Message:
+                        "The exact Type identity occurs more than once in "
+                        + "the requested Library."));
+        }
+        if (matches == 0)
+        {
+            bool incomplete = !library.Types.Evidence.IsEmpty;
+            return new(
+                request,
+                basis,
+                new(
+                    incomplete
+                        ? NavigationOutcomeKind.Failed
+                        : NavigationOutcomeKind.Unavailable,
+                    FailureSource:
+                        incomplete
+                            ? NavigationFailureSource.Preparation
+                            : null,
+                    Message:
+                        incomplete
+                            ? "Incomplete inventory cannot establish the "
+                                + "requested Type."
+                            : "The exact requested Type is no longer "
+                                + "available."),
+                incompleteInventory:
+                    incomplete
+                        ? NavigationSnapshotDetachment.Detach(library.Types)
+                        : null);
+        }
+
+        if (basis.ActiveSubject == type)
+        {
+            return new(
+                request,
+                basis,
+                new(NavigationOutcomeKind.Applied));
+        }
+
+        var context = new NavigationRetainedSubjectContext(
+            type.Library.Package,
+            type.Library,
+            type);
+        NavigationWorkspaceSnapshot selected =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = facts.Scope,
+                    Package = facts.Package,
+                    ActiveSubject = type,
+                    RetainedContext = context,
+                },
+                registry,
+                facts.Availability);
+        return new(
+            request,
+            selected,
+            SnapshotOutcome(selected));
     }
 
     internal static NavigationConsumerOutcome SnapshotOutcome(NavigationWorkspaceSnapshot snapshot) =>

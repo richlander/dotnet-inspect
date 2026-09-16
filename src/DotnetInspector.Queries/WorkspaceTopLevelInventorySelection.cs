@@ -1,0 +1,140 @@
+using System.Collections.Immutable;
+
+namespace DotnetInspector.Queries;
+
+public abstract record WorkspaceTopLevelInventorySelection
+{
+    private protected WorkspaceTopLevelInventorySelection()
+    {
+    }
+
+    public sealed record Package : WorkspaceTopLevelInventorySelection
+    {
+        internal Package(
+            WorkspacePackageOccurrenceIdentity occurrence,
+            int sourceIndex)
+        {
+            Occurrence = occurrence;
+            SourceIndex = sourceIndex;
+        }
+
+        public WorkspacePackageOccurrenceIdentity Occurrence { get; }
+
+        public int SourceIndex { get; }
+    }
+
+    public sealed record Registration : WorkspaceTopLevelInventorySelection
+    {
+        internal Registration(
+            WorkspaceTopLevelInventoryEntryKind registrationKind,
+            int sourceIndex)
+        {
+            if (registrationKind
+                is WorkspaceTopLevelInventoryEntryKind.Package)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(registrationKind));
+            }
+
+            RegistrationKind = registrationKind;
+            SourceIndex = sourceIndex;
+        }
+
+        public WorkspaceTopLevelInventoryEntryKind RegistrationKind { get; }
+
+        public int SourceIndex { get; }
+    }
+}
+
+public abstract record WorkspaceTopLevelInventorySelectionResolution
+{
+    private protected WorkspaceTopLevelInventorySelectionResolution()
+    {
+    }
+
+    public sealed record Selected(
+        WorkspaceTopLevelInventorySelection Selection)
+        : WorkspaceTopLevelInventorySelectionResolution;
+
+    public sealed record Stale
+        : WorkspaceTopLevelInventorySelectionResolution;
+
+    public sealed record Absent
+        : WorkspaceTopLevelInventorySelectionResolution;
+}
+
+public sealed class WorkspaceTopLevelInventorySelectionReceipt
+{
+    readonly ImmutableDictionary<
+        WorkspaceTopLevelInventoryEntryKey,
+        WorkspaceTopLevelInventorySelection> _selections;
+
+    WorkspaceTopLevelInventorySelectionReceipt()
+    {
+        _selections = ImmutableDictionary<
+            WorkspaceTopLevelInventoryEntryKey,
+            WorkspaceTopLevelInventorySelection>.Empty;
+    }
+
+    WorkspaceTopLevelInventorySelectionReceipt(
+        WorkspaceDefinitionSnapshot definition,
+        ImmutableDictionary<
+            WorkspaceTopLevelInventoryEntryKey,
+            WorkspaceTopLevelInventorySelection> selections)
+    {
+        Workspace = definition.Workspace;
+        RegistrationRevision = definition.Registrations.Identity;
+        ScopeRevision = definition.Scope.Identity;
+        _selections = selections;
+    }
+
+    internal static WorkspaceTopLevelInventorySelectionReceipt Empty { get; } =
+        new();
+
+    public InspectionWorkspaceIdentity? Workspace { get; }
+
+    public WorkspaceRegistrationRevisionIdentity? RegistrationRevision { get; }
+
+    public WorkspaceScopeRevisionIdentity? ScopeRevision { get; }
+
+    public int Count => _selections.Count;
+
+    public bool HasAuthority => Workspace is not null;
+
+    public WorkspaceTopLevelInventorySelectionResolution Resolve(
+        WorkspaceRealizationOperationLease authority,
+        WorkspaceTopLevelInventoryEntryKey key)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(key);
+
+        if (!HasAuthority)
+            return new WorkspaceTopLevelInventorySelectionResolution.Absent();
+
+        using WorkspaceRealizationOperationUse use = authority.EnterUse();
+        if (!Matches(use.Definition, use.Scope))
+            return new WorkspaceTopLevelInventorySelectionResolution.Stale();
+
+        return _selections.TryGetValue(key, out var selection)
+            ? new WorkspaceTopLevelInventorySelectionResolution.Selected(
+                selection)
+            : new WorkspaceTopLevelInventorySelectionResolution.Absent();
+    }
+
+    internal static WorkspaceTopLevelInventorySelectionReceipt Create(
+        WorkspaceDefinitionSnapshot definition,
+        ImmutableDictionary<
+            WorkspaceTopLevelInventoryEntryKey,
+            WorkspaceTopLevelInventorySelection> selections) =>
+        new(definition, selections);
+
+    bool Matches(
+        WorkspaceDefinitionSnapshot definition,
+        WorkspaceScopeSnapshot scope) =>
+        WorkspaceTopLevelInventoryQuery.IsValidAuthority(definition, scope)
+        && ReferenceEquals(Workspace, definition.Workspace)
+        && ReferenceEquals(
+            RegistrationRevision,
+            definition.Registrations.Identity)
+        && ReferenceEquals(ScopeRevision, definition.Scope.Identity);
+}

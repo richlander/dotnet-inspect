@@ -63,6 +63,14 @@ applications do not need it in their runtime bundle.
   unsupported rather than inheriting whichever context metadata happens to
   appear first.
 
+Member presence is also an authenticated, target-language-neutral wire fact.
+`WhenWritingNull` is conditionally present while serializing only for a
+null-capable member type, and `WhenWritingDefault` is conditionally present
+while serializing for every supported member type; both are present while
+deserializing. Invalid or unauthenticated condition/type combinations, and
+malformed, duplicated, or unknown authentic conditions, are unsupported rather
+than absence. Consumers decide how to represent conditional keys.
+
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
 consumer such as the

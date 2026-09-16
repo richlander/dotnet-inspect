@@ -88,7 +88,6 @@ const spotlight = createSpotlight({
   packageSearchError: () =>
     spotlightPackageSearchError(discoveryState.spotlightPackageSearch),
   packageCount: () => state.packages.length,
-  activeFramework: () => state.package?.activeFramework ?? "",
   render,
 });
 

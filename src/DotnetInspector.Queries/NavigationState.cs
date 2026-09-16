@@ -320,6 +320,25 @@ public sealed record NavigationOperationResult(
     NavigationConsumerResult Consumer,
     NavigationLensResolution? LensResolution);
 
+public enum NavigationActionPublicationKind
+{
+    Published,
+    Stale,
+    Unavailable,
+    Rejected,
+}
+
+/// <summary>
+/// Result of binding one opaque action to the current retained Navigation
+/// publication. Only <see cref="NavigationActionPublicationKind.Published"/>
+/// carries an action.
+/// </summary>
+public sealed record NavigationActionPublicationResult(
+    NavigationActionPublicationKind Kind,
+    NavigationAction? Action = null,
+    NavigationRejectionKind? Rejection = null,
+    string? Message = null);
+
 /// <summary>A product transition must be committed against its exact current input slot.</summary>
 public sealed class NavigationTransition
 {
@@ -330,7 +349,8 @@ public sealed class NavigationTransition
         NavigationEvaluationRequest? work = null,
         NavigationOperationResult? result = null,
         NavigationAuthorityResult? authorityResult = null,
-        NavigationCompletionRejection? rejection = null)
+        NavigationCompletionRejection? rejection = null,
+        NavigationActionPublicationResult? actionPublication = null)
     {
         Previous = previous;
         State = ReferenceEquals(previous.Data, next) ? previous : new(next);
@@ -339,6 +359,7 @@ public sealed class NavigationTransition
         Result = result;
         AuthorityResult = authorityResult;
         Rejection = rejection;
+        ActionPublication = actionPublication;
     }
 
     internal NavigationState Previous { get; }
@@ -348,4 +369,5 @@ public sealed class NavigationTransition
     public NavigationOperationResult? Result { get; }
     public NavigationAuthorityResult? AuthorityResult { get; }
     public NavigationCompletionRejection? Rejection { get; }
+    public NavigationActionPublicationResult? ActionPublication { get; }
 }

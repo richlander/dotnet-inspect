@@ -7,6 +7,7 @@ using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -68,6 +69,47 @@ public class DecompilerExceptionFactAdoptionTests
             structured.Clauses.Select(clause =>
                 Assert.IsType<InstructionExceptionClause>(
                     clause.ExceptionClause).Id));
+    }
+
+    [Fact]
+    public void
+        Structuring_ResolvesRematerializedClauseThroughReceivingObservation()
+    {
+        using var source = MetadataSource.Open(FixturePath);
+        int token = typeof(CfgSampleClass).GetMethod(
+            nameof(CfgSampleClass.ChecksThenTry))!.MetadataToken;
+        IrFunction function = Assert.IsType<IrFunction>(
+            IrImporter.Import(source, token));
+        MethodBodyData body = Assert.IsType<MethodBodyReadResult.Available>(
+            MethodBodySource.Read(source.Pe, token)).Body;
+        MethodInstructions receiving = MethodInstructions.Decode(body);
+        MethodInstructions rematerialized = MethodInstructions.Decode(body);
+        InstructionExceptionFlowFacts receivingFacts =
+            AvailableFacts(receiving);
+        InstructionExceptionClause rematerializedClause = Assert.Single(
+            AvailableFacts(rematerialized).Clauses);
+        Assert.NotSame(
+            Assert.Single(receivingFacts.Clauses),
+            rematerializedClause);
+
+        DecompilerExceptionClauseImport original =
+            Assert.Single(function.ExceptionClauseImports);
+        function.ExceptionInstructions = receiving;
+        function.ExceptionClauseImports =
+        [
+            new DecompilerExceptionClauseImport(
+                original.Region,
+                rematerializedClause),
+        ];
+
+        new EhStructuringPass().Run(function, PassContext.None);
+
+        CatchClause structured = Assert.Single(
+            Assert.Single(function.Descendants.OfType<TryCatch>()).Clauses);
+        Assert.Same(
+            Assert.Single(receivingFacts.Clauses),
+            structured.ExceptionClause);
+        Assert.Null(function.ExceptionFactFailure);
     }
 
     [Fact]
@@ -335,6 +377,12 @@ public class DecompilerExceptionFactAdoptionTests
         Assert.IsType<InstructionExceptionFlowResult<
             InstructionExceptionFlowFacts>.Available>(
                 function.ExceptionFlow).Value;
+
+    static InstructionExceptionFlowFacts AvailableFacts(
+        MethodInstructions instructions) =>
+        Assert.IsType<InstructionExceptionFlowResult<
+            InstructionExceptionFlowFacts>.Available>(
+                instructions.ExceptionFlow).Value;
 
     static int FirstExceptionClauseOffset(
         byte[] image,

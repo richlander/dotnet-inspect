@@ -1,8 +1,8 @@
 namespace ILInspector.Decompiler.Tests.Gating;
 
 /// <summary>
-/// A named, discoverable shortcut for a set of xUnit v3 console-runner
-/// arguments (typically <c>-trait</c>/<c>-trait-</c> filters). Presets let
+/// A named, discoverable shortcut for a set of MTP xUnit arguments
+/// (typically trait filters). Presets let
 /// callers bound which test gates run without memorizing the trait taxonomy.
 /// </summary>
 /// <remarks>
@@ -14,7 +14,7 @@ namespace ILInspector.Decompiler.Tests.Gating;
 /// <param name="Name">The preset name selected via <c>--gate &lt;name&gt;</c>.</param>
 /// <param name="Summary">One-line description shown by <c>--gate list</c>.</param>
 /// <param name="Args">
-/// The xUnit console-runner arguments this preset expands to. They are
+/// The MTP xUnit arguments this preset expands to. They are
 /// prepended ahead of any caller-supplied arguments. An empty list means the
 /// preset adds no filter (i.e. runs everything).
 /// </param>
