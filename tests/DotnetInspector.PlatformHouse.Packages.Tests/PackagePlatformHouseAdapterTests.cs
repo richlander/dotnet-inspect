@@ -776,6 +776,11 @@ public sealed class PackagePlatformHouseAdapterTests
                 TestSourceBehavior.Create(
                     PackagePlatformTestEnvironment
                         .RuntimeImplementationPackageId,
+                    payloadFailure:
+                        PackageSourceFailureKind.Transport),
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment
+                        .RuntimeImplementationPackageId,
                     entries: PackagePlatformTestData.RuntimePackEntries(
                         "Microsoft.NETCore.App",
                         PackagePlatformTestData.RuntimeConfiguration(),
@@ -809,6 +814,9 @@ public sealed class PackagePlatformHouseAdapterTests
         Assert.Equal(
             PackagePlatformSourceDiagnosticKind.MemberUnavailable,
             result.Diagnostic.Kind);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Transport,
+            Assert.Single(result.Diagnostic.PackageFailures).Kind);
         Assert.Equal(
             PlatformSourceContributionKind.Unavailable,
             result.Contribution.Kind);

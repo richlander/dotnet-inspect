@@ -363,7 +363,8 @@ public sealed class PackagePlatformHouseAdapter
                 var diagnostic = new PackagePlatformSourceDiagnostic(
                     PackagePlatformSourceDiagnosticKind.MemberUnavailable,
                     "The requested assembly is absent from the package-backed implementation closure.",
-                    []);
+                    [.. success.Value.Frameworks.SelectMany(
+                        static framework => framework.PackageFailures)]);
                 return new PackagePlatformHouseResult<
                     PackageImplementationRealization>.NotSucceeded(
                         diagnostic,
