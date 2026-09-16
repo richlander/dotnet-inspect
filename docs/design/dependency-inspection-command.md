@@ -4,17 +4,18 @@ This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
 **Status:** adopted operation contract with a proposed placement transition.
-Asset-mode `depends` implements the explicit-root, traversal, section, and
-output contract in #5994. The separate `dependency-evidence` command and
+`depends` implements the type-relationship and explicit-root dependency
+contracts through #5994. The separate `dependency-evidence` command and
 positional type-to-library fallback were retired in #5995. The next target,
-tracked as step 8 of
-[#7308](https://github.com/richlander/dotnet-inspect/issues/7308), moves this
-complete operation to `graph dependencies` and retires `depends`.
+tracked by steps 5 and 8 of
+[#7308](https://github.com/richlander/dotnet-inspect/issues/7308), moves the
+selected-Type workflow to `type graph`, moves the heterogeneous asset-root
+workflow to `graph dependencies`, and then retires `depends`.
 
 ## Owner and claim
 
 The Dependency command owner defines one CLI operation, currently exposed as
-`depends` and targeted for `graph dependencies`:
+two modes of `depends` and targeted for two subject-admission placements:
 
 > Admit explicitly named dependency subjects and assets, project their
 > owner-issued relationships and evidence, and apply one traversal, section,
@@ -34,7 +35,7 @@ This owner defines:
 - row selection, count, output-format eligibility, diagnostics, and exit
   status; and
 - migration from the former two-command split to the current `depends`
-surface, then to the target `graph dependencies` placement.
+  surface, then to target `type graph` and `graph dependencies` placements.
 
 It consumes owner-issued facts and does not redefine their construction:
 
@@ -102,9 +103,10 @@ The target experience lets the user vary two independent axes:
 
 Neither axis changes the admitted subject or operation arity, so the
 [Command Transition Model](command-transition-model.md) keeps them within one
-Dependency operation. Moving that complete operation beneath the top-level
-`graph` namespace does not split traversal from evidence or route it through
-the Inspection Graph substrate.
+Dependency operation. The target CLI placement splits only on subject
+admission: `type graph` begins with one selected Type, while
+`graph dependencies` admits an explicit heterogeneous asset-root set. Neither
+placement splits traversal from evidence.
 
 The historical `dependency-evidence` design used heterogeneous root cardinality to
 justify a separate command. This target supersedes that conclusion. Root-set
@@ -119,11 +121,19 @@ shapes that previously made those plans appear to be separate operations.
 ## Consumer, tracker, and delivery
 
 The current production consumer is the `depends` CLI command. The target
-production consumer is `graph dependencies`, tracked by
-[#7308](https://github.com/richlander/dotnet-inspect/issues/7308). This document
-remains the sole owner of its request, result, rendering eligibility, failure,
-and migration contracts; the Graph owner supplies only the root command
-namespace.
+production consumers are:
+
+- `type graph` for the selected-Type relationship workflow, tracked by step 5
+  of [#7308](https://github.com/richlander/dotnet-inspect/issues/7308); and
+- `graph dependencies` for the heterogeneous asset-root workflow, tracked by
+  step 8.
+
+This document remains the sole owner of each Dependency request, producer
+result, evidence, failure, and migration contract. The Type Graph adoption
+supplies local subject admission, Inspection Graph composition, and final
+Graph-document rendering over that producer result. The root Graph owner
+supplies only the `graph dependencies` command namespace; the Dependency owner
+retains that mode's sectioned document and rendering eligibility.
 
 The shared evidence substrate is implemented by
 [#5533](https://github.com/richlander/dotnet-inspect/issues/5533), and
@@ -218,6 +228,32 @@ omitted.
 
 `depends` has two modes selected by whether the positional type subject is
 present.
+
+The target grammar places those modes according to their admitted subject:
+
+```console
+dotnet-inspect type graph <type> \
+  [--package <package>]... \
+  [--library <library>]... \
+  [--project <project>]... \
+  [--platform [<framework>...]]
+
+dotnet-inspect graph dependencies \
+  [--package <package-target>]... \
+  [--nuspec <path>]... \
+  [--library <library>]... \
+  [--project <path>]... \
+  [--package-prefix <prefix>] \
+  [--tfm <target-framework>] \
+  [--depth <positive-integer>]
+```
+
+Exact relationship-selection spelling inside `type graph` remains owned by its
+focused adoption. The bare Dependency-backed Type Graph route must preserve
+the existing base-type and interface topology, bounded search-scope meaning,
+traversal, evidence, failures, and output eligibility before the positional
+`depends` mode can retire. Package, library, project, and platform gestures
+remain search scope there; they never become graph roots.
 
 ### Type relationship mode
 
@@ -933,35 +969,51 @@ That completed change was **intentionally breaking** under
 requires a Breaking release-note entry, replacement examples, routing tests,
 and machine-contract tests for the new `depends` document.
 
-### Target Graph placement
+### Target Graph placements
 
 The next placement is also intentionally breaking:
 
 ```text
-depends <roots and traversal>
+depends <type> <search scope and traversal>
+  -> type graph <type> <same search scope and traversal>
+
+depends <asset roots and traversal>
   -> graph dependencies <same roots and traversal>
 ```
 
-`graph dependencies` adopts the complete Dependency operation. It does not
-construct a Workspace, consume a Workspace packet, or convert the dependency
-document into `InspectionGraphDocument`. All existing explicit roots, type and
-asset modes, traversal, sections, row semantics, partial failures, output
-formats, and source policies remain owned here.
+`type graph` adopts the complete selected-Type relationship mode. The Type is
+its already selected local subject, and the current package, library, project,
+and platform options remain bounded search scope. Its focused Graph adoption
+may compose owner-issued Dependency relationships into
+`InspectionGraphDocument`; that adaptation does not transfer relationship,
+scope, evidence, or failure ownership from this document.
+
+`graph dependencies` adopts the complete asset dependency mode. It does not
+construct a Workspace, consume a Workspace packet, or convert the Dependency
+document into `InspectionGraphDocument`. All existing explicit roots,
+traversal, sections, row semantics, partial failures, output formats, and
+source policies remain owned here.
 
 The cutover:
 
-1. adds `graph dependencies` with full current `depends` parity;
-2. updates help, discovery, completion, README examples, demos, replay or
+1. adds the Dependency-backed `type graph` relationship family with full
+   selected-Type mode parity;
+2. adds `graph dependencies` with full asset dependency mode parity;
+3. updates help, discovery, completion, README examples, demos, replay or
    sharing surfaces, and product skills;
-3. removes `depends` without a forwarding alias or hidden fallback; and
-4. reserves the removed `depends` token so obsolete input fails nonzero and
-   points to `graph dependencies` without executing it or reinterpreting its
-   arguments.
+4. removes `depends` only after both replacement routes are complete, without
+   a forwarding alias or hidden fallback; and
+5. reserves the removed `depends` token so obsolete input fails nonzero and
+   points to `type graph` or `graph dependencies` according to whether a
+   positional Type was supplied, without executing either replacement or
+   reinterpreting its arguments.
 
-Replacement parity and obsolete-token routing are Release gates for step 8 of
-[#7308](https://github.com/richlander/dotnet-inspect/issues/7308). Missing
-support for any currently admitted Dependency root, mode, section, failure, or
-output blocks retirement rather than becoming an implicit capability removal.
+Selected-Type parity is a Release gate for step 5 and asset-root parity is a
+Release gate for step 8 of
+[#7308](https://github.com/richlander/dotnet-inspect/issues/7308).
+Obsolete-token routing is part of step 9. Missing support for any currently
+admitted Dependency scope, root, traversal, section, failure, or output blocks
+retirement rather than becoming an implicit capability removal.
 
 The [Dependency Evidence CLI](dependency-evidence-cli.md) document is
 historical. This document is the sole command owner.

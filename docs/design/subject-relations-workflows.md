@@ -226,8 +226,8 @@ Preserve their useful workflows, not their command tokens.
 | Subject commands plus `@Relations` | Primary local direct-relation experience, with the subject's existing resolution and sharing path. |
 | Subject `graph` children | Local single-seed topology over the already selected Package, Library, Type, or Member. |
 | Subject shortcut flags | High-value entry points such as `--depends` select the subject's section preset, rather than starting another resolver or inspection pipeline. |
-| Top-level `graph` | Host graph questions that do not begin with one selected local subject. InspectionGraph-backed modes construct or reopen a Workspace, including a canonical packet, and may be Type- or Package-oriented. `graph dependencies` separately preserves the Dependency-owned heterogeneous root-set workflow. |
-| Removed verbs | Extension and implementer discovery move to subject sections; dependencies move to subject sections or the explicit root-set graph mode. Ecosystem catalog discovery stays on `ecosystem`. |
+| Top-level `graph` | Host graph questions that do not begin with one selected local subject. InspectionGraph-backed modes construct or reopen a Workspace, including a canonical packet, and may be Type- or Package-oriented. `graph dependencies` separately preserves the Dependency-owned heterogeneous asset-root workflow. |
+| Removed verbs | Extension and implementer discovery move to subject sections. The selected-Type dependency workflow moves to `type graph`; heterogeneous asset roots move to `graph dependencies`. Ecosystem catalog discovery stays on `ecosystem`. |
 
 The ecosystem identity is a product-level join key between catalog knowledge,
 registered candidate contributions and Integration associations. `aspire`
@@ -248,8 +248,10 @@ way to access its evidence.
 
 Conversely, forcing multi-root dependency or peer-graph questions through an
 arbitrary fake subject would make the subject model worse. Removing `depends`
-therefore requires both a convenient single-subject path and a complete
-root-set replacement, not just renaming its type mode.
+therefore requires the current positional-Type workflow to reach parity under
+the Dependency-backed `type graph` relationship family and the asset workflow
+to reach parity under `graph dependencies`; neither replacement alone permits
+retirement.
 
 The same boundary applies when top-level Graph has only one seed: if the
 request constructs or reopens a Workspace, Graph remains the operation-first
@@ -259,8 +261,10 @@ and retain the same relationship directions and physical evidence.
 
 Root placement is a command-grammar statement, not a universal execution
 substrate. `graph dependencies` has no selected local subject, but it retains
-the Dependency owner's typed roots, traversal, failures, and sectioned result
-rather than constructing a Workspace or converting to an Inspection Graph.
+the Dependency owner's typed asset roots, traversal, failures, and sectioned
+result rather than constructing a Workspace or converting to an Inspection
+Graph. The former positional-Type mode instead begins with a selected local
+subject and is counted in the `type graph` adoption.
 
 ## Worked example: replace the verbs, keep the workflows
 
@@ -1403,9 +1407,9 @@ unreviewable changes inside a nominal slice.
 | 11 | Shared Subject Relations query composition over adopted producers, including local-throw matching and member-versus-edge conjunction semantics. |
 | 12 | Shared typed section projection, per-subject category membership and cross-listing, and Markout format lowerings. |
 | 13 | Workspace Definitions adoption for portable relation views and locator context, retaining throws predicates and their evidence meaning. |
-| 14 | CLI ecosystem-to-locator handoff, contract/signature/throws Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, dependency root-set mode, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. This step consumes the separately counted [Graph placement adoption #7308](https://github.com/richlander/dotnet-inspect/issues/7308) for local subject Graph children and top-level Workspace Graph construction or packet reopening. |
+| 14 | CLI ecosystem-to-locator handoff, contract/signature/throws Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, selected-Type and asset-root Dependency replacement routes, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. This step consumes the separately counted [Graph placement adoption #7308](https://github.com/richlander/dotnet-inspect/issues/7308) for local subject Graph children and top-level Workspace Graph construction or packet reopening. |
 | 15 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results, including typed throw evidence and coverage. |
-| 16 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after single-subject and root-set parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
+| 16 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after selected-Type, other single-subject, and asset-root parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 
 CLI adoption is step 14 and website adoption step 15; neither is optional
 for this shared substrate. Step 16 is part of completion. Producers may ship

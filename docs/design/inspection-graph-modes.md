@@ -155,10 +155,12 @@ input contracts already fit; rendering reuse does not transfer request or
 semantic ownership.
 
 [Dependency inspection command](dependency-inspection-command.md) remains the
-normative owner. Retirement of `depends` requires complete `graph dependencies`
-coverage first. A future owner-approved adaptation to Workspace or Inspection
-Graph would be separately designed and counted rather than inferred from root
-command placement.
+normative owner. `graph dependencies` replaces only its heterogeneous
+asset-root mode. The selected-Type relationship mode moves through the
+Dependency-backed `type graph` adoption in step 5. Retirement of `depends`
+requires both routes first. A future owner-approved adaptation of the
+asset-root mode to Workspace or Inspection Graph would be separately designed
+and counted rather than inferred from root command placement.
 
 ### Production adoption
 
@@ -170,18 +172,20 @@ The placement path has **9 steps**:
 | 2 | Top-level Workspace construction from inline registrations. |
 | 3 | Top-level Workspace reopening from canonical packets without another packet grammar. |
 | 4 | `member graph`, followed by retirement of the duplicate member `Call Graph` section after equivalent direct Calls/Callers, traversal, fields, limits, failures, and rendering coverage. |
-| 5 | `type graph` with one explicitly supported relationship family and owner-defined local scope. |
+| 5 | `type graph` with the Dependency-backed base-type and interface relationship family, preserving the current selected-Type search scope, traversal, evidence, failure, and output contracts before retiring that `depends` mode. |
 | 6 | `library graph` with one explicitly supported relationship family and owner-defined local scope. |
 | 7 | `package graph` with one explicitly supported relationship family and owner-defined local scope. |
-| 8 | `graph dependencies` over the existing Dependency-owned heterogeneous root-set request and sectioned result, before retiring `depends`. |
+| 8 | `graph dependencies` over the existing Dependency-owned heterogeneous asset-root request and sectioned result, preserving complete asset-mode parity before retiring that `depends` mode. |
 | 9 | Help, discovery, sharing/replay, completion, examples, relationship-skill adoption, and Type- and Package-oriented production demos. |
 
 Steps 4-7 are separate subject-owner adoptions and may use separate issues and
 PRs. No subject child advertises Graph before its relationship, local-scope,
 completeness, and failure contracts are executable. Step 4 removes the old
-section only after replacement parity; steps 5-7 do not require every
-relationship family before one coherent local Graph can ship. Step 8 retains
-Dependency ownership and does not depend on steps 1-3.
+section only after replacement parity. Step 5 specifically closes the
+selected-Type Dependency workflow; steps 6-7 do not require every relationship
+family before one coherent local Graph can ship. Step 8 retains asset-mode
+Dependency ownership and does not depend on steps 1-3. `depends` retires only
+after steps 5, 8, and the applicable step 9 discovery and obsolete-token work.
 
 The required pathological cases are a local subject whose selected
 relationship has no edges, a Workspace packet containing disconnected
