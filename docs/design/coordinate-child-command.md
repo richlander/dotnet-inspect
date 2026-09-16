@@ -200,10 +200,12 @@ type graph
 member graph
 ```
 
-Top-level `graph` constructs or reopens a Workspace for single-seed,
-peer-seed, induced-set, or path questions. The graph-mode owner defines that
-split; a graph seed is not a coordinate child merely because it is an input
-address.
+Top-level `graph` hosts graph questions that do not begin with one selected
+local subject. InspectionGraph-backed modes construct or reopen a Workspace for
+single-seed, peer-seed, induced-set, or path questions; Dependency-owned root
+modes retain their own request and result contracts. The graph-mode owner
+defines that split. A graph seed is not a coordinate child merely because it is
+an input address.
 
 ## Non-goals
 

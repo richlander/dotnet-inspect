@@ -226,7 +226,7 @@ Preserve their useful workflows, not their command tokens.
 | Subject commands plus `@Relations` | Primary local direct-relation experience, with the subject's existing resolution and sharing path. |
 | Subject `graph` children | Local single-seed topology over the already selected Package, Library, Type, or Member. |
 | Subject shortcut flags | High-value entry points such as `--depends` select the subject's section preset, rather than starting another resolver or inspection pipeline. |
-| Top-level `graph` | Construct or reopen a Workspace, including a canonical Workspace packet, for single-seed, peer-seed, induced-set and path questions. The seed or lens may be Type- or Package-oriented. A section-backed dependency mode can host the existing heterogeneous root-set workflow. |
+| Top-level `graph` | Host graph questions that do not begin with one selected local subject. InspectionGraph-backed modes construct or reopen a Workspace, including a canonical packet, and may be Type- or Package-oriented. `graph dependencies` separately preserves the Dependency-owned heterogeneous root-set workflow. |
 | Removed verbs | Extension and implementer discovery move to subject sections; dependencies move to subject sections or the explicit root-set graph mode. Ecosystem catalog discovery stays on `ecosystem`. |
 
 The ecosystem identity is a product-level join key between catalog knowledge,
@@ -256,6 +256,11 @@ request constructs or reopens a Workspace, Graph remains the operation-first
 surface. A subject `graph` child forms only the owner-defined local scope around
 the already selected subject. Both paths consume the same typed graph request
 and retain the same relationship directions and physical evidence.
+
+Root placement is a command-grammar statement, not a universal execution
+substrate. `graph dependencies` has no selected local subject, but it retains
+the Dependency owner's typed roots, traversal, failures, and sectioned result
+rather than constructing a Workspace or converting to an Inspection Graph.
 
 ## Worked example: replace the verbs, keep the workflows
 

@@ -1160,8 +1160,10 @@ architecture.
 
 Graph uses the operation rule instead. `package graph`, `library graph`,
 `type graph`, and `member graph` are local single-seed operations. Top-level
-`graph` constructs or reopens the Workspace used for single-seed, peer-seed,
-induced-set, or path questions.
+`graph` hosts graph questions without one already selected local subject.
+InspectionGraph-backed modes construct or reopen the Workspace used for
+single-seed, peer-seed, induced-set, or path questions; another root mode may
+retain its producer-owned request and result contract.
 
 ### Selection / discovery
 

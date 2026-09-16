@@ -81,9 +81,10 @@ The CLI is the production consumer for this placement. The existing typed
 Graph queries and Browser/Wasm consumers retain their current owners and are
 not reimplemented by the CLI.
 
-Top-level `graph` owns graph execution that first constructs or reopens a
-Workspace. Its input may be inline Workspace registrations or a canonical
-Workspace packet. A packet remains owned by
+Top-level `graph` is the command namespace for graph questions that do not
+begin with one already selected local subject. InspectionGraph-backed root
+modes construct or reopen a Workspace. Their input may be inline Workspace
+registrations or a canonical Workspace packet. A packet remains owned by
 [Workspace definitions](workspace-definitions.md): Graph consumes the decoded
 definition and any separately admitted portable query payload rather than
 inventing another packet grammar or interpreting browser presentation state.
@@ -96,9 +97,9 @@ identity:
   their evidence;
 - subject lens, seed kind, and Workspace membership remain independent axes.
 
-Top-level Graph admits single-seed, peer-seed, induced-set, and future path
-requests. Supplying one seed does not make it a subject-local command when the
-request also constructs or reopens the broader Workspace.
+Workspace-backed top-level Graph admits single-seed, peer-seed, induced-set,
+and future path requests. Supplying one seed does not make it a subject-local
+command when the request also constructs or reopens the broader Workspace.
 
 Subject graph children provide the local counterpart:
 
@@ -124,7 +125,7 @@ subject graph
   -> local scope + one typed primary seed
   -> Inspection Graph request
 
-top-level graph
+top-level Inspection Graph mode
   -> Workspace definition or packet + graph mode
   -> Inspection Graph request
 ```
@@ -139,26 +140,48 @@ same graph operation are not the target.
 Exact CLI option spelling and packet-query adoption are deferred to focused
 implementation designs. This placement target is currently **unverified**.
 
+### Dependency-owned root mode
+
+Top-level command placement does not require every Graph mode to use one
+Workspace or Inspection Graph substrate. `graph dependencies` is a root mode
+because its caller supplies an explicit heterogeneous root set rather than one
+already selected local subject. It consumes the existing Dependency owner's
+typed root-set request, traversal, failures, and sectioned result.
+
+That mode does not construct a Workspace, accept a Workspace packet, or convert
+its result into `InspectionGraphDocument` merely to share the `graph` command
+namespace. Shared graph renderers may lower its owner-issued result where their
+input contracts already fit; rendering reuse does not transfer request or
+semantic ownership.
+
+[Dependency inspection command](dependency-inspection-command.md) remains the
+normative owner. Retirement of `depends` requires complete `graph dependencies`
+coverage first. A future owner-approved adaptation to Workspace or Inspection
+Graph would be separately designed and counted rather than inferred from root
+command placement.
+
 ### Production adoption
 
-The placement path has **8 steps**:
+The placement path has **9 steps**:
 
 | Step | Independently owned deliverable |
 | --- | --- |
-| 1 | Shared CLI binding over existing typed Graph modes, relationships, lenses, limits, failures, and Markout lowering. |
+| 1 | Shared CLI binding for InspectionGraph-backed modes over existing typed Graph modes, relationships, lenses, limits, failures, and Markout lowering. |
 | 2 | Top-level Workspace construction from inline registrations. |
 | 3 | Top-level Workspace reopening from canonical packets without another packet grammar. |
 | 4 | `member graph`, followed by retirement of the duplicate member `Call Graph` section after equivalent direct Calls/Callers, traversal, fields, limits, failures, and rendering coverage. |
 | 5 | `type graph` with one explicitly supported relationship family and owner-defined local scope. |
 | 6 | `library graph` with one explicitly supported relationship family and owner-defined local scope. |
 | 7 | `package graph` with one explicitly supported relationship family and owner-defined local scope. |
-| 8 | Help, discovery, sharing/replay, completion, examples, relationship-skill adoption, and Type- and Package-oriented production demos. |
+| 8 | `graph dependencies` over the existing Dependency-owned heterogeneous root-set request and sectioned result, before retiring `depends`. |
+| 9 | Help, discovery, sharing/replay, completion, examples, relationship-skill adoption, and Type- and Package-oriented production demos. |
 
 Steps 4-7 are separate subject-owner adoptions and may use separate issues and
 PRs. No subject child advertises Graph before its relationship, local-scope,
 completeness, and failure contracts are executable. Step 4 removes the old
 section only after replacement parity; steps 5-7 do not require every
-relationship family before one coherent local Graph can ship.
+relationship family before one coherent local Graph can ship. Step 8 retains
+Dependency ownership and does not depend on steps 1-3.
 
 The required pathological cases are a local subject whose selected
 relationship has no edges, a Workspace packet containing disconnected
