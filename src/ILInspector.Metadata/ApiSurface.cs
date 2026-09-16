@@ -707,6 +707,13 @@ public class ApiAccessor
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? DeclarationModifiersMatchProperty { get; set; }
 
+    /// <summary>
+    /// Whether the accessor's MethodDef declaration-modifier flags have an
+    /// exact C# property representation. Null on older serialized surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? DeclarationModifiersAreRepresentable { get; set; }
+
     public List<string> ReturnAttributes { get; set; } = [];
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsReadOnly { get; set; }

@@ -1123,6 +1123,8 @@ public sealed class CSharpTypePrinter
                 accessor.AccessibilityIsRepresentable,
             DeclarationModifiersMatchProperty =
                 accessor.DeclarationModifiersMatchProperty,
+            DeclarationModifiersAreRepresentable =
+                accessor.DeclarationModifiersAreRepresentable,
             ReturnAttributes = returnAttributes?.ToList()!,
             IsReadOnly = accessor.IsReadOnly,
             IsExplicitInterfaceImplementation =

@@ -15,7 +15,10 @@ public class PropertyAccessorSignatureConsistencyTests
     [InlineData(AccessorMismatch.SetterValue, true)]
     [InlineData(AccessorMismatch.SetterIndexParameter, true)]
     [InlineData(AccessorMismatch.GetterStaticness, true)]
+    [InlineData(AccessorMismatch.StaticAttributeInstanceSignature, true)]
+    [InlineData(AccessorMismatch.InstanceAttributeStaticSignature, true)]
     [InlineData(AccessorMismatch.DivergentDeclarationModifiers, false)]
+    [InlineData(AccessorMismatch.FinalVirtualNewSlot, false)]
     [InlineData(AccessorMismatch.GetterGenericHeader, true)]
     [InlineData(AccessorMismatch.PropertyGenericHeader, true)]
     [InlineData(AccessorMismatch.GetterReservedHeader, true)]
@@ -67,6 +70,11 @@ public class PropertyAccessorSignatureConsistencyTests
                     AccessorMismatch.GetterStaticness
                     or AccessorMismatch.DivergentDeclarationModifiers),
                 accessor.DeclarationModifiersMatchProperty));
+        Assert.All(
+            property.SignatureModel.Accessors,
+            accessor => Assert.Equal(
+                mismatch != AccessorMismatch.FinalVirtualNewSlot,
+                accessor.DeclarationModifiersAreRepresentable));
         Assert.All(
             property.SignatureModel.Accessors,
             accessor => Assert.Equal(
@@ -152,6 +160,8 @@ public class PropertyAccessorSignatureConsistencyTests
             AccessorMismatch.GetterReturn
                 or AccessorMismatch.GetterParameter
                 or AccessorMismatch.GetterStaticness
+                or AccessorMismatch.StaticAttributeInstanceSignature
+                or AccessorMismatch.InstanceAttributeStaticSignature
                 or AccessorMismatch.GetterGenericHeader
                 or AccessorMismatch.GetterReservedHeader
                 or AccessorMismatch.NamedClassValueType
@@ -191,7 +201,14 @@ public class PropertyAccessorSignatureConsistencyTests
             default,
             default);
 
-        bool staticGetter = mismatch == AccessorMismatch.GetterStaticness;
+        bool methodStatic = mismatch is
+            AccessorMismatch.GetterStaticness
+            or AccessorMismatch.StaticAttributeInstanceSignature;
+        bool signatureStatic = mismatch is
+            AccessorMismatch.GetterStaticness
+            or AccessorMismatch.InstanceAttributeStaticSignature;
+        bool propertyStatic =
+            mismatch == AccessorMismatch.InstanceAttributeStaticSignature;
         bool genericGetter = mismatch == AccessorMismatch.GetterGenericHeader;
         bool reservedGetter =
             mismatch == AccessorMismatch.GetterReservedHeader;
@@ -208,7 +225,12 @@ public class PropertyAccessorSignatureConsistencyTests
             or AccessorMismatch.OutOfRangeTypeGenericParameter
             or AccessorMismatch.ArrayOutOfRangeTypeGenericParameter
             or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter;
-        bool getOnly = voidProperty || encodedReturn;
+        bool getOnly = voidProperty
+            || encodedReturn
+            || mismatch is
+                AccessorMismatch.StaticAttributeInstanceSignature
+                or AccessorMismatch.InstanceAttributeStaticSignature
+                or AccessorMismatch.FinalVirtualNewSlot;
         byte getterReturn = voidProperty
             ? (byte)SignatureTypeCode.Void
             : mismatch == AccessorMismatch.GetterReturn
@@ -268,27 +290,35 @@ public class PropertyAccessorSignatureConsistencyTests
         BlobHandle getterSignature = metadata.GetOrAddBlob(
             encodedReturn
                 ? EncodedMethodSignature(
-                    isInstance: !staticGetter,
+                    isInstance: !signatureStatic,
                     getterReturnType)
                 : MethodSignature(
-                    isInstance: !staticGetter,
+                    isInstance: !signatureStatic,
                     getterReturn,
                     isGeneric: genericGetter,
                     hasReservedFlag: reservedGetter,
                     getterParameters));
+        MethodAttributes getterAccessibility = mismatch switch
+        {
+            AccessorMismatch.IncomparableAccessibility =>
+                MethodAttributes.Assembly,
+            AccessorMismatch.PrivateScopeAccessibility =>
+                MethodAttributes.PrivateScope,
+            AccessorMismatch.ExplicitInterfaceGetter =>
+                MethodAttributes.Private,
+            _ => MethodAttributes.Public,
+        };
         MethodDefinitionHandle getter = metadata.AddMethodDefinition(
-            AccessorAttributes(
-                staticGetter,
-                mismatch switch
-                {
-                    AccessorMismatch.IncomparableAccessibility =>
-                        MethodAttributes.Assembly,
-                    AccessorMismatch.PrivateScopeAccessibility =>
-                        MethodAttributes.PrivateScope,
-                    AccessorMismatch.ExplicitInterfaceGetter =>
-                        MethodAttributes.Private,
-                    _ => MethodAttributes.Public,
-                }),
+            mismatch == AccessorMismatch.FinalVirtualNewSlot
+                ? getterAccessibility
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.Final
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.SpecialName
+                : AccessorAttributes(
+                    methodStatic,
+                    getterAccessibility),
             MethodImplAttributes.IL,
             metadata.GetOrAddString("get_Value"),
             getterSignature,
@@ -360,8 +390,11 @@ public class PropertyAccessorSignatureConsistencyTests
             metadata.GetOrAddString("Value"),
             metadata.GetOrAddBlob(
                 encodedReturn
-                    ? EncodedPropertySignature(propertyReturnType)
+                    ? EncodedPropertySignature(
+                        propertyReturnType,
+                        isInstance: !propertyStatic)
                     : PropertySignature(
+                        isInstance: !propertyStatic,
                         isGeneric:
                             mismatch == AccessorMismatch.PropertyGenericHeader,
                         hasReservedFlag:
@@ -430,20 +463,24 @@ public class PropertyAccessorSignatureConsistencyTests
             ];
 
     static byte[] PropertySignature(
+        bool isInstance,
         bool isGeneric,
         bool hasReservedFlag,
         byte returnType) =>
         isGeneric
             ?
             [
-                (byte)(0x38 | (hasReservedFlag ? 0x80 : 0x00)),
+                (byte)((isInstance ? 0x28 : 0x08)
+                    | 0x10
+                    | (hasReservedFlag ? 0x80 : 0x00)),
                 0x00,
                 0x00,
                 returnType,
             ]
             :
             [
-                (byte)(0x28 | (hasReservedFlag ? 0x80 : 0x00)),
+                (byte)((isInstance ? 0x28 : 0x08)
+                    | (hasReservedFlag ? 0x80 : 0x00)),
                 0x00,
                 returnType,
             ];
@@ -457,9 +494,11 @@ public class PropertyAccessorSignatureConsistencyTests
         .. returnType,
     ];
 
-    static byte[] EncodedPropertySignature(byte[] returnType) =>
+    static byte[] EncodedPropertySignature(
+        byte[] returnType,
+        bool isInstance) =>
     [
-        0x28,
+        isInstance ? (byte)0x28 : (byte)0x08,
         0x00,
         .. returnType,
     ];
@@ -473,7 +512,10 @@ public class PropertyAccessorSignatureConsistencyTests
         SetterValue,
         SetterIndexParameter,
         GetterStaticness,
+        StaticAttributeInstanceSignature,
+        InstanceAttributeStaticSignature,
         DivergentDeclarationModifiers,
+        FinalVirtualNewSlot,
         GetterGenericHeader,
         PropertyGenericHeader,
         GetterReservedHeader,

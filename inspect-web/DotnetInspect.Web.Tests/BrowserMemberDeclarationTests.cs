@@ -33,6 +33,8 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitLayoutFixture";
     const string AccessorType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract";
+    const string ImplicitPropertyType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyImplicitPropertyFixture";
     const string EnumType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionEnum";
 
@@ -69,6 +71,8 @@ public sealed class BrowserMemberDeclarationTests
                         Assert.True(accessor.AccessibilityIsRepresentable);
                         Assert.True(
                             accessor.DeclarationModifiersMatchProperty);
+                        Assert.True(
+                            accessor.DeclarationModifiersAreRepresentable);
                         Assert.False(
                             accessor.IsExplicitInterfaceImplementation);
                         Assert.True(accessor.SignatureMatchesProperty);
@@ -107,6 +111,16 @@ public sealed class BrowserMemberDeclarationTests
             Assert.True(
                 readonlyProperty.SignatureModel.Accessors.Single()
                     .SignatureMatchesProperty);
+            ApiType extractedImplicitType = Assert.Single(
+                extractedSurface.Types,
+                candidate => candidate.FullName == ImplicitPropertyType);
+            ApiAccessor implicitAccessor = Assert.Single(
+                Assert.Single(
+                    extractedImplicitType.Members,
+                    candidate => candidate.Name == "Value")
+                .SignatureModel!.Accessors);
+            Assert.True(implicitAccessor.DeclarationModifiersMatchProperty);
+            Assert.False(implicitAccessor.DeclarationModifiersAreRepresentable);
         }
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
@@ -243,6 +257,19 @@ public sealed class BrowserMemberDeclarationTests
             Assert.IsType<string>(accessorContractDeclaration.Unavailable),
             StringComparison.OrdinalIgnoreCase);
         Assert.False(accessorContractDeclaration.Compatibility);
+
+        JsonElement implicitPropertyType =
+            Type(surfaceDocument.RootElement, ImplicitPropertyType);
+        BrowserMemberDeclaration implicitPropertyDeclaration =
+            await Declaration(
+                implicitPropertyType,
+                Member(implicitPropertyType, "Value"));
+        Assert.Null(implicitPropertyDeclaration.Text);
+        Assert.Contains(
+            "accessor declaration modifier",
+            Assert.IsType<string>(implicitPropertyDeclaration.Unavailable),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(implicitPropertyDeclaration.Compatibility);
 
         JsonElement enumType = Type(surfaceDocument.RootElement, EnumType);
         Assert.DoesNotContain(

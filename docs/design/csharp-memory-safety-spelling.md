@@ -217,18 +217,20 @@ narrower:
   preserves each accessor's exact relative accessibility, whether its MethodDef
   access mask has an exact C# representation, and whether all represented
   accessors share one property-level static, virtual, abstract, override, and
-  sealed modifier shape. The C# boundary requires affirmative
-  representability, accepts only property/accessor accessibility and declaration
-  modifier combinations supported by C#, and requires every represented
-  accessor to be affirmatively non-explicit. A `required` property must be an
-  instance member of a class or struct, must have a setter, and both the
-  property and setter must be at least as accessible as the containing type.
-  Reserved signature-header flags, explicit- and extended-layout owners,
-  body-owned unsafe contexts, readonly accessors, init-only or otherwise
-  structurally modified accessor returns, unsupported or ambiguous accessor
-  shapes, accessor contracts, and unavailable evidence remain unavailable.
-  This selected declaration does not enable direct accessor or whole-type
-  property spelling.
+  sealed modifier shape. The C# boundary requires affirmative representability
+  of each accessor's declaration flags, accepts only property/accessor
+  accessibility and declaration modifier combinations supported by C#, and
+  requires every represented accessor to be affirmatively non-explicit.
+  MethodDef `Static` must agree with the accessor signature's instance bit,
+  which must in turn agree with the PropertyDef signature. A `required`
+  property must be an instance member of a class or struct, must have a setter,
+  and both the property and setter must be at least as accessible as the
+  containing type. Reserved signature-header flags, explicit- and
+  extended-layout owners, body-owned unsafe contexts, readonly accessors,
+  init-only or otherwise structurally modified accessor returns, unsupported
+  or ambiguous accessor shapes, accessor contracts, and unavailable evidence
+  remain unavailable. This selected declaration does not enable direct
+  accessor or whole-type property spelling.
 
 A caller can select the supported members or supply the product-selected
 explicit-field and ordinary-constructor shape. The printer does not silently

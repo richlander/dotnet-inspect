@@ -284,6 +284,37 @@ public sealed class CSharpMemorySafetySpellingTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public void SingleDeclarationOutcomeRejectsUnrepresentableAccessorModifiers(
+        bool? declarationModifiersAreRepresentable)
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.SignatureModel!.Accessors[0]
+            .DeclarationModifiersAreRepresentable =
+                declarationModifiersAreRepresentable;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "accessor declaration modifier shape",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void SingleDeclarationOutcomeRejectsIllegalPropertyModifiers()
     {
@@ -2683,6 +2714,7 @@ public sealed class CSharpMemorySafetySpellingTests
                 Kind = kind,
                 AccessibilityIsRepresentable = true,
                 DeclarationModifiersMatchProperty = true,
+                DeclarationModifiersAreRepresentable = true,
                 IsExplicitInterfaceImplementation = false,
                 SignatureMatchesProperty = true,
             });

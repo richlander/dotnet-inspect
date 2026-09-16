@@ -247,6 +247,13 @@ internal static class CSharpMemorySafetySpelling
             }
             if (accessors.Any(
                     static accessor =>
+                        accessor.DeclarationModifiersAreRepresentable is not true))
+            {
+                return Refuse(
+                    "an accessor declaration modifier shape is not representable in C#.");
+            }
+            if (accessors.Any(
+                    static accessor =>
                         accessor.IsExplicitInterfaceImplementation is not false))
             {
                 return Refuse(

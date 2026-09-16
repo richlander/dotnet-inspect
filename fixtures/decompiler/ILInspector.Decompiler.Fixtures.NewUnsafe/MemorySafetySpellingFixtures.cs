@@ -75,6 +75,17 @@ public sealed class MemorySafetyExplicitAccessorFixture
     unsafe int IMemorySafetyAccessorContract.Value => 42;
 }
 
+public interface IMemorySafetyImplicitPropertyContract
+{
+    int Value { get; }
+}
+
+public sealed class MemorySafetyImplicitPropertyFixture
+    : IMemorySafetyImplicitPropertyContract
+{
+    public int Value => 42;
+}
+
 public enum MemorySafetyExtensionEnum
 {
     Value,

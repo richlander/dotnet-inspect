@@ -5311,6 +5311,9 @@ public static class ApiSurfaceExtractor
                         method.Attributes & MethodAttributes.MemberAccessMask);
                 accessor.DeclarationModifiersMatchProperty =
                     declarationModifiersMatch;
+                accessor.DeclarationModifiersAreRepresentable =
+                    AreRepresentablePropertyAccessorDeclarationModifiers(
+                        method.Attributes);
                 MethodSignature<TypeNode> signature = GuardedProviderDecode.Method(
                     reader,
                     method,
@@ -5327,7 +5330,8 @@ public static class ApiSurfaceExtractor
                             accessor.Kind,
                             signature,
                             property,
-                            context.TypeParameters.Count);
+                            context.TypeParameters.Count,
+                            method.Attributes);
                 }
                 accessor.IsExplicitInterfaceImplementation =
                     explicitImplementationBodies.Contains(handle)
@@ -5364,6 +5368,19 @@ public static class ApiSurfaceExtractor
         return common is not null;
     }
 
+    static bool AreRepresentablePropertyAccessorDeclarationModifiers(
+        MethodAttributes attributes)
+    {
+        bool isVirtual = (attributes & MethodAttributes.Virtual) != 0;
+        bool isAbstract = (attributes & MethodAttributes.Abstract) != 0;
+        bool isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
+        bool isFinal = (attributes & MethodAttributes.Final) != 0;
+
+        return (!isAbstract || isVirtual && !isFinal)
+            && (!isNewSlot || isVirtual)
+            && (!isFinal || isVirtual && !isNewSlot && !isAbstract);
+    }
+
     static string? MethodDefinitionName(
         MetadataReader reader,
         MethodDefinitionHandle handle,
@@ -5394,9 +5411,13 @@ public static class ApiSurfaceExtractor
         string kind,
         MethodSignature<TypeNode> accessor,
         MethodSignature<TypeNode> property,
-        int declaringTypeParameterCount)
+        int declaringTypeParameterCount,
+        MethodAttributes accessorAttributes)
     {
-        if (property.Header.Kind != SignatureKind.Property
+        bool methodIsStatic =
+            (accessorAttributes & MethodAttributes.Static) != 0;
+        if (methodIsStatic == accessor.Header.IsInstance
+            || property.Header.Kind != SignatureKind.Property
             || property.Header.HasExplicitThis
             || property.Header.IsGeneric
             || (property.Header.RawValue & ReservedSignatureFlag) != 0
