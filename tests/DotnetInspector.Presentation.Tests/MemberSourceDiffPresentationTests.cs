@@ -8,6 +8,7 @@ using ILInspector.Decompiler;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.SourceLink;
 
 namespace DotnetInspector.Presentation.Tests;
 

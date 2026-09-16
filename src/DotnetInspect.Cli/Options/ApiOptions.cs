@@ -432,13 +432,13 @@ public record MethodSourceContext(
     string? SourceUrl,
     string? ChecksumAlgorithm = null,
     string? Checksum = null,
-    DotnetInspector.Services.SourceChecksumVerification ChecksumVerification =
-        DotnetInspector.Services.SourceChecksumVerification.Unavailable)
+    ILInspector.SourceLink.SourceChecksumVerification ChecksumVerification =
+        ILInspector.SourceLink.SourceChecksumVerification.Unavailable)
 {
     public bool HasChecksumEvidence =>
         !string.IsNullOrWhiteSpace(ChecksumAlgorithm)
         && !string.IsNullOrWhiteSpace(Checksum)
         && ChecksumVerification is
-            DotnetInspector.Services.SourceChecksumVerification.Exact
-            or DotnetInspector.Services.SourceChecksumVerification.LineEndingNormalized;
+            ILInspector.SourceLink.SourceChecksumVerification.Exact
+            or ILInspector.SourceLink.SourceChecksumVerification.LineEndingNormalized;
 }
