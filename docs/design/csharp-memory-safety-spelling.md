@@ -222,7 +222,9 @@ narrower:
   Array shapes are recursively admitted only when C# type syntax preserves
   their complete identity: vectors remain supported, multidimensional arrays
   require rank two or greater, and retained sizes or lower bounds are
-  unavailable because a C# property type cannot spell them.
+  unavailable because a C# property type cannot spell them. `void` is
+  unavailable at every recursively visited type position, including array
+  elements and generic arguments.
   Property and accessor signatures must use ordinary non-generic headers.
   Native signed and unsigned integer primitive codes are retained as `nint`
   and `nuint`. Metadata retains correspondence as an explicit accessor fact;
@@ -231,9 +233,11 @@ narrower:
   access mask has an exact C# representation, and whether all represented
   accessors share one property-level static, virtual, abstract, override, and
   sealed modifier shape. The C# boundary requires affirmative representability
-  of each accessor's declaration flags, accepts only property/accessor
-  accessibility and declaration modifier combinations supported by C#, and
-  requires every represented accessor to be affirmatively non-explicit.
+  of each accessor's complete MethodDef declaration and implementation flags:
+  ordinary accessors require `SpecialName` and `HideBySig`, permit only the
+  accessibility and property-modifier bits supported by C#, and require
+  ordinary IL implementation flags. Every represented accessor must also be
+  affirmatively non-explicit.
   Property modifier admission also preserves the declaring type's
   abstract/sealed/static constraints and rejects private virtual, abstract, or
   override declarations. A readonly struct's non-static property with a setter

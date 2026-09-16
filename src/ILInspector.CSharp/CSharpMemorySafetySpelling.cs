@@ -512,6 +512,11 @@ internal static class CSharpMemorySafetySpelling
 
     static bool PropertyTypeShapeIsRepresentable(ApiTypeShape shape)
     {
+        if (shape.Kind == ApiTypeShapeKind.Primitive
+            && shape.Primitive == ApiPrimitiveType.Void)
+        {
+            return false;
+        }
         if (shape.Kind is
             ApiTypeShapeKind.Named or ApiTypeShapeKind.GenericInstance)
         {

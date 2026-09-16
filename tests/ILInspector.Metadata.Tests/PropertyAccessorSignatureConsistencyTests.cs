@@ -19,6 +19,9 @@ public class PropertyAccessorSignatureConsistencyTests
     [InlineData(AccessorMismatch.InstanceAttributeStaticSignature, true)]
     [InlineData(AccessorMismatch.DivergentDeclarationModifiers, false)]
     [InlineData(AccessorMismatch.FinalVirtualNewSlot, false)]
+    [InlineData(AccessorMismatch.UnsupportedMethodAttribute, false)]
+    [InlineData(AccessorMismatch.UnsupportedMethodImplementation, false)]
+    [InlineData(AccessorMismatch.MissingSpecialName, false)]
     [InlineData(AccessorMismatch.GetterGenericHeader, true)]
     [InlineData(AccessorMismatch.PropertyGenericHeader, true)]
     [InlineData(AccessorMismatch.GetterReservedHeader, true)]
@@ -45,6 +48,8 @@ public class PropertyAccessorSignatureConsistencyTests
     [InlineData(AccessorMismatch.NamedSameModuleNonGenericDefinition, false)]
     [InlineData(AccessorMismatch.NamedSameModuleMissingDefinition, true)]
     [InlineData(AccessorMismatch.NamedSameModuleAmbiguousDefinition, true)]
+    [InlineData(AccessorMismatch.NestedVoidArray, false)]
+    [InlineData(AccessorMismatch.GenericArgumentVoid, false)]
     public void PropertyAccessorRetainsWhetherItsSignatureCorresponds(
         AccessorMismatch mismatch,
         bool expectedMismatch)
@@ -80,7 +85,11 @@ public class PropertyAccessorSignatureConsistencyTests
         Assert.All(
             property.SignatureModel.Accessors,
             accessor => Assert.Equal(
-                mismatch != AccessorMismatch.FinalVirtualNewSlot,
+                mismatch is not (
+                    AccessorMismatch.FinalVirtualNewSlot
+                    or AccessorMismatch.UnsupportedMethodAttribute
+                    or AccessorMismatch.UnsupportedMethodImplementation
+                    or AccessorMismatch.MissingSpecialName),
                 accessor.DeclarationModifiersAreRepresentable));
         Assert.All(
             property.SignatureModel.Accessors,
@@ -160,6 +169,21 @@ public class PropertyAccessorSignatureConsistencyTests
             Assert.True(
                 property.SignatureModel.ReturnTypeShape!
                     .DefinitionArityMatchesTypeArguments);
+        }
+        if (mismatch == AccessorMismatch.NestedVoidArray)
+        {
+            Assert.Equal(
+                ApiPrimitiveType.Void,
+                property.SignatureModel.ReturnTypeShape!
+                    .ElementType!.Primitive);
+        }
+        if (mismatch == AccessorMismatch.GenericArgumentVoid)
+        {
+            Assert.Equal(
+                ApiPrimitiveType.Void,
+                Assert.Single(
+                    property.SignatureModel.ReturnTypeShape!.TypeArguments)
+                    .Primitive);
         }
     }
 
@@ -259,13 +283,18 @@ public class PropertyAccessorSignatureConsistencyTests
             or AccessorMismatch.NamedSameModuleGenericDefinition
             or AccessorMismatch.NamedSameModuleNonGenericDefinition
             or AccessorMismatch.NamedSameModuleMissingDefinition
-            or AccessorMismatch.NamedSameModuleAmbiguousDefinition;
+            or AccessorMismatch.NamedSameModuleAmbiguousDefinition
+            or AccessorMismatch.NestedVoidArray
+            or AccessorMismatch.GenericArgumentVoid;
         bool getOnly = voidProperty
             || encodedReturn
             || mismatch is
                 AccessorMismatch.StaticAttributeInstanceSignature
                 or AccessorMismatch.InstanceAttributeStaticSignature
-                or AccessorMismatch.FinalVirtualNewSlot;
+                or AccessorMismatch.FinalVirtualNewSlot
+                or AccessorMismatch.UnsupportedMethodAttribute
+                or AccessorMismatch.UnsupportedMethodImplementation
+                or AccessorMismatch.MissingSpecialName;
         byte getterReturn = voidProperty
             ? (byte)SignatureTypeCode.Void
             : mismatch == AccessorMismatch.GetterReturn
@@ -298,6 +327,7 @@ public class PropertyAccessorSignatureConsistencyTests
                     AccessorMismatch.GenericClassValueType
                     or AccessorMismatch.GenericArgumentMethodGenericParameter
                     or AccessorMismatch.GenericArgumentOutOfRangeTypeGenericParameter
+                    or AccessorMismatch.GenericArgumentVoid
                     or AccessorMismatch.GenericArityMismatch
                     ? "Referenced`1"
                     : "Referenced"));
@@ -330,6 +360,9 @@ public class PropertyAccessorSignatureConsistencyTests
                 or AccessorMismatch.NamedSameModuleMissingDefinition
                 or AccessorMismatch.NamedSameModuleAmbiguousDefinition =>
                 [0x12, 0x05],
+            AccessorMismatch.NestedVoidArray => [0x1D, 0x01],
+            AccessorMismatch.GenericArgumentVoid =>
+                [0x15, 0x12, 0x05, 0x01, 0x01],
             _ =>
             [
                 voidProperty
@@ -366,18 +399,26 @@ public class PropertyAccessorSignatureConsistencyTests
                 MethodAttributes.Private,
             _ => MethodAttributes.Public,
         };
-        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+        MethodAttributes getterAttributes =
             mismatch == AccessorMismatch.FinalVirtualNewSlot
-                ? getterAccessibility
-                    | MethodAttributes.Virtual
-                    | MethodAttributes.Final
-                    | MethodAttributes.NewSlot
-                    | MethodAttributes.HideBySig
-                    | MethodAttributes.SpecialName
-                : AccessorAttributes(
-                    methodStatic,
-                    getterAccessibility),
-            MethodImplAttributes.IL,
+            ? getterAccessibility
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+            : AccessorAttributes(
+                methodStatic,
+                getterAccessibility);
+        if (mismatch == AccessorMismatch.UnsupportedMethodAttribute)
+            getterAttributes |= MethodAttributes.PinvokeImpl;
+        if (mismatch == AccessorMismatch.MissingSpecialName)
+            getterAttributes &= ~MethodAttributes.SpecialName;
+        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+            getterAttributes,
+            mismatch == AccessorMismatch.UnsupportedMethodImplementation
+                ? MethodImplAttributes.Runtime
+                : MethodImplAttributes.IL,
             metadata.GetOrAddString("get_Value"),
             getterSignature,
             bodyOffset: -1,
@@ -632,6 +673,9 @@ public class PropertyAccessorSignatureConsistencyTests
         InstanceAttributeStaticSignature,
         DivergentDeclarationModifiers,
         FinalVirtualNewSlot,
+        UnsupportedMethodAttribute,
+        UnsupportedMethodImplementation,
+        MissingSpecialName,
         GetterGenericHeader,
         PropertyGenericHeader,
         GetterReservedHeader,
@@ -658,5 +702,7 @@ public class PropertyAccessorSignatureConsistencyTests
         NamedSameModuleNonGenericDefinition,
         NamedSameModuleMissingDefinition,
         NamedSameModuleAmbiguousDefinition,
+        NestedVoidArray,
+        GenericArgumentVoid,
     }
 }

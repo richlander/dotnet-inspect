@@ -166,6 +166,14 @@ public static class ApiSurfaceExtractor
         | MethodAttributes.Abstract
         | MethodAttributes.NewSlot
         | MethodAttributes.Final;
+    private const MethodAttributes RepresentablePropertyAccessorAttributeMask =
+        MethodAttributes.MemberAccessMask
+        | PropertyAccessorDeclarationModifierMask
+        | MethodAttributes.HideBySig
+        | MethodAttributes.SpecialName;
+    private const MethodAttributes RequiredPropertyAccessorAttributes =
+        MethodAttributes.HideBySig
+        | MethodAttributes.SpecialName;
     private static readonly ConditionalWeakTable<
         MetadataReader,
         PrimitiveDefinitionClassification>
@@ -5358,7 +5366,8 @@ public static class ApiSurfaceExtractor
                     declarationModifiersMatch;
                 accessor.DeclarationModifiersAreRepresentable =
                     AreRepresentablePropertyAccessorDeclarationModifiers(
-                        method.Attributes);
+                        method.Attributes,
+                        method.ImplAttributes);
                 MethodSignature<TypeNode> signature = GuardedProviderDecode.Method(
                     reader,
                     method,
@@ -5414,8 +5423,17 @@ public static class ApiSurfaceExtractor
     }
 
     static bool AreRepresentablePropertyAccessorDeclarationModifiers(
-        MethodAttributes attributes)
+        MethodAttributes attributes,
+        MethodImplAttributes implementationAttributes)
     {
+        if ((attributes & ~RepresentablePropertyAccessorAttributeMask) != 0
+            || (attributes & RequiredPropertyAccessorAttributes)
+                != RequiredPropertyAccessorAttributes
+            || implementationAttributes != MethodImplAttributes.IL)
+        {
+            return false;
+        }
+
         bool isVirtual = (attributes & MethodAttributes.Virtual) != 0;
         bool isAbstract = (attributes & MethodAttributes.Abstract) != 0;
         bool isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;

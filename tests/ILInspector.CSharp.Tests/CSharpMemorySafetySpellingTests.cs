@@ -586,6 +586,41 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Fact]
+    public void SingleDeclarationOutcomeRejectsVoidArrayElement()
+    {
+        AssertUnrepresentablePropertyTypeShape(
+            "void[]",
+            ApiTypeShape.SzArray(
+                ApiTypeShape.PrimitiveType(ApiPrimitiveType.Void)));
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeRejectsVoidGenericArgument()
+    {
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    ["Container`1"]))
+            .Name;
+        ApiTypeShape shape = ApiTypeShape.GenericInstance(
+            new ApiTypeReferenceIdentity(
+                new ApiAssemblyIdentity(
+                    "ContractAssembly",
+                    new Version(1, 0, 0, 0),
+                    culture: null,
+                    publicKeyToken: null),
+                "Samples.Container`1",
+                definitionName),
+            [ApiTypeShape.PrimitiveType(ApiPrimitiveType.Void)],
+            isValueType: false);
+
+        AssertUnrepresentablePropertyTypeShape(
+            "Samples.Container<void>",
+            shape);
+    }
+
+    [Fact]
     public void SingleDeclarationOutcomeRejectsRankOneArrayPropertyType()
     {
         ApiTypeShape shape = ApiTypeShape.Array(
