@@ -709,7 +709,7 @@ not this facet.
 
 Each discoverable entry preserves a `MetadataTypeDefinitionName`, a
 `Definition`, `Forwarder`, or `ModuleExport` kind, `IsPublicSurface`, and
-definition-local `DiscoveryAttributes`.
+definition-local `IsDefinitionPublic` and `DiscoveryAttributes`.
 `Declarations` contains all entries; `GetDeclarations()` selects the public
 discovery view and `GetDeclarations(includeAll: true)` includes nonpublic
 entries without rereading. Neither view includes the special top-level
@@ -722,6 +722,12 @@ empty-namespace `<Module>` definition. The public view means:
   discovery, not a claim about target accessibility or successful binding.
 - A module export retains its separate kind; every row of its enclosing
   ExportedType chain must have `Public` or `NestedPublic` visibility.
+
+`IsDefinitionPublic` records only whether the definition row itself has
+`Public` or `NestedPublic` visibility. It does not evaluate the enclosing
+definition chain and is null for forwarders and module exports. This fact lets
+a consumer preserve a row-local visibility policy without weakening
+`IsPublicSurface` or reconstructing visibility from a displayed name.
 
 This view is not the API renderer's attribute or compiler-generated-name
 suppression policy. `ModuleExport` is valid Metadata evidence even though the
@@ -754,7 +760,8 @@ Release gates are in `AssemblyTypeDeclarationInventoryTests`:
 `PublicAndAllViews_PreserveNestedVisibilityAndExcludeModuleRow`,
 `NestedForwarders_AreAdvertisedWithoutTargetResolutionOrVisibilityBits`, and
 `ModuleExports_AreExplicitRatherThanDroppedOrRelabeled` cover declaration
-views; `InvalidDeclarations_RejectWholeInventoryOnBothEntryPoints`,
+views and distinguish definition-local from enclosing-chain visibility;
+`InvalidDeclarations_RejectWholeInventoryOnBothEntryPoints`,
 `NativeImage_IsRejectedRatherThanACompleteEmptyInventory`, and
 `EmptyInventory_IsACompleteEmptyDeclarationSet` distinguish rejection from
 complete emptiness. `StructuredPattern_PreservesNestedGenericBoundaries`

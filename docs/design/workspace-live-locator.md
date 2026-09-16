@@ -58,9 +58,8 @@ structured coordinate/context inventory. Neither is the new facade.
 Its dedicated declaration-context observation seam is not a notification API
 for every kind of Workspace participant.
 
-The live Library owner/operation-lease APIs are still design-only. Adoption
-must use the then-implemented ownership seam or land its prerequisite; a
-design reference is not permission to invent a private lease protocol here.
+The live Library owner and operation-lease APIs are implemented. Adoption must
+use that ownership seam rather than inventing a private lease protocol here.
 
 ## Population observation
 

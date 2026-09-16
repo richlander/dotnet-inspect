@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Instructions;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -13,6 +14,14 @@ public sealed record HandlerRegion(
     int HandlerLength,
     int FilterOffset,
     TypeRef? CatchType);
+
+/// <summary>
+/// Decompiler-owned association between one flat imported handler and the
+/// owner-issued physical and decoded exception facts from the same body.
+/// </summary>
+internal sealed record DecompilerExceptionClauseImport(
+    HandlerRegion Region,
+    InstructionExceptionClause Facts);
 
 /// <summary>
 /// The IL range of one local slot's declaration scope, as recorded by a portable
@@ -44,6 +53,15 @@ public sealed record MethodBody(
     ImmutableArray<HandlerRegion> Handlers,
     bool SkipLocalsInit = false)
 {
+    internal MethodInstructions? ExceptionInstructions { get; init; }
+
+    internal InstructionExceptionFlowResult<InstructionExceptionFlowFacts>?
+        ExceptionFlow => ExceptionInstructions?.ExceptionFlow;
+
+    internal ImmutableArray<DecompilerExceptionClauseImport>
+        ExceptionClauseImports
+    { get; init; } = [];
+
     /// <summary>
     /// Per local slot, whether the portable PDB scoped the local to something
     /// narrower than the whole method body — that is, whether the source declared it

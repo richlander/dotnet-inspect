@@ -217,6 +217,11 @@ Package and retains its ancestor fallback and inspector policy. Metadata
 consumes the exact image pair and retains its stronger declaration profile.
 Neither consumer may infer its own success from the Library key alone.
 
+The separate [forwarded-coordinate composition](forwarded-api-coordinate-correspondence.md)
+consumes this entry Library pair and can establish a different defining
+Library for one Type through Metadata-issued forwarding evidence. It does
+not turn that declaration-specific route into Library equivalence.
+
 ## Delivery and evidence
 
 This is the Library-pairing prerequisite inside #7061's existing six-step

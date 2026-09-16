@@ -35,10 +35,32 @@ relationship evidence without copying its authorship or processing semantics.
 `PackageHouseDependencyPruningQuery` preserves explicit non-evaluated states
 or creates one PackageHouse-issued policy receipt, and candidate-bound House
 execution applies that receipt before payload acquisition.
+`PackageDependencyPruningInspection` in `DotnetInspector.Sections` now owns the
+bounded host-neutral operation that resolves authorized declaration candidates,
+applies that pruning query, and returns the ordered outcomes through
+`InspectionEnvelope<PackageDependencyPruningInspectionResult>`. CLI `depends`
+and Inspect Web package pruning both consume that operation while retaining
+their own input scope, source and inventory authorization, completion policy,
+and presentation.
 `DesktopPackageSourceComposition` still owns desktop configuration,
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
 candidate path, and candidate-manifest path now settle through PackageHouse.
+The CLI's online `package --latest-version` and equivalent `@latest` version
+queries also consume House selecting `Settle` through
+`DesktopPackageSourceComposition.SettleVersionAsync`. They render the exact
+version from its resolution receipt and preserve source listing evidence for
+feed projections; the command no longer chooses the latest row itself.
+Requested `--verbose` source-fetch progress still flows to stderr through the
+settlement's optional discovery callback.
+`System.Text.Json` is the motivating production package. The
+`SourceScopedRoutingTests.LatestVersionSettlement_*` cases cover the detached
+receipt, requested progress, and explicit prerelease boundary, while the
+existing latest-version, source-failure, listing, and rendering cases preserve
+neighboring behavior.
+This is payload-free adoption: ordinary version listings, pinned and range
+queries, offline behavior, Browser settlement, and package-content/Workspace
+adoption remain separate slices.
 `Realize`, target-aware dependency-edge realization, Workspace admission, live
 Library construction, and broader host adoption remain later steps.
 [#4653](https://github.com/richlander/dotnet-inspect/pull/4653) remains useful
@@ -318,6 +340,16 @@ longer authorized cannot be recovered from retained population evidence.
 Population discovery and every cell execution have independent request and
 operation deadlines; an overall History budget belongs to the History
 coordinator.
+
+A cell may issue one prepared execution that freezes its exact candidate,
+operation, target context, asset-selection kind, library-handoff mode, and
+association into one `PackageHouseRequest`. A host executes that request
+without rebuilding its demand. The preparation accepts a terminal settlement
+only when House evidence retains the exact prepared request object, so reusing
+the public association cannot substitute a neighboring demand. The
+PackageQueries
+[version-cell Metadata operation](package-version-cell-metadata-inspection.md)
+is the first consumer.
 
 `DesktopPackageSourceComposition` is the first production bridge. It resolves
 the configured online source policy, transfers one operation lease into

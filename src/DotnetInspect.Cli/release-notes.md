@@ -6,6 +6,11 @@
   coordinates, enabling configured HTTP and local Roots to round-trip through
   current destination authorization while preserving existing content and
   cache producer keys and legacy NuGet.org requests (#6946).
+- Routes eligible exact-Package and explicit-Platform type Find operations
+  through the Workspace declaration locator while preserving established
+  Markdown, tips, table formats, and root-array JSON. Internal Package
+  Type/Member handoff retains the selected implementation asset and compatible
+  target framework (#6844).
 - Adds a bounded, credential-free portable token to every Package Source
   producer identity for later exact package Root correspondence without
   carrying endpoint, path, or source authority (#6995).
@@ -68,8 +73,28 @@
   diagnostics as the final stderr line. Share is constructed even when stderr
   projection is not requested; mixed-source plans and explicit `--depth`
   produce typed `nonProjectable` Share without changing successful Content.
-  Asset mode, other commands, Library Diff, evidence capture, and
+  Asset mode, other commands, evidence capture, and
   `--evidence-envelope` have not adopted this transport (#6719, #7117, #7126).
+- **Breaking:** Unprojected `diff --json` on the shared single-Library API
+  route now emits complete `LibraryApiDiffOutcome` Content instead of the
+  former `{changes: ...}` presentation view. Root `outcome` is `available`,
+  `unavailable`, or `rejected`; Available includes `document`, while
+  non-success includes numeric `kind` and both endpoint summaries. Nested
+  ComparisonDocument retains its existing snake_case schema; other
+  Presentation-owned properties are camelCase and enums remain numeric.
+  Explicitly filtered or sectioned JSON keeps its presentation schema.
+- Adds `diff --envelope` for ordinary API comparison with exactly one Library
+  at each endpoint, using schema version `1`, result kind `library-api-diff`,
+  and the common buffered writer. Content matches unprojected `--json`;
+  Share remains non-projectable at `comparison/endpoints`. Typed non-success
+  is serialized before returning failure; acquisition failure fabricates no
+  result. `--compact` formats either complete JSON boundary, rejects projected
+  or other Diff operations, and `--all` remains an
+  API-scope input. Envelope rejects Type/classification filters, sections,
+  explicit verbosity, row/line controls, competing formats, and non-API modes.
+  Complete Content JSON rejects rendered-line clipping. This completes the
+  two-content-kind baseline transport rollout, not Browser baseline delivery,
+  House acquisition, command cutover, or Evidence capture (#6719).
 - Corrects shared assembly-context JSON prerequisites: the six existing
   `AssemblyResolutionProvenance` cases now serialize with `kind` values
   `package`, `platform`, `project`, `local`, `embedded`, and `designated`

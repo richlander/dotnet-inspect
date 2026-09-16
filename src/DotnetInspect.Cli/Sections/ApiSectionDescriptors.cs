@@ -13,13 +13,26 @@ public static class ApiTypeSectionDescriptors
     public static SectionPipeline<ApiSurface> CreatePipeline()
     {
         return new SectionPipeline<ApiSurface>()
+            .UseCuratedCatalog()
+            .WithoutComputedPoles()
             .Add<ApiInfo>()
+            .Add<TypeForwarders>()
             .Add<Classes>()
             .Add<Structs>()
             .Add<Interfaces>()
             .Add<Enums>()
             .Add<Delegates>()
-            .Add<InspectionFailures>();
+            .Add<InspectionFailures>()
+            .AddBaseCategory(
+                SectionCategoryNames.Surface,
+                SectionNames.ApiInfo,
+                SectionNames.TypeForwarders,
+                Classes.Name,
+                Structs.Name,
+                Interfaces.Name,
+                Enums.Name,
+                Delegates.Name,
+                SectionNames.InspectionFailures);
     }
 
     /// <summary>
@@ -31,10 +44,9 @@ public static class ApiTypeSectionDescriptors
     /// enumerates matched types, so all of them scale with the target. <c>CanRender</c> is
     /// unconditional because the view always populates the section for this pipeline.
     /// <para>
-    /// <c>ExplicitOnly</c> keeps it off the verbosity ladder. This pipeline is not a curated
-    /// catalog, so its ladder still selects by position and <c>IsExpensive</c>; without the flag a
-    /// section in first position would join the default <c>-v:m</c> markdown view, where the same
-    /// facts already render as the inline identity line.
+    /// <c>ExplicitOnly</c> keeps it off the verbosity ladder. The curated pipeline includes only
+    /// sections marked <c>Info</c> in its minimal view; this section remains explicit because the
+    /// same facts already render as the inline identity line.
     /// </para>
     /// </remarks>
     public sealed class ApiInfo : ISectionDescriptor<ApiSurface>
@@ -46,10 +58,20 @@ public static class ApiTypeSectionDescriptors
         public static bool CanRender(ApiSurface model) => true;
     }
 
+    public sealed class TypeForwarders : ISectionDescriptor<ApiSurface>
+    {
+        public static string Name => SectionNames.TypeForwarders;
+        public static bool IsExpensive => false;
+        public static bool Info => true;
+        public static bool CanRender(ApiSurface model)
+            => model.TypeForwarders.Count > 0;
+    }
+
     public sealed class Classes : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Classes";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "class");
     }
@@ -58,6 +80,7 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Structs";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "struct");
     }
@@ -66,6 +89,7 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Interfaces";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "interface");
     }
@@ -74,6 +98,7 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Enums";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "enum");
     }
@@ -82,6 +107,7 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Delegates";
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "delegate");
     }
@@ -90,6 +116,7 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => SectionNames.InspectionFailures;
         public static bool IsExpensive => false;
+        public static bool Info => true;
         public static bool CanRender(ApiSurface model)
             => model.InspectionFailures.Count > 0;
     }

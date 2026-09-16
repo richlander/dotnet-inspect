@@ -89,6 +89,11 @@ substrates, and inspection producers that will extend that space.
   Package-occurrence pair, using a complete selected population and a
   versionless structured assembly identity. Scope, acquisition, Metadata
   declaration correspondence, and Navigation retain their separate authority.
+  The proposed
+  [forwarded API coordinate correspondence](design/forwarded-api-coordinate-correspondence.md)
+  composes the paired destination entry's Metadata forwarding route with
+  strict declaration matching, retaining the actual defining Library and
+  native non-success without changing either Metadata contract.
   Its
   target [package dependency traversal](design/package-dependency-traversal.md)
   owner composes normalized declarations, exact source-authorized candidates,
@@ -378,7 +383,12 @@ substrates, and inspection producers that will extend that space.
   evaluation](design/package-query-assembly-evaluation.md) owner defines
   bounded one-candidate primary-assembly evaluation and resource-free
   package-plus-selected-asset semantic evidence without realizing unrelated
-  package assemblies. Its target
+  package assemblies. Its
+  [Package version-cell Metadata
+  inspection](design/package-version-cell-metadata-inspection.md) owner
+  composes one reporter-bound PackageHouse cell through a bounded ephemeral
+  Workspace and the existing Metadata image query, returning only detached
+  evidence after close. Its target
   [Find assembly-semantic query](design/find-assembly-semantic-query.md) owner
   composes one finite host-authorized exact-package population with that
   evaluator into ordered body-occurrence matches, per-candidate outcomes, and

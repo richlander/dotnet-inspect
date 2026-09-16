@@ -1183,6 +1183,9 @@ does not recompute semantic content or transport the declaration-row
 Overview counts and facets; Browser Type/member navigation keeps its separately
 owned package-wide projection.
 
+Platform Library Overview is outside this package-Root operation. It retains
+the existing Platform projection and does not invoke `QueryLibraryApi`.
+
 Initial CLI adoption is limited to a pinned NuGet package, explicit non-`all`
 TFM, explicit Library, and the ordinary type-listing catalog. Documentation,
 source/PDB, clone candidates, performance, decompilation, direct-file, project,

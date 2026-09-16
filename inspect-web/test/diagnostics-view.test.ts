@@ -43,7 +43,7 @@ const ready: DiagnosticsViewModel = {
     stats: {
       packages: 7,
       resident: 5,
-      maxPackageEntries: 12,
+      maxPackageEntries: 256,
       workspaces: 2,
       maxWorkspaces: 4,
       maxWorkspaceAssembliesPerRole: 256,
@@ -70,7 +70,7 @@ test("Diagnostics renders runtime, build, and isolated-storage evidence in order
   assert.match(html, /id="diagnostics-commit"/);
   assert.match(html, /Browser \/ WebAssembly/);
   assert.match(html, /Resident payloads[\s\S]*>5</);
-  assert.match(html, /Package-entry budget[\s\S]*>12</);
+  assert.match(html, /Package-entry budget[\s\S]*>256</);
   assert.match(html, /Resident bytes[\s\S]*12 MB of 128 MB/);
   assert.match(html, /Workspace slots[\s\S]*2 of 4/);
   assert.match(html, /Workspace assembly budget[\s\S]*256 per role/);
@@ -101,7 +101,7 @@ test("Diagnostics distinguishes valid zero bytes from unavailable values", () =>
       stats: {
         packages: 0,
         resident: 0,
-        maxPackageEntries: 12,
+        maxPackageEntries: 256,
         workspaces: 0,
         maxWorkspaces: 4,
         maxWorkspaceAssembliesPerRole: 256,

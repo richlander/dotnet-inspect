@@ -125,9 +125,6 @@ const healthyAssembly = locateFixtureAssembly(
 const brokenReferenceAssembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBB_DLL",
 );
-const literalAssembly = locateFixtureAssembly(
-  "INSPECT_WEB_PACKAGE_ADOPTION_LITERALS_DLL",
-);
 const libraryDiffV1Assembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V1_DLL",
 );
@@ -154,26 +151,23 @@ interface FixtureCoordinate {
   readonly manifest?: Buffer;
 }
 
-interface Deferred<T> {
-  readonly promise: Promise<T>;
-  readonly resolve: (value: T) => void;
-}
-
-function deferred<T>(): Deferred<T> {
-  let complete!: (value: T) => void;
-  const promise = new Promise<T>(accept => {
-    complete = accept;
-  });
-  return { promise, resolve: complete };
-}
-
 const version = "1.0.0";
 
 function packageQueryManifest(
   packageId: string,
   packageVersion: string,
   isTool: boolean,
+  dependencies: readonly string[] = [],
 ): Buffer {
+  const dependencyMarkup = dependencies.length === 0
+    ? ""
+    : `<dependencies>
+      <group targetFramework="net10.0">
+        ${dependencies.map(
+          dependency => `<dependency id="${dependency}" version="[1.0.0, )" />`,
+        ).join("\n        ")}
+      </group>
+    </dependencies>`;
   return Buffer.from(
     `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
@@ -187,6 +181,7 @@ function packageQueryManifest(
       <packageType name="DotnetTool" />
     </packageTypes>`
       : ""}
+    ${dependencyMarkup}
   </metadata>
 </package>
 `,
@@ -292,33 +287,6 @@ const allFixtures: readonly FixtureCoordinate[] = [
   libraryDiffV1,
   libraryDiffV2,
   ...scopeCoordinates,
-];
-
-const literalFixtures: readonly FixtureCoordinate[] = [
-  {
-    packageId: "InspectWeb.Query.LiteralMatch",
-    version,
-    archive: healthyNupkg(literalAssembly, "ILInspector.Analysis.Fixtures.dll"),
-  },
-  {
-    packageId: "InspectWeb.Query.SemanticMiss",
-    version,
-    archive: healthyArchive,
-  },
-  {
-    packageId: "InspectWeb.Query.ReferenceOnly",
-    version,
-    archive: storedZip([
-      { name: `ref/${fixtureFramework}/Primary.dll`, bytes: literalAssembly },
-    ]),
-  },
-  {
-    packageId: "InspectWeb.Query.InvalidAssembly",
-    version,
-    archive: storedZip([
-      { name: `lib/${fixtureFramework}/Primary.dll`, bytes: malformedAssemblyBytes() },
-    ]),
-  },
 ];
 
 class GalleryFixtureRegistry {
@@ -707,6 +675,13 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
       display: identifier,
     },
   });
+  const share = {
+    kind: "nonProjectable",
+    path: "comparison/endpoints",
+    reason: "Ordered endpoints are not shareable.",
+    fullUrl: null,
+    packet: null,
+  };
   const result: BrowserLibraryApiDiffResult = {
     schemaVersion: 1,
     request: {
@@ -740,6 +715,11 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     error: null,
     diagnostic: null,
     reason: null,
+    inspection: {
+      content: { outcome: "available", document: {} },
+      share,
+      diagnostics: [],
+    },
   };
   const state: LibraryApiDiffState = {
     status: "ready",
@@ -760,6 +740,19 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
   await expect(rows.nth(1))
     .toHaveAttribute("data-before-type-id", "Example.A\nB");
 });
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let complete!: (value: T) => void;
+  const promise = new Promise<T>(accept => {
+    complete = accept;
+  });
+  return { promise, resolve: complete };
+}
 
 test.describe("Package Query website over real Wasm", () => {
   test("keeps blank input idle and exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
@@ -950,6 +943,124 @@ test.describe("Package Query website over real Wasm", () => {
     );
     expect(registry.downloadCount(tool)).toBe(1);
     expect(registry.downloadCount(library)).toBe(0);
+  });
+
+  test("applies, edits, repeats, and removes product-issued dependency terms", async ({
+    page,
+    context,
+  }) => {
+    const hostingManifest = packageQueryManifest(
+      "Contoso.HostingConsumer",
+      version,
+      false,
+      ["Microsoft.Extensions.Hosting"]);
+    const injectionManifest = packageQueryManifest(
+      "Contoso.InjectionConsumer",
+      version,
+      false,
+      ["Microsoft.Extensions.DependencyInjection"]);
+    const hosting: FixtureCoordinate = {
+      packageId: "Contoso.HostingConsumer",
+      version,
+      manifest: hostingManifest,
+      archive: healthyArchive,
+    };
+    const injection: FixtureCoordinate = {
+      packageId: "Contoso.InjectionConsumer",
+      version,
+      manifest: injectionManifest,
+      archive: healthyArchive,
+    };
+    const registry = new GalleryFixtureRegistry([hosting, injection]);
+    await installGalleryRoutes(context, registry);
+    let searchRequests = 0;
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      searchRequests++;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({
+          totalHits: 2,
+          data: [hosting, injection].map(fixture => ({
+            id: fixture.packageId,
+            version: fixture.version,
+            description: "Dependency term fixture.",
+            owners: ["Fixture"],
+            totalDownloads: 1,
+            verified: false,
+          })),
+        }),
+      });
+    });
+
+    await page.goto("/query");
+    const prefix = page.locator("#package-query-prefix");
+    await expect(prefix).toBeVisible({ timeout: 120_000 });
+    await prefix.fill("Contoso.*");
+    await page.locator('[data-query-term-add="depends"]').click();
+    const draft = page.locator("[data-query-term-draft-value]");
+    await expect(draft).toBeFocused();
+    expect(searchRequests).toBe(0);
+    await draft.fill("Microsoft.Extensions.Hosting");
+    await page.locator('[data-query-mode="changes"]').click();
+    await page.locator('[data-query-mode="packages"]').click();
+    await expect(draft).toHaveValue("Microsoft.Extensions.Hosting");
+    expect(searchRequests).toBe(0);
+    await draft.fill("   ");
+    await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
+    await expect(draft).toHaveJSProperty("validationMessage", "Enter a term value.");
+    expect(searchRequests).toBe(0);
+    await draft.fill("Microsoft.Extensions.Hosting");
+    await expect(draft).toHaveJSProperty("validationMessage", "");
+    await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
+
+    const rows = page.locator(".query-row h2");
+    await expect(rows).toHaveText([hosting.packageId], { timeout: 30_000 });
+    await expect(page.locator('[data-query-term-form="0"]'))
+      .toContainText("depends on package");
+    expect(registry.downloadCount(hosting)).toBe(0);
+    expect(registry.downloadCount(injection)).toBe(0);
+
+    const firstValue =
+      page.locator('[data-query-term-form="0"] [data-query-term-value]');
+    await firstValue.fill("Microsoft.Extensions.DependencyInjection");
+    await page.locator('[data-query-term-add="depends"]').click();
+    await expect(firstValue)
+      .toHaveValue("Microsoft.Extensions.DependencyInjection");
+    await page.locator("[data-query-term-draft-cancel]").click();
+    await firstValue.fill("not a package id");
+    const beforeInvalid = searchRequests;
+    await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
+    await expect(page.getByRole("region", { name: "Package query results" }))
+      .toContainText("term value is invalid");
+    expect(searchRequests).toBe(beforeInvalid);
+
+    await firstValue.fill("Microsoft.Extensions.DependencyInjection");
+    await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
+    await expect(rows).toHaveText([injection.packageId]);
+
+    await firstValue.fill("Microsoft.Extensions.Logging");
+    await page.locator(".brand").click();
+    await expect(page.locator(".home-search")).toBeVisible();
+    await page.goBack();
+    await expect(firstValue)
+      .toHaveValue("Microsoft.Extensions.DependencyInjection");
+
+    await page.locator('[data-query-term-add="depends"]').click();
+    await page.locator("[data-query-term-draft-value]")
+      .fill("Microsoft.Extensions.Hosting");
+    await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
+    await expect(page.locator(".query-row")).toHaveCount(0);
+    await expect(page.locator("[data-query-term-form]")).toHaveCount(2);
+
+    await page.locator('[data-query-term-remove="1"]').click();
+    await expect(rows).toHaveText([injection.packageId]);
+    await page.locator('[data-query-term-remove="0"]').click();
+    await expect(rows).toHaveText([
+      hosting.packageId,
+      injection.packageId,
+    ]);
   });
 
   test("retains 100 prefix results while mounting a bounded row window", async ({
@@ -1261,133 +1372,6 @@ test.describe("Package Changes website over real Wasm", () => {
     expect(requests.some(request =>
       request.pathname.endsWith("/advisories")
       && request.searchParams.has("after"))).toBe(true);
-  });
-});
-
-test.describe("Assembly Package Query website over real Wasm", () => {
-  test("evaluates disposable candidates and reopens a match through its exact Root", async ({
-    page, context,
-  }) => {
-    const registry = new GalleryFixtureRegistry(literalFixtures);
-    const releaseCompletion = deferred<void>();
-    const heldArchive = galleryDownloadPath(
-      literalFixtures.at(-1)!.packageId,
-      literalFixtures.at(-1)!.version,
-    );
-    await installGalleryRoutes(context, registry, pathname =>
-      pathname === heldArchive ? releaseCompletion.promise : Promise.resolve());
-    await page.goto("/query");
-    await expect(page.locator(".query-assembly-controls summary")).toBeVisible({ timeout: 120_000 });
-    await page.locator(".query-assembly-controls summary").click();
-    const packages = page.locator("#package-query-assembly-packages");
-    await page.locator("#package-query-assembly-operand").fill("shared-literal-use-marker");
-    await page.locator("#package-query-assembly-tfm").fill(fixtureFramework);
-    await packages.fill("System.Text.Json");
-    await page.locator("#package-query-assembly-run").click();
-    await expect(packages).toHaveJSProperty(
-      "validationMessage",
-      "Enter one exact ID@VERSION package per line.");
-    await packages.fill(
-      literalFixtures.map(fixture => `${fixture.packageId}@${fixture.version}`).join("\n"));
-    await expect(packages).toHaveJSProperty("validationMessage", "");
-    await page.evaluate(() => {
-      const timing: NonNullable<Window["__queryResponsiveness"]> = {
-        startAt: performance.timeOrigin + performance.now(),
-        inputAt: null,
-        firstRowAt: null,
-        frameAt: null,
-        completedAt: null,
-        renderCount: 0,
-        longestTimerDelay: 0,
-        timer: 0,
-        observer: new MutationObserver(() => {
-          timing.renderCount++;
-        }),
-      };
-      let previousTimerAt = performance.now();
-      timing.timer = window.setInterval(() => {
-        const currentTimerAt = performance.now();
-        timing.longestTimerDelay = Math.max(
-          timing.longestTimerDelay,
-          currentTimerAt - previousTimerAt,
-        );
-        previousTimerAt = currentTimerAt;
-      }, 10);
-      const input = document.createElement("button");
-      input.id = "query-responsiveness-input";
-      input.type = "button";
-      input.textContent = "Responsiveness input";
-      input.style.position = "fixed";
-      input.style.inset = "1rem";
-      input.style.zIndex = "10000";
-      input.addEventListener("pointerdown", () => {
-        timing.inputAt = performance.timeOrigin + performance.now();
-      }, { once: true });
-      document.body.append(input);
-      timing.observer.observe(document.body, { childList: true, subtree: true });
-      window.__queryResponsiveness = timing;
-    });
-    await page.locator("#package-query-assembly-run").click();
-
-    await expect(page.locator(".query-row")).toHaveCount(1, { timeout: 60_000 });
-    await page.evaluate(() => {
-      window.__queryResponsiveness!.firstRowAt =
-        performance.timeOrigin + performance.now();
-    });
-    await page.locator("#query-responsiveness-input").click();
-    await page.evaluate(async () => {
-      await new Promise<void>(resolveFirstFrame => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            window.__queryResponsiveness!.frameAt =
-              performance.timeOrigin + performance.now();
-            resolveFirstFrame();
-          });
-        });
-      });
-    });
-    releaseCompletion.resolve();
-    await expect(page.locator(".query-row")).toContainText("shared-literal-use-marker");
-    await expect(page.locator(".query-assessments")).toContainText("inspectweb.query.semanticmiss");
-    await expect(page.locator(".query-assessments")).toContainText("inspectweb.query.referenceonly");
-    await expect(page.locator(".query-failures")).toContainText("ImageAdmission");
-    await expect(page.locator(".query-footer")).toContainText("not all package assemblies");
-    const responsiveness = await page.evaluate(() => {
-      const timing = window.__queryResponsiveness!;
-      timing.completedAt = performance.timeOrigin + performance.now();
-      clearInterval(timing.timer);
-      timing.observer.disconnect();
-      document.querySelector("#query-responsiveness-input")?.remove();
-      return {
-        startAt: timing.startAt,
-        inputAt: timing.inputAt,
-        firstRowAt: timing.firstRowAt,
-        frameAt: timing.frameAt,
-        completedAt: timing.completedAt,
-        renderCount: timing.renderCount,
-        longestTimerDelay: timing.longestTimerDelay,
-      };
-    });
-    expect(responsiveness.firstRowAt).toBeGreaterThan(responsiveness.startAt);
-    expect(responsiveness.inputAt).toBeGreaterThan(responsiveness.startAt);
-    expect(responsiveness.frameAt).toBeGreaterThan(responsiveness.startAt);
-    expect(responsiveness.completedAt).toBeGreaterThan(responsiveness.firstRowAt!);
-    expect(responsiveness.inputAt).toBeLessThan(responsiveness.completedAt);
-    expect(responsiveness.frameAt).toBeLessThan(responsiveness.completedAt);
-    expect(responsiveness.renderCount).toBeGreaterThan(0);
-    expect(responsiveness.longestTimerDelay).toBeLessThan(250);
-    const match = literalFixtures[0]!;
-    for (const fixture of literalFixtures) expect(registry.downloadCount(fixture)).toBe(1);
-    const open = page.locator("[data-query-root-request]");
-    await expect(open).toHaveAttribute("data-query-root-request", /^pkgroot3\./);
-    await open.click();
-
-    await expect(page).not.toHaveURL(
-      /\/query(?:[?#].*)?$/,
-      { timeout: 60_000 },
-    );
-    await expect(page.locator("body")).toContainText(match.packageId.toLowerCase());
-    expect(registry.downloadCount(match)).toBe(2);
   });
 });
 
@@ -1780,7 +1764,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 test.describe("bounded network-backed two-host demo", () => {
   test.describe.configure({ timeout: 240_000 });
 
-  test("opens ordinary and large net10.0 packages over the real Gallery CDN", async ({
+  test("opens ordinary and pathological packages over the real Gallery CDN", async ({
     page,
   }) => {
     await boot(page);
@@ -1812,6 +1796,19 @@ test.describe("bounded network-backed two-host demo", () => {
     expect(largeSurface.activeFramework).toBe("net10.0");
     expect(largeSurface.assemblies.length).toBeGreaterThan(0);
     expect(largeSurface.types.length).toBeGreaterThan(0);
+
+    // Aspire.Hosting is the current ordinary-package pathological case. Its
+    // complete net8.0 surface crosses both former transport bounds.
+    const aspireSurface = await engine.queryCoordinate(
+      "Aspire.Hosting",
+      "13.5.4",
+      "net8.0",
+    );
+    expect(aspireSurface.package).toBe("Aspire.Hosting");
+    expect(aspireSurface.version).toBe("13.5.4");
+    expect(aspireSurface.activeFramework).toBe("net8.0");
+    expect(aspireSurface.assemblies.length).toBeGreaterThan(0);
+    expect(aspireSurface.types.length).toBeGreaterThan(0);
 
     // The awaitable Workspace occurrence for the same real coordinate activates
     // and yields the same package surface.

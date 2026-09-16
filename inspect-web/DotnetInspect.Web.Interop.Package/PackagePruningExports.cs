@@ -5,6 +5,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using NuGet.Versioning;
 using NuGetFetch;
 
@@ -154,18 +155,30 @@ public static partial class PackageExports
         int notEvaluated = 0;
         int failed = 0;
 
-        foreach (PackageDependencyEvidenceDeclaration declaration
-                 in selectedGroup.Declarations)
+        var inspectionRequest =
+            new PackageDependencyPruningInspectionRequest(
+                selectedGroup.Declarations.Select(
+                    declaration =>
+                        new PackageDependencyPruningInspectionSubject(
+                            root,
+                            declaration)),
+                target,
+                inventory);
+        InspectionEnvelope<PackageDependencyPruningInspectionResult>
+            inspection =
+                await PackageDependencyPruningInspection.ExecuteAsync(
+                    inspectionRequest,
+                    candidateSource,
+                    cancellationToken,
+                    operation);
+        foreach (PackageDependencyPruningInspectionOutcome outcome
+                 in inspection.Content.Outcomes)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            PackageHouseDependencyPruningApplicability applicability =
-                PackageHouseDependencyPruningApplicabilityQuery.Execute(
-                    root,
-                    declaration,
-                    target);
-            if (applicability.State
-                    != PackageHouseDependencyPruningApplicabilityState
-                        .CandidateRequired)
+            PackageDependencyEvidenceDeclaration declaration =
+                outcome.Subject.Declaration;
+            if (outcome
+                is PackageDependencyPruningInspectionOutcome.NotEvaluated
+                    notEvaluatedOutcome)
             {
                 rows.Add(new BrowserPackagePruningRow(
                     declaration.SourcePackageIdSpelling.ToString(),
@@ -175,20 +188,16 @@ public static partial class PackageExports
                         inventory,
                         declaration.CanonicalPackageId),
                     BrowserPackagePruningDisposition.NotEvaluated,
-                    applicability.TargetUnavailableReason?.ToString()
-                        ?? applicability.State.ToString()));
+                    notEvaluatedOutcome.Applicability
+                        .TargetUnavailableReason?.ToString()
+                        ?? notEvaluatedOutcome.Applicability.State.ToString()));
                 notEvaluated++;
                 continue;
             }
 
-            PackageDependencyCandidateResult candidate =
-                await PackageDependencyCandidateQuery.ExecuteAsync(
-                    new PackageDependencyCandidateRequest.Declared(declaration),
-                    candidateSource,
-                    cancellationToken,
-                    operation);
-            if (candidate
-                    is not PackageDependencyCandidateResult.Resolved resolved)
+            if (outcome
+                is PackageDependencyPruningInspectionOutcome
+                    .CandidateUnavailable candidateUnavailable)
             {
                 rows.Add(new BrowserPackagePruningRow(
                     declaration.SourcePackageIdSpelling.ToString(),
@@ -198,32 +207,25 @@ public static partial class PackageExports
                         inventory,
                         declaration.CanonicalPackageId),
                     BrowserPackagePruningDisposition.CandidateUnavailable,
-                    CandidateFailure(candidate)));
+                    CandidateFailure(candidateUnavailable.Candidate)));
                 failed++;
                 continue;
             }
 
-            PackageHouseDependencyInput input =
-                PackageHouseDependencyInputAdapter.Create(
-                    root,
-                    resolved,
-                    PackageHouseOperation.Create(
-                        PackageHouseOperationProfile.Settle),
-                    target);
-            PackageHouseDependencyPruningResult result =
-                PackageHouseDependencyPruningQuery.Execute(
-                    input,
-                    inventory);
-            PackageHouseDependencyPruningResult.Evaluated evaluatedResult =
-                result as PackageHouseDependencyPruningResult.Evaluated
+            PackageDependencyPruningInspectionOutcome.Evaluated
+                evaluatedOutcome =
+                    outcome
+                        as PackageDependencyPruningInspectionOutcome.Evaluated
                 ?? throw new InvalidOperationException(
-                    "A candidate-required package pruning input must be evaluated.");
+                    "Unknown package dependency pruning inspection outcome.");
+            PackageHouseDependencyPruningResult.Evaluated evaluatedResult =
+                evaluatedOutcome.Result;
             bool delegates =
                 evaluatedResult.Pruning.Supply.DelegatesToPlatform;
             rows.Add(new BrowserPackagePruningRow(
                 declaration.SourcePackageIdSpelling.ToString(),
                 declaration.SourceVersionConstraintSpelling.ToString(),
-                resolved.Candidate.Coordinate.Version,
+                evaluatedOutcome.Candidate.Candidate.Coordinate.Version,
                 evaluatedResult.Pruning.Supply.SuppliedVersion
                     ?.ToNormalizedString(),
                 delegates

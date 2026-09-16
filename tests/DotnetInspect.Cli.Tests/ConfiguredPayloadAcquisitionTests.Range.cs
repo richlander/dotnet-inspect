@@ -48,16 +48,19 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         foreach (PackageVersionAddress address
             in available.Vector.Addresses)
         {
+            PackageHouseVersionPopulationCellExecution execution =
+                available.SelectCell(address).PrepareExecution(
+                    PackageHouseOperation.Create(
+                        PackageHouseOperationProfile.Settle));
             PackageHouseSettlement settlement =
                 await composition.ExecuteVersionPopulationCellAsync(
-                    available.SelectCell(address),
-                    PackageHouseOperation.Create(
-                        PackageHouseOperationProfile.Settle),
+                    execution,
                     sourceOptions: sourceOptions,
                     cancellationToken:
                         TestContext.Current.CancellationToken);
             Assert.IsType<PackageHouseResult.Settled>(
                 settlement.Result);
+            Assert.True(execution.Accepts(settlement));
         }
 
         Assert.Equal(

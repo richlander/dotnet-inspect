@@ -487,7 +487,7 @@ async function installFacades(
         return {
           packages: 1,
           resident: 1,
-          maxPackageEntries: 12,
+          maxPackageEntries: 256,
           workspaces: 1,
           maxWorkspaces: 4,
           maxWorkspaceAssembliesPerRole: 256,
@@ -507,7 +507,7 @@ async function installFacades(
           }],
         };
       }
-      export function listPackageQueryFacets() { return { facets: [] }; }
+      export function listPackageQueryCatalog() { return { facets: [], terms: [] }; }
       export async function queryMemberDocumentation() {
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
       }

@@ -2662,7 +2662,8 @@ public static class MemberBodyProducer
         if (failOnDiagnostic
             && (!result.Succeeded
             || result.Diagnostics.Any(static diagnostic =>
-                diagnostic.Id == DiagnosticIds.InternalError)))
+                diagnostic.Id is DiagnosticIds.InternalError
+                    or DiagnosticIds.ContextUnavailable)))
         {
             throw new InvalidOperationException(DiagnosticComment(result));
         }

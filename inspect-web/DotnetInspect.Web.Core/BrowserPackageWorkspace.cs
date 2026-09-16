@@ -63,6 +63,8 @@ internal sealed record BrowserPackageIconPayload(
 /// <para>
 /// <c>BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures</c>
 /// gates the aggregate package-cache and scope-retention budget.
+/// <c>BrowserEngineBoundaryTests.PackageCacheEntryBudget_CoversChargedRealizationEnvelope</c>
+/// gates the entry-count envelope and its visible first refusal.
 /// </para>
 /// <para>
 /// <c>BrowserEngineBoundaryTests.PackageResolution_StallBecomesVisibleOperationTimeout</c>
@@ -99,9 +101,12 @@ internal sealed record BrowserPackageIconPayload(
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageWorkspace
 {
-    const int MaxCachedPackages = 12;
+    const int MaxCachedPackages =
+        WorkspaceScopeLimits.DefaultMaxPackages
+        * BrowserWorkspaceRealizationHost.MaxChargedRealizations;
     const long MaxCachedPackageBytes = 128L * 1024 * 1024;
-    internal const int MaxOpenScopes = 4;
+    internal const int MaxOpenScopes =
+        BrowserWorkspaceRealizationHost.MaxChargedRealizations;
     internal static TimeSpan PackageOperationTimeout { get; } =
         TimeSpan.FromSeconds(30);
     internal static TimeSpan GalleryOperationTimeout { get; } =
