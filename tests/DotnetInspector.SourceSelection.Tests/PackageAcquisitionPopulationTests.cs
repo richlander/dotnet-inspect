@@ -5,6 +5,71 @@ namespace DotnetInspector.SourceSelection.Tests;
 
 public sealed class PackageAcquisitionPopulationTests
 {
+    [Theory]
+    [InlineData(false, "1.5.0")]
+    [InlineData(true, "2.0.0-preview.1")]
+    public async Task GalleryExactPopulationSelectsLatestEligibleListedVersion(
+        bool includePrerelease,
+        string expectedVersion)
+    {
+        await using var fixture = new SourceFixture
+        {
+            Versions =
+            {
+                ["contoso.exact"] =
+                    ["1.0.0", "1.5.0", "2.0.0-preview.1"],
+            },
+        };
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        PackageAcquisitionPopulation population =
+            await PackageAcquisitionPopulationResolver
+                .ResolveGalleryExactAsync(
+                    operation,
+                    "Contoso.Exact",
+                    fixture.Authorization,
+                    includePrerelease);
+
+        Assert.True(population.IsRequestedPopulationComplete);
+        Assert.Equal(
+            PackageAcquisitionPopulationCompletionKind.ExactPackageComplete,
+            population.Completion);
+        PackageAcquisitionCandidate candidate =
+            Assert.Single(population.Candidates);
+        Assert.Equal("contoso.exact", candidate.Coordinate.PackageId);
+        Assert.Equal(expectedVersion, candidate.Coordinate.Version);
+        Assert.Equal(
+            PackageAcquisitionCandidateKind.Discovered,
+            candidate.Kind);
+        Assert.Empty(population.Failures);
+        Assert.Equal(["Contoso.Exact"], fixture.Client.VersionRequests);
+    }
+
+    [Fact]
+    public async Task GalleryExactPopulationTreatsAuthoritativeAbsenceAsComplete()
+    {
+        await using var fixture = new SourceFixture();
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        PackageAcquisitionPopulation population =
+            await PackageAcquisitionPopulationResolver
+                .ResolveGalleryExactAsync(
+                    operation,
+                    "Contoso.Missing",
+                    fixture.Authorization);
+
+        Assert.True(population.IsRequestedPopulationComplete);
+        Assert.Equal(
+            PackageAcquisitionPopulationCompletionKind.ExactPackageComplete,
+            population.Completion);
+        Assert.Empty(population.Candidates);
+        Assert.Empty(population.Failures);
+    }
+
     [Fact]
     public async Task ExactPopulationFreezesUniqueCoordinatesInCallerOrder()
     {
