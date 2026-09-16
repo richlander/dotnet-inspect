@@ -146,15 +146,9 @@ public static class PortableQueryResolver
         {
             var families = new Dictionary<string, PortableQueryFamilyKind>(StringComparer.Ordinal);
 
-            // Keyed by composition context, not by predicate alone. Collapse
-            // rests on idempotence, and idempotence holds only inside one
-            // context: two plain conjuncts asking the same thing ask it once,
-            // and so do two members of one combining family, because A OR A is
-            // A. Across contexts it does not hold — a plain conjunct beside a
-            // family member with the same predicate is A AND (A OR B), and
-            // dropping the member leaves A AND B, which is a narrower question
-            // than the one that was asked.
-            var predicates = new HashSet<(string? Family, string Predicate)>();
+            var predicates = new HashSet<string>(StringComparer.Ordinal);
+            var compositionOccurrences =
+                new HashSet<(string? Family, string Predicate)>();
             int index = 0;
 
             foreach (PortableQueryTerm term in PortableQueryModel.InSemanticOrder(intent.Terms))
@@ -193,10 +187,18 @@ public static class PortableQueryResolver
                 // contradiction that member contradicts would then resolve.
                 if (key.Family is { } declared) families[declared] = key.FamilyKind;
 
-                if (!predicates.Add((key.Family, binding.PredicateIdentity)))
+                bool collided = !predicates.Add(binding.PredicateIdentity);
+                if (collided && !vocabulary.CollapsesDuplicateBindings)
+                    return Failure(PortableQueryFailureReason.DuplicateAfterBinding, at, term.Key);
+
+                // Collapse rests on idempotence, and idempotence holds only
+                // inside one composition context: A AND A is A, and so is
+                // A OR A. Across contexts the vocabulary still owns whether
+                // one predicate may occur more than once, but an allowed
+                // collision must keep both occurrences because A AND (A OR B)
+                // is not equivalent to A AND B.
+                if (!compositionOccurrences.Add((key.Family, binding.PredicateIdentity)))
                 {
-                    if (!vocabulary.CollapsesDuplicateBindings)
-                        return Failure(PortableQueryFailureReason.DuplicateAfterBinding, at, term.Key);
                     continue;
                 }
 

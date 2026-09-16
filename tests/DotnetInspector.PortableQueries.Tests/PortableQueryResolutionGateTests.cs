@@ -512,8 +512,10 @@ public sealed class PortableQueryResolutionGateTests
             ])).Plan;
         Assert.Single(inside.Resolved.Terms);
 
-        // And a vocabulary that refuses duplicates still refuses that one,
-        // while the cross-context case is not a duplicate for it either.
+        // And a vocabulary that refuses duplicate bindings refuses both a
+        // same-context collision and a cross-context collision. Composition
+        // context decides whether an allowed collision may collapse; it does
+        // not override the vocabulary's collision policy.
         var refusing = new TestVocabulary();
         Assert.Equal(
             PortableQueryFailureReason.DuplicateAfterBinding,
@@ -524,14 +526,29 @@ public sealed class PortableQueryResolutionGateTests
                     Term(TestVocabulary.DependsKey, "Serilog"),
                     Term(TestVocabulary.DependsKey, "serilog"),
                 ])).Failure.Reason);
-        Assert.True(Resolve(
-            refusing,
-            Intent(terms:
-            [
-                Term(TestVocabulary.ToolAliasKey, "v1"),
-                Term(TestVocabulary.ToolKey, "v1"),
-                Term(TestVocabulary.ToolKey, "v2"),
-            ])).IsResolved);
+
+        PortableQueryIntent crossContext = Intent(terms:
+        [
+            Term(TestVocabulary.ToolAliasKey, "v1"),
+            Term(TestVocabulary.ToolKey, "v1"),
+        ]);
+        PortableQueryFailure crossContextFailure =
+            Resolve(refusing, crossContext).Failure;
+        Assert.Equal(
+            PortableQueryFailureReason.DuplicateAfterBinding,
+            crossContextFailure.Reason);
+        Assert.Equal(TestVocabulary.ToolKey, crossContextFailure.Offender);
+
+        string payload = PortableQueryPayloadCodec.Encode(
+            crossContext,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            crossContextFailure,
+            Resolve(
+                new TestVocabulary(),
+                PortableQueryPayloadCodec.Decode(
+                    payload,
+                    TestContext.Current.CancellationToken)).Failure);
     }
 
     /// <summary>
