@@ -143,15 +143,14 @@ public sealed class InspectionDefinitionRegistry
                 committed);
         }
 
-        ResolvedScenario resolved = ResolveVersion1Scenario(
-            scenario,
-            targetMatchMode);
+        Version1ScenarioDefinitionSet version1 =
+            CreateVersion1Scenario(records);
         ValidateNavigationSources(
             records.Workspace as WorkspaceDefinition,
             records.Navigation,
             targetMatchMode);
         return new InspectionDefinitionScenarioPreparationResult.Version1(
-            resolved);
+            version1);
     }
 
     private ResolvedScenario ResolveVersion1Scenario(
@@ -886,6 +885,11 @@ public sealed class InspectionDefinitionRegistry
                 $"Scenario '{scenario.Id}' cannot reference a schema-version-2 query in the query-free record slice.");
         }
 
+        if (workspace is not null && (navigation is null || view is null))
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' must reference committed navigation and view.");
+        }
         if ((navigation is null) != (view is null))
         {
             throw new InspectionDefinitionException(
@@ -899,6 +903,49 @@ public sealed class InspectionDefinitionRegistry
             workspace,
             navigation,
             view,
+            records.Catalogs);
+    }
+
+    private static Version1ScenarioDefinitionSet CreateVersion1Scenario(
+        ScenarioRecordComposition records)
+    {
+        ScenarioDefinition scenario = records.Scenario;
+        WorkspaceDefinition? workspace =
+            records.Workspace as WorkspaceDefinition;
+        if (records.Workspace is not null && workspace is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' references an incompatible workspace record.");
+        }
+
+        QueryDefinition? query = records.Query as QueryDefinition;
+        if (records.Query is not null && query is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' requires a schema-version-1 query record.");
+        }
+
+        ViewDefinition? view = records.View as ViewDefinition;
+        if (records.View is not null && view is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' requires a schema-version-1 view record.");
+        }
+
+        NavigationDefinition? navigation =
+            records.Navigation as NavigationDefinition;
+        if (records.Navigation is not null && navigation is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' requires a schema-version-1 navigation record.");
+        }
+
+        return new Version1ScenarioDefinitionSet(
+            scenario,
+            workspace,
+            query,
+            view,
+            navigation,
             records.Catalogs);
     }
 
@@ -918,10 +965,10 @@ public sealed class InspectionDefinitionRegistry
             throw new InspectionDefinitionException(
                 $"Committed view '{view.Id}' must begin with its null-navigation Workspace state.");
         }
-        if (workspaceState.Subject is PortableSubjectRequest.Package)
+        if (workspaceState.Subject is not PortableSubjectRequest.Workspace)
         {
             throw new InspectionDefinitionException(
-                $"Committed view '{view.Id}' Workspace state cannot request a Package subject.");
+                $"Committed view '{view.Id}' Workspace state must request the Workspace subject.");
         }
         if (workspaceState.Context is not null)
         {
@@ -1139,12 +1186,62 @@ public abstract record InspectionDefinitionScenarioPreparationResult
     }
 
     public sealed record Version1(
-        ResolvedScenario Scenario)
+        Version1ScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
 
     public sealed record Version2(
         CommittedScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
+}
+
+/// <summary>
+/// Strictly composed schema-version-1 records before complete-restoration
+/// lowering or existing source-specific execution.
+/// </summary>
+public sealed class Version1ScenarioDefinitionSet
+{
+    internal Version1ScenarioDefinitionSet(
+        ScenarioDefinition scenario,
+        WorkspaceDefinition? workspace,
+        QueryDefinition? query,
+        ViewDefinition? view,
+        NavigationDefinition? navigation,
+        IReadOnlyList<CatalogDefinition> catalogs)
+    {
+        Scenario = scenario;
+        Workspace = workspace;
+        Query = query;
+        View = view;
+        Navigation = navigation;
+        Catalogs = catalogs;
+        Records = new ReadOnlyCollection<InspectionDefinitionRecord>(
+            new InspectionDefinitionRecord?[]
+            {
+                Workspace,
+                Query,
+                View,
+                Navigation,
+                Scenario,
+            }
+            .Where(record => record is not null)
+            .Cast<InspectionDefinitionRecord>()
+            .Concat(Catalogs)
+            .ToArray());
+    }
+
+    public ScenarioDefinition Scenario { get; }
+
+    public WorkspaceDefinition? Workspace { get; }
+
+    public QueryDefinition? Query { get; }
+
+    public ViewDefinition? View { get; }
+
+    public NavigationDefinition? Navigation { get; }
+
+    public IReadOnlyList<CatalogDefinition> Catalogs { get; }
+
+    public IReadOnlyList<InspectionDefinitionRecord> Records { get; }
 }
 
 /// <summary>

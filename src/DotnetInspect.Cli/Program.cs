@@ -19,6 +19,8 @@ Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false
 // change exists to stop; the guard has to cover everything that can throw.
 try
 {
+    using var shareOutput = WorkspaceShareOutput.DeferSideOutput();
+
     // Parse --offline early (before command parsing) to configure HttpClientFactory
     bool offline = args.Contains("--offline")
         || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_OFFLINE"), "1");

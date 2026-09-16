@@ -489,8 +489,10 @@ Library per endpoint, optionally narrowed by Type or compatibility
 classification. It delays legacy surface extraction so the adopted route does
 not build and compare a second surface. One command-scoped Workspace owns the
 two groups. Markout renders host views derived from the complete document;
-existing JSON, detailed rows, Type-summary tables, and name-only output remain
-CLI projections, not serialization of the portable envelope.
+explicitly projected JSON, detailed rows, Type-summary tables, and name-only
+output remain CLI projections. Unprojected `--json` now serializes the
+complete Outcome; `--envelope` serializes the service baseline through the
+[common envelope transport](output-shapes.md#envelope-transport).
 
 This changes three observable outcomes on the adopted route:
 
@@ -531,14 +533,24 @@ The #7070 adoption has three steps in one production slice:
 
 Total steps: **3**, delivered together. The old content type and flattened
 Available shape have no compatibility alias or second implementation.
-Comparison algorithms, evidence, ordinary CLI JSON, and the Browser facade
-schema are unchanged.
+That content-kind rename left comparison algorithms, evidence, ordinary CLI
+JSON, and the Browser facade schema unchanged.
 
-This settles the shared Library content kind; it does not expose public CLI
-`--envelope` or complete Browser baseline transport. Those remain explicit
-adoption work in the [subject-owned Diff plan](command-transition-model.md#subject-owned-diff)
-and #6719. Browser's current selected-inventory projection is not relabeled as
-complete envelope delivery.
+The subsequent #6719 CLI transport adoption registers `library-api-diff`
+using `LibraryApiDiffJsonContext`. Unprojected JSON and envelope Content use
+that same complete serializer, including all Outcome and endpoint-issue
+cases. Available empty comparisons remain successful; Unavailable and Rejected
+are serialized before the command returns failure. `--compact` changes only
+whitespace. API scope (`--all`) remains admitted; post-service filters,
+presentation controls, and non-API or multi-Library operations are not admitted
+with `--envelope`. Explicitly projected JSON preserves its prior view.
+
+Complete Browser baseline transport and subject-command cutover remain
+explicit adoption work in the
+[subject-owned Diff plan](command-transition-model.md#subject-owned-diff).
+Browser's current selected-inventory projection is unchanged and is not
+relabeled as complete envelope delivery. House acquisition and optional
+Evidence capture remain separate.
 
 ### Browser consumer and remaining delivery
 

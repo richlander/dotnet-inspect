@@ -335,6 +335,12 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Use `-T q` to suppress tips in script-oriented commands.
 
+Positional `depends <type>` and ordinary single-Library API `diff` additionally
+support the presence-only `--envelope` service-output selector. It implies
+JSON; unprojected `--json` emits the same Content without the service frame.
+Asset-mode `depends`, other Diff modes, Discover, Count, and other commands
+have not adopted this transport.
+
 | Goal | Flags |
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
@@ -582,6 +588,22 @@ libraries, and local DLL pairs. `--type` narrows the complete comparison;
 `--all` widens its API scope. The endpoints must be versions of the same
 logical Library (assembly name, culture, and public-key token).
 
+On this route, unprojected `--json` serializes the complete
+`LibraryApiDiffOutcome`, replacing the former `{changes: ...}` presentation
+view. Use `--envelope` for that same Content plus Share and diagnostics;
+`--compact` controls whitespace for either complete JSON boundary, not projected
+or other Diff operations. For example:
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --envelope --compact
+```
+
+Envelope output accepts `--all`, but rejects Type/classification filters,
+section selection, explicit verbosity, row/line windows, and non-API modes.
+Explicitly projected JSON, such as `-S Changes --json`, retains its existing
+presentation schema. Share is explicitly non-projectable for comparison
+endpoints; it is not a replay URL.
+
 Changes without a compatibility classification remain visible under
 **Other API Changes**, or as `unclassified` rows in detailed output. They are
 not classified as breaking or additive. An incomplete or rejected comparison
@@ -687,6 +709,14 @@ inspect each side on its own.
 ```bash
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
+dotnet-inspect depends NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --tfm net8.0 \
+  --envelope
+dotnet-inspect depends NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --tfm net8.0 \
+  --json
 dotnet-inspect depends \
   --project ./src/App/App.csproj \
   --depth 2 \
@@ -733,6 +763,35 @@ dotnet-inspect graph libraries \
   -S "Provider API Types" \
   --table
 ```
+
+For positional type dependencies, `--json` writes the complete
+`TypeDependencySectionResult` Content, and `--envelope` writes the identical
+camelCase value under `content` with `schema_version: 1`,
+`result_kind: "type-dependencies"`, `share`, and `diagnostics`. The motivating
+example resolves the full matched type
+`Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension`.
+The Content retains the complete dependency relationships and the separately
+selected `rowSelection.relationships`; internal dependency enums remain
+numeric.
+
+Envelope framing and diagnostic member names use lower snake case. Share keeps
+the owner values `available` and `nonProjectable`; diagnostic severity remains
+`Information`, `Warning`, or `Error`, and absent correspondence is retained as
+`null`. Baseline envelopes have no `evidence` member.
+
+With `--envelope`, `--depth` remains a traversal input and `--rows`,
+`-n`/`--head`/`--tail` remain semantic relationship selection. `--compact` is
+accepted. Competing formats, `--json`, Discover/schema/effective modes, `-S`,
+explicit `-v`, Count, fields/columns, presentation projections or decoration,
+and rendered-line clipping are rejected before acquisition. `--verbose`,
+`--info`, and `--tips` remain on stderr. `--share` retains its existing policy
+and emits its optional URL or packet as the final stderr line. There is no
+`--evidence-envelope` support yet.
+
+Asset-mode output, Discover, Count JSON, and ordinary non-JSON output are
+unchanged. A service-issued empty or non-success Content value is still
+serialized with its existing exit behavior; an acquisition failure that
+produces no result emits no substitute envelope.
 
 `Pruning` is explicit-only and evaluates direct declarations of the named
 roots; it does not prune dependency-graph edges or run transitive traversal.
@@ -803,6 +862,13 @@ Dependencies URL or packet to stderr. Type sharing is limited to one exact
 NuGet.org package coordinate, a valid target framework, and the requested type;
 local, floating, ranged, private-feed, multi-source, platform, and
 non-projectable requests fail visibly.
+
+The service constructs Share for positional type JSON regardless of whether
+stderr projection was requested. `--json` emits Content only; `--envelope`
+exposes Share alongside that Content. A `nonProjectable` Share does not change
+otherwise successful Content or its exit status. Mixed dependency sources and
+any explicit `--depth` are non-projectable because the published Browser
+cannot preserve those requests.
 
 ## Requirements
 

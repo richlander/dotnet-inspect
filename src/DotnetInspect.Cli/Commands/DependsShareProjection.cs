@@ -194,10 +194,19 @@ internal static class DependsShareProjection
         DependsOptions options,
         string typeName)
     {
-        if (options.Packages.Length != 1)
+        if (options.Packages.Length != 1
+            || options.Assemblies.Length > 0
+            || options.Projects.Length > 0
+            || options.PlatformAssemblies.Length > 0
+            || options.PlatformFrameworks.Length > 0)
         {
             return NonProjectableShare(
-                "type dependency Share requires exactly one package root.");
+                "type dependency Share requires exactly one package root and no other dependency source.");
+        }
+        if (options.Depth is not null)
+        {
+            return NonProjectableShare(
+                "the published Browser cannot preserve --depth for type dependencies.");
         }
 
         string packageReference = options.Packages[0];

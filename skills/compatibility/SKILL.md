@@ -34,7 +34,7 @@ the same assembly name, culture, and public-key token; assembly versions may
 differ. The CLI uses the portable Library comparison contract intended for
 website Compare. Type-definition or member changes without a compatibility
 assessment remain visible as **Other API Changes** (`unclassified` in
-`--json` or `-S Changes --jsonl`/`--tsv`). Do not treat them as safe or breaking;
+`-S Changes --json`/`--jsonl`/`--tsv`). Do not treat them as safe or breaking;
 `--breaking` and `--additive` select only their assessed classifications.
 
 An incomplete or rejected comparison returns nonzero and reports **not
@@ -43,6 +43,20 @@ failure evidence. Invalid managed-image inputs report the admission error on
 stderr. Do not interpret these outcomes as “no API changes.” Multi-Library
 packages, `-m` filtering, Analysis Diff, Implementation Diff, Finding
 Transitions, and mixed-section requests retain their existing routes.
+
+For a complete shared single-Library API result, use unprojected `--json`.
+It emits `LibraryApiDiffOutcome`: `outcome` is `available`, `unavailable`, or
+`rejected`, with the complete Document or typed non-success endpoint evidence.
+This replaces the former unprojected `{changes: ...}` view. Explicitly
+filtered or sectioned JSON still uses the presentation schema.
+
+Use `--envelope` for the same Content plus Share and diagnostics, with
+`schema_version: 1` and `result_kind: "library-api-diff"`. `--all` is admitted;
+Type/classification filters, sections, explicit verbosity, row/line windows,
+and other Diff modes are not. Add `--compact` to either JSON form for compact
+whitespace; it is rejected with projected or other Diff operations. Share is
+non-projectable for the ordered comparison endpoints.
+This does not add Evidence capture or change the current Browser projection.
 
 ## Did runtime behavior change? (allocations, exceptions)
 

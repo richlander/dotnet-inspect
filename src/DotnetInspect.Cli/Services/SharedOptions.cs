@@ -16,6 +16,11 @@ public class SharedOptions
 {
     // Output format options
     public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
+    public Option<bool> Envelope { get; } = new("--envelope")
+    {
+        Description = "Output the complete inspection envelope as JSON where supported",
+        Arity = ArgumentArity.Zero
+    };
     public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
     public Option<bool> PlainText { get; } = new("--plaintext") { Description = "Output as plain text" };
     public Option<bool> Bare { get; } = new("--bare") { Description = "Render the selected payload without document decoration; does not change the selected shape" };
@@ -413,6 +418,29 @@ public class SharedOptions
     public void AddJsonOptionTo(Command command)
     {
         command.Options.Add(Json);
+    }
+
+    public void AddEnvelopeOptionTo(Command command, params Option[] incompatibleOptions)
+    {
+        command.Options.Add(Envelope);
+        Option[] presentationOptions =
+        [
+            Json, Markdown, PlainText, Table, Tsv, Jsonl, Tree, Mermaid,
+            NoHeaders, Bare, Columns, Fields, Print, Value, Urls, Paths,
+            JsonArray, RawUrls, BrowsableUrls,
+            .. incompatibleOptions
+        ];
+        command.Validators.Add(result =>
+        {
+            if (!result.GetValue(Envelope))
+                return;
+
+            foreach (Option option in presentationOptions)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                    result.AddError($"--envelope cannot be combined with {option.Name}.");
+            }
+        });
     }
 
     public void AddTableOptionsTo(Command command)
