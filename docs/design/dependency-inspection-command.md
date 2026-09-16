@@ -3,14 +3,16 @@
 This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
-**Status:** adopted operation contract with a proposed placement transition.
-`depends` implements the type-relationship and explicit-root dependency
-contracts through #5994. The separate `dependency-evidence` command and
-positional type-to-library fallback were retired in #5995. The next target,
+**Status:** adopted implementation contract with a proposed placement
+transition. `depends` implements the type-relationship and explicit-root
+dependency contracts through #5994. The separate `dependency-evidence` command
+and positional type-to-library fallback were retired in #5995. The next target,
 tracked by steps 5 and 8 of
 [#7308](https://github.com/richlander/dotnet-inspect/issues/7308), moves the
 selected-Type workflow to `type graph`, moves the heterogeneous asset-root
 workflow to `graph dependencies`, and then retires `depends`.
+The Debug service-evidence enrichment is proposed under
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117).
 
 ## Owner and claim
 
@@ -141,6 +143,19 @@ The shared evidence substrate is implemented by
 end-to-end dependency-evidence tracker. Browser/Wasm adoption remains owned by
 [#5535](https://github.com/richlander/dotnet-inspect/issues/5535); this
 CLI-focused design neither changes nor blocks that host.
+
+The Debug service-evidence adopter in #7117 is shared host-neutral work despite
+this command's CLI presentation ownership. It composes the existing Package
+Dependency Evidence outcome without moving its normalization contract.
+It is the third slice of the diagnostic-sidecar composition tracked by
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293), consuming
+the generic attachment contract and CLI sidecar transport without redefining
+either owner.
+[Network request evidence](https://github.com/richlander/dotnet-inspect/issues/7287)
+and the
+[CLI network-diagnostic migration](https://github.com/richlander/dotnet-inspect/issues/7289)
+remain separately owned; this design does not define Networking capture or
+CLI-wide diagnostic retirement.
 
 The original seven-step consolidation delivery is complete:
 
@@ -507,18 +522,32 @@ section selection and row shaping
 Markdown / tree / Mermaid / table / TSV / JSONL / JSON / count
 ```
 
-The document is a CLI composition result, not a new host-neutral dependency
-semantics model. It carries references to or copies of owner-issued identities
-and evidence. It may add command-owned occurrence indices, graph endpoint
-indices, section membership, and presentation ordering.
+The current implementation constructs this document as a CLI composition
+result. Envelope adoption first extracts its semantic selected-plan value as
+owner-issued `DependencyInspectionContent`; this is a prerequisite slice under
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117), not a new
+dependency-semantics model. The value carries references to or copies of
+owner-issued identities and evidence. It may add
+dependency-inspection occurrence identities, graph endpoint indices, and
+stable semantic ordering. CLI section membership, row windows, display
+ordering, and rendering remain host projections over that value.
+
+This selected-plan document is baseline Content for envelope adoption.
+Root-set and requested-phase completion, graph meaning, normalized
+dependencies, pruning results, and typed failures remain here whether or not
+service evidence is requested. The
+[Debug enrichment](#debug-service-evidence-enrichment) composes supplemental
+owner-issued facts beside this document; it does not replace or weaken the
+baseline.
 
 The CLI owns traversal gestures and presentation composition, not reusable
 dependency algorithms. Type, library, package, and restored-project owners
 continue to produce their typed relationships and identities. If an
 implementation slice needs a new reusable traversal or normalization
 algorithm, that work belongs in a focused owner below the CLI rather than in a
-second host-local implementation. Browser/Wasm continues to consume the
-host-neutral evidence query and does not consume this CLI document.
+second host-local implementation. Browser/Wasm consumes the extracted
+`DependencyInspectionContent` and host-neutral evidence query; it never
+consumes the CLI projection or presentation model.
 
 Normalized evidence currencies have one stable universe: explicit admitted
 roots only. Selecting `Dependency Graph` may acquire or admit transitive graph
@@ -645,6 +674,204 @@ and available evidence. In a Debug build, bare `-D` also lists the four
 registered diagnostic sections, and effective discovery reports the applicable
 diagnostic sections. This visible Release/Debug difference is the direct
 demonstration that diagnostic registration disappears from retail compilation.
+
+## Debug service-evidence enrichment
+
+**Status:** proposed under
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117).
+This section owns the dependency inspection service's concrete `TEvidence`,
+capture request, and association with baseline Content. The generic
+[service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
+owns the envelope, capture lifetime, transport-neutral attachment permission,
+and Debug-only availability policy. [Output Shapes](output-shapes.md#envelope-transport)
+owns CLI sidecar admission, publication, diagnostics, and failure behavior.
+Package Dependency Evidence continues to own normalized package facts.
+
+The first adopter is asset-mode dependency inspection. Positional type
+relationship mode has no corresponding diagnostic sections and does not admit
+`--evidence-envelope` under this adoption. Supporting it later requires its own
+owner-issued evidence value rather than an empty package result.
+
+### Required and supplemental roles
+
+The current projection mixes facts with different obligations. Adoption uses
+these roles:
+
+| Current data | Role after adoption |
+| --- | --- |
+| Root-set completion, requested and admitted counts, per-root admission, traversal and pruning completion, graph counts, and selected-plan phase completion | Required baseline Content. |
+| `Dependency Graph`, `Dependencies`, and `Pruning` rows | Baseline Content selected by the command contract. |
+| Root, acquisition, declaration, relationship, traversal, and pruning failures | Typed baseline Content; required operational context may also remain in ordinary Diagnostics. |
+| Package root identity, provenance, declaration groups, group selection, restored package nodes, restored edges, processing observations, and their owner-issued phase states | Supplemental Package Dependency Evidence retained in `TEvidence`. |
+| CLI root labels, section membership, row windows, display ordering, and Markout or JSON lowering | Host presentation, not service evidence. |
+| Network policy rejection or offline failure | Ordinary operation failure, not evidence-only data. |
+
+The same owner-issued fact may support a baseline row and remain in Evidence.
+That is deliberate: optional capture cannot make Content incomplete or force a
+baseline consumer to understand `TEvidence`.
+
+### Concrete evidence value
+
+The dependency service issues one named settled Document:
+
+```text
+DependencyInspectionEvidenceDocument
+  PackageInputs: PackageDependencyEvidenceOutcome
+  AdmittedRootOccurrences: DependencyRootOccurrenceIdentity[]
+  FailedRootOccurrences: DependencyRootOccurrenceIdentity?[]
+```
+
+`PackageInputs` is the existing complete host-neutral outcome, not a copied
+root, declaration, package, edge, processing, failure, or completion model.
+The two occurrence sequences are association currency:
+
+- `AdmittedRootOccurrences` is parallel to `PackageInputs.Roots`;
+- `FailedRootOccurrences` is parallel to `PackageInputs.FailedRoots`; and
+- a missing failed-root occurrence is admitted only for package-prefix
+  producer failures that do not correspond to one explicit root occurrence.
+
+`DependencyRootOccurrenceIdentity` is the dependency inspection request's
+typed document-local root occurrence in admitted request order. Baseline
+Content retains the same identity. The service validates both sequence lengths
+and never joins by a root label, path, package display name, or array search.
+Library-only roots have no Package Dependency Evidence association; their
+baseline root and graph facts do not become a synthetic package input. A
+zero-root `PackageInputs` outcome is therefore a complete empty package
+evidence value only when baseline Content establishes that no admitted root was
+applicable.
+
+The wrapper is a Document rather than another Outcome. Package-root rejection,
+phase unavailability, incomplete evidence, and typed producer failure already
+have closed states in `PackageDependencyEvidenceOutcome`. Cancellation and an
+unexpected operation failure still prevent envelope delivery instead of
+manufacturing an evidence failure or returning a bare baseline.
+
+The first schema contains only `PackageInputs` and its root associations.
+[#7287](https://github.com/richlander/dotnet-inspect/issues/7287) separately
+owns a bounded operation-scoped `NetworkRequestEvidenceDocument`. After that
+owner exists,
+[#7289](https://github.com/richlander/dotnet-inspect/issues/7289) may evolve
+the registered dependency evidence schema to compose its value under the
+envelope wire-version rules. This design does not reserve an untyped slot,
+subscriber, or logging field for it.
+
+### Capture request and baseline preservation
+
+`--evidence-envelope` and selection of any retained diagnostic section are
+Debug-only evidence gestures. They select the evidence-enabled service entry
+point before execution. One capture requests normalized declaration and
+produced-relationship evidence for every applicable explicit root. It retains
+processing observations already supplied by those owners. This single full
+package-input capture deliberately avoids four section-shaped evidence
+contracts.
+
+Capture is bounded by the explicit root set and existing Package Dependency
+Evidence producer bounds. Package-prefix candidate, match, failure, and
+truncation accounting remains in its owner-issued completion. Capture does not
+request transitive traversal or pruning, and section or envelope selection
+does not grant package-source, filesystem, network, restore, or build
+authority. An explicit package root keeps its existing acquisition authority;
+serialization has none.
+
+The implementation may execute the union of baseline and evidence producer
+work once, but it preserves the baseline request plan as a separate typed
+input to Content construction. A declaration or relationship failure affects
+baseline completion, Diagnostics, and exit status only when that phase belonged
+to the ordinary selected plan. A failure encountered solely for evidence
+capture remains visible in `PackageInputs` and does not reinterpret an
+otherwise equivalent baseline. Producers shared by both plans retain their
+ordinary failure meaning.
+
+For equivalent ordinary inputs and baseline plans, extracting `Inspection`
+from the enriched result yields equal Content, Share, and Diagnostics.
+Rendering or serialization consumes the settled values and never reopens an
+archive, assets file, package source, or traversal.
+
+### Thin Debug views and Browser adoption
+
+After replacement coverage exists, the four diagnostic sections remain useful
+Debug views but stop owning duplicated production:
+
+- `Dependency Groups`, `Restored Packages`, and `Restored Edges` project
+  `PackageInputs` through the retained owner-issued identities;
+- `Roots` joins baseline root occurrences to the parallel evidence
+  associations and uses baseline facts for non-package roots; and
+- all four may add host presentation context, but no view creates a second
+  evidence snapshot or enters the evidence wire contract.
+
+The CLI's complete machine transport is
+`EvidenceInspectionEnvelope<DependencyInspectionContent,
+DependencyInspectionEvidenceDocument>` in the file named by
+`--evidence-envelope <path>`. The option preserves the ordinary primary
+presentation on stdout or its distinct `--out` destination. Section selection
+and row shaping continue to affect that ordinary presentation without shaping
+Content or Evidence inside the attachment. When paired with `--envelope`, the
+baseline envelope on stdout equals the attachment's `Inspection` value and
+both derive from the same evidence-enabled execution, as specified by
+[Output Shapes](output-shapes.md#envelope-transport).
+
+Asset-mode dependency inspection registers `result_kind`
+`asset-dependencies` at `schema_version` `1` for the Debug evidence capability.
+The baseline form binds `content` to the source-generated
+`DependencyInspectionJsonContext` metadata for
+`DependencyInspectionContent`; the enriched form retains that exact binding
+and additionally binds `evidence` to the same context's
+`DependencyInspectionEvidenceDocument` metadata. Both forms use the same
+framing pair because Evidence presence is an admitted form of one registered
+contract, not another result kind. A different Content or incompatible
+Content/Evidence schema requires the Output Shapes version transition rather
+than reuse of `asset-dependencies` version `1`.
+
+This adoption admits the baseline form only when paired with
+`--evidence-envelope`; standalone asset-mode `--envelope` remains unadopted.
+Ordinary asset-mode `--json`, with or without the sidecar, retains the existing
+`DependsAssetDocument` serializer, including selected-section presence and row
+windows. It is a named host presentation, not attachment Content. The sidecar
+and paired baseline instead serialize `DependencyInspectionContent` without
+post-service shaping. A later public standalone-envelope adoption must resolve
+the differing ordinary JSON schema under Output Shapes rather than silently
+reuse this Debug-only compatibility exception.
+
+The Debug Browser/Wasm consumer receives the same closed evidence type and
+the same `DependencyInspectionContent`, then renders an owner-selected
+inspection-evidence view. It does not consume `DependsAssetProjection`, CLI
+section rows, or Markout display models. Host-specific views may differ; the
+service-issued values and wire associations do not.
+
+### Gates and production adoption
+
+Release correctness gates use the restored
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` scenario and focused
+pathological fixtures. They cover:
+
+- semantic equality between the extracted `DependencyInspectionContent` and
+  the existing asset-mode command projection before host rendering;
+- exact admitted and failed occurrence association, including mixed root kinds
+  and a package-prefix failure without an explicit occurrence;
+- complete empty, partial, unavailable, failed, and bounded/truncated Package
+  Dependency Evidence outcomes;
+- equal extracted baselines for ordinary and enriched execution, including an
+  evidence-only producer failure;
+- one execution, detached lifetime, and serialization without acquisition or
+  recapture; and
+- exact `asset-dependencies` version `1` framing for baseline and enriched
+  forms, rejection of a missing or mismatched registration, and round-trip of
+  both concrete source-generated serializers; and
+- parsed-wire equality for existing `DependsAssetDocument` JSON with and
+  without the sidecar, including selected-section presence and row windows;
+  rejection of standalone asset-mode `--envelope`; and
+- matching runtime JSON and generated Browser/Wasm types for the complete
+  closed enrichment.
+
+The Debug CLI public-entry gates required by Output Shapes additionally cover
+ordinary tree, JSON, and selected diagnostic-section output while the sidecar
+receives the complete closed enrichment; paired `--envelope` baseline
+equality including identical framing and Content serialization; and ordinary
+output plus nonzero status when sidecar publication fails. Demonstrations use
+the restored CLI project and each thin diagnostic view. A Debug Browser/Wasm
+demonstration consumes the same evidence value. These gates do not verify the
+already documented Release host-surface absence, which remains **unverified**
+under the generic envelope policy.
 
 ## Graph rendering and row currency
 
