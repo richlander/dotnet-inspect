@@ -137,15 +137,24 @@ internal static class MethodImplementationProfileAnalysis
             filters,
             finallys,
             faults,
-            context.LocalTypes.Length,
+            context.LocalCount,
             isAsync,
-            context.Instructions.IsComplete
-                ? []
-                :
-                [
-                    context.Instructions.Blocks.IncompleteReason
-                    ?? "Method body analysis was incomplete.",
-                ]);
+            IncompleteReasons(context));
+    }
+
+    static ImmutableArray<string> IncompleteReasons(
+        MethodBodyAnalysisContext context)
+    {
+        var reasons = ImmutableArray.CreateBuilder<string>();
+        if (!context.Instructions.IsComplete)
+        {
+            reasons.Add(
+                context.Instructions.Blocks.IncompleteReason
+                ?? "Method body analysis was incomplete.");
+        }
+        if (context.LocalTypesIncompleteReason is { } localReason)
+            reasons.Add(localReason);
+        return reasons.ToImmutable();
     }
 
     internal static ImmutableArray<MethodImplementationProfile> Collect(

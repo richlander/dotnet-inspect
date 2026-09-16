@@ -571,6 +571,132 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void
+        MethodDefinitionMap_ExactFallbackRequiresExactSignatureTypeScope()
+    {
+        AssemblyReferenceIdentity currentAssembly = new(
+            "Sample",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        MetadataTypeDefinitionName ownerName = Name(
+            "Sample",
+            "Owner");
+        MetadataTypeDefinitionName argumentName = Name(
+            "Sample",
+            "Argument");
+        TypeRef owner = Definition(
+            ownerName,
+            new TypeReferenceOrigin.CurrentAssembly(
+                currentAssembly));
+        TypeRef localArgument = Definition(
+            argumentName,
+            new TypeReferenceOrigin.CurrentAssembly(
+                currentAssembly));
+        TypeRef selfArgument = Definition(
+            argumentName,
+            new TypeReferenceOrigin.AssemblyReference(
+                currentAssembly));
+        TypeRef externalArgument = Definition(
+            argumentName,
+            new TypeReferenceOrigin.AssemblyReference(
+                currentAssembly with
+                {
+                    Version = new Version(2, 0, 0, 0),
+                    PublicKeyToken = "0123456789abcdef",
+                }));
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Route",
+            [TypeRef.SzArray(localArgument)],
+            localArgument,
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var externalParameterCallee = new MemberRef(
+            owner,
+            "Route",
+            [TypeRef.SzArray(externalArgument)],
+            selfArgument,
+            MemberKind.Method);
+        var selfCallee = new MemberRef(
+            owner,
+            "Route",
+            [TypeRef.SzArray(selfArgument)],
+            selfArgument,
+            MemberKind.Method);
+        var externalReturnCallee = new MemberRef(
+            owner,
+            "Route",
+            [TypeRef.SzArray(selfArgument)],
+            externalArgument,
+            MemberKind.Method);
+        MethodDefinitionMap map =
+            MethodDefinitionMap.Create([target, caller]);
+
+        Assert.Equal(
+            target.MetadataToken,
+            map.Resolve(
+                new DirectCall(
+                    caller,
+                    selfCallee,
+                    0,
+                    0x0A000001,
+                    0x0A000001,
+                    CallKind.Call)));
+        Assert.Equal(
+            0,
+            map.Resolve(
+                new DirectCall(
+                    caller,
+                    externalParameterCallee,
+                    0,
+                    0x0A000001,
+                    0x0A000001,
+                    CallKind.Call)));
+        Assert.Equal(
+            0,
+            map.Resolve(
+                new DirectCall(
+                    caller,
+                    externalReturnCallee,
+                    0,
+                    0x0A000001,
+                    0x0A000001,
+                    CallKind.Call)));
+
+        static MetadataTypeDefinitionName Name(
+            string ns,
+            string name) =>
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    ns,
+                    [name]))
+            .Name;
+
+        static TypeRef Definition(
+            MetadataTypeDefinitionName name,
+            TypeReferenceOrigin origin) =>
+            TypeRef.Definition(
+                "Sample",
+                name.Namespace,
+                name.Segments[0],
+                new ResolvableTypeReference(
+                    origin,
+                    name));
+    }
+
+    [Fact]
     public void MemberPattern_ConversionReturnUsesExactRetainedIdentity()
     {
         TypeRef owner =

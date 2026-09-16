@@ -868,15 +868,17 @@ internal sealed class LibraryMethodAnalysisRunner(
                                     scope));
                 }
             }
-            var localTypes =
-                DecodeLocalTypes(
+            LocalTypeDecodeResult localTypes =
+                DecodeLocalTypesWithStatus(
                     body,
                     scope);
             MethodBodyAnalysisContext context =
                 MethodBodyAnalysisContext.Create(
                 caller,
                 metadataBody,
-                localTypes);
+                localTypes.Types,
+                localTypes.DeclaredCount,
+                localTypes.IncompleteReason);
             MethodInstructions methodInstructions =
                 context.Instructions;
             if (includeImplementationProfiles)
@@ -1372,23 +1374,63 @@ internal sealed class LibraryMethodAnalysisRunner(
     ImmutableArray<TypeRef> DecodeLocalTypes(
         MethodBodyBlock body,
         GenericScope scope)
+        => DecodeLocalTypesWithStatus(body, scope).Types;
+
+    LocalTypeDecodeResult DecodeLocalTypesWithStatus(
+        MethodBodyBlock body,
+        GenericScope scope)
     {
         if (body.LocalSignature.IsNil)
-            return [];
+            return new([], 0, null);
         MetadataReader reader = _infrastructure.Reader;
         var signature =
             reader.GetStandaloneSignature(body.LocalSignature);
+        BlobReader blob = reader.GetBlobReader(signature.Signature);
+        SignatureHeader header = blob.ReadSignatureHeader();
+        if (header.Kind != SignatureKind.LocalVariables
+            || header.RawValue != 0x07)
+        {
+            throw new BadImageFormatException(
+                "A method body local signature does not have the local-variable signature kind.");
+        }
+        int declaredCount = blob.ReadCompressedInteger();
+        if (declaredCount < 0)
+        {
+            throw new BadImageFormatException(
+                "A method body local signature has an invalid local count.");
+        }
         if (!SignatureBlobGuard.IsSafeToDecode(
                 reader,
                 signature.Signature,
                 SignatureBlobGuard.Kind.LocalVariables))
         {
-            return [];
+            return new(
+                [],
+                declaredCount,
+                "The local signature exceeds the guarded decode policy.");
         }
-        return signature.DecodeLocalSignature(
-            TypeRefDecoder.Instance,
-            scope);
+        if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                reader,
+                signature.Signature,
+                SignatureBlobGuard.Kind.LocalVariables))
+        {
+            return new(
+                [],
+                declaredCount,
+                "The local signature is incomplete or contains trailing data.");
+        }
+        return new(
+            signature.DecodeLocalSignature(
+                TypeRefDecoder.Instance,
+                scope),
+            declaredCount,
+            null);
     }
+
+    readonly record struct LocalTypeDecodeResult(
+        ImmutableArray<TypeRef> Types,
+        int DeclaredCount,
+        string? IncompleteReason);
 
     // Razor-generated render methods lack generated-code attributes. Trust-gate
     // RenderTreeBuilder identity (#1708) so lookalikes do not suppress findings.

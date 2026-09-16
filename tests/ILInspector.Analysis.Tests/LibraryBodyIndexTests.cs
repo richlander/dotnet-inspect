@@ -12414,6 +12414,273 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OverloadRelationships_ExternalSignatureTypeDoesNotResolveLocally()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "ParameterCollision.dll",
+                EmitExternalSignatureTypeCollisionAssembly(),
+                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+        DirectCall call = Assert.Single(index.DirectCalls);
+        Assert.IsType<TypeReferenceOrigin.AssemblyReference>(
+            call.Callee.ParameterTypes[0].Resolution?.Origin);
+        Assert.Empty(index.OverloadRelationships());
+    }
+
+    [Fact]
+    public void
+        ImplementationProfiles_GuardRejectedLocalSignatureIsIncomplete()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "DeepLocal.dll",
+                EmitGuardRejectedLocalSignatureAssembly(),
+                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+        MethodImplementationProfile profile =
+            Assert.Single(index.ImplementationProfiles());
+        Assert.Equal(1, profile.LocalCount);
+        Assert.False(profile.IsComplete);
+        Assert.Contains(
+            profile.IncompleteReasons,
+            reason => reason.Contains(
+                "local signature",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    static ImmutableArray<byte>
+        EmitExternalSignatureTypeCollisionAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ParameterCollision.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ParameterCollision"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle externalAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("ParameterCollision"),
+                new Version(2, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle externalArgument =
+            metadata.AddTypeReference(
+                externalAssembly,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString("Argument"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle localArgument =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString("Argument"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString("Owner"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        BlobHandle targetSignature =
+            AddSignature(localArgument);
+        BlobHandle callerSignature = AddIntSignature();
+        MemberReferenceHandle externalTarget =
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("Route"),
+                AddSignature(externalArgument));
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int targetBody = AddBody(0x2a);
+        var callerIl = new BlobBuilder();
+        callerIl.WriteByte(0x14);
+        callerIl.WriteByte(0x28);
+        callerIl.WriteInt32(
+            MetadataTokens.GetToken(externalTarget));
+        callerIl.WriteByte(0x2a);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerIl),
+            maxStack: 1);
+
+        AddMethod(targetSignature, targetBody);
+        AddMethod(callerSignature, callerBody);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.CreateRange(image.ToArray());
+
+        BlobHandle AddSignature(EntityHandle argument)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: false)
+                .Parameters(
+                    1,
+                    returns => returns.Void(),
+                    parameters => parameters
+                        .AddParameter()
+                        .Type()
+                        .Type(
+                            argument,
+                            isValueType: false));
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        BlobHandle AddIntSignature()
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: false)
+                .Parameters(
+                    1,
+                    returns => returns.Void(),
+                    parameters => parameters
+                        .AddParameter()
+                        .Type()
+                        .Int32());
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        int AddBody(params byte[] il)
+        {
+            var code = new BlobBuilder();
+            code.WriteBytes(il);
+            return bodyEncoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        }
+
+        void AddMethod(
+            BlobHandle signature,
+            int bodyOffset)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Route"),
+                signature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
+    }
+
+    static ImmutableArray<byte>
+        EmitGuardRejectedLocalSignatureAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("DeepLocal.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("DeepLocal"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Probe"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var localSignature = new BlobBuilder();
+        localSignature.WriteByte(0x07);
+        localSignature.WriteByte(0x01);
+        for (int i = 0;
+            i < SignatureBlobGuard.DefaultMaxDepth;
+            i++)
+        {
+            localSignature.WriteByte(0x1d);
+        }
+        localSignature.WriteByte(0x08);
+        StandaloneSignatureHandle localSignatureHandle =
+            metadata.AddStandaloneSignature(
+                metadata.GetOrAddBlob(localSignature));
+
+        var bodies = new BlobBuilder();
+        var code = new BlobBuilder();
+        code.WriteByte(0x2a);
+        int bodyOffset =
+            new MethodBodyStreamEncoder(bodies)
+                .AddMethodBody(
+                    new InstructionEncoder(code),
+                    maxStack: 0,
+                    localVariablesSignature:
+                        localSignatureHandle,
+                    attributes:
+                        MethodBodyAttributes.InitLocals);
+
+        var methodSignature = new BlobBuilder();
+        new BlobEncoder(methodSignature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returns => returns.Void(),
+                _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(methodSignature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.CreateRange(image.ToArray());
+    }
+
+    [Fact]
     public void ImplementationProfiles_AttributeAsyncBodiesToSourceMethods()
     {
         var index = LibraryBodyIndex.Open(
