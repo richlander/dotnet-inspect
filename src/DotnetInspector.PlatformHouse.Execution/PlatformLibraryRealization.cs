@@ -2,28 +2,70 @@ using DotnetInspector.Libraries;
 using DotnetInspector.Platforms;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
+using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.PlatformHouse;
 
 /// <summary>
+/// Artifact provenance binding one published content item to its exact
+/// Platform source realization.
+/// </summary>
+public sealed class PlatformLibraryArtifactProvenance : IArtifactProvenance
+{
+    public PlatformLibraryArtifactProvenance(
+        PlatformSourceContribution.Realization contribution,
+        IArtifactProvenance sourceProvenance)
+    {
+        ArgumentNullException.ThrowIfNull(contribution);
+        ArgumentNullException.ThrowIfNull(sourceProvenance);
+        Contribution = contribution;
+        SourceProvenance = sourceProvenance;
+    }
+
+    public PlatformSourceContribution.Realization Contribution { get; }
+    public IArtifactProvenance SourceProvenance { get; }
+}
+
+/// <summary>
 /// Resource-free source-owner evidence for one selected assembly content item.
 /// </summary>
 /// <remarks>
-/// The corresponding <see cref="ArtifactContentLease"/> remains a separate
-/// operation input and is never retained here.
+/// The Artifact registration supplies the exact source contribution, while
+/// Metadata's owner-issued projection supplies the exact physical managed
+/// identity. The corresponding <see cref="ArtifactContentLease"/> remains a
+/// separate operation input and is never retained here.
 /// </remarks>
 public sealed class PlatformLibraryContentSelection
 {
     public PlatformLibraryContentSelection(
-        PlatformSourceContribution.Realization contribution,
         ArtifactContentReference content,
-        ManagedMetadataIdentity.Assembly assemblyIdentity)
+        ArtifactAssemblyProjection projection)
     {
-        ArgumentNullException.ThrowIfNull(contribution);
         ArgumentNullException.ThrowIfNull(content);
-        ArgumentNullException.ThrowIfNull(assemblyIdentity);
-        ArgumentNullException.ThrowIfNull(assemblyIdentity.Identity);
+        ArgumentNullException.ThrowIfNull(projection);
+        if (content.Provenance
+                is not PlatformLibraryArtifactProvenance provenance)
+        {
+            throw new ArgumentException(
+                "Selected Library content must retain its Platform source realization as Artifact provenance.",
+                nameof(content));
+        }
+        PlatformSourceContribution.Realization contribution =
+            provenance.Contribution;
+        if (!ReferenceEquals(
+                projection.Registration.Generation,
+                content.Generation)
+            || !ReferenceEquals(
+                projection.Registration.Artifact,
+                content.Artifact))
+        {
+            throw new ArgumentException(
+                "Selected Library content requires the Metadata projection issued for its exact Artifact.",
+                nameof(projection));
+        }
+        var assemblyIdentity =
+            new ManagedMetadataIdentity.Assembly(projection.Identity);
         if (assemblyIdentity.Identity.Version is null)
         {
             throw new ArgumentException(
@@ -52,12 +94,14 @@ public sealed class PlatformLibraryContentSelection
         Contribution = contribution;
         Demand = population.Value;
         Content = content;
+        Projection = projection;
         AssemblyIdentity = assemblyIdentity;
     }
 
     public PlatformSourceContribution.Realization Contribution { get; }
     public PlatformLibraryDemand Demand { get; }
     public ArtifactContentReference Content { get; }
+    public ArtifactAssemblyProjection Projection { get; }
     public ManagedMetadataIdentity.Assembly AssemblyIdentity { get; }
 
     static bool DemandMatches(

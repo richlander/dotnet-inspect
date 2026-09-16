@@ -91,8 +91,11 @@ Exact-target, one-Library shared ownership handoff is implemented in
 `DotnetInspector.PlatformHouse.Execution` under #7237. It validates selected
 resource-free source content against the exact request, target, population,
 view, Artifact reference, and assembly identity before atomically constructing
-one `LibraryReference` and `LibraryContentOwner`. The owning outcome transfers
-the owner separately from its resource-free value and composed receipt.
+one `LibraryReference` and `LibraryContentOwner`. Artifact registration
+provenance binds the exact source realization to the published content, and
+Metadata's owner-issued Artifact projection binds managed identity and MVID to
+that exact Artifact. The owning outcome transfers the owner separately from its
+resource-free value and composed receipt.
 Reference-only, reference-plus-implementation, and implementation-only role
 closure are gated in Release.
 
@@ -689,9 +692,17 @@ settled platform Library demand into the shared Library shape without
 discarding platform target, source, or view correspondence. For every selected
 Library, the House validates that the resource-free source contribution and
 live source content obligations describe the same exact target, source, and
-views. The resulting `LibraryReference` retains the exact Platform arm of
-`ExactLibrarySourceCoordinate`; an opaque House operation identity or assembly
-display name cannot replace it.
+views. The source adapter registers content with
+`PlatformLibraryArtifactProvenance`, which retains the exact realization
+contribution beside source-specific resource-free provenance. Content selection
+recovers the contribution from that registration rather than accepting an
+independent caller pairing. It accepts only Metadata's owner-issued
+`ArtifactAssemblyProjection` for the exact Artifact generation and identity and
+derives the managed assembly identity from that projection. The resulting
+`LibraryReference` retains the exact Platform arm of
+`ExactLibrarySourceCoordinate`; an opaque House operation identity,
+caller-supplied assembly display name, or projection for another Artifact
+cannot replace it.
 
 View demand closes the required Library roles before construction:
 
@@ -1194,8 +1205,11 @@ The operational House begins in the separate host-neutral
 `DotnetInspector.PlatformHouse.Execution` project above the
 `DotnetInspector.PlatformHouse` contract seam, Metadata, Artifact content
 children, and shared Library ownership. Source adapters continue to depend only
-on the contract seam; application orchestration will pass their resource-free
-contributions and separately Artifact-backed selected content into execution.
+on the contract seam while producing their source results. During Artifact
+materialization, application orchestration wraps each selected realization in
+`PlatformLibraryArtifactProvenance`, retains Metadata's owner-issued projection
+from the Artifact admission callback, and passes the resulting resource-free
+selection plus separate content lease into execution.
 `PackageHouse` does not call into that implementation project; it returns its
 typed delegation to an orchestration layer that can issue an ordinary House
 request. Further project moves are tracked by
@@ -1594,7 +1608,9 @@ The implemented step-6a gates are:
 - `ExactLibraryRealizer_RejectsForeignContentWithoutAcceptingLease`,
   `ExactLibraryRealizer_RejectsUnauthorizedSourceWithoutAcceptingLease`, and
   `ExactLibraryRealizer_CancellationPrecedesOwnershipAcceptance` for source
-  authorization and atomic transfer; and
+  authorization and atomic transfer;
+- `ContentSelection_RejectsForeignMetadataProjection` for owner-issued
+  source-to-Artifact and Artifact-to-managed-identity binding; and
 - `PlatformLibraryCompletedEvidence_IsResourceFree` and
   `PlatformHouseFailedOutcome_RetainsTypedResourceFreeEvidence` for the
   receipt and failure boundaries.
