@@ -208,6 +208,20 @@ public static class PortableQueryResolver
                     binding.Predicate));
             }
 
+            foreach (string family in vocabulary.RequiredTermFamilies
+                .Distinct(StringComparer.Ordinal)
+                .Order(PortableQueryModel.ScalarOrder))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!families.ContainsKey(family))
+                {
+                    return Failure(
+                        PortableQueryFailureReason.RequiredTermFamilyMissing,
+                        PortableQueryLocation.Term(index),
+                        family);
+                }
+            }
+
             return null;
         }
 
@@ -216,6 +230,7 @@ public static class PortableQueryResolver
         // could have started.
         private PortableQueryFailure? ResolveBounds(CancellationToken cancellationToken)
         {
+            var dimensions = new HashSet<string>(StringComparer.Ordinal);
             int index = 0;
             foreach (PortableQueryBound bound in PortableQueryModel.InSemanticOrder(intent.Bounds))
             {
@@ -231,6 +246,22 @@ public static class PortableQueryResolver
 
                 if (!dimension.Admits(bound.RequestedMaximum, _terms))
                     return Failure(PortableQueryFailureReason.MaximumOutsideRange, at, bound.Dimension);
+
+                dimensions.Add(bound.Dimension);
+            }
+
+            foreach (string dimension in vocabulary.RequiredDimensions
+                .Distinct(StringComparer.Ordinal)
+                .Order(PortableQueryModel.ScalarOrder))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!dimensions.Contains(dimension))
+                {
+                    return Failure(
+                        PortableQueryFailureReason.RequiredDimensionMissing,
+                        PortableQueryLocation.Bound(index),
+                        dimension);
+                }
             }
 
             return null;

@@ -10,6 +10,70 @@ public sealed class CommittedScenarioSelectorResolverTests
 {
     [Fact]
     public async Task
+        Resolve_PacketTypeSelectorMatchesExactEscapedMetadataName()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding binding =
+            NavigationSnapshotTestData.Binding("Package.A");
+        WorkspaceScopeSnapshot scope =
+            await NavigationSnapshotTestData.ReplaceAsync(workspace, binding);
+        ApiType literalPlus = new()
+        {
+            Namespace = "Sample",
+            Name = "Outer+Inner",
+            DefinitionName = TypeName("Outer+Inner"),
+            Accessibility = "public",
+            Members = [],
+        };
+        ApiType nested = new()
+        {
+            Namespace = "Sample",
+            Name = "Outer+Inner",
+            DefinitionName = TypeName("Outer", "Inner"),
+            Accessibility = "public",
+            Members = [],
+        };
+        NavigationPackageEvaluation package =
+            NavigationSnapshotTestData.PackageEvaluation(
+                scope.Packages[0],
+                binding,
+                NavigationSnapshotTestData.Surface(
+                    "Navigation.Library",
+                    literalPlus,
+                    nested));
+        const string json =
+            """{"f":2,"t":[["Package.A","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"type","l":["Navigation.Library","1.0.0.0",null,null],"y":"Sample.Outer\\+Inner"},"u":{"k":"workspace"}}]}""";
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            json,
+            TestContext.Current.CancellationToken);
+        CommittedScenarioDefinitionSet definitions =
+            WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                packet,
+                TestContext.Current.CancellationToken);
+
+        CommittedScenarioSelectorResolutionResult result =
+            WorkspaceDefinitionConsumer.ResolveSelectors(
+                definitions,
+                workspace.Identity,
+                scope,
+                [new("t0", package)]);
+
+        CommittedScenarioSelectorResolution resolved =
+            Assert.IsType<
+                CommittedScenarioSelectorResolutionResult.Resolved>(
+                    result).Resolution;
+        var packageState =
+            Assert.IsType<ResolvedCommittedPackageViewState>(
+                resolved.ActiveState);
+        NavigationRetainedSubjectContext context =
+            Assert.IsType<NavigationRetainedSubjectContext>(
+                packageState.Initialization.Context);
+        Assert.Equal(literalPlus.DefinitionName, context.Type!.Identity.Type);
+        Assert.NotEqual(nested.DefinitionName, context.Type.Identity.Type);
+    }
+
+    [Fact]
+    public async Task
         Resolve_WorkspaceFocusRetainsExactMemberContextAndDormantRows()
     {
         await using var workspace = new InspectionWorkspace();
@@ -903,11 +967,11 @@ public sealed class CommittedScenarioSelectorResolverTests
             culture: null,
             publicKeyToken: null);
 
-    private static MetadataTypeDefinitionName TypeName(string name) =>
+    private static MetadataTypeDefinitionName TypeName(params string[] segments) =>
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create(
                 "Sample",
-                [name])).Name;
+                [.. segments])).Name;
 
     private static void AssertFailure(
         CommittedScenarioSelectorResolutionResult result,

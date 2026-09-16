@@ -57,6 +57,18 @@ namespace DotnetInspect.Web.Interop.Catalog
             try
             {
                 WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(encoded);
+                if (packet.FormatVersion
+                    != WorkspaceSharePacketCodec.LegacyFormatVersion)
+                {
+                    return new BrowserWorkspaceShareDecodeResult(
+                        Succeeded: false,
+                        State: null,
+                        Failure: new BrowserWorkspaceShareFailure(
+                            "UnsupportedFormat",
+                            "packet",
+                            $"Browser workspace share restoration does not yet support packet format {packet.FormatVersion}."));
+                }
+
                 WorkspaceSharePacketDefinitionSet definitions =
                     WorkspaceSharePacketTransposer.ToDefinitions(packet);
 

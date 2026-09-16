@@ -82,6 +82,24 @@ public sealed class BrowserWorkspaceShareOperationsTests
     }
 
     [Fact]
+    public void Format2Packet_ReturnsTypedUnsupportedFormatFailure()
+    {
+        const string format2Packet =
+            "eyJmIjoyLCJ0IjpbWyJQIiwiMS4wLjAiLCJuZXQxMS4wIixudWxsXV0sImciOltb"
+            + "MF1dLCJhIjpudWxsLCJ4IjowLCJ2IjpbeyJ0IjpudWxsLCJ1Ijp7ImsiOiJ3b3Jr"
+            + "c3BhY2UifX0seyJ0IjowLCJ1Ijp7ImsiOiJ3b3Jrc3BhY2UifX1dfQ";
+
+        BrowserWorkspaceShareDecodeResult result =
+            BrowserWorkspaceShareOperations.Decode(format2Packet);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.State);
+        Assert.Equal("UnsupportedFormat", result.Failure?.Kind);
+        Assert.Equal("packet", result.Failure?.Path);
+        Assert.Contains("format 2", result.Failure?.Message);
+    }
+
+    [Fact]
     public void InvalidBrowserTopology_ReturnsTypedTransportFailure()
     {
         var state = new BrowserWorkspaceShareState(

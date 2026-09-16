@@ -29,6 +29,9 @@ public enum PortableQueryFailureReason
     /// <summary>Two bound terms the vocabulary declares mutually exclusive.</summary>
     TermsIncompatible,
 
+    /// <summary>No bound term belongs to a family the vocabulary requires.</summary>
+    RequiredTermFamilyMissing,
+
     /// <summary>The vocabulary declares no such execution-bound dimension.</summary>
     UnknownDimension,
 
@@ -37,6 +40,9 @@ public enum PortableQueryFailureReason
     /// depend on the terms already bound.
     /// </summary>
     MaximumOutsideRange,
+
+    /// <summary>The intent carries no bound for a dimension the vocabulary requires.</summary>
+    RequiredDimensionMissing,
 
     /// <summary>The vocabulary does not declare this stage kind.</summary>
     StageNotAdmitted,
@@ -72,10 +78,10 @@ public enum PortableQueryPart
 /// </summary>
 /// <remarks>
 /// <para>
-/// An index into <see cref="PortableQueryPart.Terms"/> is in the model's
-/// semantic order rather than the order a caller supplied, because a term set
-/// has no supplied order. Indexes into the other parts are positions in the
-/// intent as constructed.
+/// Term and bound indexes use the model's semantic order rather than caller
+/// order. A missing required family or dimension is located at the next
+/// position after the present semantic terms or bounds. Stage indexes retain
+/// declaration order; order-operation indexes use their model-defined order.
 /// </para>
 /// <para>
 /// <see cref="FieldTermIndex"/> is present only for a failure inside a
@@ -220,9 +226,13 @@ public sealed record PortableQueryFailure
             or PortableQueryFailureReason.OperatorNotAdmitted
             or PortableQueryFailureReason.ValueRejected
             or PortableQueryFailureReason.DuplicateAfterBinding
-            or PortableQueryFailureReason.TermsIncompatible => PortableQueryPart.Terms,
+            or PortableQueryFailureReason.TermsIncompatible
+            or PortableQueryFailureReason.RequiredTermFamilyMissing =>
+                PortableQueryPart.Terms,
         PortableQueryFailureReason.UnknownDimension
-            or PortableQueryFailureReason.MaximumOutsideRange => PortableQueryPart.Bounds,
+            or PortableQueryFailureReason.MaximumOutsideRange
+            or PortableQueryFailureReason.RequiredDimensionMissing =>
+                PortableQueryPart.Bounds,
         PortableQueryFailureReason.StageNotAdmitted
             or PortableQueryFailureReason.RankingMissing => PortableQueryPart.Stages,
         PortableQueryFailureReason.UnknownOrderReference

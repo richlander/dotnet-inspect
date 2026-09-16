@@ -463,7 +463,7 @@ These keep a review fast and the proof legible:
   Reconstruct the claim from that history before reading today's matcher.
 - **Run the pass's tests in isolation.** The full decompiler suite is slow, so
   filter to the class under review —
-  `dotnet run --project tests/ILInspector.Decompiler.Tests -- -class
+  `dotnet run --project tests/ILInspector.Decompiler.Tests -- --filter-class
   ILInspector.Decompiler.Tests.<PassTests>`. Run the full suite once for a
   baseline so you can separate pre-existing failures (for example the
   fidelity-gate docket) from regressions you introduce.
