@@ -88,3 +88,20 @@ public static class OrdinalSelection
     public static int Pick(int value) => value;
     public static int Pick(string value) => value.Length;
 }
+
+public interface IExplicit
+{
+    int M();
+}
+
+public sealed class SpecialMethods : IExplicit
+{
+    public static SpecialMethods operator +(
+        SpecialMethods left,
+        SpecialMethods right)
+        => left;
+
+    int IExplicit.M() => 0;
+
+    public int Normal() => 0;
+}

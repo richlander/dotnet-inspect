@@ -224,6 +224,128 @@ public sealed class ApiDeclarationCorrespondenceTests
     }
 
     [Fact]
+    public void ApiCorrespondence_BindsProductionMethodKinds()
+    {
+        ResolvedAssemblyReference source = Reference(Pair.OldAssemblyPath());
+        ResolvedAssemblyReference destination =
+            Reference(Pair.NewAssemblyPath());
+        MetadataTypeDefinitionName typeName =
+            Name("MetadataCorrespondenceFixture", "SpecialMethods");
+        ApiType type;
+        using (AssemblyInspectionSession session =
+               AssemblyInspectionSession.Open(source))
+        {
+            type = session.ApiSurface(includeAll: true)
+                .Types
+                .Single(candidate => candidate.DefinitionName == typeName);
+        }
+
+        foreach ((string kind, string selectorPrefix) in new[]
+        {
+            ("operator", "operator:op_Addition~"),
+            (
+                "explicit-interface-implementation",
+                "explicit:MetadataCorrespondenceFixture.IExplicit.M~"),
+            ("method", "Normal~"),
+        })
+        {
+            ApiMember member = type.Members.Single(
+                candidate => candidate.Kind == kind);
+            MemberAnchor anchor =
+                ApiMemberIdentity.GetMemberAnchor(type, member);
+            Assert.StartsWith(
+                selectorPrefix,
+                anchor.StableSelector,
+                StringComparison.Ordinal);
+
+            ApiDeclarationBindingResult binding =
+                ApiDeclarationCorrespondence.BindSource(
+                    source,
+                    typeName,
+                    new ApiDeclarationMemberSelection(
+                        ApiDeclarationKind.Method,
+                        anchor),
+                    TestContext.Current.CancellationToken);
+            Assert.True(
+                binding.IsExact,
+                $"{binding.Status}/{binding.Reason}/{binding.Stage}: "
+                + binding.Detail);
+            ApiDeclarationReference declaration =
+                Assert.IsType<ApiDeclarationReference>(
+                    binding.Declaration);
+
+            ApiDeclarationCorrespondenceResult identical =
+                ApiDeclarationCorrespondence.Match(
+                    source,
+                    declaration,
+                    source,
+                    TestContext.Current.CancellationToken);
+            Assert.Equal(
+                ApiDeclarationCorrespondenceStatus.Exact,
+                identical.Status);
+            Assert.Equal(
+                declaration.Member,
+                identical.Target?.Member);
+
+            ApiDeclarationCorrespondenceResult paired =
+                ApiDeclarationCorrespondence.Match(
+                    source,
+                    declaration,
+                    destination,
+                    TestContext.Current.CancellationToken);
+            Assert.Equal(
+                ApiDeclarationCorrespondenceStatus.Exact,
+                paired.Status);
+        }
+    }
+
+    [Fact]
+    public void ApiCorrespondence_MethodAnchorProjection_IsRelevantAndCumulative()
+    {
+        foreach (int irrelevantNeighbors in new[] { 0, 1024 })
+        {
+            byte[] image = BuildMethodProjectionBudgetImage(
+                irrelevantNeighbors,
+                sameName: false);
+            ApiDeclarationBindingResult binding =
+                ApiDeclarationCorrespondence.BindSource(
+                    Reference(image),
+                    Name("N", "C"),
+                    new ApiDeclarationMemberSelection(
+                        ApiDeclarationKind.Method,
+                        CreateFirstMethodAnchor(image)),
+                    TestContext.Current.CancellationToken);
+
+            Assert.True(
+                binding.IsExact,
+                $"{irrelevantNeighbors}: "
+                + $"{binding.Status}/{binding.Reason}/{binding.Stage}");
+        }
+
+        byte[] relevantImage = BuildMethodProjectionBudgetImage(
+            neighborCount: 768,
+            sameName: true);
+        ApiDeclarationBindingResult exhausted =
+            ApiDeclarationCorrespondence.BindSource(
+                Reference(relevantImage),
+                Name("N", "C"),
+                new ApiDeclarationMemberSelection(
+                    ApiDeclarationKind.Method,
+                    CreateFirstMethodAnchor(relevantImage)),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStatus.Failed,
+            exhausted.Status);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceReason.WorkLimitExceeded,
+            exhausted.Reason);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStage.SourceProjection,
+            exhausted.Stage);
+    }
+
+    [Fact]
     public void ApiCorrespondence_ExactEndpointAssociation()
     {
         ResolvedAssemblyReference source = Reference(Pair.OldAssemblyPath());
@@ -662,7 +784,12 @@ public sealed class ApiDeclarationCorrespondenceTests
     static ApiDeclarationKind Kind(ApiMember member)
         => member.Kind switch
         {
-            "method" or "constructor" or "extension-method" =>
+            "method"
+                or "constructor"
+                or "finalizer"
+                or "operator"
+                or "explicit-interface-implementation"
+                or "extension-method" =>
                 ApiDeclarationKind.Method,
             "property" => ApiDeclarationKind.Property,
             "event" => ApiDeclarationKind.Event,
@@ -799,6 +926,72 @@ public sealed class ApiDeclarationCorrespondenceTests
             bodyOffset: 0,
             MetadataTokens.ParameterHandle(1));
         return Serialize(metadata);
+    }
+
+    static byte[] BuildMethodProjectionBudgetImage(
+        int neighborCount,
+        bool sameName)
+    {
+        MetadataBuilder metadata =
+            CreateMetadata("MethodProjectionBudget");
+        AssemblyReferenceHandle dependency =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddTypeReference(
+            dependency,
+            default,
+            metadata.GetOrAddString(new string('A', 3000)));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Normal"),
+            metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        BlobHandle neighborSignature = metadata.GetOrAddBlob(
+            new byte[] { 0x00, 0x01, 0x01, 0x12, 0x05 });
+        for (int index = 0; index < neighborCount; index++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    sameName ? "Normal" : $"M{index}"),
+                neighborSignature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata);
+    }
+
+    static MemberAnchor CreateFirstMethodAnchor(byte[] image)
+    {
+        using var peReader =
+            new PEReader(new MemoryStream(image, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle =
+            reader.TypeDefinitions.Single(
+                handle => reader.StringComparer.Equals(
+                    reader.GetTypeDefinition(handle).Name,
+                    "C"));
+        MethodDefinitionHandle methodHandle =
+            reader.GetTypeDefinition(typeHandle).GetMethods().First();
+        return ApiMemberIdentity.CreateMethodAnchor(
+            reader,
+            typeHandle,
+            reader.GetMethodDefinition(methodHandle));
     }
 
     static byte[] BuildUnreadableMethodCandidateImage()

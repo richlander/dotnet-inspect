@@ -674,14 +674,9 @@ public static class ApiDeclarationCorrespondence
         CancellationToken cancellationToken)
     {
         List<ApiDeclarationReference> matches = [];
-        IReadOnlyDictionary<int, MemberAnchor> projectedMethodAnchors =
-            selection.Kind == ApiDeclarationKind.Method
-                ? CreateProjectedMethodAnchors(
-                    reader,
-                    declaringTypeHandle)
-                : ImmutableDictionary<int, MemberAnchor>.Empty;
-        int anchorWorkRemaining =
-            MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        var projectionBudget = new ProjectionWorkBudget(
+            MetadataSafetyPolicy.MaxClassificationScanWorkChars);
+        MethodAnchorProjector? methodProjector = null;
         int scanned = 0;
         foreach (EntityHandle handle in EnumerateMembers(
                      reader,
@@ -692,13 +687,31 @@ public static class ApiDeclarationCorrespondence
             if (++scanned > limits.MaxMemberRows)
                 throw new BudgetExceededException();
 
+            // MemberAnchor retains the exact raw name, so unlike a signature
+            // projection this lookup fact cannot exclude an aliasing candidate.
+            string name = ReadMemberName(reader, selection.Kind, handle);
+            if (!StringComparer.Ordinal.Equals(
+                    name,
+                    selection.Anchor.MemberName))
+            {
+                continue;
+            }
+
+            if (selection.Kind == ApiDeclarationKind.Method)
+            {
+                methodProjector ??= new(
+                    reader,
+                    declaringTypeHandle,
+                    projectionBudget);
+            }
             MemberAnchor anchor = CreateAnchor(
                 reader,
                 declaringTypeHandle,
                 selection.Kind,
                 handle,
-                projectedMethodAnchors,
-                ref anchorWorkRemaining);
+                name,
+                methodProjector,
+                projectionBudget);
             if (anchor == selection.Anchor)
             {
                 matches.Add(CreateMemberReference(
@@ -747,14 +760,9 @@ public static class ApiDeclarationCorrespondence
     {
         List<ApiDeclarationReference> relevant = [];
         List<ApiDeclarationReference> exact = [];
-        IReadOnlyDictionary<int, MemberAnchor> projectedMethodAnchors =
-            source.Kind == ApiDeclarationKind.Method
-                ? CreateProjectedMethodAnchors(
-                    reader,
-                    declaringTypeHandle)
-                : ImmutableDictionary<int, MemberAnchor>.Empty;
-        int anchorWorkRemaining =
-            MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        var projectionBudget = new ProjectionWorkBudget(
+            MetadataSafetyPolicy.MaxClassificationScanWorkChars);
+        MethodAnchorProjector? methodProjector = null;
         int scanned = 0;
         foreach (EntityHandle handle in EnumerateMembers(
                      reader,
@@ -765,6 +773,8 @@ public static class ApiDeclarationCorrespondence
             if (++scanned > limits.MaxMemberRows)
                 throw new BudgetExceededException();
 
+            // The strict candidate set is same-kind and same-name; project no
+            // unrelated signature before this exact ordinal lookup succeeds.
             string name = ReadMemberName(reader, source.Kind, handle);
             if (!StringComparer.Ordinal.Equals(
                     name,
@@ -773,13 +783,21 @@ public static class ApiDeclarationCorrespondence
                 continue;
             }
 
+            if (source.Kind == ApiDeclarationKind.Method)
+            {
+                methodProjector ??= new(
+                    reader,
+                    declaringTypeHandle,
+                    projectionBudget);
+            }
             MemberAnchor anchor = CreateAnchor(
                 reader,
                 declaringTypeHandle,
                 source.Kind,
                 handle,
-                projectedMethodAnchors,
-                ref anchorWorkRemaining);
+                name,
+                methodProjector,
+                projectionBudget);
             ApiDeclarationReference candidate = CreateMemberReference(
                 reader,
                 endpoint,
@@ -830,28 +848,8 @@ public static class ApiDeclarationCorrespondence
         }
 
         ApiDeclarationReference selected = exact[0];
-        int addressMatches = 0;
-        anchorWorkRemaining =
-            MetadataSafetyPolicy.MaxClassificationScanWorkChars;
-        scanned = 0;
-        foreach (EntityHandle handle in EnumerateMembers(
-                     reader,
-                     declaringTypeHandle,
-                     source.Kind))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (++scanned > limits.MaxMemberRows)
-                throw new BudgetExceededException();
-            MemberAnchor anchor = CreateAnchor(
-                reader,
-                declaringTypeHandle,
-                source.Kind,
-                handle,
-                projectedMethodAnchors,
-                ref anchorWorkRemaining);
-            if (anchor == selected.Member)
-                addressMatches++;
-        }
+        int addressMatches = relevant.Count(
+            candidate => candidate.Member == selected.Member);
         if (addressMatches != 1)
         {
             return new(
@@ -1139,134 +1137,82 @@ public static class ApiDeclarationCorrespondence
         TypeDefinitionHandle declaringType,
         ApiDeclarationKind kind,
         EntityHandle handle,
-        IReadOnlyDictionary<int, MemberAnchor> projectedMethodAnchors,
-        ref int workRemaining)
+        string name,
+        MethodAnchorProjector? methodProjector,
+        ProjectionWorkBudget projectionBudget)
         => kind switch
         {
             ApiDeclarationKind.Method =>
-                projectedMethodAnchors.TryGetValue(
-                    MetadataTokens.GetToken(handle),
-                    out MemberAnchor? projected)
-                    ? projected
-                    : ApiMemberIdentity.CreateMethodAnchorInfo(
-                        reader,
-                        declaringType,
-                        reader.GetMethodDefinition(
-                            (MethodDefinitionHandle)handle),
-                        ref workRemaining,
-                        IsExtensionMethod(
+                (methodProjector
+                    ?? throw new InvalidOperationException(
+                        "Method projection requires a method projector."))
+                .Create(
+                    (MethodDefinitionHandle)handle,
+                    name),
+            ApiDeclarationKind.Property =>
+                CreateNonMethodAnchor(
+                    projectionBudget,
+                    (ref int remaining) =>
+                    {
+                        PropertyDefinition definition =
+                            reader.GetPropertyDefinition(
+                                (PropertyDefinitionHandle)handle);
+                        return ApiMemberIdentity.CreatePropertyAnchor(
                             reader,
                             declaringType,
-                            (MethodDefinitionHandle)handle))
-                        .Anchor,
-            ApiDeclarationKind.Property =>
-                ApiMemberIdentity.CreatePropertyAnchor(
-                    reader,
-                    declaringType,
-                    reader.GetPropertyDefinition(
-                        (PropertyDefinitionHandle)handle),
-                    ref workRemaining),
+                            definition,
+                            ref remaining);
+                    }),
             ApiDeclarationKind.Event =>
-                ApiMemberIdentity.CreateEventAnchor(
-                    reader,
-                    declaringType,
-                    reader.GetEventDefinition(
-                        (EventDefinitionHandle)handle),
-                    ref workRemaining),
+                CreateNonMethodAnchor(
+                    projectionBudget,
+                    (ref int remaining) =>
+                    {
+                        EventDefinition definition =
+                            reader.GetEventDefinition(
+                                (EventDefinitionHandle)handle);
+                        return ApiMemberIdentity.CreateEventAnchor(
+                            reader,
+                            declaringType,
+                            definition,
+                            ref remaining);
+                    }),
             ApiDeclarationKind.Field =>
-                ApiMemberIdentity.CreateFieldAnchor(
-                    reader,
-                    declaringType,
-                    reader.GetFieldDefinition(
-                        (FieldDefinitionHandle)handle),
-                    ref workRemaining),
+                CreateNonMethodAnchor(
+                    projectionBudget,
+                    (ref int remaining) =>
+                    {
+                        FieldDefinition definition =
+                            reader.GetFieldDefinition(
+                                (FieldDefinitionHandle)handle);
+                        return ApiMemberIdentity.CreateFieldAnchor(
+                            reader,
+                            declaringType,
+                            definition,
+                            ref remaining);
+                    }),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
-    static IReadOnlyDictionary<int, MemberAnchor>
-        CreateProjectedMethodAnchors(
-            MetadataReader reader,
-            TypeDefinitionHandle declaringType)
+    delegate MemberAnchor NonMethodAnchorFactory(ref int remaining);
+
+    static MemberAnchor CreateNonMethodAnchor(
+        ProjectionWorkBudget budget,
+        NonMethodAnchorFactory create)
     {
-        ApiType type = MetadataDeclarationQuery.GetTypeSurface(
-            reader,
-            declaringType,
-            includeNonPublicMembers: true);
-        ApplyProductionMethodSignatures(
-            reader,
-            declaringType,
-            type);
-        var anchors = new Dictionary<int, MemberAnchor>();
-        foreach (ApiMember member in type.Members)
+        int remaining = budget.Remaining;
+        try
         {
-            if (member.MetadataToken is not int token)
-                continue;
-            anchors.Add(
-                token,
-                ApiMemberIdentity.GetMemberAnchor(type, member));
+            return create(ref remaining);
         }
-        return anchors;
-    }
-
-    static void ApplyProductionMethodSignatures(
-        MetadataReader reader,
-        TypeDefinitionHandle declaringType,
-        ApiType type)
-    {
-        Dictionary<int, ApiMember> membersByToken = type.Members
-            .Where(member => member.MetadataToken is not null)
-            .ToDictionary(
-                member => member.MetadataToken!.Value,
-                member => member);
-        TypeDefinition typeDefinition =
-            reader.GetTypeDefinition(declaringType);
-        GenericContext typeContext =
-            GenericContext.ForType(reader, typeDefinition);
-        byte typeNullableContext =
-            NullabilityReader.GetTypeNullableContext(
-                reader,
-                declaringType);
-        foreach (MethodDefinitionHandle methodHandle
-                 in typeDefinition.GetMethods())
+        catch (BadImageFormatException) when (remaining <= 0)
         {
-            int token = MetadataTokens.GetToken(methodHandle);
-            if (!membersByToken.TryGetValue(token, out ApiMember? member))
-                continue;
-
-            MethodDefinition method =
-                reader.GetMethodDefinition(methodHandle);
-            var signature =
-                ApiSurfaceExtractor.GetMethodSignatureForIdentity(
-                reader,
-                typeContext,
-                methodHandle,
-                method,
-                typeNullableContext);
-            member.Signature = signature.Text;
-            member.SignatureModel = signature.Model;
-            member.SignatureDecodeStatus = signature.IsDegraded
-                ? SignatureDecodeStatus.Degraded
-                : null;
+            throw new BudgetExceededException();
         }
-    }
-
-    static bool IsExtensionMethod(
-        MetadataReader reader,
-        TypeDefinitionHandle declaringType,
-        MethodDefinitionHandle methodHandle)
-    {
-        TypeDefinition type = reader.GetTypeDefinition(declaringType);
-        MethodDefinition method =
-            reader.GetMethodDefinition(methodHandle);
-        return type.Attributes.HasFlag(TypeAttributes.Abstract)
-            && type.Attributes.HasFlag(TypeAttributes.Sealed)
-            && method.Attributes.HasFlag(MethodAttributes.Static)
-            && AttributeReader.HasExtensionAttribute(
-                reader,
-                type.GetCustomAttributes())
-            && AttributeReader.HasExtensionAttribute(
-                reader,
-                method.GetCustomAttributes());
+        finally
+        {
+            budget.SetRemaining(remaining);
+        }
     }
 
     static string ReadMemberName(
@@ -1696,6 +1642,125 @@ public static class ApiDeclarationCorrespondence
         int MaxProjectionRows,
         int MaxMemberRows,
         int MaxCandidates);
+
+    sealed class ProjectionWorkBudget(int remaining)
+    {
+        public int Remaining { get; private set; } = remaining;
+
+        public void Charge(string text)
+        {
+            ArgumentNullException.ThrowIfNull(text);
+            Charge(text.Length);
+        }
+
+        public void Charge(int work)
+        {
+            if (work < 0 || work > Remaining)
+            {
+                Remaining = 0;
+                throw new BudgetExceededException();
+            }
+            Remaining -= work;
+        }
+
+        public void SetRemaining(int value)
+            => Remaining = Math.Max(0, value);
+    }
+
+    sealed class MethodAnchorProjector
+    {
+        readonly MetadataReader _reader;
+        readonly TypeDefinitionHandle _declaringType;
+        readonly GenericContext _typeContext;
+        readonly byte _typeNullableContext;
+        readonly HashSet<MethodDefinitionHandle>
+            _explicitImplementationBodies;
+        readonly ProjectionWorkBudget _budget;
+
+        public MethodAnchorProjector(
+            MetadataReader reader,
+            TypeDefinitionHandle declaringType,
+            ProjectionWorkBudget budget)
+        {
+            _reader = reader;
+            _declaringType = declaringType;
+            _budget = budget;
+            TypeDefinition type =
+                reader.GetTypeDefinition(declaringType);
+            _typeContext = GenericContext.ForType(
+                reader,
+                type,
+                budget.Charge);
+            _typeNullableContext =
+                NullabilityReader.GetTypeNullableContext(
+                    reader,
+                    declaringType,
+                    budget.Charge);
+            _explicitImplementationBodies =
+                ApiSurfaceExtractor.GetExplicitImplementationBodies(
+                    reader,
+                    type,
+                    budget.Charge);
+        }
+
+        public MemberAnchor Create(
+            MethodDefinitionHandle methodHandle,
+            string methodName)
+        {
+            MethodDefinition method =
+                _reader.GetMethodDefinition(methodHandle);
+            var signature =
+                ApiSurfaceExtractor.GetMethodSignatureForIdentity(
+                    _reader,
+                    _typeContext,
+                    methodHandle,
+                    method,
+                    _typeNullableContext,
+                    _budget.Charge,
+                    _budget.Charge);
+            bool isFinalizer =
+                string.Equals(
+                    methodName,
+                    "Finalize",
+                    StringComparison.Ordinal)
+                && ApiSurfaceExtractor.IsFinalizerMethod(
+                    _reader,
+                    methodHandle,
+                    _budget.Charge);
+            string kind = ApiSurfaceExtractor.ClassifyMethodKind(
+                methodName,
+                isFinalizer,
+                _explicitImplementationBodies.Contains(methodHandle));
+            var member = new ApiMember
+            {
+                Name = methodName,
+                Kind = kind,
+                Signature = signature.Text,
+                SignatureModel = signature.Model,
+                SignatureDecodeStatus = signature.IsDegraded
+                    ? SignatureDecodeStatus.Degraded
+                    : null,
+            };
+
+            int remaining = _budget.Remaining;
+            try
+            {
+                return ApiMemberIdentity.CreateProjectedMethodAnchor(
+                    _reader,
+                    _declaringType,
+                    member,
+                    ref remaining);
+            }
+            catch (BadImageFormatException) when (remaining <= 0)
+            {
+                throw new BudgetExceededException();
+            }
+            finally
+            {
+                _budget.SetRemaining(remaining);
+            }
+        }
+    }
 
     sealed class BudgetExceededException : Exception;
     sealed class IncompleteCandidateSetException : Exception;
