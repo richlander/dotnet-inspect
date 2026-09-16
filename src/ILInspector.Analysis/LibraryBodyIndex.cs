@@ -52,13 +52,23 @@ public enum LibraryBodyAnalysisFeatures
     /// implies <see cref="MethodEvidence"/>.
     /// </summary>
     LocalThrows = 1 << 7,
+    /// <summary>
+    /// Produce objective per-physical-body implementation profiles; implies
+    /// <see cref="MethodEvidence"/>.
+    /// </summary>
+    ImplementationProfiles = 1 << 8,
     /// <summary>The body-analysis features used by the general index.</summary>
     Default = MethodEvidence
         | Allocations
         | OptimizationOpportunities
         | AsyncSiblingOpportunities,
     /// <summary>All available body-analysis producers.</summary>
-    All = Default | LeakTriage | OwnershipFlow | JsonWireContractFlow | LocalThrows,
+    All = Default
+        | LeakTriage
+        | OwnershipFlow
+        | JsonWireContractFlow
+        | LocalThrows
+        | ImplementationProfiles,
 }
 
 /// <summary>
@@ -115,6 +125,8 @@ public sealed class LibraryBodyIndex
         MemorySafetyRules = analysis.Safety.Rules;
         UnsafeModes = analysis.Safety.Modes;
         _bodySignals = analysis.Methods.BodySignals;
+        _implementationProfiles =
+            analysis.Methods.ImplementationProfiles;
         _allocationOccurrences = analysis.Allocations.Occurrences;
         _unsafetyOccurrences = analysis.Safety.Occurrences;
         _inAssemblyTypeIsException =
@@ -262,7 +274,8 @@ public sealed class LibraryBodyIndex
     /// <summary>
     /// Drops the maps that back the single-assembly call-tree builders: the
     /// definition map, distinct-caller counts and edges, and direct-call
-    /// grouping.
+    /// grouping. It also drops implementation-profile projections derived
+    /// from those call relationships.
     /// <para>
     /// For a consumer under a hard memory ceiling that is done asking call-graph questions. This
     /// deliberately does <em>not</em> drop the evidence-domain caches — method signals, caller-loop
@@ -284,6 +297,8 @@ public sealed class LibraryBodyIndex
         _distinctCallerEdgesByCallee = null;
         _directCallsByCaller = null;
         _directCallsByEvidenceMethod = null;
+        _overloadRelationships = default;
+        _projectedImplementationProfiles = default;
     }
 
     /// <summary>
@@ -902,6 +917,12 @@ public sealed class LibraryBodyIndex
     Dictionary<int, MethodSignals>? _signals;
     readonly IReadOnlyDictionary<int, MethodIdentity> _declaredSources;
     readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
+    readonly ImmutableArray<MethodBodyImplementationMetrics>
+        _implementationProfiles;
+    ImmutableArray<MethodImplementationProfile>
+        _projectedImplementationProfiles;
+    ImmutableArray<OverloadCallRelationship>
+        _overloadRelationships;
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
     readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
@@ -931,6 +952,57 @@ public sealed class LibraryBodyIndex
     /// Returns per-method body/call signals keyed by metadata token.
     /// </summary>
     public IReadOnlyDictionary<int, MethodSignals> GetMethodSignals() => Signals;
+
+    /// <summary>
+    /// Objective implementation measurements, ordered by instruction count as
+    /// a body-size baseline. This order is not a universal complexity score.
+    /// </summary>
+    public ImmutableArray<MethodImplementationProfile>
+        ImplementationProfiles(
+            Func<MethodIdentity, bool>? scope = null)
+    {
+        if (!Features.HasFlag(
+                LibraryBodyAnalysisFeatures.ImplementationProfiles))
+        {
+            throw new InvalidOperationException(
+                "Implementation profiles were not requested for this body index.");
+        }
+
+        if (_projectedImplementationProfiles.IsDefault)
+        {
+            _projectedImplementationProfiles =
+                MethodImplementationProfileAnalysis.Collect(
+                    _implementationProfiles,
+                    DirectCalls,
+                    Signals,
+                    OverloadRelationships());
+        }
+
+        return scope is null
+            ? _projectedImplementationProfiles
+            :
+            [
+                .. _projectedImplementationProfiles.Where(
+                    profile => scope(profile.Method)),
+            ];
+    }
+
+    /// <summary>
+    /// Exact resolved calls between distinct methods sharing one declaring type
+    /// and logical method name.
+    /// </summary>
+    public ImmutableArray<OverloadCallRelationship>
+        OverloadRelationships()
+    {
+        if (_overloadRelationships.IsDefault)
+        {
+            _overloadRelationships = MethodImplementationProfileAnalysis
+                .CollectOverloadRelationships(
+                    DeclaredMethods,
+                    DirectCalls);
+        }
+        return _overloadRelationships;
+    }
 
     /// <summary>Offset-keyed allocation occurrences, grouped by containing method token.</summary>
     public IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> GetAllocationOccurrences() => _allocationOccurrences;
@@ -1150,6 +1222,7 @@ public sealed class LibraryBodyIndex
                     FieldLoads: fieldLoads.IsDefault ? [] : fieldLoads,
                     ReturnFlows: returnFlows.IsDefault ? [] : returnFlows,
                     BodySignals: new Dictionary<int, BodySignals>(),
+                    ImplementationProfiles: [],
                     InAssemblyTypeIsException:
                         new Dictionary<(string Namespace, string Name), bool>(),
                     NonHeapNewObjOperandTokens: new HashSet<int>(),

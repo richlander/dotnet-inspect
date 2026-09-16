@@ -108,7 +108,7 @@ internal static class DependencyGraphService
                 : shareProjection(typeName);
         RowQueryResolutionResult<TypeDependencyRelationship>
             rowQueryResolution =
-                TypeDependencyRowQuery.Resolve(
+                TypeDependencyVocabulary.Resolve(
                     options.TypeDependencyRowQuery
                         ?? RowQueryIntent.Empty);
         TypeDependencySectionPlan plan =

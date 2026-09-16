@@ -2,14 +2,36 @@ using Inspector.Artifacts;
 
 namespace ILInspector.Metadata;
 
-public sealed record AssemblyProjectionRegistration(
-    ArtifactGenerationIdentity Generation,
-    ArtifactIdentity Artifact,
-    Guid ModuleVersionId);
+public sealed record AssemblyProjectionRegistration
+{
+    internal AssemblyProjectionRegistration(
+        ArtifactGenerationIdentity generation,
+        ArtifactIdentity artifact,
+        Guid moduleVersionId)
+    {
+        Generation = generation;
+        Artifact = artifact;
+        ModuleVersionId = moduleVersionId;
+    }
 
-public sealed record ArtifactAssemblyProjection(
-    AssemblyProjectionRegistration Registration,
-    AssemblyReferenceIdentity Identity);
+    public ArtifactGenerationIdentity Generation { get; internal init; }
+    public ArtifactIdentity Artifact { get; internal init; }
+    public Guid ModuleVersionId { get; internal init; }
+}
+
+public sealed record ArtifactAssemblyProjection
+{
+    internal ArtifactAssemblyProjection(
+        AssemblyProjectionRegistration registration,
+        AssemblyReferenceIdentity identity)
+    {
+        Registration = registration;
+        Identity = identity;
+    }
+
+    public AssemblyProjectionRegistration Registration { get; internal init; }
+    public AssemblyReferenceIdentity Identity { get; internal init; }
+}
 
 public enum ArtifactNonAssemblyKind
 {

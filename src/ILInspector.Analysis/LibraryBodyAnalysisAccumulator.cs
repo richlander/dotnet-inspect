@@ -53,6 +53,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
         var bodySignals = new Dictionary<int, BodySignals>();
+        var implementationProfiles =
+            ImmutableArray.CreateBuilder<MethodBodyImplementationMetrics>();
         var allocationOccurrences = new Dictionary<int, ImmutableArray<AllocationOccurrence>>();
         var unsafetyOccurrences = new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>();
         var suppressedOpportunityTokens = new HashSet<int>();
@@ -199,6 +201,21 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 scopeExcludedOpportunityTokens.Add(r.Token);
             if (r.HasSignals)
                 bodySignals[r.Token] = r.Signals;
+            if (r.ImplementationProfile is { } implementationProfile)
+            {
+                if (r.Diagnostic is { } profileDiagnostic)
+                {
+                    implementationProfile = implementationProfile with
+                    {
+                        IncompleteReasons =
+                        [
+                            .. implementationProfile.IncompleteReasons,
+                            profileDiagnostic.Message,
+                        ],
+                    };
+                }
+                implementationProfiles.Add(implementationProfile);
+            }
             if (r.Diagnostic is not null)
                 diagnostics.Add(r.Diagnostic);
             if (r.DeclaredSource is { } declaredSource)
@@ -248,6 +265,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 FieldLoads: fieldLoads.ToImmutable(),
                 ReturnFlows: returnFlows.ToImmutable(),
                 BodySignals: bodySignals,
+                ImplementationProfiles:
+                    implementationProfiles.ToImmutable(),
                 InAssemblyTypeIsException: _includeMethodEvidence
                     ? BuildInAssemblyExceptionMap()
                     : new Dictionary<

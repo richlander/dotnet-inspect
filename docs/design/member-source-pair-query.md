@@ -83,6 +83,17 @@ The shared query also supplies the
 Existing broader CLI enrichment
 is not claimed migrated or removed by this bounded cutover.
 
+`MemberSourcePairInspection` in `DotnetInspector.Sections` now owns the final
+shared handoff for that bounded pair query. It returns
+`InspectionEnvelope<AssemblyMemberSourcePairResult>` after both borrowed
+assembly contexts have produced one detached result. CLI `diff --pdb-source`
+and the browser two-version Source operation both consume that envelope while
+retaining host-owned endpoint resolution, source authorization, operation
+lifetime, and presentation. The query's current PDB acquisition continues
+through `PdbSourceHouse`; migration to the approved `SourceHouse` composition
+remains tracked separately by
+[#6512](https://github.com/richlander/dotnet-inspect/issues/6512).
+
 The single delivery ledger is
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706):
 S1 contract alignment (landed), S2 this query, S3 CLI adoption, S4 browser

@@ -9,7 +9,8 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Typed row-selection declarations and complete-sequence reference evaluation</Description>
+    <Description>Host-neutral carrier for query intent, row vocabularies, and row selection</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
+
 </Project>
