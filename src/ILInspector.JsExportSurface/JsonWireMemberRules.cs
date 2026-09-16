@@ -99,15 +99,30 @@ public static class JsonWireMemberRules
     /// The member's authenticated presence in one wire direction.
     /// </summary>
     /// <remarks>
-    /// <c>WhenWritingNull</c> and <c>WhenWritingDefault</c> are conditional
-    /// while serializing and present while deserializing. This fact is
-    /// target-language-neutral: consumers decide how to lower conditional key
-    /// presence. A malformed, duplicated, or unknown authentic condition is
+    /// <c>WhenWritingNull</c> is conditional while serializing only for an
+    /// authenticated null-capable member type; <c>WhenWritingDefault</c> is
+    /// conditional while serializing for every supported type. Both are
+    /// present while deserializing. This fact is target-language-neutral:
+    /// consumers decide how to lower conditional key presence. An invalid or
+    /// unauthenticated condition/type combination, or a malformed, duplicated,
+    /// or unknown authentic condition, is
     /// <see cref="JsonWireMemberPresence.Unsupported"/>, never absence.
     /// </remarks>
     public static JsonWireMemberPresence GetPresence(
         ApiMember member,
         JsonWireDirection direction)
+        => GetPresenceCore(
+            member,
+            direction,
+            assemblyIdentity: null,
+            typesByScopedIdentity: null);
+
+    static JsonWireMemberPresence GetPresenceCore(
+        ApiMember member,
+        JsonWireDirection direction,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>?
+            typesByScopedIdentity)
     {
         if (direction is not JsonWireDirection.Serialize
             and not JsonWireDirection.Deserialize)
@@ -131,7 +146,11 @@ public static class JsonWireMemberRules
             return JsonWireMemberPresence.Absent;
         }
 
-        return GetConditionPresence(member, direction);
+        return GetConditionPresence(
+            member,
+            direction,
+            assemblyIdentity,
+            typesByScopedIdentity);
     }
 
     /// <summary>
@@ -144,13 +163,23 @@ public static class JsonWireMemberRules
         JsonWireDirection direction,
         ApiAssemblyIdentity? assemblyIdentity,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
-            typesByScopedIdentity) =>
-        HasAccessibleValueType(
-            member,
-            assemblyIdentity,
             typesByScopedIdentity)
-            ? GetPresence(member, direction)
+    {
+        JsonWireMemberPresence presence = GetPresenceCore(
+            member,
+            direction,
+            assemblyIdentity,
+            typesByScopedIdentity);
+        if (presence == JsonWireMemberPresence.Unsupported)
+            return presence;
+
+        return HasAccessibleValueType(
+                member,
+                assemblyIdentity,
+                typesByScopedIdentity)
+            ? presence
             : JsonWireMemberPresence.Absent;
+    }
 
     /// <summary>
     /// True when the member is present or conditionally present in at least one
@@ -202,7 +231,9 @@ public static class JsonWireMemberRules
             && !HasUnsupportedJsonIncludeMetadata(member)
             && GetConditionPresence(
                     member,
-                    JsonWireDirection.Deserialize)
+                    JsonWireDirection.Deserialize,
+                    assemblyIdentity: null,
+                    typesByScopedIdentity: null)
                 == JsonWireMemberPresence.Present
             && indexParameterCount == 0
             && !IsIncludedAccessor(
@@ -271,7 +302,9 @@ public static class JsonWireMemberRules
             || !RequiresWireParticipationOrConstructorBinding(
                 declaringType,
                 member,
-                directions))
+                directions,
+                assemblyIdentity,
+                typesByScopedIdentity))
         {
             return false;
         }
@@ -360,9 +393,24 @@ public static class JsonWireMemberRules
 
     static JsonWireMemberPresence GetConditionPresence(
         ApiMember member,
-        JsonWireDirection direction) =>
-        member.JsonIgnoreConditions is [var condition]
-            ? condition switch
+        JsonWireDirection direction,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>?
+            typesByScopedIdentity)
+    {
+        if (member.JsonIgnoreConditions is not [var condition])
+            return JsonWireMemberPresence.Present;
+
+        if (condition == JsonWireIgnoreCondition.WhenWritingNull
+            && CanMemberValueBeNull(
+                member,
+                assemblyIdentity,
+                typesByScopedIdentity) != true)
+        {
+            return JsonWireMemberPresence.Unsupported;
+        }
+
+        return condition switch
             {
                 JsonWireIgnoreCondition.Never =>
                     JsonWireMemberPresence.Present,
@@ -382,8 +430,8 @@ public static class JsonWireMemberRules
                         ? JsonWireMemberPresence.Present
                         : JsonWireMemberPresence.Absent,
                 _ => JsonWireMemberPresence.Unsupported,
-            }
-            : JsonWireMemberPresence.Present;
+            };
+    }
 
     static bool HasPresence(
         ApiMember member,
@@ -441,13 +489,208 @@ public static class JsonWireMemberRules
     static bool RequiresWireParticipationOrConstructorBinding(
         ApiType declaringType,
         ApiMember member,
-        JsonWireDirection directions) =>
-        IsSerialized(member, directions)
+        JsonWireDirection directions,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        HasPresenceWithoutAccessibility(
+            member,
+            directions,
+            assemblyIdentity,
+            typesByScopedIdentity)
         || ((directions & JsonWireDirection.Deserialize)
                 != JsonWireDirection.None
             && RequiresConstructorBindingEvidence(
                 declaringType,
                 member));
+
+    static bool HasPresenceWithoutAccessibility(
+        ApiMember member,
+        JsonWireDirection directions,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+    {
+        bool Matches(JsonWireDirection direction)
+        {
+            JsonWireMemberPresence presence = GetPresenceCore(
+                member,
+                direction,
+                assemblyIdentity,
+                typesByScopedIdentity);
+            return presence is JsonWireMemberPresence.Present
+                or JsonWireMemberPresence.Conditional;
+        }
+
+        return ((directions & JsonWireDirection.Serialize)
+                    != JsonWireDirection.None
+                && Matches(JsonWireDirection.Serialize))
+            || ((directions & JsonWireDirection.Deserialize)
+                    != JsonWireDirection.None
+                && Matches(JsonWireDirection.Deserialize));
+    }
+
+    static bool? CanMemberValueBeNull(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>?
+            typesByScopedIdentity)
+    {
+        if (member.SignatureModel?.ReturnTypeShape is { } shape)
+        {
+            return CanTypeValueBeNull(
+                shape,
+                assemblyIdentity,
+                typesByScopedIdentity);
+        }
+
+        IReadOnlyList<ApiTypeReferenceIdentity>? references =
+            member.SignatureModel?.ReturnTypeReferences;
+        if (references is { Count: > 0 }
+            && member.ReturnType?.EndsWith(
+                "?",
+                StringComparison.Ordinal) == true)
+        {
+            return true;
+        }
+        if (references is [var reference])
+        {
+            bool? capability = ResolveNamedTypeNullCapability(
+                reference,
+                assemblyIdentity,
+                typesByScopedIdentity);
+            if (capability is not null)
+                return capability;
+        }
+
+        return CanRenderedTypeValueBeNull(member.ReturnType);
+    }
+
+    static bool? CanTypeValueBeNull(
+        ApiTypeShape shape,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>?
+            typesByScopedIdentity)
+    {
+        switch (shape.Kind)
+        {
+            case ApiTypeShapeKind.SzArray:
+            case ApiTypeShapeKind.Array:
+                return true;
+            case ApiTypeShapeKind.GenericParameter:
+                return null;
+            case ApiTypeShapeKind.GenericInstance:
+                if (shape.Definition?.FullName is
+                    "System.Nullable" or "System.Nullable`1")
+                {
+                    return true;
+                }
+
+                return ResolveNamedTypeNullCapability(
+                    shape.Definition,
+                    assemblyIdentity,
+                    typesByScopedIdentity);
+            case ApiTypeShapeKind.Named:
+                return ResolveNamedTypeNullCapability(
+                    shape.Definition,
+                    assemblyIdentity,
+                    typesByScopedIdentity);
+            case ApiTypeShapeKind.Primitive:
+                return CanPrimitiveValueBeNull(shape.Primitive);
+            default:
+                return null;
+        }
+    }
+
+    static bool? ResolveNamedTypeNullCapability(
+        ApiTypeReferenceIdentity? reference,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>?
+            typesByScopedIdentity)
+    {
+        if (reference is null)
+            return null;
+
+        if (reference.FullName is "System.String" or "System.Object")
+            return true;
+
+        if (assemblyIdentity is null
+            || typesByScopedIdentity is null
+            || !reference.Assembly.Equals(assemblyIdentity)
+            || !typesByScopedIdentity.TryGetValue(reference, out ApiType? type))
+        {
+            return null;
+        }
+
+        return type.Kind switch
+        {
+            "class" or "interface" or "delegate" => true,
+            "struct" or "enum" => false,
+            _ => null,
+        };
+    }
+
+    static bool? CanPrimitiveValueBeNull(ApiPrimitiveType? primitive) =>
+        primitive switch
+        {
+            ApiPrimitiveType.String or ApiPrimitiveType.Object => true,
+            null => null,
+            _ => false,
+        };
+
+    static bool? CanRenderedTypeValueBeNull(string? typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return null;
+
+        if (typeName.EndsWith("[]", StringComparison.Ordinal)
+            || typeName.StartsWith(
+                "System.Nullable<",
+                StringComparison.Ordinal)
+            || typeName is "string" or "string?"
+                or "System.String" or "System.String?"
+                or "object" or "object?"
+                or "System.Object" or "System.Object?"
+                or "dynamic" or "dynamic?")
+        {
+            return true;
+        }
+
+        return typeName switch
+        {
+            "bool?" or "System.Boolean?"
+                or "byte?" or "System.Byte?"
+                or "sbyte?" or "System.SByte?"
+                or "char?" or "System.Char?"
+                or "decimal?" or "System.Decimal?"
+                or "double?" or "System.Double?"
+                or "float?" or "System.Single?"
+                or "int?" or "System.Int32?"
+                or "uint?" or "System.UInt32?"
+                or "long?" or "System.Int64?"
+                or "ulong?" or "System.UInt64?"
+                or "short?" or "System.Int16?"
+                or "ushort?" or "System.UInt16?"
+                or "nint?" or "System.IntPtr?"
+                or "nuint?" or "System.UIntPtr?" => true,
+            "bool" or "System.Boolean"
+                or "byte" or "System.Byte"
+                or "sbyte" or "System.SByte"
+                or "char" or "System.Char"
+                or "decimal" or "System.Decimal"
+                or "double" or "System.Double"
+                or "float" or "System.Single"
+                or "int" or "System.Int32"
+                or "uint" or "System.UInt32"
+                or "long" or "System.Int64"
+                or "ulong" or "System.UInt64"
+                or "short" or "System.Int16"
+                or "ushort" or "System.UInt16"
+                or "nint" or "System.IntPtr"
+                or "nuint" or "System.UIntPtr" => false,
+            _ => null,
+        };
+    }
 
     static bool HasAccessibleValueType(
         ApiMember member,

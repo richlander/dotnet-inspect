@@ -1,5 +1,6 @@
 using System.Reflection.PortableExecutable;
 using ILInspector.JsExportSurface.Fixtures;
+using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.Contexts;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -59,6 +60,8 @@ public sealed class JsonWireMemberRulesTests
         ApiMember member = condition is { } value
             ? Property(value)
             : Property();
+        if (condition == JsonWireIgnoreCondition.WhenWritingNull)
+            member.ReturnType = "string";
 
         Assert.Equal(
             serialized,
@@ -77,6 +80,166 @@ public sealed class JsonWireMemberRulesTests
         Assert.Equal(
             serialized != deserialized,
             JsonWireMemberRules.IsDirectionSensitive(member));
+    }
+
+    [Theory]
+    [InlineData("int", JsonWireMemberPresence.Unsupported)]
+    [InlineData("int?", JsonWireMemberPresence.Conditional)]
+    [InlineData("string", JsonWireMemberPresence.Conditional)]
+    [InlineData("object", JsonWireMemberPresence.Conditional)]
+    [InlineData("string[]", JsonWireMemberPresence.Conditional)]
+    [InlineData("T", JsonWireMemberPresence.Unsupported)]
+    [InlineData("T?", JsonWireMemberPresence.Unsupported)]
+    public void WhenWritingNullRequiresAuthenticatedNullCapability(
+        string returnType,
+        JsonWireMemberPresence expected)
+    {
+        ApiMember member = Property(
+            JsonWireIgnoreCondition.WhenWritingNull);
+        member.ReturnType = returnType;
+
+        Assert.Equal(
+            expected,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Serialize));
+        Assert.Equal(
+            expected == JsonWireMemberPresence.Conditional
+                ? JsonWireMemberPresence.Present
+                : expected,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Deserialize));
+    }
+
+    [Fact]
+    public void ScopedPresenceClassifiesNamedReferenceAndValueTypes()
+    {
+        ApiAssemblyIdentity assembly = new(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        MetadataTypeDefinitionName classDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("Fixture", ["Payload"]))
+                .Name;
+        MetadataTypeDefinitionName structDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("Fixture", ["Value"]))
+                .Name;
+        ApiTypeReferenceIdentity classReference = new(
+            assembly,
+            "Fixture.Payload",
+            classDefinition);
+        ApiTypeReferenceIdentity structReference = new(
+            assembly,
+            "Fixture.Value",
+            structDefinition);
+        var typesByScopedIdentity =
+            new Dictionary<ApiTypeReferenceIdentity, ApiType>
+            {
+                [classReference] = new ApiType
+                {
+                    Namespace = "Fixture",
+                    Name = "Payload",
+                    DefinitionName = classDefinition,
+                    Kind = "class",
+                },
+                [structReference] = new ApiType
+                {
+                    Namespace = "Fixture",
+                    Name = "Value",
+                    DefinitionName = structDefinition,
+                    Kind = "struct",
+                },
+            };
+
+        ApiMember referenceMember = Property(
+            JsonWireIgnoreCondition.WhenWritingNull);
+        referenceMember.SignatureModel = new ApiSignature
+        {
+            ReturnTypeShape = ApiTypeShape.Named(classReference),
+            ReturnTypeReferences = [classReference],
+        };
+        ApiMember valueMember = Property(
+            JsonWireIgnoreCondition.WhenWritingNull);
+        valueMember.SignatureModel = new ApiSignature
+        {
+            ReturnTypeShape = ApiTypeShape.Named(structReference),
+            ReturnTypeReferences = [structReference],
+        };
+
+        Assert.Equal(
+            JsonWireMemberPresence.Conditional,
+            JsonWireMemberRules.GetPresence(
+                referenceMember,
+                JsonWireDirection.Serialize,
+                assembly,
+                typesByScopedIdentity));
+        Assert.Equal(
+            JsonWireMemberPresence.Unsupported,
+            JsonWireMemberRules.GetPresence(
+                valueMember,
+                JsonWireDirection.Serialize,
+                assembly,
+                typesByScopedIdentity));
+    }
+
+    [Fact]
+    public void ScopedPresencePreservesUnsupportedEvidenceBeforeAccessibility()
+    {
+        ApiAssemblyIdentity assembly = new(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        MetadataTypeDefinitionName hiddenDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["Dto", "HiddenValue"]))
+                .Name;
+        ApiTypeReferenceIdentity hiddenReference = new(
+            assembly,
+            "Fixture.Dto.HiddenValue",
+            hiddenDefinition);
+        var typesByScopedIdentity =
+            new Dictionary<ApiTypeReferenceIdentity, ApiType>
+            {
+                [hiddenReference] = new ApiType
+                {
+                    Namespace = "Fixture",
+                    Name = "Dto.HiddenValue",
+                    DefinitionName = hiddenDefinition,
+                    Accessibility = "private",
+                    Kind = "enum",
+                },
+            };
+        ApiMember[] members =
+        [
+            Property([null]),
+            Property(
+                JsonWireIgnoreCondition.Never,
+                JsonWireIgnoreCondition.Never),
+            Property((JsonWireIgnoreCondition)9),
+        ];
+        foreach (ApiMember member in members)
+        {
+            member.SignatureModel = new ApiSignature
+            {
+                ReturnTypeShape = ApiTypeShape.Named(hiddenReference),
+                ReturnTypeReferences = [hiddenReference],
+            };
+
+            Assert.Equal(
+                JsonWireMemberPresence.Unsupported,
+                JsonWireMemberRules.GetPresence(
+                    member,
+                    JsonWireDirection.Serialize,
+                    assembly,
+                    typesByScopedIdentity));
+        }
     }
 
     [Fact]
@@ -897,6 +1060,104 @@ public sealed class JsonWireMemberRulesTests
                 .RequiresConstructorBindingEvidence(
                     declaringType,
                     getterOnly));
+    }
+
+    [Fact]
+    public void ExtractedNullableValueTypeSupportsWhenWritingNull()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(ValidWhenWritingNullNullableValueTypeFixture)
+                .Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiAssemblyIdentity assembly = Assert.IsType<ApiAssemblyIdentity>(
+            surface.AssemblyIdentity);
+        ApiType declaringType = Assert.Single(
+            surface.Types,
+            type => type.Name
+                == nameof(ValidWhenWritingNullNullableValueTypeFixture));
+        ApiMember member = Assert.Single(
+            declaringType.Members,
+            candidate => candidate.Name == "Value");
+        var typesByScopedIdentity = surface.Types
+            .Where(type => type.DefinitionName is not null)
+            .ToDictionary(
+                type => new ApiTypeReferenceIdentity(
+                    assembly,
+                    type.FullName,
+                    type.DefinitionName),
+                type => type);
+
+        Assert.Equal(
+            JsonWireMemberPresence.Conditional,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Serialize,
+                assembly,
+                typesByScopedIdentity));
+        Assert.Equal(
+            JsonWireMemberPresence.Present,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Deserialize,
+                assembly,
+                typesByScopedIdentity));
+    }
+
+    [Fact]
+    public void ExtractedConditionalMemberRequiresContextRelativeAccessibilityEvidence()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(NestedContextConditionalValueDto).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiAssemblyIdentity assembly = Assert.IsType<ApiAssemblyIdentity>(
+            surface.AssemblyIdentity);
+        string fixtureNamespace =
+            typeof(NestedContextConditionalValueDto).Namespace!;
+        MetadataTypeDefinitionName ownerDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    fixtureNamespace,
+                    [nameof(NestedContextConditionalValueDto)]))
+                .Name;
+        MetadataTypeDefinitionName contextDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    fixtureNamespace,
+                    [
+                        nameof(NestedContextConditionalValueDto),
+                        "ConditionalJsonContext",
+                    ]))
+                .Name;
+        ApiType declaringType = Assert.Single(
+            surface.Types,
+            type => type.DefinitionName == ownerDefinition);
+        ApiMember member = Assert.Single(
+            declaringType.Members,
+            candidate => candidate.Name == "Hidden");
+        var typesByScopedIdentity = surface.Types
+            .Where(type => type.DefinitionName is not null)
+            .ToDictionary(
+                type => new ApiTypeReferenceIdentity(
+                    assembly,
+                    type.FullName,
+                    type.DefinitionName),
+                type => type);
+
+        Assert.True(
+            JsonWireMemberRules
+                .RequiresContextRelativeValueTypeAccessibilityEvidence(
+                    declaringType,
+                    member,
+                    JsonWireDirection.Serialize,
+                    assembly,
+                    typesByScopedIdentity,
+                    contextDefinition));
     }
 
     [Fact]

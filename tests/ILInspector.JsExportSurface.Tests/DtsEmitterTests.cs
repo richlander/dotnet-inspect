@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
@@ -2774,6 +2775,69 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void SourceGeneratedJson_RejectsWhenWritingNullOnValueType()
+    {
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => InvalidWhenWritingNullValueTypeJsonContext.Default
+                    .InvalidWhenWritingNullValueTypeFixture);
+
+        Assert.Contains(
+            "WhenWritingNull",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Value",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_ConditionallyWritesNullableValueType()
+    {
+        JsonTypeInfo<ValidWhenWritingNullNullableValueTypeFixture> typeInfo =
+            ValidWhenWritingNullNullableValueTypeJsonContext.Default
+                .ValidWhenWritingNullNullableValueTypeFixture;
+
+        Assert.DoesNotContain(
+            "Value",
+            JsonSerializer.Serialize(
+                new ValidWhenWritingNullNullableValueTypeFixture(),
+                typeInfo),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"Value\":42",
+            JsonSerializer.Serialize(
+                new ValidWhenWritingNullNullableValueTypeFixture
+                {
+                    Value = 42,
+                },
+                typeInfo),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [SupportedOSPlatform("browser")]
+    public void SourceGeneratedJson_ConditionallyWritesPrivateNestedReferenceType()
+    {
+        string absent =
+            NestedContextConditionalValueDto.SerializeNull();
+        string present =
+            NestedContextConditionalValueDto.SerializeValue();
+
+        Assert.DoesNotContain(
+            "Hidden",
+            absent,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            "Hidden":{"Value":"value"}
+            """,
+            present,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     [SupportedOSPlatform("browser")]
     public void SourceGeneratedJson_IncludesProtectedValueTypesThroughDerivedNestedContext()
     {
@@ -3332,6 +3396,49 @@ public sealed class DtsEmitterTests
             malformed
                 ? "[JsonIgnore] metadata could not be decoded"
                 : "multiple [JsonIgnore] attributes",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RefusesWhenWritingNullOnNonNullableValueType()
+    {
+        var record = new ApiType
+        {
+            Name = "Widget",
+            MetadataToken = 0x02000004,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "int",
+                    IndexParameterCount = 0,
+                    MetadataToken = 0x17000006,
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.WhenWritingNull,
+                    ],
+                },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(
+                    new ILInspector.JsExportSurface.JsExportSurface
+                    {
+                        Records = [record],
+                    }));
+
+        Assert.Contains(
+            "member 0x17000006",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "condition is invalid for the member type",
             exception.Message,
             StringComparison.Ordinal);
     }
