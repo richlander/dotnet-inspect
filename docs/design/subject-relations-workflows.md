@@ -1398,7 +1398,7 @@ unreviewable changes inside a nominal slice.
 | 11 | Shared Subject Relations query composition over adopted producers, including local-throw matching and member-versus-edge conjunction semantics. |
 | 12 | Shared typed section projection, per-subject category membership and cross-listing, and Markout format lowerings. |
 | 13 | Workspace Definitions adoption for portable relation views and locator context, retaining throws predicates and their evidence meaning. |
-| 14 | CLI ecosystem-to-locator handoff, contract/signature/throws Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, dependency root-set mode, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. |
+| 14 | CLI ecosystem-to-locator handoff, contract/signature/throws Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, dependency root-set mode, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. This step consumes the separately counted [Graph placement adoption #7308](https://github.com/richlander/dotnet-inspect/issues/7308) for local subject Graph children and top-level Workspace Graph construction or packet reopening. |
 | 15 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results, including typed throw evidence and coverage. |
 | 16 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after single-subject and root-set parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 

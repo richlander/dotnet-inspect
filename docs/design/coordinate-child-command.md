@@ -5,6 +5,8 @@
 This document is the focused owner for placing required subordinate
 coordinates under an already selected CLI subject. The operator approved
 `coordinate` as the child-command term on 2026-09-16.
+Focused and end-to-end CLI adoption is tracked by
+[#7307](https://github.com/richlander/dotnet-inspect/issues/7307).
 
 The initial adoption target is `library coordinate`. It replaces the current
 `library --il-offset`, `library --il-offsets`, and `library --heap` gestures

@@ -73,6 +73,14 @@ preserves whether the user named graph anchors or only bounded the input.
 
 ## CLI placement target
 
+Production CLI adoption is tracked by
+[#7308](https://github.com/richlander/dotnet-inspect/issues/7308). It is the
+focused Graph-placement path consumed by step 14 of the 16-step
+[Subject Relations adoption](subject-relations-workflows.md#adoption-and-retirement).
+The CLI is the production consumer for this placement. The existing typed
+Graph queries and Browser/Wasm consumers retain their current owners and are
+not reimplemented by the CLI.
+
 Top-level `graph` owns graph execution that first constructs or reopens a
 Workspace. Its input may be inline Workspace registrations or a canonical
 Workspace packet. A packet remains owned by
@@ -130,6 +138,34 @@ same graph operation are not the target.
 
 Exact CLI option spelling and packet-query adoption are deferred to focused
 implementation designs. This placement target is currently **unverified**.
+
+### Production adoption
+
+The placement path has **8 steps**:
+
+| Step | Independently owned deliverable |
+| --- | --- |
+| 1 | Shared CLI binding over existing typed Graph modes, relationships, lenses, limits, failures, and Markout lowering. |
+| 2 | Top-level Workspace construction from inline registrations. |
+| 3 | Top-level Workspace reopening from canonical packets without another packet grammar. |
+| 4 | `member graph`, followed by retirement of the duplicate member `Call Graph` section after equivalent direct Calls/Callers, traversal, fields, limits, failures, and rendering coverage. |
+| 5 | `type graph` with one explicitly supported relationship family and owner-defined local scope. |
+| 6 | `library graph` with one explicitly supported relationship family and owner-defined local scope. |
+| 7 | `package graph` with one explicitly supported relationship family and owner-defined local scope. |
+| 8 | Help, discovery, sharing/replay, completion, examples, relationship-skill adoption, and Type- and Package-oriented production demos. |
+
+Steps 4-7 are separate subject-owner adoptions and may use separate issues and
+PRs. No subject child advertises Graph before its relationship, local-scope,
+completeness, and failure contracts are executable. Step 4 removes the old
+section only after replacement parity; steps 5-7 do not require every
+relationship family before one coherent local Graph can ship.
+
+The required pathological cases are a local subject whose selected
+relationship has no edges, a Workspace packet containing disconnected
+participants, a Type seed viewed through a Package lens, a Package seed viewed
+through a Type lens, and a bounded traversal that reaches an incomplete or
+truncated edge. Each implementation step names its focused Release gates.
+Until then these production claims remain unverified.
 
 Related:
 
