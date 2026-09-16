@@ -39,7 +39,7 @@ public abstract record InstalledPlatformHouseResult<T>
 
     public sealed record Succeeded : InstalledPlatformHouseResult<T>
     {
-        public Succeeded(
+        internal Succeeded(
             T value,
             PlatformSourceContribution contribution)
             : base(contribution)
