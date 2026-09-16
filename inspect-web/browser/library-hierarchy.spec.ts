@@ -2597,6 +2597,39 @@ test("Spotlight framework Library failure stays outside Platform presentation", 
   await expect(page.locator(".query-notice-text")).not.toContainText("Platform Library");
 });
 
+test("a direct Spotlight framework Library remains a Library after package activation", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await page.goto("/");
+  await page.getByRole("combobox").fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.getByRole("button", { name: "Add package", exact: true }).click();
+  const add = page.getByRole("dialog", { name: "Add package", exact: true });
+  await add.getByRole("combobox", { name: "Add package", exact: true })
+    .fill("Second.Package");
+  await add.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
+  await expect(page.locator("[data-workspace-framework-library]"))
+    .toContainText("System.Text.Json");
+
+  await page.getByRole(
+    "button",
+    { name: "Inspect Second.Package 1.0.0 net10.0", exact: true },
+  ).click();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
+  await expect(page.locator("[data-workspace-framework-library]"))
+    .toContainText("System.Text.Json");
+});
+
 test("Platform Library parent, history and refresh retain the exact target without choosing a Type", async ({ page }) => {
   await openPlatform(page);
   const platformLocation = page.url();

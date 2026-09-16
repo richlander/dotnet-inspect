@@ -5310,7 +5310,7 @@ function inspectedSubjectPath(
       copyable: false,
     }];
   }
-  const path: SubjectPathSegment[] = platformIsPresentedAsRoot()
+  const path: SubjectPathSegment[] = rootIsPresented()
     ? [{
         kind: state.rootKind,
         label: state.rootKind === "platform"
@@ -5390,10 +5390,15 @@ function hasPlatformRootHistoryView() {
 }
 
 function platformIsPresentedAsRoot() {
-  return state.rootKind !== "platform"
-    || state.platformPresentedAsRoot
+  return state.platformSelection !== null
+    && (state.platformPresentedAsRoot
     || (pendingWorkspaceConstruction === null
-      && hasPlatformRootHistoryView());
+      && hasPlatformRootHistoryView()));
+}
+
+function rootIsPresented() {
+  return state.rootKind !== "platform"
+    || platformIsPresentedAsRoot();
 }
 
 function currentViewHasPlatformRootParent() {
@@ -5595,9 +5600,13 @@ function renderLibraryView() {
 function renderWorkspaceView() {
   if (state.packages.some(item => !item.isRuntimePack)) ensureWorkspaceOccurrenceView();
   const presentPlatform = platformIsPresentedAsRoot();
-  const frameworkLibrary = !presentPlatform
-    && state.package?.source.kind === "platform"
-    ? selectedLibrary()
+  const frameworkPackage = !presentPlatform && state.platformSelection
+    ? runtimePackageForTarget(state.platformSelection)
+    : null;
+  const frameworkLibrary = frameworkPackage
+    ? resolvePackageLibrary(
+        frameworkPackage.assemblies,
+        frameworkPackage.assemblyId)
     : null;
   return renderWorkspaceViewPure({
     canAddPackage: state.engineReady && !state.loading && !state.error,
@@ -5611,8 +5620,8 @@ function renderWorkspaceView() {
     platform: presentPlatform ? state.platformSelection : null,
     frameworkLibraries: frameworkLibrary ? [{
       name: frameworkLibrary.name,
-      version: state.package?.version ?? "",
-      framework: state.package?.activeFramework ?? "",
+      version: frameworkPackage?.version ?? "",
+      framework: frameworkPackage?.activeFramework ?? "",
       source: frameworkLibrary.platformPack === "aspnetcore.app"
         ? "ASP.NET Core"
         : ".NET",

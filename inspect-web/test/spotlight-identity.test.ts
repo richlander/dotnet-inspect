@@ -1398,7 +1398,7 @@ test("the shell separates typed target and Subject navigation rows", () => {
     /<section class="detail-pane">\s*<header class="detail-head">/);
   assert.match(
     subjectPath,
-    /platformIsPresentedAsRoot\(\)[\s\S]*kind: state\.rootKind[\s\S]*label: state\.rootKind === "platform"[\s\S]*platformTargetLabel\(\)[\s\S]*packageDisplayName\(pkg\)[\s\S]*kind: "type"[\s\S]*current\.namespace[\s\S]*kind: "member"[\s\S]*label: member\.name/);
+    /rootIsPresented\(\)[\s\S]*kind: state\.rootKind[\s\S]*label: state\.rootKind === "platform"[\s\S]*platformTargetLabel\(\)[\s\S]*packageDisplayName\(pkg\)[\s\S]*kind: "type"[\s\S]*current\.namespace[\s\S]*kind: "member"[\s\S]*label: member\.name/);
   assert.match(
     renderer,
     /segment\.label[\s\S]*segment\.copyable[\s\S]*data-subject-copy="\$\{index\}"[\s\S]*segment\.kind/);
@@ -3387,6 +3387,29 @@ test("Spotlight searches framework Libraries without offering a Platform root", 
     /if \(platformSurfaceLoaded\(\)\) \{[\s\S]*spotlightTypeMatches\(query\)/);
   assert.match(results, /kind: "framework-lib"/);
   assert.doesNotMatch(results, /kind: "platform"|rtpack-suggest/);
+});
+
+test("Workspace Platform presentation follows provenance rather than the active package", () => {
+  const sourceFor = (name: string) => {
+    const declaration = functionDeclaration(name);
+    return appSource.slice(declaration.start, declaration.end);
+  };
+  const platformPresentation = sourceFor("platformIsPresentedAsRoot");
+  const rootPresentation = sourceFor("rootIsPresented");
+  const workspace = sourceFor("renderWorkspaceView");
+
+  assert.match(
+    platformPresentation,
+    /state\.platformSelection !== null[\s\S]*state\.platformPresentedAsRoot[\s\S]*hasPlatformRootHistoryView\(\)/);
+  assert.doesNotMatch(
+    platformPresentation,
+    /state\.rootKind !== "platform"/);
+  assert.match(
+    rootPresentation,
+    /state\.rootKind !== "platform"\s*\|\|\s*platformIsPresentedAsRoot\(\)/);
+  assert.match(
+    workspace,
+    /const presentPlatform = platformIsPresentedAsRoot\(\);[\s\S]*runtimePackageForTarget\(state\.platformSelection\)[\s\S]*resolvePackageLibrary\([\s\S]*frameworkPackage\.assemblyId[\s\S]*platform: presentPlatform \? state\.platformSelection : null[\s\S]*frameworkLibraries: frameworkLibrary/);
 });
 
 test("Spotlight keeps loaded framework Library navigation in place", () => {
