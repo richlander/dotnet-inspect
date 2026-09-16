@@ -958,7 +958,7 @@ internal sealed partial class ClassicInverseLoweringProof
         DecompilerExceptionClauseImport[] imports =
         [
             .. index.SharedClauseImports.Where(imported =>
-                ReferenceEquals(imported.Facts, completion)),
+                imported.Facts.Id == completion.Id),
         ];
         if (imports is not [DecompilerExceptionClauseImport imported])
         {
@@ -1006,9 +1006,15 @@ internal sealed partial class ClassicInverseLoweringProof
             return false;
         }
 
-        InstructionExceptionRegion handler = AssertSharedRegion(
-            facts,
-            completion.HandlerRegion);
+        if (facts.GetRegion(completion.HandlerRegion) is not
+            InstructionExceptionFlowResult<
+                InstructionExceptionRegion>.Available availableHandler)
+        {
+            failure = "the completion catch handler identity is unavailable "
+                + "from the shared Instructions observation";
+            return false;
+        }
+        InstructionExceptionRegion handler = availableHandler.Value;
         List<StoreLocal> entries =
         [
             .. index.CaughtStores.Where(
@@ -1024,11 +1030,6 @@ internal sealed partial class ClassicInverseLoweringProof
         failure = null;
         return true;
     }
-
-    static InstructionExceptionRegion AssertSharedRegion(
-        InstructionExceptionFlowFacts facts,
-        InstructionExceptionRegionId id)
-        => facts.Regions.Single(region => region.Id == id);
 
     /// <summary>
     /// The planning view carries the same catch as structure. Its exact type,
@@ -2217,7 +2218,6 @@ internal sealed partial class ClassicInverseLoweringProof
                 case InstructionExceptionFlowResult<
                     InstructionExceptionFlowFacts>.Available available:
                     _sharedExceptionFlow = available.Value;
-                    _sharedClauseImports = body.ExceptionClauseImports;
                     if (_sharedExceptionFlow.Clauses.Length > 2)
                     {
                         ExceptionFailure =
@@ -2225,19 +2225,40 @@ internal sealed partial class ClassicInverseLoweringProof
                             + "and at most one finally";
                         return true;
                     }
-                    if (_sharedClauseImports.Length
-                            != _sharedExceptionFlow.Clauses.Length
-                        || _sharedExceptionFlow.Clauses.Any(clause =>
-                            _sharedClauseImports.Count(imported =>
-                                ReferenceEquals(
-                                    imported.Facts,
-                                    clause)) != 1))
+                    if (body.ExceptionClauseImports.Length
+                        != _sharedExceptionFlow.Clauses.Length)
                     {
                         ExceptionFailure =
                             "the imported exception clauses do not preserve "
                             + "the exact Instructions associations";
                         return true;
                     }
+                    var canonicalImports =
+                        ImmutableArray.CreateBuilder<
+                            DecompilerExceptionClauseImport>(
+                            body.ExceptionClauseImports.Length);
+                    foreach (DecompilerExceptionClauseImport imported
+                        in body.ExceptionClauseImports)
+                    {
+                        if (_sharedExceptionFlow.GetClause(imported.Facts.Id)
+                                is not InstructionExceptionFlowResult<
+                                    InstructionExceptionClause>.Available
+                                    canonical
+                            || canonicalImports.Any(existing =>
+                                existing.Facts.Id == canonical.Value.Id))
+                        {
+                            ExceptionFailure =
+                                "the imported exception clauses do not "
+                                + "preserve the exact Instructions "
+                                + "associations";
+                            return true;
+                        }
+                        canonicalImports.Add(
+                            new DecompilerExceptionClauseImport(
+                                imported.Region,
+                                canonical.Value));
+                    }
+                    _sharedClauseImports = canonicalImports.MoveToImmutable();
                     HasFinallyContext = IsRawImport
                         && _sharedExceptionFlow.Clauses.Any(
                             static clause =>

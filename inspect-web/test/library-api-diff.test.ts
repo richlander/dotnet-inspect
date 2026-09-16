@@ -102,6 +102,7 @@ function succeeded(
             segments: ["Widget"],
             display: "Example.Widget",
           },
+          members: [],
         },
         {
           documentIdentifier: "Example.Options",
@@ -119,6 +120,7 @@ function succeeded(
             segments: ["Options"],
             display: "Example.Options",
           },
+          members: [],
         },
       ],
     },
