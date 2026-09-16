@@ -85,6 +85,8 @@
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.NormalizationDecomposed/TsJsExport.ContextFixtures.NormalizationDecomposed.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1/ILInspector.Metadata.ApiDeclarationCorrespondence.V1.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2/ILInspector.Metadata.ApiDeclarationCorrespondence.V2.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew/ILInspector.Metadata.ExtensionInstanceNew.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures/ILInspector.Metadata.MemorySafetyFixtures.csproj" />

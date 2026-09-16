@@ -2,12 +2,14 @@
 
 ## Status and ownership
 
-**Design only; implementation and all new gates are unverified.**
+**The Metadata producer and deterministic profile gates are implemented.**
 [`ILInspector.Metadata`](../overview.md) owns this focused producer contract,
 tracked by [#7073](https://github.com/richlander/dotnet-inspect/issues/7073).
 Coordinate retention, step 2 of the approved
 plan [#7061](https://github.com/richlander/dotnet-inspect/issues/7061), is its
-first planned consumer, not the scope of the underlying operation.
+first planned consumer, not the scope of the underlying operation. Production
+package acquisition, Navigation composition, CLI adoption and Browser adoption
+remain consumer-owned and unverified by the Metadata gates.
 
 The one claim is:
 
@@ -97,16 +99,48 @@ Neighbor: only a different Deserialize overload exists
 Result:   no exact declaration under this profile; Navigation selects the Type
 ```
 
-The CLI consumes this through #5513's stateless Workspace operation; Inspect
-Web consumes the corresponding retained result through #5511. The following
-call-site mockups describe the intended handoff, not implemented API names or
-new syntax owned by this document.
+The public Metadata handoff accepts retained acquisition descriptors and no
+reader:
 
 ```csharp
-// Proposed managed composition shared by the CLI and Browser facade.
-var relation = metadata.CorrespondDeclaration(selectedImagePair, sourceDeclaration);
-var result = navigation.EvaluateReplacement(scopeResult, relation);
-// The completed host boundary carries Content, Share and diagnostics.
+ApiDeclarationBindingResult binding =
+    ApiDeclarationCorrespondence.BindSource(
+        sourceAssembly,
+        sourceTypeName,
+        new ApiDeclarationMemberSelection(
+            ApiDeclarationKind.Method,
+            sourceMemberAnchor),
+        cancellationToken);
+
+if (binding.Declaration is { } sourceDeclaration)
+{
+    ApiDeclarationCorrespondenceResult correspondence =
+        ApiDeclarationCorrespondence.Match(
+            sourceAssembly,
+            sourceDeclaration,
+            destinationAssembly,
+            cancellationToken);
+}
+```
+
+`BindSource` also accepts `member: null` for a Type declaration. Its result
+exposes `Status`, `Reason`, `Stage`, `Declaration`, `Candidates` and `Detail`.
+`Match` exposes the same categorical evidence plus the bound `Source`,
+destination `Endpoint` and exact `Target`. Endpoints retain the exact
+`ApiDeclarationRegistrationIdentity`, decoded `AssemblyReferenceIdentity` and
+actual MVID; declaration locations retain their metadata table/token and
+existing durable Type or Method address where applicable. The registration
+identity is minted by a weak exact-object memoizer and can validate a live
+`AssemblyAcquisitionRegistration` through `Matches` without retaining that
+registration or its artifact authority.
+
+The CLI consumes this producer through #5513's stateless Workspace operation;
+Inspect Web consumes the corresponding retained result through #5511. The
+following host call-site remains a composition mockup rather than API owned by
+this document:
+
+```csharp
+var result = navigation.EvaluateReplacement(scopeResult, correspondence);
 InspectionEnvelope<NavigationContent> envelope = Complete(result);
 ```
 
@@ -185,12 +219,13 @@ the destination `MemberAnchor` produced by `ApiMemberIdentity`. It never carries
 the source token as a destination location or treats an equal MVID as proof
 that two acquisition registrations are interchangeable.
 
-No reader or borrowed content escapes in the result. Existing owners govern
-content access, borrowing and release. Detached evidence does not acquire
-read authority or survive as current evidence across an owner-invalidated
-image binding. Queries' adapter retains its association to the exact
-Workspace, occurrence pair and installed destination evidence; this Metadata
-relation does not mint any of those identities.
+No reader, borrowed content, acquisition registration, artifact authority or
+content capability escapes in the result. Existing owners govern content
+access, borrowing and release. Detached evidence does not acquire read
+authority or survive as current evidence across an owner-invalidated image
+binding. Queries' adapter retains its association to the exact Workspace,
+occurrence pair and installed destination evidence; this Metadata relation
+does not mint any of those identities.
 
 ## Strict declaration profile
 
@@ -278,9 +313,11 @@ match or a completed absence result.
 
 ## Outcomes
 
-The names below describe closed result arms, not an implemented public API.
-Every arm retains request association and typed diagnostic evidence; diagnostic
-text is presentation, not the discriminator.
+`ApiDeclarationCorrespondenceStatus`,
+`ApiDeclarationCorrespondenceReason` and
+`ApiDeclarationCorrespondenceStage` expose the closed outcomes below. Every
+result retains request association and typed diagnostic evidence; `Detail` is
+presentation, not the discriminator.
 
 | Outcome | Meaning |
 | --- | --- |
@@ -313,13 +350,13 @@ Browser installation (#5511). From step 2, CLI use needs production,
 Navigation consumption and CLI adoption; Browser use additionally needs its
 two adoption steps. These are capability milestones, not a PR-count estimate.
 
-Implementation of this producer includes Type and all four declaration tables,
-not a methods-only runtime advertised as general Member retention. Keep that
-implementation in the production-consumer delivery group, or at most one
-unmerged PR ahead, as #7061 requires. The Queries adapter must preserve exact
-Library/occurrence association and projected-Member containment before this
-can authorize Navigation. #7072 records the missing Library-pair boundary;
-this design does not supply an interim name-based substitute.
+The implemented producer includes Type and all four declaration tables, not a
+methods-only runtime advertised as general Member retention. Keep it in the
+production-consumer delivery group, or at most one unmerged PR ahead, as #7061
+requires. The Queries adapter must preserve exact Library/occurrence
+association and projected-Member containment before this can authorize
+Navigation. #7072 records the missing Library-pair boundary; this design does
+not supply an interim name-based substitute.
 
 CLI lowering remains Markout-based and preserves the complete host envelope.
 Browser rendering remains its existing typed, interactive HTML/CSS boundary,
@@ -335,19 +372,21 @@ the inherited platform targets; no dependency or platform exception is proposed.
 
 ## Required implementation evidence
 
-All gates below are **unimplemented and unverified**. Place producer cases in
-`ILInspector.Metadata.Tests`, run in Release, and classify their cost under
-the existing test policy. Focused synthetic fixtures belong under
-`fixtures/metadata/`; retain pinned real-package acquisition witnesses through
-the normal product query path rather than constructing successful result data.
+The deterministic producer gates are PR-fast tests in
+`ApiDeclarationCorrespondenceTests` and run in Release. Their independently
+compiled version-pair assets live under `fixtures/metadata/` with the same
+assembly name and AssemblyVersions `1.0.0.0` and `2.0.0.0`. The real-package
+gate remains owned by the production acquisition/query consumer rather than
+by this reader-level producer.
 
-| Gate obligation | Falsifying boundary |
+| Gate | Status and falsifying boundary |
 | --- | --- |
-| `ApiCorrespondence_RealPackageCoordinates` | The real string/options overload above fails exact selection across the declared Version/TFM pair, or a different overload is selected; Schema exporter absence is confused with a neighboring Type |
-| `ApiCorrespondence_StrictDeclarationProfile` | Changing one retained discriminator still selects the old counterpart; cover all declaration kinds, nested generics, return-only differences, reference scopes, arrays, modifiers and function pointers, with parameter-name/default/body-only changes as positive controls |
-| `ApiCorrespondence_CompleteCandidates` | A duplicate or unreadable candidate becomes unique/absent; cover empty and duplicate groups, unreadable names, partial relationship traversal, cancellation and work exhaustion |
-| `ApiCorrespondence_ExactEndpointAssociation` | Reordered destination rows, different registrations with equal MVIDs, or a wrong source location substitutes evidence from another image |
-| `ApiCorrespondence_AddressableDeclarations` | Colliding Member anchors, accessor/declaration confusion, ambiguous local types or projected receiver rows produce an invented selectable descendant |
+| `ApiCorrespondence_RealPackageCoordinates` | **Consumer-owned, not yet implemented here.** The real string/options overload above fails exact selection across the declared Version/TFM pair, or a different overload is selected; Schema exporter absence is confused with a neighboring Type |
+| `ApiCorrespondence_StrictDeclarationProfile` | **Implemented.** Changing one retained discriminator still selects the old counterpart; covers all declaration kinds, nested generics, constraints, staticness, parameter flags, return-only differences, reference scopes, arrays, modifiers, function pointers and varargs, with parameter-name/default/body-only changes as positive controls |
+| `ApiCorrespondence_CompleteCandidates_*` | **Implemented.** A duplicate or unreadable candidate becomes unique/absent, relationship traversal becomes partial success, or cancellation/work exhaustion loses its typed outcome; reference-scope changes are also rejected |
+| `ApiCorrespondence_ExactEndpointAssociation` | **Implemented.** Reordered destination rows, different registrations with equal MVIDs, or a wrong source location substitutes evidence from another image; detached endpoints retain no acquisition registration or artifact authority |
+| `ApiCorrespondence_AddressableDeclarations*` | **Implemented.** Colliding Member anchors, ambiguous defining Types, or non-durable declaration tables produce an invented selectable descendant |
+| `ApiCorrespondence_RequiresExplicitForwardedOrModuleImage` | **Implemented.** A destination forwarder or module export is chased or reported as absence rather than returning its typed target evidence for an explicit follow-up image |
 
 The consumer gates in Navigation's
 [reconciliation contract](inspection-subject-navigation.md#reconciliation)
