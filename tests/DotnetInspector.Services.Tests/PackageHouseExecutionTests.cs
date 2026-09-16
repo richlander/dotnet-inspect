@@ -428,8 +428,15 @@ public sealed class PackageHouseExecutionTests
                     Failure.Timeout.Kind:
                         PackageSourceTimeoutKind.Operation,
                 });
-        Assert.IsType<PackageHouseFailure.Timeout>(
-            result.Evidence.Failures.Last());
+        PackageHouseFailure.Timeout timeout =
+            Assert.IsType<PackageHouseFailure.Timeout>(
+                result.Evidence.Failures.Last());
+        Assert.Equal(
+            PackageHouseTimeoutKind.Operation,
+            timeout.Kind);
+        Assert.Equal(
+            request.Operation.OperationTimeout,
+            timeout.Duration);
         await environment.AssertRootSettledAsync();
     }
 
