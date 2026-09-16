@@ -43,7 +43,9 @@ internal sealed record LibraryBodyAnalysisPlan(
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         if ((features
                 & (LibraryBodyAnalysisFeatures.JsonWireContractFlow
-                    | LibraryBodyAnalysisFeatures.LocalThrows)) != 0)
+                    | LibraryBodyAnalysisFeatures.LocalThrows
+                    | LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles)) != 0)
         {
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         }

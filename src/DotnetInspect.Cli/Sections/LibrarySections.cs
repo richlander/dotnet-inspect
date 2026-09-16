@@ -134,6 +134,9 @@ public static class LibrarySections
             .Add<TopLeverage>(
                 TopLeverageQuery.Definition,
                 HasMethodBodies)
+            .Add<ImplementationProfiles>(
+                ImplementationProfilesQuery.Definition,
+                HasMethodBodies)
             .Add<BodyShapes>(
                 BodyShapesQuery.Definition,
                 HasMethodBodies)
@@ -363,6 +366,9 @@ public static class LibrarySections
             .Add(
                 TopLeverageQuery.Definition,
                 ExecuteTopLeverageQuery)
+            .Add(
+                ImplementationProfilesQuery.Definition,
+                ExecuteImplementationProfilesQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext)
             .Compile();
     }
@@ -443,6 +449,19 @@ public static class LibrarySections
             context.MetadataContext?.HasMetadata != false,
             context.BodyIndex);
         if (result is TopLeverageResult.Available)
+            _ = context.DrillMap();
+        return result;
+    }
+
+    internal static ImplementationProfilesResult
+        ExecuteImplementationProfilesQuery(
+            InspectionQueryContext context)
+    {
+        ImplementationProfilesResult result =
+            ExecuteImplementationProfilesQuery(
+                context.MetadataContext?.HasMetadata != false,
+                context.BodyIndex);
+        if (result is ImplementationProfilesResult.Available)
             _ = context.DrillMap();
         return result;
     }
@@ -567,6 +586,30 @@ public static class LibrarySections
         catch (Exception ex)
         {
             return new TopLeverageResult.Failed(ex);
+        }
+    }
+
+    internal static ImplementationProfilesResult
+        ExecuteImplementationProfilesQuery(
+            bool hasMetadata,
+            Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex)
+    {
+        ArgumentNullException.ThrowIfNull(acquireIndex);
+
+        if (!hasMetadata)
+            return new ImplementationProfilesResult.NoMetadata();
+
+        try
+        {
+            return ImplementationProfilesQuery.Execute(acquireIndex());
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new ImplementationProfilesResult.Failed(ex);
         }
     }
 
@@ -953,6 +996,22 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model)
             => model.TopLeverageQueryResult is TopLeverageResult.Available
                 { Methods.IsEmpty: false };
+    }
+
+    public sealed class ImplementationProfiles
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name =>
+            SectionNames.ImplementationProfiles;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model)
+            => model.ImplementationProfilesQueryResult
+                is ImplementationProfilesResult.Available
+                { Profiles.IsEmpty: false };
     }
 
     public sealed class BodyShapes : ISectionDescriptor<LibraryInspection>
