@@ -783,15 +783,16 @@ Library inspector hierarchy. Existing package-shaped acquisition transport may
 remain internal while Browser target state, controls, history, and presentation
 distinguish Platform from Package.
 
-The production path is Spotlight -> Platform -> Library -> Type -> Member.
-Opening Platform selects its catalog, with no implicit Library or Type.
-Selecting a platform-library search result opens that exact Library with
-Platform as its parent. A search such as `System.Text.Json` can offer both the
-NuGet package and the platform library; source and target labeling distinguish
-the destinations rather than merging names. The
-[Spotlight destination-activation
-owner](inspect-web-spotlight-destination-activation.md) separately supplies
-their current-Workspace or fresh-Workspace effect and opaque action;
+The Platform Workspace path is Platform -> Library -> Type -> Member. Opening
+Platform selects its catalog, with no implicit Library or Type. Spotlight does
+not expose Platform as a scope, component, result, or parent destination.
+Framework assemblies instead appear as ordinary Library results with `.NET` or
+`ASP.NET Core` source disclosure and open that exact Library directly; Platform
+realization remains internal. A search such as `System.Text.Json` can offer
+both the NuGet package and framework Library without merging their identities.
+The [Spotlight destination-activation
+owner](inspect-web-spotlight-destination-activation.md) supplies package
+effects while the Browser owns direct framework-Library realization;
 presentation does not infer either from the shared display name.
 
 Platform content owns its target/version control, library-name filter, and
