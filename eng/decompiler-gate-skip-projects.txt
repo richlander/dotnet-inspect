@@ -88,9 +88,12 @@ fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures
 src/DotnetInspect.Cli
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.Libraries
+src/DotnetInspector.LibraryMetadata
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.PlatformHouse
+src/DotnetInspector.PlatformHouse.Execution
+src/DotnetInspector.PlatformHouse.Execution.Installed
 src/DotnetInspector.PlatformHouse.Installed
 src/DotnetInspector.PlatformHouse.Packages
 src/DotnetInspector.Platforms.Installed
@@ -118,10 +121,12 @@ tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
 tests/DotnetInspector.ILRoundtrip.Tests
 tests/DotnetInspector.Libraries.Tests
+tests/DotnetInspector.LibraryMetadata.Tests
 tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.Networking.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.Packages.Tests
+tests/DotnetInspector.PlatformHouse.Execution.Tests
 tests/DotnetInspector.PlatformHouse.Installed.Tests
 tests/DotnetInspector.PlatformHouse.Packages.Tests
 tests/DotnetInspector.PlatformHouse.Tests
