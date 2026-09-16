@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspector.Queries.Tests;
@@ -21,6 +22,9 @@ public sealed class WorkspaceSharePacketCodecTests
     private const string IndependentFocusVector =
         "eyJmIjoxLCJ0IjpbWyJQIixudWxsLCJuZXQxMC4wIixudWxsXSxbIlEiLG51bGwsIm5l"
         + "dDEwLjAiLG51bGxdXSwiZyI6W1swXSxbMV1dLCJhIjoxLCJ4IjowfQ";
+
+    private const string CanonicalFormat2Json =
+        """{"f":2,"t":[[":Platform","10.0.10","net10.0",null],["System.Text.Json","10.0.0","net10.0",null]],"g":[[0,1]],"a":1,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"member","l":["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"],"y":"System.Text.Json.JsonSerializer","m":"74b6b4b321"},"u":{"k":"workspace"},"f":"workspace.overview"}]}""";
 
     [Fact]
     public void Decode_CanonicalVector_RoundTripsExactly()
@@ -120,7 +124,9 @@ public sealed class WorkspaceSharePacketCodecTests
 
         WorkspaceSharePacketException oversized = Assert.Throws<WorkspaceSharePacketException>(
             () => WorkspaceSharePacketCodec.ParseJson(
-                new string(' ', WorkspaceSharePacketCodec.MaxDecodedUtf8Length + 1),
+                new string(
+                    ' ',
+                    WorkspaceSharePacketCodec.MaxDecodedUtf8Length + 1),
                 TestContext.Current.CancellationToken));
         Assert.Equal(
             WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
@@ -174,6 +180,133 @@ public sealed class WorkspaceSharePacketCodecTests
             packet.ActiveTabIndex,
             packet.Contexts[packet.SelectedContextIndex].TabIndexes);
         Assert.Equal(IndependentFocusVector, WorkspaceSharePacketCodec.Encode(packet));
+    }
+
+    [Fact]
+    public void Decode_Format2CanonicalVector_RoundTripsExactly()
+    {
+        string encoded = EncodeJson(CanonicalFormat2Json);
+
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            encoded,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, packet.FormatVersion);
+        Assert.Equal(1, packet.FocusedTabIndex);
+        Assert.Equal(3, packet.ViewStates.Count);
+        Assert.IsType<PortableSubjectRequest.Workspace>(
+            packet.ViewStates[0].Subject);
+        Assert.Null(packet.ViewStates[1].Subject);
+        var member =
+            Assert.IsType<PortableRetainedSubjectContext.EscapedMember>(
+                packet.ViewStates[2].Context);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            member.EscapedTypeIdentity);
+        Assert.Equal("74b6b4b321", member.MemberAnchor);
+        Assert.Equal(
+            CanonicalFormat2Json,
+            WorkspaceSharePacketCodec.SerializeJson(packet));
+        Assert.Equal(encoded, WorkspaceSharePacketCodec.Encode(packet));
+    }
+
+    [Fact]
+    public void Decode_Format2WorkspaceSelection_PreservesNullFocus()
+    {
+        const string json =
+            """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"},"f":"workspace.overview"},{"t":0}]}""";
+
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            json,
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(packet.FocusedTabIndex);
+        Assert.Equal(-1, packet.ActiveTabIndex);
+        Assert.Equal(json, WorkspaceSharePacketCodec.SerializeJson(packet));
+    }
+
+    [Fact]
+    public void Format2_UsesItsLargerBoundWithoutChangingFormat1()
+    {
+        string facet = new('a', 13 * 1024);
+        string format2Json =
+            """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"},"f":"""
+            + JsonSerializer.Serialize(facet)
+            + """},{"t":0}]}""";
+
+        WorkspaceSharePacket format2 = WorkspaceSharePacketCodec.ParseJson(
+            format2Json,
+            TestContext.Current.CancellationToken);
+        string encoded = WorkspaceSharePacketCodec.Encode(format2);
+
+        Assert.True(
+            Encoding.UTF8.GetByteCount(format2Json)
+                > WorkspaceSharePacketCodec.MaxFormat1DecodedUtf8Length);
+        Assert.True(
+            encoded.Length
+                > WorkspaceSharePacketCodec.MaxFormat1EncodedLength);
+        Assert.Equal(
+            encoded,
+            WorkspaceSharePacketCodec.Encode(
+                WorkspaceSharePacketCodec.Decode(
+                    encoded,
+                    TestContext.Current.CancellationToken)));
+
+        string format1Json =
+            """{"f":1,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"v":"""
+            + JsonSerializer.Serialize(facet)
+            + "}";
+        WorkspaceSharePacketException exception =
+            Assert.Throws<WorkspaceSharePacketException>(
+                () => WorkspaceSharePacketCodec.ParseJson(
+                    format1Json,
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
+            exception.Kind);
+    }
+
+    [Fact]
+    public void Format2_RoundTripsPortableLibraryAndEscapedTypeIdentities()
+    {
+        (string Type, string Library)[] cases =
+        [
+            (
+                @"N.Outer\+Inner",
+                """["P","1.2.3.4",null,null]"""),
+            (
+                @"N.Type\.Part",
+                """["P","1.2.3.4","fr-FR","0011223344556677"]"""),
+            (
+                "Outer+Inner",
+                """["P","1.2.3.4",null,"0011223344556677"]"""),
+        ];
+
+        foreach ((string type, string library) in cases)
+        {
+            string json =
+                """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"type","l":"""
+                + library
+                + ",\"y\":"
+                + JsonSerializer.Serialize(type)
+                + """},"u":{"k":"package"}}]}""";
+
+            WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+                json,
+                TestContext.Current.CancellationToken);
+
+            var context =
+                Assert.IsType<PortableRetainedSubjectContext.EscapedType>(
+                    packet.ViewStates[1].Context);
+            Assert.Equal(type, context.EscapedTypeIdentity);
+            string encoded = WorkspaceSharePacketCodec.Encode(packet);
+            Assert.Equal(
+                encoded,
+                WorkspaceSharePacketCodec.Encode(
+                    WorkspaceSharePacketCodec.Decode(
+                        encoded,
+                        TestContext.Current.CancellationToken)));
+        }
     }
 
     [Fact]
@@ -252,8 +385,37 @@ public sealed class WorkspaceSharePacketCodecTests
             WorkspaceSharePacketFailureKind.InvalidShape);
         AssertFailure(
             EncodeJson(
-                """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0}"""),
+                """{"f":3,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0}"""),
             WorkspaceSharePacketFailureKind.UnsupportedFormat);
+    }
+
+    [Theory]
+    [InlineData(
+        """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"y":"T","v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""",
+        WorkspaceSharePacketFailureKind.InvalidShape)]
+    [InlineData(
+        """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"u":{"k":"package"}}]}""",
+        WorkspaceSharePacketFailureKind.InvalidShape)]
+    [InlineData(
+        """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"package"},"u":{"k":"workspace"}}]}""",
+        WorkspaceSharePacketFailureKind.InvalidShape)]
+    [InlineData(
+        """{"f":2,"t":[[":Platform",null,"net10.0",null]],"g":[[0]],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"u":{"k":"workspace"}}]}""",
+        WorkspaceSharePacketFailureKind.InvalidShape)]
+    [InlineData(
+        """{"f":2,"t":[[":Platform",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""",
+        WorkspaceSharePacketFailureKind.InvalidShape)]
+    [InlineData(
+        """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"library","l":["P","1.2.3",null,null]},"u":{"k":"package"}}]}""",
+        WorkspaceSharePacketFailureKind.InvalidShape)]
+    [InlineData(
+        """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"q":[],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""",
+        WorkspaceSharePacketFailureKind.UnsupportedFormat)]
+    public void Decode_RejectsInvalidOrUnsupportedFormat2Shape(
+        string json,
+        WorkspaceSharePacketFailureKind expected)
+    {
+        AssertFailure(EncodeJson(json), expected);
     }
 
     [Fact]
@@ -437,20 +599,29 @@ public sealed class WorkspaceSharePacketCodecTests
     public void Decode_EnforcesEncodedValueAndDepthBoundsBeforeBinding()
     {
         AssertFailure(
-            new string('A', WorkspaceSharePacketCodec.MaxEncodedLength + 1),
+            new string(
+                'A',
+                WorkspaceSharePacketCodec.MaxEncodedLength + 1),
             WorkspaceSharePacketFailureKind.EncodedLimitExceeded);
 
-        string values = string.Join(',', Enumerable.Repeat("0", 1025));
+        string values = string.Join(
+            ',',
+            Enumerable.Repeat(
+                "0",
+                WorkspaceSharePacketCodec.MaxFormat1JsonValues + 1));
         AssertFailure(
             EncodeJson(
                 $$"""{"f":1,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"z":[{{values}}]}"""),
             WorkspaceSharePacketFailureKind.JsonValueLimitExceeded);
 
-        string nested = new string('[', WorkspaceSharePacketCodec.MaxJsonDepth + 1)
+        string nested = new string(
+            '[',
+            WorkspaceSharePacketCodec.MaxFormat1JsonDepth + 1)
             + "0"
-            + new string(']', WorkspaceSharePacketCodec.MaxJsonDepth + 1);
+            + new string(']', WorkspaceSharePacketCodec.MaxFormat1JsonDepth + 1);
         AssertFailure(
-            EncodeJson(nested),
+            EncodeJson(
+                $$"""{"f":1,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"z":{{nested}}}"""),
             WorkspaceSharePacketFailureKind.InvalidJson);
     }
 

@@ -36,20 +36,34 @@ public static class AssemblyContextMethodAnalysisQuery
     public static AssemblyContextEntry<AssemblyMethodAnalysis> ExecuteParticipant(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
-        int methodToken)
+        int methodToken) =>
+        ExecuteParticipant(
+            group,
+            participant,
+            methodToken,
+            CancellationToken.None);
+
+    public static AssemblyContextEntry<AssemblyMethodAnalysis> ExecuteParticipant(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        int methodToken,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(participant);
+        cancellationToken.ThrowIfCancellationRequested();
 
         return AssemblyContextQueryExecutor.ExecuteParticipantOverSnapshot(
             group,
             participant,
+            cancellationToken,
             (subject, snapshot) => Analyze(
                 group,
                 participant,
                 subject,
                 snapshot,
-                methodToken));
+                methodToken,
+                cancellationToken));
     }
 
     static AssemblyMethodAnalysis Analyze(
@@ -57,20 +71,24 @@ public static class AssemblyContextMethodAnalysisQuery
         AssemblyContextParticipant participant,
         AssemblyContextSubject subject,
         AssemblyImageSnapshot snapshot,
-        int methodToken)
+        int methodToken,
+        CancellationToken cancellationToken)
     {
         LibraryBodyIndex? index = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var resolver = AssemblyContextAnalysisSource.Resolver(
                 group,
                 subject);
+            cancellationToken.ThrowIfCancellationRequested();
             index = LibraryBodyIndex.OpenFromPrefetchedImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
                 LibraryBodyAnalysisFeatures.OptimizationOpportunities,
                 resolver,
                 bodyScope: new HashSet<int> { methodToken });
+            cancellationToken.ThrowIfCancellationRequested();
 
             MethodIdentity? declaration = index.DeclaredMethods.FirstOrDefault(
                 method => method.MetadataToken == methodToken);
@@ -142,6 +160,7 @@ public static class AssemblyContextMethodAnalysisQuery
                             diagnostic.MethodToken == methodToken),
                 ]);
             resolver.ValidateForPublication();
+            cancellationToken.ThrowIfCancellationRequested();
             return result;
         }
         finally

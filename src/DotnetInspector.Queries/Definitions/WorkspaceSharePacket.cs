@@ -63,13 +63,41 @@ public sealed class WorkspaceShareContext
 }
 
 /// <summary>
-/// The validated semantic model for one canonical v1 <c>w</c> query value.
+/// One query-free committed view row in a format-2 workspace share packet.
+/// </summary>
+public sealed class WorkspaceShareViewState
+{
+    internal WorkspaceShareViewState(
+        int? tabIndex,
+        PortableSubjectRequest? subject,
+        PortableRetainedSubjectContext? context,
+        string? facet)
+    {
+        TabIndex = tabIndex;
+        Subject = subject;
+        Context = context;
+        Facet = facet;
+    }
+
+    /// <summary>
+    /// Null for the leading Workspace row; otherwise the exact index into
+    /// <see cref="WorkspaceSharePacket.Tabs"/>.
+    /// </summary>
+    public int? TabIndex { get; }
+
+    public PortableSubjectRequest? Subject { get; }
+
+    public PortableRetainedSubjectContext? Context { get; }
+
+    public string? Facet { get; }
+}
+
+/// <summary>
+/// The validated semantic model for one canonical <c>w</c> query value.
 /// </summary>
 /// <remarks>
-/// The packet separates coordinate/binding state from optional initial view
-/// state. This type does not resolve view ids, acquire artifacts, or execute a
-/// query. <c>WorkspaceSharePacketCodecTests.Decode_CanonicalVector_RoundTripsExactly</c>
-/// gates exact v1 decoding and canonical re-emission.
+/// The packet separates coordinate/binding state from committed view state.
+/// This type does not resolve view ids, acquire artifacts, or execute a query.
 /// </remarks>
 public sealed class WorkspaceSharePacket
 {
@@ -85,10 +113,12 @@ public sealed class WorkspaceSharePacket
         string? section,
         string[] libraries)
     {
+        FormatVersion = WorkspaceSharePacketCodec.LegacyFormatVersion;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
             (WorkspaceShareTab[])tabs.Clone());
         Contexts = new ReadOnlyCollection<WorkspaceShareContext>(
             (WorkspaceShareContext[])contexts.Clone());
+        FocusedTabIndex = activeTabIndex;
         ActiveTabIndex = activeTabIndex;
         SelectedContextIndex = selectedContextIndex;
         Lens = lens;
@@ -97,29 +127,75 @@ public sealed class WorkspaceSharePacket
         MemberSignature = memberSignature;
         Section = section;
         Libraries = new ReadOnlyCollection<string>((string[])libraries.Clone());
+        ViewStates = Array.Empty<WorkspaceShareViewState>();
     }
 
-    public int FormatVersion => WorkspaceSharePacketCodec.CurrentFormatVersion;
+    internal WorkspaceSharePacket(
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        int? focusedTabIndex,
+        int selectedContextIndex,
+        WorkspaceShareViewState[] viewStates)
+    {
+        FormatVersion = WorkspaceSharePacketCodec.CurrentFormatVersion;
+        Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
+            (WorkspaceShareTab[])tabs.Clone());
+        Contexts = new ReadOnlyCollection<WorkspaceShareContext>(
+            (WorkspaceShareContext[])contexts.Clone());
+        FocusedTabIndex = focusedTabIndex;
+        ActiveTabIndex = focusedTabIndex ?? -1;
+        SelectedContextIndex = selectedContextIndex;
+        Lens = null;
+        Type = null;
+        MemberAnchor = null;
+        MemberSignature = null;
+        Section = null;
+        Libraries = Array.Empty<string>();
+        ViewStates = new ReadOnlyCollection<WorkspaceShareViewState>(
+            (WorkspaceShareViewState[])viewStates.Clone());
+    }
+
+    public int FormatVersion { get; }
 
     public IReadOnlyList<WorkspaceShareTab> Tabs { get; }
 
     public IReadOnlyList<WorkspaceShareContext> Contexts { get; }
 
+    /// <summary>
+    /// The focused direct-Package tab, or null when format 2 selects the
+    /// leading Workspace row.
+    /// </summary>
+    public int? FocusedTabIndex { get; }
+
+    /// <summary>
+    /// The format-1 active tab index. Format 2 consumers should use
+    /// <see cref="FocusedTabIndex"/>; this value is -1 when the Workspace row
+    /// is selected.
+    /// </summary>
     public int ActiveTabIndex { get; }
 
     public int SelectedContextIndex { get; }
 
+    /// <summary>Format-1 lens token.</summary>
     public string? Lens { get; }
 
+    /// <summary>Format-1 flattened Type selector.</summary>
     public string? Type { get; }
 
+    /// <summary>Format-1 member anchor.</summary>
     public string? MemberAnchor { get; }
 
+    /// <summary>Format-1 member signature.</summary>
     public string? MemberSignature { get; }
 
+    /// <summary>Format-1 section token.</summary>
     public string? Section { get; }
 
+    /// <summary>Format-1 filename-stem Library scope.</summary>
     public IReadOnlyList<string> Libraries { get; }
+
+    /// <summary>Format-2 committed view rows.</summary>
+    public IReadOnlyList<WorkspaceShareViewState> ViewStates { get; }
 }
 
 /// <summary>Why a workspace share packet could not be decoded.</summary>

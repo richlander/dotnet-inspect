@@ -188,17 +188,77 @@ form is unavailable. The existing self-name failures remain independent;
 neither failure category exposes partial source. String-returning formatter
 entry points report the same refusal through `NotSupportedException`.
 
-Properties, events, accessors, whole delegate or enum type forms, and
-primary-constructor syntax remain explicitly unavailable in this opt-in slice.
-A standalone selected enum value is narrower: it emits only the
-declaration-contained member name and exact metadata constant after verifying
-that the member carries no caller contract or pointer shape. The enum's special
-`value__` storage slot supplies the underlying type but is not a declarable
-member and does not enter the API surface. A caller can select the supported
-members or supply the product-selected explicit-field and ordinary-constructor
-shape. The printer does not silently drop an unsupported selected member. This
-slice proves safety-modifier spelling and caller-contract preservation, not
-body reconstruction or general layout reconstruction.
+Properties in whole-type output, events, direct accessor declarations, whole
+delegate or enum type forms, and primary-constructor syntax remain explicitly
+unavailable in this opt-in slice. Two standalone selected-member forms are
+narrower:
+
+- An enum value emits only the declaration-contained member name and exact
+  metadata constant after verifying that the member carries no caller contract
+  or pointer shape. The enum's special `value__` storage slot supplies the
+  underlying type but is not a declarable member and does not enter the API
+  surface.
+- A non-indexed ordinary property emits its complete structured property
+  signature only when the declaring layout is known and ordinary, and the
+  PropertyDef and every represented get/set MethodDef have same-module,
+  same-rules, pointer-absent, contract-neutral evidence and exact metadata-token
+  correspondence. Every getter callable signature must preserve the
+  PropertyDef return and index-parameter types. Every setter must return
+  `void`, preserve the PropertyDef index-parameter prefix, and accept the
+  non-void PropertyDef return type as its final parameter. Correspondence
+  preserves primitive codes, named class-versus-value-type encoding, generic
+  definition shape, and in-range declaring-type generic parameters. An
+  out-of-range declaring-type generic parameter and every method generic
+  parameter are unavailable because no property declaration can bind them.
+  Each generic instance's encoded argument count must exactly match the
+  metadata-verified introduced parameter counts where present, and otherwise
+  the canonical arity suffixes of its complete definition name. Missing or
+  contradictory generic arity is unavailable rather than display-normalized.
+  A TypeRef scoped to the inspected module uses its exact local TypeDef's
+  introduced parameter counts from one reader-scoped, bounded TypeDef identity
+  index; index construction is charged before name materialization and shared
+  across signature providers. An unresolved or ambiguous local reference is
+  unavailable rather than treated as a non-generic named type.
+  Array shapes are recursively admitted only when C# type syntax preserves
+  their complete identity: vectors remain supported, multidimensional arrays
+  require rank two or greater, and retained sizes or lower bounds are
+  unavailable because a C# property type cannot spell them. `void` is
+  unavailable at every recursively visited type position, including array
+  elements and generic arguments.
+  Property and accessor signatures must use ordinary non-generic headers.
+  Native signed and unsigned integer primitive codes are retained as `nint`
+  and `nuint`. Metadata retains correspondence as an explicit accessor fact;
+  absent or negative evidence is not renderable. The structured accessor list
+  preserves each accessor's exact relative accessibility, whether its MethodDef
+  access mask has an exact C# representation, and whether all represented
+  accessors share one property-level static, virtual, abstract, override, and
+  sealed modifier shape. The C# boundary requires affirmative representability
+  of each accessor's complete MethodDef declaration and implementation flags:
+  ordinary accessors require `SpecialName` and `HideBySig`, permit only the
+  accessibility and property-modifier bits supported by C#, and require
+  ordinary IL implementation flags. Every represented accessor must also be
+  affirmatively non-explicit.
+  Property modifier admission also preserves the declaring type's
+  abstract/sealed/static constraints and rejects private virtual, abstract, or
+  override declarations. A readonly struct's non-static property with a setter
+  is unavailable because lowering body-bearing accessors to semicolon accessors
+  would create an illegal auto-property; static properties remain eligible.
+  MethodDef `Static` must agree with the accessor signature's instance bit,
+  which must in turn agree with the PropertyDef signature. A `required`
+  property must be an instance member of a class or struct, must have a setter,
+  and both the property and setter must be at least as accessible as the
+  containing type. Reserved signature-header flags, explicit- and
+  extended-layout owners, body-owned unsafe contexts, readonly accessors,
+  init-only or otherwise structurally modified accessor returns, unsupported
+  or ambiguous accessor shapes, accessor contracts, and unavailable evidence
+  remain unavailable. This selected declaration does not enable direct
+  accessor or whole-type property spelling.
+
+A caller can select the supported members or supply the product-selected
+explicit-field and ordinary-constructor shape. The printer does not silently
+drop an unsupported selected member. This slice proves safety-modifier spelling
+and caller-contract preservation, not body reconstruction or general layout
+reconstruction.
 
 Method-like admission requires the Metadata-owned
 `ApiMember.MethodSemantics` fact. A positive `None` permits the ordinary
@@ -283,8 +343,10 @@ pseudo-package as a NuGet package.
 An older surface with no module memory-safety facts takes the distinguishable
 compatibility arm. A current surface whose selected declaration is unsupported
 or whose required evidence is unavailable reports the typed CSharp diagnostic
-in place of a declaration. The first production slice supports methods,
-ordinary constructors, and fields; properties, events, accessors, delegates,
+in place of a declaration. The production selected-member slice supports
+methods, ordinary constructors, fields, standalone enum values, and
+contract-neutral pointer-free ordinary properties. Property or event accessor
+contracts, direct accessors, whole-type properties, events, delegates, whole
 enums, and primary-constructor spelling remain unavailable in the selected
 model-aware view.
 

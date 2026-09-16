@@ -665,6 +665,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void SameModuleTypeReferenceIndex_ChargesDefinitionNamesBeforeCopying()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildSameModuleTypeReferenceDefinitionNameWorkImage(
+                definitionCount: 256,
+                nameLength: 9_000));
+    }
+
+    [Fact]
     public void OneWideSignature_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -1860,6 +1869,90 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 constraint);
         }
 
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSameModuleTypeReferenceDefinitionNameWorkImage(
+        int definitionCount,
+        int nameLength)
+    {
+        var metadata = new MetadataBuilder();
+        ModuleDefinitionHandle module = metadata.AddModule(
+            0,
+            metadata.GetOrAddString("LocalReferenceWork.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("LocalReferenceWork"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeReference(
+            module,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Referenced"));
+        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+            | MethodAttributes.Abstract
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot
+            | MethodAttributes.HideBySig
+            | MethodAttributes.SpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_Value"),
+            metadata.GetOrAddBlob((byte[])[0x20, 0x00, 0x12, 0x05]),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            getter);
+        TypeDefinitionHandle target = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            getter);
+        TypeDefinitionHandle referenced = metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Referenced"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddGenericParameter(
+            referenced,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        StringHandle longName =
+            metadata.GetOrAddString(new string('X', nameLength));
+        for (int i = 0; i < definitionCount; i++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("Fillers"),
+                longName,
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        }
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob((byte[])[0x28, 0x00, 0x12, 0x05]));
+        metadata.AddPropertyMap(target, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            getter);
         return Serialize(metadata);
     }
 

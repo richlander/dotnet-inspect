@@ -14,6 +14,10 @@ namespace ILInspector.Metadata;
 /// <c>TypeDefinitionIndex_DeepSharedAncestryAllocatesLinearly</c>,
 /// <c>TypeDefinitionIndex_DuplicateNamesAllocateLinearly</c>, and
 /// <c>TypeDefinitionIndex_RejectsCumulativeNameWorkBeyondBudget</c>.
+/// Extraction charging and cross-provider sharing are gated by
+/// <c>SameModuleTypeReferenceIndex_ChargesDefinitionNamesBeforeCopying</c>
+/// and
+/// <c>SameModuleTypeReference_DefinitionIndexWorkIsSharedAcrossProviders</c>.
 /// </remarks>
 public sealed class MetadataTypeDefinitionIndex
 {
@@ -33,7 +37,10 @@ public sealed class MetadataTypeDefinitionIndex
     {
         try
         {
-            return Create(reader, definitionVisited: null);
+            return Create(
+                reader,
+                definitionVisited: null,
+                beforeMaterialize: null);
         }
         catch (MetadataTypeDefinitionIndexBudgetException ex)
         {
@@ -43,7 +50,8 @@ public sealed class MetadataTypeDefinitionIndex
 
     internal static MetadataTypeDefinitionIndex Create(
         MetadataReader reader,
-        Action<TypeDefinitionHandle>? definitionVisited)
+        Action<TypeDefinitionHandle>? definitionVisited,
+        Action<int>? beforeMaterialize = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         int rowCount = reader.GetTableRowCount(TableIndex.TypeDef);
@@ -61,6 +69,7 @@ public sealed class MetadataTypeDefinitionIndex
 
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
+            beforeMaterialize?.Invoke(16);
             definitionVisited?.Invoke(handle);
             int row = MetadataTokens.GetRowNumber(handle);
             if (nodeByRow[row] != 0)
@@ -130,12 +139,14 @@ public sealed class MetadataTypeDefinitionIndex
                 string name = ReadBounded(
                     reader,
                     definition.Name,
-                    ref remainingWork);
+                    ref remainingWork,
+                    beforeMaterialize);
                 string @namespace = parentNode == 0
                     ? ReadBounded(
                         reader,
                         definition.Namespace,
                         ref remainingWork,
+                        beforeMaterialize,
                         allowEmpty: true)
                     : "";
                 var key = new NodeKey(
@@ -250,6 +261,7 @@ public sealed class MetadataTypeDefinitionIndex
         MetadataReader reader,
         StringHandle handle,
         ref long remainingWork,
+        Action<int>? beforeMaterialize,
         bool allowEmpty = false)
     {
         try
@@ -267,6 +279,7 @@ public sealed class MetadataTypeDefinitionIndex
                     "The TypeDef name index exceeded its structural-name "
                     + "work budget.");
             }
+            beforeMaterialize?.Invoke(charge);
             return reader.GetString(handle);
         }
         catch (Exception ex)
