@@ -68,8 +68,28 @@
   diagnostics as the final stderr line. Share is constructed even when stderr
   projection is not requested; mixed-source plans and explicit `--depth`
   produce typed `nonProjectable` Share without changing successful Content.
-  Asset mode, other commands, Library Diff, evidence capture, and
+  Asset mode, other commands, evidence capture, and
   `--evidence-envelope` have not adopted this transport (#6719, #7117, #7126).
+- **Breaking:** Unprojected `diff --json` on the shared single-Library API
+  route now emits complete `LibraryApiDiffOutcome` Content instead of the
+  former `{changes: ...}` presentation view. Root `outcome` is `available`,
+  `unavailable`, or `rejected`; Available includes `document`, while
+  non-success includes numeric `kind` and both endpoint summaries. Nested
+  ComparisonDocument retains its existing snake_case schema; other
+  Presentation-owned properties are camelCase and enums remain numeric.
+  Explicitly filtered or sectioned JSON keeps its presentation schema.
+- Adds `diff --envelope` for ordinary API comparison with exactly one Library
+  at each endpoint, using schema version `1`, result kind `library-api-diff`,
+  and the common buffered writer. Content matches unprojected `--json`;
+  Share remains non-projectable at `comparison/endpoints`. Typed non-success
+  is serialized before returning failure; acquisition failure fabricates no
+  result. `--compact` formats either complete JSON boundary, rejects projected
+  or other Diff operations, and `--all` remains an
+  API-scope input. Envelope rejects Type/classification filters, sections,
+  explicit verbosity, row/line controls, competing formats, and non-API modes.
+  Complete Content JSON rejects rendered-line clipping. This completes the
+  two-content-kind baseline transport rollout, not Browser baseline delivery,
+  House acquisition, command cutover, or Evidence capture (#6719).
 - Corrects shared assembly-context JSON prerequisites: the six existing
   `AssemblyResolutionProvenance` cases now serialize with `kind` values
   `package`, `platform`, `project`, `local`, `embedded`, and `designated`
