@@ -49,7 +49,14 @@ public sealed class BrowserMemberDeclarationTests
                 extractedSurface.Types,
                 candidate => candidate.FullName == SpellingType);
             foreach (string propertyName in
-                new[] { "Type", "InternalSet", "PrivateGet", "InitOnly" })
+                new[]
+                {
+                    "Type",
+                    "NativeInt",
+                    "InternalSet",
+                    "PrivateGet",
+                    "InitOnly",
+                })
             {
                 ApiMember property = Assert.Single(
                     extractedType.Members,
@@ -72,6 +79,12 @@ public sealed class BrowserMemberDeclarationTests
                 restrictedProperty.SignatureModel!.Accessors
                     .Single(accessor => accessor.Kind == "set")
                     .Accessibility);
+            ApiMember nativeIntProperty = Assert.Single(
+                extractedType.Members,
+                candidate => candidate.Name == "NativeInt");
+            Assert.Equal(
+                ApiPrimitiveType.IntPtr,
+                nativeIntProperty.SignatureModel!.ReturnTypeShape!.Primitive);
             ApiMember restrictedGetterProperty = Assert.Single(
                 extractedType.Members,
                 candidate => candidate.Name == "PrivateGet");
@@ -140,6 +153,15 @@ public sealed class BrowserMemberDeclarationTests
             Assert.IsType<string>(propertyDeclaration.Text));
         Assert.Null(propertyDeclaration.Unavailable);
         Assert.False(propertyDeclaration.Compatibility);
+
+        BrowserMemberDeclaration nativeIntDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "NativeInt"));
+        Assert.Equal(
+            "public nint NativeInt { get; set; }",
+            Assert.IsType<string>(nativeIntDeclaration.Text));
+        Assert.Null(nativeIntDeclaration.Unavailable);
+        Assert.False(nativeIntDeclaration.Compatibility);
 
         BrowserMemberDeclaration internalSetDeclaration = await Declaration(
             spellingType,

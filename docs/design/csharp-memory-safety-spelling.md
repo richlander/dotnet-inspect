@@ -205,10 +205,14 @@ narrower:
   correspondence. Every getter callable signature must preserve the
   PropertyDef return and index-parameter types. Every setter must return
   `void`, preserve the PropertyDef index-parameter prefix, and accept the
-  non-void PropertyDef return type as its final parameter. Property and
-  accessor signatures must use ordinary non-generic headers. Metadata retains
-  correspondence as an explicit accessor fact; absent or negative evidence is
-  not renderable. The structured accessor list preserves each accessor's exact
+  non-void PropertyDef return type as its final parameter. Correspondence
+  preserves primitive codes, named class-versus-value-type encoding, generic
+  definition shape, and declaring-type generic parameters; method generic
+  parameters are unavailable because properties cannot declare them. Property
+  and accessor signatures must use ordinary non-generic headers. Native signed
+  and unsigned integer primitive codes are retained as `nint` and `nuint`.
+  Metadata retains correspondence as an explicit accessor fact; absent or
+  negative evidence is not renderable. The structured accessor list preserves each accessor's exact
   relative accessibility and whether its MethodDef access mask has an exact C#
   representation. The C# boundary requires affirmative representability,
   accepts only a property/accessor accessibility combination supported by the

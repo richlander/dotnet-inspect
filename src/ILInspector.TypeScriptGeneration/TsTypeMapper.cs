@@ -701,7 +701,9 @@ static class TsTypeMapper
                 or ApiPrimitiveType.Int32 or ApiPrimitiveType.UInt32
                 or ApiPrimitiveType.Int64 or ApiPrimitiveType.UInt64
                 or ApiPrimitiveType.Single or ApiPrimitiveType.Double
-                or ApiPrimitiveType.Decimal => "number",
+                or ApiPrimitiveType.Decimal
+                or ApiPrimitiveType.IntPtr or ApiPrimitiveType.UIntPtr =>
+                "number",
             ApiPrimitiveType.Void => "void",
             _ => null,
         };

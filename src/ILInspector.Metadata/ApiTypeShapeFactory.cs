@@ -28,7 +28,8 @@ internal static class ApiTypeShapeFactory
                 ApiTypeShape.Named(new(
                     assembly,
                     named.Name,
-                    StructuredName(named.MetadataName))),
+                    StructuredName(named.MetadataName)),
+                    isValueType: !named.IsReferenceType),
             GenericTypeNode generic
                 when generic.DefinitionAssemblyIdentity is { } assembly =>
                 FromGeneric(generic, assembly, depth),
@@ -74,7 +75,8 @@ internal static class ApiTypeShapeFactory
                 assembly,
                 generic.DefinitionName,
                 StructuredName(generic.MetadataName)),
-            arguments.MoveToImmutable());
+            arguments.MoveToImmutable(),
+            isValueType: !generic.IsReferenceType);
     }
 
     static ApiTypeShape? FromElement(
@@ -108,6 +110,8 @@ internal static class ApiTypeShapeFactory
             "decimal" => ApiPrimitiveType.Decimal,
             "string" => ApiPrimitiveType.String,
             "object" or "dynamic" => ApiPrimitiveType.Object,
+            "nint" => ApiPrimitiveType.IntPtr,
+            "nuint" => ApiPrimitiveType.UIntPtr,
             _ => (ApiPrimitiveType)(-1),
         }) != (ApiPrimitiveType)(-1);
 

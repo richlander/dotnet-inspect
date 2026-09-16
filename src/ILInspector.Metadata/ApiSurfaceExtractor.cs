@@ -5430,10 +5430,42 @@ public static class ApiSurfaceExtractor
         return true;
     }
 
-    static bool SignatureTypeMatches(TypeNode left, TypeNode right) =>
-        ApiTypeShapeFactory.FromTypeNode(left) is { } leftShape
-        && ApiTypeShapeFactory.FromTypeNode(right) is { } rightShape
-        && leftShape.Equals(rightShape);
+    static bool SignatureTypeMatches(TypeNode left, TypeNode right)
+    {
+        if (ApiTypeShapeFactory.FromTypeNode(left) is not { } leftShape
+            || ApiTypeShapeFactory.FromTypeNode(right) is not { } rightShape
+            || ContainsMethodGenericParameter(leftShape)
+            || ContainsMethodGenericParameter(rightShape))
+        {
+            return false;
+        }
+
+        return leftShape.Equals(rightShape);
+    }
+
+    static bool ContainsMethodGenericParameter(ApiTypeShape shape)
+    {
+        if (shape is
+            {
+                Kind: ApiTypeShapeKind.GenericParameter,
+                IsMethodGenericParameter: true,
+            })
+        {
+            return true;
+        }
+        if (shape.ElementType is not null
+            && ContainsMethodGenericParameter(shape.ElementType))
+        {
+            return true;
+        }
+        foreach (ApiTypeShape argument in shape.TypeArguments)
+        {
+            if (ContainsMethodGenericParameter(argument))
+                return true;
+        }
+
+        return false;
+    }
 
     static bool IsVoidReturn(TypeNode type)
     {

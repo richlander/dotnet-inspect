@@ -1679,6 +1679,7 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
         ImmutableArray<ApiTypeShape> typeArguments = default,
         int genericParameterIndex = -1,
         bool isMethodGenericParameter = false,
+        bool? isValueType = null,
         int arrayRank = 0,
         ImmutableArray<int> arraySizes = default,
         ImmutableArray<int> arrayLowerBounds = default)
@@ -1690,6 +1691,7 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
         TypeArguments = typeArguments.IsDefault ? [] : typeArguments;
         GenericParameterIndex = genericParameterIndex;
         IsMethodGenericParameter = isMethodGenericParameter;
+        IsValueType = isValueType;
         ArrayRank = arrayRank;
         ArraySizes = arraySizes.IsDefault ? [] : arraySizes;
         ArrayLowerBounds = arrayLowerBounds.IsDefault
@@ -1711,6 +1713,14 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
 
     public bool IsMethodGenericParameter { get; }
 
+    /// <summary>
+    /// Whether a named type or generic-instance definition was encoded with
+    /// ELEMENT_TYPE_VALUETYPE. False means ELEMENT_TYPE_CLASS; null means the
+    /// source did not retain that distinction.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsValueType { get; }
+
     public int ArrayRank { get; }
 
     /// <summary>
@@ -1728,16 +1738,23 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
     public static ApiTypeShape PrimitiveType(ApiPrimitiveType primitive) =>
         new(ApiTypeShapeKind.Primitive, primitive: primitive);
 
-    public static ApiTypeShape Named(ApiTypeReferenceIdentity definition) =>
-        new(ApiTypeShapeKind.Named, definition: definition);
+    public static ApiTypeShape Named(
+        ApiTypeReferenceIdentity definition,
+        bool? isValueType = null) =>
+        new(
+            ApiTypeShapeKind.Named,
+            definition: definition,
+            isValueType: isValueType);
 
     public static ApiTypeShape GenericInstance(
         ApiTypeReferenceIdentity definition,
-        ImmutableArray<ApiTypeShape> typeArguments) =>
+        ImmutableArray<ApiTypeShape> typeArguments,
+        bool? isValueType = null) =>
         new(
             ApiTypeShapeKind.GenericInstance,
             definition: definition,
-            typeArguments: typeArguments);
+            typeArguments: typeArguments,
+            isValueType: isValueType);
 
     public static ApiTypeShape GenericParameter(
         int index,
@@ -1780,6 +1797,7 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
                 || left.GenericParameterIndex != right.GenericParameterIndex
                 || left.IsMethodGenericParameter
                     != right.IsMethodGenericParameter
+                || left.IsValueType != right.IsValueType
                 || left.ArrayRank != right.ArrayRank
                 || !left.ArraySizes.AsSpan().SequenceEqual(
                     right.ArraySizes.AsSpan())
@@ -1815,6 +1833,7 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
             hash.Add(current.Definition);
             hash.Add(current.GenericParameterIndex);
             hash.Add(current.IsMethodGenericParameter);
+            hash.Add(current.IsValueType);
             hash.Add(current.ArrayRank);
             foreach (int size in current.ArraySizes)
                 hash.Add(size);
@@ -1857,6 +1876,8 @@ public enum ApiPrimitiveType
     Decimal,
     String,
     Object,
+    IntPtr,
+    UIntPtr,
 }
 
 public sealed record ApiJsonSerializableRoot(

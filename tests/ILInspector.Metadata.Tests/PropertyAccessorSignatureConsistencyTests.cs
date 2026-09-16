@@ -23,6 +23,14 @@ public class PropertyAccessorSignatureConsistencyTests
     [InlineData(AccessorMismatch.IncomparableAccessibility, false)]
     [InlineData(AccessorMismatch.PrivateScopeAccessibility, false)]
     [InlineData(AccessorMismatch.ExplicitInterfaceGetter, false)]
+    [InlineData(AccessorMismatch.NamedClassValueType, true)]
+    [InlineData(AccessorMismatch.GenericClassValueType, true)]
+    [InlineData(AccessorMismatch.NativeInt, false)]
+    [InlineData(AccessorMismatch.NativeUInt, false)]
+    [InlineData(AccessorMismatch.MethodGenericParameter, true)]
+    [InlineData(AccessorMismatch.ArrayMethodGenericParameter, true)]
+    [InlineData(AccessorMismatch.GenericArgumentMethodGenericParameter, true)]
+    [InlineData(AccessorMismatch.TypeGenericParameter, false)]
     public void PropertyAccessorRetainsWhetherItsSignatureCorresponds(
         AccessorMismatch mismatch,
         bool expectedMismatch)
@@ -33,7 +41,7 @@ public class PropertyAccessorSignatureConsistencyTests
         ApiMember property = Assert.Single(
             Assert.Single(
                 ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types,
-                type => type.Name == "Target").Members,
+                type => type.Namespace == "Samples").Members,
             member => member.Kind == "property");
 
         Assert.Null(property.SignatureDecodeStatus);
@@ -76,6 +84,42 @@ public class PropertyAccessorSignatureConsistencyTests
                     .Single(accessor => accessor.Kind == "get")
                     .Accessibility);
         }
+        if (mismatch is AccessorMismatch.NativeInt or AccessorMismatch.NativeUInt)
+        {
+            Assert.Equal(
+                mismatch == AccessorMismatch.NativeInt
+                    ? ApiPrimitiveType.IntPtr
+                    : ApiPrimitiveType.UIntPtr,
+                property.SignatureModel.ReturnTypeShape!.Primitive);
+        }
+        if (mismatch is
+            AccessorMismatch.NamedClassValueType
+            or AccessorMismatch.GenericClassValueType)
+        {
+            Assert.False(property.SignatureModel.ReturnTypeShape!.IsValueType);
+        }
+        if (mismatch is
+            AccessorMismatch.MethodGenericParameter
+            or AccessorMismatch.TypeGenericParameter)
+        {
+            Assert.Equal(
+                mismatch == AccessorMismatch.MethodGenericParameter,
+                property.SignatureModel.ReturnTypeShape!
+                    .IsMethodGenericParameter);
+        }
+        if (mismatch == AccessorMismatch.ArrayMethodGenericParameter)
+        {
+            Assert.True(
+                property.SignatureModel.ReturnTypeShape!.ElementType!
+                    .IsMethodGenericParameter);
+        }
+        if (mismatch == AccessorMismatch.GenericArgumentMethodGenericParameter)
+        {
+            Assert.True(
+                Assert.Single(
+                    property.SignatureModel.ReturnTypeShape!.TypeArguments)
+                    .IsMethodGenericParameter);
+        }
     }
 
     static bool ExpectedSignatureMatch(
@@ -98,7 +142,13 @@ public class PropertyAccessorSignatureConsistencyTests
                 or AccessorMismatch.GetterParameter
                 or AccessorMismatch.GetterStaticness
                 or AccessorMismatch.GetterGenericHeader
-                or AccessorMismatch.GetterReservedHeader => "get",
+                or AccessorMismatch.GetterReservedHeader
+                or AccessorMismatch.NamedClassValueType
+                or AccessorMismatch.GenericClassValueType
+                or AccessorMismatch.MethodGenericParameter
+                or AccessorMismatch.ArrayMethodGenericParameter
+                or AccessorMismatch.GenericArgumentMethodGenericParameter =>
+                "get",
             _ => "set",
         });
     }
@@ -132,6 +182,16 @@ public class PropertyAccessorSignatureConsistencyTests
         bool reservedGetter =
             mismatch == AccessorMismatch.GetterReservedHeader;
         bool voidProperty = mismatch == AccessorMismatch.VoidProperty;
+        bool encodedReturn = mismatch is
+            AccessorMismatch.NamedClassValueType
+            or AccessorMismatch.GenericClassValueType
+            or AccessorMismatch.NativeInt
+            or AccessorMismatch.NativeUInt
+            or AccessorMismatch.MethodGenericParameter
+            or AccessorMismatch.ArrayMethodGenericParameter
+            or AccessorMismatch.GenericArgumentMethodGenericParameter
+            or AccessorMismatch.TypeGenericParameter;
+        bool getOnly = voidProperty || encodedReturn;
         byte getterReturn = voidProperty
             ? (byte)SignatureTypeCode.Void
             : mismatch == AccessorMismatch.GetterReturn
@@ -150,13 +210,49 @@ public class PropertyAccessorSignatureConsistencyTests
             ? [(byte)SignatureTypeCode.Int32, setterValue]
             : [setterValue];
 
+        metadata.AddTypeReference(
+            contractAssembly,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Referenced"));
+        byte[] propertyReturnType = mismatch switch
+        {
+            AccessorMismatch.NamedClassValueType => [0x12, 0x05],
+            AccessorMismatch.GenericClassValueType =>
+                [0x15, 0x12, 0x05, 0x01, 0x08],
+            AccessorMismatch.NativeInt => [0x18],
+            AccessorMismatch.NativeUInt => [0x19],
+            AccessorMismatch.MethodGenericParameter => [0x1E, 0x00],
+            AccessorMismatch.ArrayMethodGenericParameter =>
+                [0x1D, 0x1E, 0x00],
+            AccessorMismatch.GenericArgumentMethodGenericParameter =>
+                [0x15, 0x12, 0x05, 0x01, 0x1E, 0x00],
+            AccessorMismatch.TypeGenericParameter => [0x13, 0x00],
+            _ =>
+            [
+                voidProperty
+                    ? (byte)SignatureTypeCode.Void
+                    : (byte)SignatureTypeCode.String,
+            ],
+        };
+        byte[] getterReturnType =
+            mismatch switch
+            {
+                AccessorMismatch.NamedClassValueType => [0x11, 0x05],
+                AccessorMismatch.GenericClassValueType =>
+                    [0x15, 0x11, 0x05, 0x01, 0x08],
+                _ => propertyReturnType,
+            };
         BlobHandle getterSignature = metadata.GetOrAddBlob(
-            MethodSignature(
-                isInstance: !staticGetter,
-                getterReturn,
-                isGeneric: genericGetter,
-                hasReservedFlag: reservedGetter,
-                getterParameters));
+            encodedReturn
+                ? EncodedMethodSignature(
+                    isInstance: !staticGetter,
+                    getterReturnType)
+                : MethodSignature(
+                    isInstance: !staticGetter,
+                    getterReturn,
+                    isGeneric: genericGetter,
+                    hasReservedFlag: reservedGetter,
+                    getterParameters));
         MethodDefinitionHandle getter = metadata.AddMethodDefinition(
             AccessorAttributes(
                 staticGetter,
@@ -203,11 +299,22 @@ public class PropertyAccessorSignatureConsistencyTests
         TypeDefinitionHandle target = metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Abstract,
             metadata.GetOrAddString("Samples"),
-            metadata.GetOrAddString("Target"),
+            metadata.GetOrAddString(
+                mismatch == AccessorMismatch.TypeGenericParameter
+                    ? "Target`1"
+                    : "Target"),
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             getter);
 
+        if (mismatch == AccessorMismatch.TypeGenericParameter)
+        {
+            metadata.AddGenericParameter(
+                target,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        }
         if (mismatch == AccessorMismatch.ExplicitInterfaceGetter)
         {
             TypeReferenceHandle contract = metadata.AddTypeReference(
@@ -225,20 +332,22 @@ public class PropertyAccessorSignatureConsistencyTests
             PropertyAttributes.None,
             metadata.GetOrAddString("Value"),
             metadata.GetOrAddBlob(
-                PropertySignature(
-                    isGeneric:
-                        mismatch == AccessorMismatch.PropertyGenericHeader,
-                    hasReservedFlag:
-                        mismatch == AccessorMismatch.PropertyReservedHeader,
-                    voidProperty
-                        ? (byte)SignatureTypeCode.Void
-                        : (byte)SignatureTypeCode.String)));
+                encodedReturn
+                    ? EncodedPropertySignature(propertyReturnType)
+                    : PropertySignature(
+                        isGeneric:
+                            mismatch == AccessorMismatch.PropertyGenericHeader,
+                        hasReservedFlag:
+                            mismatch == AccessorMismatch.PropertyReservedHeader,
+                        voidProperty
+                            ? (byte)SignatureTypeCode.Void
+                            : (byte)SignatureTypeCode.String)));
         metadata.AddPropertyMap(target, property);
         metadata.AddMethodSemantics(
             property,
             MethodSemanticsAttributes.Getter,
             getter);
-        if (!voidProperty)
+        if (!getOnly)
         {
             metadata.AddMethodSemantics(
                 property,
@@ -312,6 +421,22 @@ public class PropertyAccessorSignatureConsistencyTests
                 returnType,
             ];
 
+    static byte[] EncodedMethodSignature(
+        bool isInstance,
+        byte[] returnType) =>
+    [
+        isInstance ? (byte)0x20 : (byte)0x00,
+        0x00,
+        .. returnType,
+    ];
+
+    static byte[] EncodedPropertySignature(byte[] returnType) =>
+    [
+        0x28,
+        0x00,
+        .. returnType,
+    ];
+
     public enum AccessorMismatch
     {
         None,
@@ -329,5 +454,13 @@ public class PropertyAccessorSignatureConsistencyTests
         IncomparableAccessibility,
         PrivateScopeAccessibility,
         ExplicitInterfaceGetter,
+        NamedClassValueType,
+        GenericClassValueType,
+        NativeInt,
+        NativeUInt,
+        MethodGenericParameter,
+        ArrayMethodGenericParameter,
+        GenericArgumentMethodGenericParameter,
+        TypeGenericParameter,
     }
 }
