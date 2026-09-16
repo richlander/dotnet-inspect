@@ -235,11 +235,13 @@ adds no lease, publication or scheduling protocol.
 
 The CLI matching consumer is [#7107](https://github.com/richlander/dotnet-inspect/issues/7107).
 It can report the actual destination coordinate and the route explaining the
-Library move. Navigation's separate
-[ancestry-adoption decision #7169](https://github.com/richlander/dotnet-inspect/issues/7169)
-must settle how a returned B'.T fits its retained path, including when Library
-A is active and T is only lower-path context. This Queries design does not
-change that active-subject policy or authorize a Browser override.
+Library move. Navigation's
+[forwarded ancestry policy](inspection-subject-navigation.md#forwarded-api-ancestry),
+tracked by [#7169](https://github.com/richlander/dotnet-inspect/issues/7169),
+owns how B'.T fits its retained path, including when Library A is active and
+T is only lower-path context. Runtime Navigation adoption remains #5584.
+This Queries design does not change that active-subject policy or authorize a
+Browser override.
 
 The public prerequisite API accepts the source identity already selected once
 in the source Package:
