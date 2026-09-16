@@ -366,6 +366,12 @@ the pinned outcome-level host gate without changing the suite-owned IPv4 and
 IPv6 non-public destination-classification evidence used by independent
 desktop transports.
 
+`UntrustedDocuments.Tests` is the thirty-third migrated adopter. Its required
+untrusted-document CI and developer commands remain unfiltered. This path
+reuses the pinned outcome-level host gate without changing the suite-owned
+duplicate-property, malformed-JSON, DTD, external-entity, decoded-character
+budget, or ordinary parsing evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
