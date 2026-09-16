@@ -126,6 +126,8 @@
     <Project Path="src/CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
     <Project Path="src/DotnetInspector.Cache/DotnetInspector.Cache.csproj" />
     <Project Path="src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
+    <Project Path="src/DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj" />
+    <Project Path="src/DotnetInspector.DocumentationHouse/DotnetInspector.DocumentationHouse.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
     <Project Path="src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
@@ -135,6 +137,7 @@
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Execution/DotnetInspector.PlatformHouse.Execution.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Execution.Installed/DotnetInspector.PlatformHouse.Execution.Installed.csproj" />
+    <Project Path="src/DotnetInspector.PlatformHouse.Execution.Packages/DotnetInspector.PlatformHouse.Execution.Packages.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Installed/DotnetInspector.PlatformHouse.Installed.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
@@ -187,6 +190,7 @@
     <Project Path="tests/DotnetInspector.AssemblyOnlyHost.Fixture/DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <Project Path="tests/DotnetInspector.Cache.Tests/DotnetInspector.Cache.Tests.csproj" />
     <Project Path="tests/DotnetInspector.DependencyManifests.Tests/DotnetInspector.DependencyManifests.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.DocumentationHouse.Tests/DotnetInspector.DocumentationHouse.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Consumer.Tests/DotnetInspector.Ecosystems.Consumer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
