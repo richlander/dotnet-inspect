@@ -38,7 +38,20 @@ public static class InspectionGraphCommandDefinitions
                 "Local managed library in the induced pair. Specify exactly twice.",
             AllowMultipleArgumentsPerToken = false,
         };
+        var clusterOption = new Option<int?>("--cluster")
+        {
+            Description =
+                "Restrict output to one pair-wide Direct Use Cluster ordinal",
+        };
+        clusterOption.Validators.Add(result =>
+        {
+            if (result.GetValue(clusterOption) is <= 0)
+            {
+                result.AddError("--cluster must be a positive integer.");
+            }
+        });
         command.Options.Add(libraryOption);
+        command.Options.Add(clusterOption);
         command.Options.Add(opts.Json);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
@@ -56,6 +69,8 @@ public static class InspectionGraphCommandDefinitions
                 new LibraryCallUseOptions
                 {
                     Libraries = libraries,
+                    Cluster =
+                        parseResult.GetValue(clusterOption),
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     Rows = opts.ParseRows(parseResult),

@@ -89,9 +89,9 @@ The derivation is the typed value
 `ExactBipartiteConnectedComponent`. A consumer must not reconstruct provenance
 from a label, ordinal, count, namespace, or declaring-type spelling.
 
-Cluster ordinals are one-based presentation order within each directed
-relationship. They are deterministic document-local conveniences, not durable
-identity.
+Cluster ordinals are one-based presentation order across the complete pair
+result. They remain deterministic document-local conveniences, not durable
+identity; the directed source and target still belong to each cluster row.
 
 ## Retained footprint
 
@@ -140,7 +140,7 @@ in-memory partition of already-validated occurrence identities. The projection
 expands each distinct source or target method's occurrence adjacency only once,
 so traversal work is linear in retained occurrences and method endpoints.
 `ProjectionKeepsRepeatedPhysicalSitesLinear` gates the practical repeated-site
-boundary with 50,000 exact physical occurrences.
+boundary with 50,000 exact physical occurrences and a ten-second timeout.
 
 ## Pathological evidence
 
@@ -207,6 +207,39 @@ structural footprint counts, and one-based `Call Site Rows` references into the
 unchanged exact call-site table. Normal section discovery, row windows, Count,
 table, TSV, JSONL, JSON, Markdown, and plain-text lowering apply through the
 existing generated Markout context.
+
+`--cluster N` is the drill-down gesture for one pair-wide cluster ordinal. It
+restricts every requested section to that cluster's retained occurrences;
+without `-S`, the result is the ordinary exact call-site table for that
+cluster. The selected cluster row remaps `Call Site Rows` to its scoped
+one-based call table, so the cluster summary and detail document agree. An
+unavailable ordinal fails visibly, and an unobserved ordinal in incomplete
+evidence is not reported as a proved absence.
+
+`AssemblyPairDirectUseClusterProjection.ScopeToObservedCluster` owns the
+host-neutral transformation from a complete-pair projection to that
+occurrence-scoped pair and remapped cluster receipt. The CLI and future
+Browser/Wasm consumers share it rather than reconstructing selection from
+rendered row text.
+
+The intended CLI journey is:
+
+```console
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  -S "Direct Use Clusters"
+
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  --cluster 3
+```
+
+The second command exposes exact source and target members and tokens, call
+kind, evidence method, and IL offset. Those typed member identities are the
+handoff to ordinary `member` or `library --il-offset` inspection; cluster
+selection does not add a parallel source, decompilation, or call-graph host.
 
 ## Explicit non-goals
 

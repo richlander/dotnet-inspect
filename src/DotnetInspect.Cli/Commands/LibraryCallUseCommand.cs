@@ -46,6 +46,17 @@ public static class LibraryCallUseCommand
         "IL Offset",
     ];
 
+    static readonly string[] DefaultClusterCallSiteColumns =
+    [
+        "Source Member",
+        "Source Token",
+        "Target Member",
+        "Target Token",
+        "Call",
+        "Evidence Method",
+        "IL Offset",
+    ];
+
     static readonly string[] DefaultSelectedColumns =
     [
         "Source Library",
@@ -73,6 +84,14 @@ public static class LibraryCallUseCommand
         if (options.Schema && options.Discover is null)
         {
             CommandError.Write("--schema requires -D/--discover.");
+            return 1;
+        }
+
+        if (options.Cluster is not null
+            && options.Discover is not null)
+        {
+            CommandError.Write(
+                "--cluster cannot be combined with -D/--discover.");
             return 1;
         }
 
@@ -200,24 +219,53 @@ public static class LibraryCallUseCommand
             return 1;
         }
 
-        AssemblyPairCallUseProjection projection =
-            AssemblyPairCallUseProjection.Create(result);
-        AssemblyPairDirectUseClusterProjection clusters =
-            selectedNameSet.Contains(DirectUseClustersSection)
+        bool requiresClusters =
+            options.Cluster is not null
+            || selectedNameSet.Contains(DirectUseClustersSection);
+        AssemblyPairDirectUseClusterProjection allClusters =
+            requiresClusters
                 ? AssemblyPairDirectUseClusterProjection.Create(result)
                 : new(result, []);
+        AssemblyPairCallUseResult selectedResult = result;
+        AssemblyPairDirectUseClusterProjection clusters = allClusters;
+        if (options.Cluster is int clusterOrdinal)
+        {
+            AssemblyPairDirectUseClusterProjection? selected =
+                allClusters.ScopeToObservedCluster(clusterOrdinal);
+            if (selected is null)
+            {
+                WriteClusterNotFound(
+                    result,
+                    allClusters,
+                    clusterOrdinal);
+                return 1;
+            }
+
+            selectedResult = selected.Pair;
+            clusters =
+                selectedNameSet.Contains(DirectUseClustersSection)
+                    ? selected
+                    : new(selectedResult, []);
+        }
+        else if (!selectedNameSet.Contains(DirectUseClustersSection))
+        {
+            clusters = new(result, []);
+        }
+
+        AssemblyPairCallUseProjection projection =
+            AssemblyPairCallUseProjection.Create(selectedResult);
         Write(
-            result,
+            selectedResult,
             projection,
             clusters,
             options,
             selectedNames,
             defaultCallSiteView);
-        if (!result.IsComplete)
+        if (!selectedResult.IsComplete)
         {
             CommandError.Write(
                 "Pairwise call-use evidence is incomplete.",
-                [.. FailureDetails(result)]);
+                [.. FailureDetails(selectedResult)]);
             return 1;
         }
 
@@ -347,7 +395,8 @@ public static class LibraryCallUseCommand
             Description = CreateDefaultDescription(
                 result,
                 selectedOccurrences,
-                options.Rows),
+                options.Rows,
+                options.Cluster),
             Rows = rows,
         };
 
@@ -359,7 +408,9 @@ public static class LibraryCallUseCommand
                 OutputFormat.Markdown
                 or OutputFormat.PlainText)
         {
-            columns = DefaultCallSiteColumns;
+            columns = options.Cluster is null
+                ? DefaultCallSiteColumns
+                : DefaultClusterCallSiteColumns;
         }
 
         var writerOptions =
@@ -589,7 +640,8 @@ public static class LibraryCallUseCommand
                     MarkoutSerializer.Serialize(
                         CreateConsumerUseSitesView(
                             projection,
-                            options.Rows),
+                            options.Rows,
+                            options.Cluster),
                         Console.Out,
                         formatter,
                         LibraryCallUseViewContext.Default,
@@ -599,7 +651,8 @@ public static class LibraryCallUseCommand
                     MarkoutSerializer.Serialize(
                         CreateProviderApiTypesView(
                             projection,
-                            options.Rows),
+                            options.Rows,
+                            options.Cluster),
                         Console.Out,
                         formatter,
                         LibraryCallUseViewContext.Default,
@@ -609,7 +662,8 @@ public static class LibraryCallUseCommand
                     MarkoutSerializer.Serialize(
                         CreateDirectUseClustersView(
                             clusters,
-                            options.Rows),
+                            options.Rows,
+                            options.Cluster),
                         Console.Out,
                         formatter,
                         LibraryCallUseViewContext.Default,
@@ -619,7 +673,8 @@ public static class LibraryCallUseCommand
                     MarkoutSerializer.Serialize(
                         CreateSelectedCallSitesView(
                             projection,
-                            options.Rows),
+                            options.Rows,
+                            options.Cluster),
                         Console.Out,
                         formatter,
                         LibraryCallUseViewContext.Default,
@@ -647,15 +702,18 @@ public static class LibraryCallUseCommand
 
     static LibraryCallUseConsumerUseSitesView CreateConsumerUseSitesView(
         AssemblyPairCallUseProjection projection,
-        RowWindow? rows)
+        RowWindow? rows,
+        int? cluster)
     {
         List<LibraryCallUseConsumerUseSiteRow> values =
             [.. projection.ConsumerUseSites.Select(CreateConsumerUseSiteRow)];
         return new()
         {
             Description = CreateSectionDescription(
-                "Attributed source methods that directly use the other library. "
-                    + "These are use sites, not inferred features or public entry points.",
+                ScopeToCluster(
+                    "Attributed source methods that directly use the other library. "
+                        + "These are use sites, not inferred features or public entry points.",
+                    cluster),
                 projection.IsComplete
                     ? "No direct consumer use sites were observed."
                     : "No exact consumer use sites were observed; the evidence is incomplete.",
@@ -667,15 +725,18 @@ public static class LibraryCallUseCommand
 
     static LibraryCallUseProviderApiTypesView CreateProviderApiTypesView(
         AssemblyPairCallUseProjection projection,
-        RowWindow? rows)
+        RowWindow? rows,
+        int? cluster)
     {
         List<LibraryCallUseProviderApiTypeRow> values =
             [.. projection.ProviderApiTypes.Select(CreateProviderApiTypeRow)];
         return new()
         {
             Description = CreateSectionDescription(
-                "Structured declaring types of exact selected target methods. "
-                    + "These are consumed provider types, not inferred capability clusters or public API boundaries.",
+                ScopeToCluster(
+                    "Structured declaring types of exact selected target methods. "
+                        + "These are consumed provider types, not inferred capability clusters or public API boundaries.",
+                    cluster),
                 projection.IsComplete
                     ? "No provider API types were observed."
                     : "No exact provider API types were observed; the evidence is incomplete.",
@@ -687,7 +748,8 @@ public static class LibraryCallUseCommand
 
     static LibraryCallUseCallSitesView CreateSelectedCallSitesView(
         AssemblyPairCallUseProjection projection,
-        RowWindow? rows)
+        RowWindow? rows,
+        int? cluster)
     {
         List<LibraryCallUseCallSiteRow> values =
             CreateCallSiteRows(projection.Pair.Occurrences);
@@ -695,7 +757,9 @@ public static class LibraryCallUseCommand
         {
             Title = CallSitesSection,
             Description = CreateSectionDescription(
-                "Exact physical call and construction occurrences crossing the library pair.",
+                ScopeToCluster(
+                    "Exact physical call and construction occurrences crossing the library pair.",
+                    cluster),
                 projection.IsComplete
                     ? "No direct pair call use was observed."
                     : "No exact pair call use was observed; the evidence is incomplete.",
@@ -707,7 +771,8 @@ public static class LibraryCallUseCommand
 
     static LibraryCallUseDirectUseClustersView CreateDirectUseClustersView(
         AssemblyPairDirectUseClusterProjection projection,
-        RowWindow? rows)
+        RowWindow? rows,
+        int? cluster)
     {
         List<LibraryCallUseDirectUseClusterRow> values =
         [
@@ -717,8 +782,10 @@ public static class LibraryCallUseCommand
         return new()
         {
             Description = CreateSectionDescription(
-                "Connected components of exact source-method to target-method use. "
-                    + "These are direct-use clusters, not semantic features or source-inlining recommendations.",
+                ScopeToCluster(
+                    "Connected components of exact source-method to target-method use. "
+                        + "These are direct-use clusters, not semantic features or source-inlining recommendations.",
+                    cluster),
                 projection.IsComplete
                     ? "No direct-use clusters were observed."
                     : "No exact direct-use clusters were observed; the evidence is incomplete.",
@@ -731,7 +798,8 @@ public static class LibraryCallUseCommand
     static string CreateDefaultDescription(
         AssemblyPairCallUseResult result,
         IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences,
-        RowWindow? rows)
+        RowWindow? rows,
+        int? cluster)
     {
         string[] summaries = [.. RelationshipSummaries(occurrences)];
         string detail = summaries.Length > 0
@@ -741,8 +809,18 @@ public static class LibraryCallUseCommand
                 : result.IsComplete
                     ? "No direct pair call use was observed."
                     : "No exact pair call use was observed; the evidence is incomplete.";
-        return $"{FormatPair(result)}\n\n{detail}";
+        string subject = cluster is int clusterOrdinal
+            ? $"Direct Use Cluster {clusterOrdinal} in {FormatPair(result)}"
+            : FormatPair(result);
+        return $"{subject}\n\n{detail}";
     }
+
+    static string ScopeToCluster(
+        string summary,
+        int? cluster) =>
+        cluster is int clusterOrdinal
+            ? $"{summary}\n\nRestricted to Direct Use Cluster {clusterOrdinal}."
+            : summary;
 
     static string CreateSectionDescription<T>(
         string summary,
@@ -928,6 +1006,29 @@ public static class LibraryCallUseCommand
                     + $"{targetMembers} target members, "
                     + $"{group.Count()} call sites.";
             });
+
+    static void WriteClusterNotFound(
+        AssemblyPairCallUseResult result,
+        AssemblyPairDirectUseClusterProjection clusters,
+        int requested)
+    {
+        string availability = clusters.Clusters.Length == 0
+            ? "No direct-use clusters were observed."
+            : "Observed pair-wide cluster ordinals: "
+                + $"1..{clusters.Clusters[^1].Ordinal}.";
+        if (result.IsComplete)
+        {
+            CommandError.Write(
+                $"Direct Use Cluster {requested} does not exist.",
+                [availability]);
+            return;
+        }
+
+        CommandError.Write(
+            $"Direct Use Cluster {requested} was not observed; "
+                + "pairwise call-use evidence is incomplete.",
+            [availability, .. FailureDetails(result)]);
+    }
 
     static IEnumerable<string> FailureDetails(
         AssemblyPairCallUseResult result)

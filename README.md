@@ -860,6 +860,40 @@ row exposes a small direct-use footprint; it is not yet proof that the package
 is removable or that copying source is safe. The section remains outside the
 default and bare `-S` views.
 
+Use the pair-wide cluster ordinal to reopen one component as exact calls:
+
+```bash
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  -S "Direct Use Clusters"
+
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  --cluster 3
+```
+
+The drill-down names every source member, source token, target member, target
+token, call kind, evidence method, and IL offset in that cluster. Continue from
+those identities with ordinary `member` inspection or `library --il-offset`;
+the cluster remains structural evidence rather than a source-inlining verdict.
+
+```bash
+dotnet-inspect member "<SourceType>" \
+  --library ./Consumer.dll \
+  -m "<SourceMember>" \
+  -S @Source
+
+dotnet-inspect member "<TargetType>" \
+  --library ./Provider.dll \
+  -m "<TargetMember>" \
+  -S @Source
+
+dotnet-inspect library ./Consumer.dll \
+  --il-offset "<SourceToken>+<ILOffset>"
+```
+
 ### Workspace sharing and built-in guidance
 
 ```bash

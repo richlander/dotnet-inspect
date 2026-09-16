@@ -332,6 +332,217 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task LibrariesCommand_DrillsFromClusterIntoExactCalls()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--cluster",
+                        "3",
+                        "--jsonl",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        JsonElement[] calls =
+        [
+            .. captured.Output
+                .ReplaceLineEndings("\n")
+                .Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line =>
+                {
+                    using JsonDocument row = JsonDocument.Parse(line);
+                    return row.RootElement.Clone();
+                }),
+        ];
+        Assert.Equal(3, calls.Length);
+        Assert.Equal(
+            ["RunTwice", "RunTwice", "UseEcho"],
+            calls.Select(call =>
+                call.GetProperty("source_member")
+                    .GetString()!
+                    .Split('(')[0]
+                    .Split('.')[^1]));
+        Assert.All(
+            calls,
+            call =>
+            {
+                Assert.Contains(
+                    "Echo",
+                    call.GetProperty("target_member").GetString());
+                Assert.StartsWith(
+                    "0x0600",
+                    call.GetProperty("source_token").GetString());
+                Assert.Equal(
+                    "0x0600000B",
+                    call.GetProperty("target_token").GetString());
+            });
+        Assert.Empty(captured.Error);
+
+        var human = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--cluster",
+                        "3",
+                    ])
+                .InvokeAsync());
+        Assert.Equal(0, human.ExitCode);
+        Assert.Contains(
+            "| Source Member | Source Token | Target Member | Target Token |",
+            human.Output);
+        Assert.Contains(
+            "| Shared.Entry.RunTwice() | 0x06000004 | Target.GenericApi.Echo(T) | 0x0600000B |",
+            human.Output);
+        Assert.Empty(human.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ClusterScopesEverySelectedSection()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--cluster",
+                        "3",
+                        "-S",
+                        "*",
+                        "--json",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        using JsonDocument document =
+            JsonDocument.Parse(captured.Output);
+        Assert.Equal(
+            2,
+            document.RootElement
+                .GetProperty("consumer_use_sites")
+                .GetArrayLength());
+        Assert.Single(
+            document.RootElement
+                .GetProperty("provider_api_types")
+                .EnumerateArray());
+        JsonElement cluster = Assert.Single(
+            document.RootElement
+                .GetProperty("direct_use_clusters")
+                .EnumerateArray());
+        Assert.Equal(
+            "3",
+            cluster.GetProperty("cluster").GetString());
+        Assert.Equal(
+            "1,2,3",
+            cluster.GetProperty("call_site_rows").GetString());
+        Assert.Equal(
+            3,
+            document.RootElement
+                .GetProperty("call_sites")
+                .GetArrayLength());
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RejectsUnavailableCluster()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--cluster",
+                        "99",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Direct Use Cluster 99 does not exist.",
+            captured.Error);
+        Assert.Contains(
+            "Observed pair-wide cluster ordinals: 1..13.",
+            captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RejectsClusterDuringDiscovery()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--cluster",
+                        "1",
+                        "-D",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--cluster cannot be combined with -D/--discover.",
+            captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RejectsNonPositiveCluster()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--cluster",
+                        "0",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains("--cluster", captured.Output);
+        Assert.Contains(
+            "--cluster must be a positive integer.",
+            captured.Error);
+    }
+
+    [Fact]
     public async Task LibrariesCommand_SummaryRowsRetainCompleteGroupCounts()
     {
         var captured = await ConsoleCapture.RunAsync(

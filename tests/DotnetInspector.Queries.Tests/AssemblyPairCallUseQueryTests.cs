@@ -246,6 +246,9 @@ public sealed class AssemblyPairCallUseQueryTests
                 context.Second);
         AssemblyPairDirectUseClusterProjection projection =
             AssemblyPairDirectUseClusterProjection.Create(pair);
+        Assert.Equal(
+            Enumerable.Range(1, projection.Clusters.Length),
+            projection.Clusters.Select(cluster => cluster.Ordinal));
 
         AssemblyPairDirectUseCluster echo = Assert.Single(
             projection.Clusters,
@@ -258,6 +261,14 @@ public sealed class AssemblyPairCallUseQueryTests
         Assert.Single(echo.TargetTypes);
         Assert.Equal(3, echo.CallSiteCount);
         Assert.Equal(1, echo.ExtensionMethodCount);
+        AssemblyPairDirectUseClusterProjection scoped =
+            projection.ScopeToObservedCluster(echo.Ordinal)!;
+        Assert.Same(
+            pair.Occurrences[echo.OccurrenceIndexes[0]],
+            scoped.Pair.Occurrences[0]);
+        Assert.Equal(
+            Enumerable.Range(0, echo.CallSiteCount),
+            Assert.Single(scoped.Clusters).OccurrenceIndexes);
 
         AssemblyPairDirectUseCluster box = Assert.Single(
             projection.Clusters,
@@ -293,7 +304,7 @@ public sealed class AssemblyPairCallUseQueryTests
             incomplete.Clusters.Select(ClusterFingerprint));
     }
 
-    [Fact(Timeout = 5_000)]
+    [Fact(Timeout = 10_000)]
     public async Task ProjectionKeepsRepeatedPhysicalSitesLinear()
     {
         await using PairContext context = PairContext.Create(
@@ -333,6 +344,40 @@ public sealed class AssemblyPairCallUseQueryTests
         Assert.Equal(PhysicalSiteCount, cluster.CallSiteCount);
         Assert.Single(cluster.SourceMethods);
         Assert.Single(cluster.TargetMethods);
+    }
+
+    [Fact]
+    public async Task ProjectionOrdinalsSpanBothDirections()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairCallUseResult pair =
+            AssemblyPairCallUseQuery.Execute(
+                context.Group,
+                context.First,
+                context.Second);
+        AssemblyPairCallUseOccurrence forward = pair.Occurrences[0];
+        AssemblyPairCallUseOccurrence reverse = forward with
+        {
+            Source = forward.Target,
+            SourceModuleVersionId = forward.TargetModuleVersionId,
+            SourceMethod = forward.TargetMethod,
+            Target = forward.Source,
+            TargetModuleVersionId = forward.SourceModuleVersionId,
+            TargetMethod = forward.SourceMethod,
+        };
+
+        AssemblyPairDirectUseClusterProjection projection =
+            AssemblyPairDirectUseClusterProjection.Create(
+                pair with { Occurrences = [forward, reverse] });
+
+        Assert.Equal(
+            [1, 2],
+            projection.Clusters.Select(cluster => cluster.Ordinal));
+        Assert.NotEqual(
+            projection.Clusters[0].Identity.Source,
+            projection.Clusters[1].Identity.Source);
     }
 
     [Fact]

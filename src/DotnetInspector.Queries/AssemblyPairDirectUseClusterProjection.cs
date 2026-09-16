@@ -52,6 +52,43 @@ public sealed record AssemblyPairDirectUseClusterProjection(
 {
     public bool IsComplete => Pair.IsComplete;
 
+    /// <summary>
+    /// Narrows this projection to one observed pair-wide ordinal and remaps its
+    /// occurrence indexes to the resulting scoped pair.
+    /// </summary>
+    public AssemblyPairDirectUseClusterProjection? ScopeToObservedCluster(
+        int ordinal)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(ordinal, 1);
+        AssemblyPairDirectUseCluster? cluster =
+            Clusters.FirstOrDefault(
+                candidate => candidate.Ordinal == ordinal);
+        if (cluster is null)
+            return null;
+
+        AssemblyPairCallUseResult scopedPair = Pair with
+        {
+            Occurrences =
+            [
+                .. cluster.OccurrenceIndexes.Select(
+                    index => Pair.Occurrences[index]),
+            ],
+        };
+        return new(
+            scopedPair,
+            [
+                cluster with
+                {
+                    OccurrenceIndexes =
+                    [
+                        .. Enumerable.Range(
+                            0,
+                            cluster.OccurrenceIndexes.Length),
+                    ],
+                },
+            ]);
+    }
+
     public static AssemblyPairDirectUseClusterProjection Create(
         AssemblyPairCallUseResult pair)
     {
@@ -82,11 +119,13 @@ public sealed record AssemblyPairDirectUseClusterProjection(
 
         var clusters =
             ImmutableArray.CreateBuilder<AssemblyPairDirectUseCluster>();
+        int ordinal = 0;
         foreach (DirectionKey direction in directions)
         {
             AddDirectionClusters(
                 pair,
                 indexesByDirection[direction],
+                ref ordinal,
                 clusters);
         }
         return new(pair, clusters.ToImmutable());
@@ -95,6 +134,7 @@ public sealed record AssemblyPairDirectUseClusterProjection(
     static void AddDirectionClusters(
         AssemblyPairCallUseResult pair,
         IReadOnlyList<int> directionIndexes,
+        ref int ordinal,
         ImmutableArray<AssemblyPairDirectUseCluster>.Builder clusters)
     {
         var bySourceMethod = new Dictionary<int, List<int>>();
@@ -114,7 +154,6 @@ public sealed record AssemblyPairDirectUseClusterProjection(
         }
 
         var visited = new HashSet<int>();
-        int ordinal = 0;
         foreach (int seedIndex in directionIndexes)
         {
             if (!visited.Add(seedIndex))
