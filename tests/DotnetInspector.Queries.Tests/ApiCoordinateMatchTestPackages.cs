@@ -19,7 +19,7 @@ internal sealed class ApiCoordinateMatchTestPackages : IPackageRootPayloadProvid
             $"{packageId.ToLowerInvariant()}.{version}.nupkg");
         await using FileStream input = File.OpenRead(path);
         await _store.CommitAsync(
-            packageId, version, NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url),
+            packageId, version, _source.Source.Producer.Key,
             input, TestContext.Current.CancellationToken);
     }
 
@@ -32,19 +32,18 @@ internal sealed class ApiCoordinateMatchTestPackages : IPackageRootPayloadProvid
         Requests.Add(coordinate);
         if (requiredProducerKey is not null
             && requiredProducerKey != _source.Source.Producer.Key
-            && requiredProducerKey != _source.Source.Producer.PortableKey
-            && requiredProducerKey != NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url))
+            && requiredProducerKey != _source.Source.Producer.PortableKey)
         {
             return new PackageRootPayloadResult.Unavailable(
                 new InertString(TextPolicy.Field, "nuget.org"),
                 "The requested producer is not authorized by this test host.",
                 PackageRootAcquisitionFailureKind.ProducerNotAuthorized);
         }
-        PackageSourcePayloadResult payload = await PackagePayloadAcquisition.AcquireAsync(
-            _source, PackageSourceIdentity.NuGetOrg, coordinate, _store,
-            limits: limits, cancellationToken: cancellationToken);
+        AcquiredPackageSourcePayload? payload = await PackagePayloadAcquisition.TryGetCachedAsync(
+            coordinate, _source.Source.Producer, _source.Source.Producer.Key, _store,
+            limits, log: null, cancellationToken);
         return new PackageRootPayloadResult.Available(
-            Assert.IsType<PackageSourcePayloadResult.Acquired>(payload).Payload);
+            Assert.IsType<AcquiredPackageSourcePayload>(payload));
     }
 
     public async Task<PackageRootBinding> BindingAsync(
