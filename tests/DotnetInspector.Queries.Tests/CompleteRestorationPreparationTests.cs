@@ -56,7 +56,7 @@ public sealed class CompleteRestorationPreparationTests
     }
 
     [Fact]
-    public void Version2Packet_PreservesExplicitNullTargetBesideQualifiedTarget()
+    public void Version2Packet_RoundTripsExplicitNullTargetBesideQualifiedTarget()
     {
         var packet = new WorkspaceSharePacket(
             [
@@ -103,10 +103,20 @@ public sealed class CompleteRestorationPreparationTests
                 WorkspaceSharePacketCodec.Encode(packet),
                 authority));
 
+        var recipe = Assert.IsType<CompleteRestorationRecipe.Version2>(
+            ready.Plan.Recipe);
         Assert.Null(ready.Plan.WorkspacePlan.Contexts[0].RuntimeIdentifier);
         Assert.Equal(
             "linux-x64",
             ready.Plan.WorkspacePlan.Contexts[1].RuntimeIdentifier);
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                recipe.Definitions,
+                TestContext.Current.CancellationToken);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.Encode(packet),
+            WorkspaceSharePacketCodec.Encode(
+                Assert.IsType<WorkspaceSharePacket>(projection.Packet)));
     }
 
     [Fact]

@@ -932,14 +932,18 @@ public static class WorkspaceSharePacketTransposer
             definitions.Workspace,
             definitions.Navigation,
             view,
-            definitions.Catalogs);
+            definitions.Catalogs,
+            definitions.NavigationTargetMatchMode);
         var registry = new InspectionDefinitionRegistry();
         try
         {
             foreach (InspectionDefinitionRecord record in
                 queryFreeDefinitions.Records)
                 registry.Add(record);
-            _ = registry.PrepareScenario(definitions.Scenario.Id);
+            _ = definitions.NavigationTargetMatchMode
+                is NavigationTargetMatchMode.Exact
+                    ? registry.PreparePacketScenario(definitions.Scenario.Id)
+                    : registry.PrepareScenario(definitions.Scenario.Id);
         }
         catch (InspectionDefinitionException ex)
         {

@@ -132,7 +132,7 @@ public sealed class InspectionDefinitionRegistry
         if (scenario.SchemaVersion == InspectionDefinitionSchema.Version2)
         {
             CommittedScenarioDefinitionSet committed =
-                CreateCommittedScenario(records);
+                CreateCommittedScenario(records, targetMatchMode);
             ValidateNavigationSources(
                 records.Workspace as WorkspaceDefinition,
                 records.Navigation,
@@ -842,7 +842,8 @@ public sealed class InspectionDefinitionRegistry
     }
 
     private static CommittedScenarioDefinitionSet CreateCommittedScenario(
-        ScenarioRecordComposition records)
+        ScenarioRecordComposition records,
+        NavigationTargetMatchMode targetMatchMode)
     {
         ScenarioDefinition scenario = records.Scenario;
         WorkspaceDefinition? workspace = records.Workspace as WorkspaceDefinition;
@@ -892,7 +893,8 @@ public sealed class InspectionDefinitionRegistry
             workspace,
             navigation,
             view,
-            records.Catalogs);
+            records.Catalogs,
+            targetMatchMode);
     }
 
     private static Version1ScenarioDefinitionSet CreateVersion1Scenario(
@@ -1232,13 +1234,16 @@ public sealed class CommittedScenarioDefinitionSet
         WorkspaceDefinition? workspace,
         CommittedNavigationDefinition? navigation,
         CommittedViewDefinition? view,
-        IReadOnlyList<CatalogDefinition> catalogs)
+        IReadOnlyList<CatalogDefinition> catalogs,
+        NavigationTargetMatchMode navigationTargetMatchMode =
+            NavigationTargetMatchMode.InheritOmitted)
     {
         Scenario = scenario;
         Workspace = workspace;
         Navigation = navigation;
         View = view;
         Catalogs = catalogs;
+        NavigationTargetMatchMode = navigationTargetMatchMode;
         Records = new ReadOnlyCollection<InspectionDefinitionRecord>(
             new InspectionDefinitionRecord?[]
             {
@@ -1263,6 +1268,8 @@ public sealed class CommittedScenarioDefinitionSet
     public CommittedViewDefinition? View { get; }
 
     public IReadOnlyList<CatalogDefinition> Catalogs { get; }
+
+    internal NavigationTargetMatchMode NavigationTargetMatchMode { get; }
 
     public IReadOnlyList<InspectionDefinitionRecord> Records { get; }
 }
