@@ -67,10 +67,35 @@ WorkspaceTopLevelInventoryExecution(
 ```
 
 The operation accepts an admitted `WorkspaceRealizationOperationLease` and an
-inventory request. It holds that lease through construction of the complete
-detached envelope and selection receipt. The returned execution retains no
-Workspace, lease, stream, metadata reader, artifact root, or other disposable
-resource.
+inventory request plus one `WorkspaceTopLevelInventoryShareBasis`. It holds
+that lease through construction of the complete detached envelope and selection
+receipt. The returned execution retains no Workspace, lease, stream, metadata
+reader, artifact root, or other disposable resource.
+
+The resource-free Share basis is:
+
+```text
+WorkspaceTopLevelInventoryShareBasis
+  WorkspaceIdentity
+  RegistrationRevision
+  ScopeRevision
+  RequestKind            PacketInput | DefinitionInput | RealizedWorkspace
+  Projection             Projectable(CanonicalPacket) |
+                         NonProjectable(reason)
+```
+
+For packet or definition restoration, the host derives this basis from the
+Definitions-owned `CompleteRestorationResult.Activated` before publishing the
+Workspace. `Projection` retains that owner's exact canonical packet or typed
+non-projectable reason. The basis copies no construction authority, effect
+authority, restoration recipe, Navigation disposition, or live Workspace.
+
+An already-realized Workspace whose host did not retain a Definitions
+activation projection remains a supported inventory input. Its caller creates
+a `RealizedWorkspace` basis associated with the lease's exact definition and a
+specific `NonProjectable(NoRetainedDefinitionProjection)` reason. Lack of Share
+projection therefore does not make the inventory content unavailable or create
+a second query path.
 
 Construction is deliberately outside the operation. `WorkspacePlan` carries
 registration and context intent but is not an acquired Package-membership
@@ -93,7 +118,9 @@ envelope.
 The query validates that the Scope snapshot carries the same
 `WorkspaceScopeRevision` as the `WorkspaceDefinitionSnapshot`. Production
 operation admission should make a mismatch unreachable, but the query boundary
-still checks the association it depends on. The operation is a finite
+still checks the association it depends on. The operation then validates that
+the Share basis names the same Workspace, Registration revision, and Scope
+revision as the admitted definition snapshot. The operation is a finite
 in-memory projection over already detached snapshot facts and has no
 asynchronous work or cancellation boundary of its own.
 
@@ -113,7 +140,9 @@ Both routes populate and admit one ephemeral realized Workspace through the
 same owner operations before calling
 `WorkspaceTopLevelInventoryOperation`. The inventory query cannot distinguish
 which construction route produced its admitted authority, and equal realized
-definition/scope state produces equal inventory content.
+definition/scope state produces equal inventory content. Each route also
+retains the Definitions activation projection as the Share basis supplied to
+that operation.
 
 A packet is inert input, not acquisition authority. Packet decode, migration,
 Registry resolution, source authorization, acquisition, Scope publication,
@@ -141,18 +170,23 @@ Definitions-owned restoration pipeline used by other hosts.
 - `Available` carries one `WorkspaceTopLevelInventoryDocument`;
 - `Rejected` carries `InvalidFilter`; and
 - `Unavailable` carries `InvalidAuthority` when the definition and Scope
-  observation do not share the required revision basis.
+  observation do not share the required revision basis, or
+  `InvalidShareBasis` when the projection basis names different Workspace
+  state.
 
 Validation is ordered:
 
 | Condition after admission | Outcome |
 | --- | --- |
 | Mismatched definition/Scope basis | `Unavailable(InvalidAuthority)` |
+| Matching authority and mismatched Share basis | `Unavailable(InvalidShareBasis)` |
 | Matching basis and invalid or unsupported filter | `Rejected(InvalidFilter)` |
 | Matching basis and valid request | `Available` |
 
 Authority validation precedes request validation. A call with both mismatched
 authority and an invalid filter returns `Unavailable(InvalidAuthority)`.
+Share-basis validation follows authority validation and precedes filter
+validation.
 
 No-active-realization, construction, acquisition, Scope publication, cutover,
 admission, cancellation, and settlement are not inventory outcomes because the
@@ -482,13 +516,26 @@ Implementation proceeds as independently reviewable slices:
 
 Packet input and result Share are separate concerns. A valid packet can restore
 and inventory a Workspace even when the inventory request, such as a kind
-filter, cannot yet be projected into a packet. The first implementation slice
-must state whether the existing Workspace Definition packet can project that
-request state. Until a portable projection owner adopts any missing state, the
-envelope returns a specific `InspectionShare.NonProjectable` reason rather than
-inventing a parallel share format. A packet-sourced result retains its exact
-canonical input packet when the complete result request is projectable under
-the Workspace Definitions contract.
+filter, cannot yet be projected into a packet.
+
+The operation composes Share from its exact basis and inventory request:
+
+- an unfiltered request with `Projectable(CanonicalPacket)` returns
+  `InspectionShare.Available` with that exact packet;
+- an unfiltered request with a non-projectable basis returns
+  `InspectionShare.NonProjectable` with the retained reason;
+- a filtered request returns `InspectionShare.Available` only when Workspace
+  Definitions can project that exact filter state over the retained basis; and
+- otherwise a filtered request returns the specific
+  `InspectionShare.NonProjectable` reason for unsupported inventory request
+  projection.
+
+The first implementation slice must state whether the existing Workspace
+Definition packet can project the filter state. Until the portable projection
+owner adopts any missing state, the operation returns the non-projectable
+result rather than inventing a parallel share format. A packet-sourced
+unfiltered result therefore retains its exact canonical input packet, while a
+filtered result remains fully usable even when it is not yet shareable.
 
 Required gates use Release configuration and include:
 
@@ -497,8 +544,9 @@ Required gates use Release configuration and include:
   combined-invalidity precedence, every Package state, and preparation
   projection;
 - operation tests proving detached content and receipt lifetime, exact key
-  lookup, invalid-authority rejection, and release of the admitted lease after
-  construction;
+  lookup, invalid-authority and invalid-Share-basis rejection, retained packet
+  projection, realized-Workspace non-projection, filtered Share composition,
+  and release of the admitted lease after construction;
 - serializer shape and round-trip tests for every outcome, entry, Package
   state, preparation, and diagnostic arm, with exact expected fields;
 - CLI output tests for the real mixed Workspace, structured formats, filtering,
