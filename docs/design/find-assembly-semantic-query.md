@@ -71,7 +71,7 @@ Ordinary `find` type search and the existing assembly-semantic route answer
 different questions.
 
 [Find type-search service](find-search-service.md) collects Metadata-owned type
-inventories and applies exact, glob, namespace-prefix, partial, and miss
+inventories and applies direct, glob, namespace-prefix, partial, and miss
 classification. It remains cheap by default and is intentionally CLI-scoped.
 It does not acquire selected implementation bodies or own body-occurrence
 evidence.
