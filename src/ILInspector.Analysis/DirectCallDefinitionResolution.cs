@@ -273,6 +273,10 @@ internal interface IDirectCallDefinitionGenerationExtension
         DirectCallDefinitionResolutionOutcome.Completed provisional,
         CancellationToken cancellationToken);
 
+    IEnumerable<TypeResolutionRequest> PlanDefinitions(
+        TypeResolutionContext context,
+        CancellationToken cancellationToken);
+
     void Complete(
         TypeResolutionContext context,
         DirectCallDefinitionResolutionOutcome.Completed completed,
@@ -316,6 +320,16 @@ internal sealed class DirectCallTypeResolutionSnapshot
 
     internal IEnumerable<DirectCallTypeResolutionProjection>
         Projections => _projections.Values;
+
+    internal DirectCallTypeResolutionSnapshot With(
+        DirectCallTypeResolutionSnapshot other)
+    {
+        var projections = new Dictionary<TypeRef, DirectCallTypeResolutionProjection>(
+            _projections, ReferenceEqualityComparer.Instance);
+        foreach (var entry in other._projections)
+            projections.TryAdd(entry.Key, entry.Value);
+        return new(projections);
+    }
 }
 
 public static class DirectCallDefinitionResolver
@@ -812,13 +826,19 @@ public static class DirectCallDefinitionResolver
             if (extension is null)
                 return completed;
 
+            // Two bounded phases: relationship types, then their definitions.
+            // Only recipes survive a replacement; every occurrence is reissued.
+            for (int phase = 0; phase < 2; phase++)
+            {
             TypeResolutionRequest[] extensionRequests =
             [
-                .. extension.Plan(completed, cancellationToken)
+                        .. (phase == 0
+                        ? extension.Plan(completed, cancellationToken)
+                        : extension.PlanDefinitions(context, cancellationToken))
                     .Distinct(TypeResolutionRequestComparer.Instance),
             ];
-            if (extensionRequests.Length > 0)
-            {
+                if (extensionRequests.Length == 0)
+                    continue;
                 requests.AddRange(extensionRequests);
                 context.Dispose();
                 context = catalog.CreateContextWithCancellation(
@@ -2289,11 +2309,12 @@ public static class DirectCallDefinitionResolver
                 item.Call.Callee));
     }
 
-    static DirectCallTypeResolutionSnapshot
+    internal static DirectCallTypeResolutionSnapshot
         CreateTypeResolutionSnapshot(
             TypeResolutionContext context,
             ResolvedAssemblyReference source,
-            MemberRef member)
+            MemberRef member,
+            IReadOnlyDictionary<TypeRef, ResolvedAssemblyReference>? origins = null)
     {
         var projections =
             new Dictionary<
@@ -2316,7 +2337,9 @@ public static class DirectCallDefinitionResolver
                 type,
                 ProjectTypeResolution(
                     context,
-                    source,
+                    origins is not null && origins.TryGetValue(type, out var origin)
+                        ? origin
+                        : source,
                     type));
             if (type.ElementType is not null)
                 pending.Push(type.ElementType);
@@ -2856,7 +2879,7 @@ public static class DirectCallDefinitionResolver
         Incomplete,
     }
 
-    enum CandidateSemantics
+    internal enum CandidateSemantics
     {
         Method,
         PropertyGetter,
@@ -2913,7 +2936,7 @@ public static class DirectCallDefinitionResolver
                 gap);
     }
 
-    sealed record PendingDefinitionCandidate(
+    internal sealed record PendingDefinitionCandidate(
         ResolvedAssemblyReference Assembly,
         Guid ModuleVersionId,
         MethodDefinitionHandle Definition,
@@ -3044,7 +3067,7 @@ public static class DirectCallDefinitionResolver
         }
     }
 
-    sealed record DefinitionCandidateSet(
+    internal sealed record DefinitionCandidateSet(
         ImmutableArray<PendingDefinitionCandidate> Candidates,
         ImmutableHashSet<string> UnreadableNames,
         IReadOnlyDictionary<int, PendingDefinitionCandidate>
@@ -3133,6 +3156,40 @@ public static class DirectCallDefinitionResolver
                 DirectCallDefinitionGapKind.WorkLimitExceeded,
                 DirectCallDefinitionWorkDimension.MetadataAssociations,
                 requiredWork);
+    }
+
+    internal sealed class DefinitionPlanningSession(
+        DirectCallDefinitionResolutionLimits limits)
+    {
+        readonly Dictionary<ResolvedAssemblyReference, MethodSemanticsIndex>
+            _semantics = new(ReferenceEqualityComparer.Instance);
+        readonly SignatureNodeBudget _signatures = new(limits.MaxSignatureNodes);
+        long _definitions;
+        long _associations;
+        DefinitionCandidateSet? _exhausted;
+
+        internal long SignatureNodes => _signatures.Used;
+
+        internal DefinitionCandidateSet Read(
+            ResolvedAssemblyReference assembly,
+            MetadataTypeDefinitionAddress address)
+        {
+            if (_exhausted is not null)
+                return _exhausted;
+            DefinitionCandidateSet result = DiscoverDefinitionCandidates(
+                assembly,
+                address.ModuleVersionId,
+                address,
+                localMethodToken: 0,
+                limits,
+                _semantics,
+                ref _definitions,
+                ref _associations,
+                _signatures);
+            if (result.Failure == DirectCallDefinitionGapKind.WorkLimitExceeded)
+                _exhausted = result;
+            return result;
+        }
     }
 
     sealed record WorkLimitObservation(

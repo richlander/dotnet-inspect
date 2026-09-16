@@ -71,11 +71,24 @@ public static class ResourceEffectResolver
                 ResourceEffectResolutionRejectionKind
                     .OccurrencePopulationRejected);
         }
+        ResourceEffectInterfaceApplicationIndex applications =
+            extension.Index
+            ?? ResourceEffectInterfaceApplicationIndex.Incomplete(
+                admission,
+                completed,
+                new(
+                    ResourceEffectInterfaceApplicationGapKind
+                        .IncompleteMetadata)
+                {
+                    Detail =
+                        "Interface-application planning did not complete "
+                        + "for the direct-call population.",
+                });
         return Resolve(
             CreateRequest(
                 admission,
                 completed,
-                extension.Index),
+                applications),
             limits,
             cancellationToken);
     }
@@ -168,6 +181,15 @@ public static class ResourceEffectResolver
             return new ResourceEffectResolutionOutcome.Rejected(
                 ResourceEffectResolutionRejectionKind
                     .InterfaceApplicationGenerationMismatch);
+        }
+        if (request.InterfaceApplications is { } index)
+        {
+            if (!index.AdmissionReceipt.Equals(request.AdmissionReceipt))
+                return new ResourceEffectResolutionOutcome.Rejected(
+                    ResourceEffectResolutionRejectionKind.InterfaceApplicationAdmissionMismatch);
+            if (!index.PopulationReceipt.Equals(request.PopulationReceipt))
+                return new ResourceEffectResolutionOutcome.Rejected(
+                    ResourceEffectResolutionRejectionKind.InterfaceApplicationPopulationMismatch);
         }
         limits ??= new ResourceEffectResolutionLimits();
 
@@ -316,7 +338,8 @@ public static class ResourceEffectResolver
                         model.Identity,
                         model.Receipt,
                         declaration,
-                        declaration.Provenances);
+                        declaration.Provenances,
+                        interfaceApplication is null ? [] : [interfaceApplication]);
                     string canonicalEffect = CanonicalBoundEffect(
                         declaration.Effect,
                         value.GenericBindings,
@@ -330,8 +353,7 @@ public static class ResourceEffectResolver
                         value.ResourceKinds,
                         occurrenceBinding,
                         [source],
-                        canonicalEffect,
-                        interfaceApplication);
+                        canonicalEffect);
                     matches.Add(effect);
                     allEffects.Add(effect);
                     return true;
@@ -405,8 +427,7 @@ public static class ResourceEffectResolver
                                 if (value.DirectCall.Definition
                                     .IsInterfaceDefinition)
                                 {
-                                    if (request.InterfaceApplications
-                                        is not { } interfaceApplications)
+                                    if (request.InterfaceApplications is null)
                                     {
                                         Retain(
                                             new ResourceEffectResolutionGap(
@@ -418,94 +439,6 @@ public static class ResourceEffectResolver
                                                         .PhysicalInvocation,
                                             });
                                     }
-                                    else
-                                    {
-                                        if (interfaceApplications.GlobalGap
-                                            is { } globalApplicationGap)
-                                        {
-                                            Retain(
-                                                InterfaceGap(
-                                                    ResourceEffectResolutionGapKind
-                                                        .InterfaceApplicationIncomplete,
-                                                    value.DirectCall,
-                                                    globalApplicationGap));
-                                        }
-                                        bool continueApplications = true;
-                                        foreach (
-                                            ResourceEffectInterfaceApplication
-                                                application
-                                            in interfaceApplications.For(
-                                                value.DirectCall))
-                                        {
-                                            if (!continueApplications)
-                                                break;
-                                            switch (application)
-                                            {
-                                                case
-                                                    ResourceEffectInterfaceApplication
-                                                    .Applied applied:
-                                                {
-                                                    var appliedBinding =
-                                                        new ResourceEffectSelectorBinding
-                                                            .Resolved(
-                                                            declaration,
-                                                            applied
-                                                                .ImplementationCall,
-                                                            value
-                                                                .GenericBindings,
-                                                            value
-                                                                .ResourceKinds);
-                                                    continueApplications =
-                                                        BindResolved(
-                                                            appliedBinding,
-                                                            applied.Evidence);
-                                                    continue;
-                                                }
-                                                case
-                                                    ResourceEffectInterfaceApplication
-                                                    .NotApplicable:
-                                                    continue;
-                                                case
-                                                    ResourceEffectInterfaceApplication
-                                                    .Ambiguous applicationAmbiguous:
-                                                    ambiguous = true;
-                                                    Retain(
-                                                        InterfaceGap(
-                                                            ResourceEffectResolutionGapKind
-                                                                .InterfaceApplicationAmbiguous,
-                                                            application
-                                                                .ImplementationCall,
-                                                            applicationAmbiguous
-                                                                .Gap));
-                                                    continue;
-                                                case
-                                                    ResourceEffectInterfaceApplication
-                                                    .Unsupported applicationUnsupported:
-                                                    unsupported = true;
-                                                    Retain(
-                                                        InterfaceGap(
-                                                            ResourceEffectResolutionGapKind
-                                                                .InterfaceApplicationUnsupported,
-                                                            application
-                                                                .ImplementationCall,
-                                                            applicationUnsupported
-                                                                .Gap));
-                                                    continue;
-                                                case
-                                                    ResourceEffectInterfaceApplication
-                                                    .Incomplete applicationIncomplete:
-                                                    Retain(
-                                                        InterfaceGap(
-                                                            ResourceEffectResolutionGapKind
-                                                                .InterfaceApplicationIncomplete,
-                                                            application
-                                                                .ImplementationCall,
-                                                            applicationIncomplete
-                                                                .Gap));
-                                                    continue;
-                                            }
-                                        }
-                                    }
                                 }
                                 if (!BindResolved(
                                         value,
@@ -513,6 +446,83 @@ public static class ResourceEffectResolver
                                 {
                                     break;
                                 }
+                                break;
+                        }
+                    }
+                    if (request.InterfaceApplications is { } interfaceApplications)
+                                    {
+                        if (interfaceApplications.CoverageGap is
+                            { } coverageGap)
+                                        {
+                                            Retain(
+                                new(
+                                                    ResourceEffectResolutionGapKind
+                                        .InterfaceApplicationIncomplete)
+                                {
+                                    InterfaceApplicationGap =
+                                        coverageGap,
+                                });
+                                        }
+                        if (interfaceApplications.GlobalGapFor(
+                                declaration)
+                            is { } globalGap)
+                                        {
+                            Retain(
+                                new(
+                                    ResourceEffectResolutionGapKind
+                                        .InterfaceApplicationIncomplete)
+                                {
+                                    InterfaceApplicationGap =
+                                        globalGap,
+                                });
+                        }
+                        foreach (ResourceEffectInterfaceApplication application in
+                            interfaceApplications.For(declaration))
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                                            switch (application)
+                                            {
+                                case ResourceEffectInterfaceApplication.Applied applied:
+                                    if (++selectorEvaluations > limits.MaxSelectorEvaluations)
+                                                {
+                                        Retain(WorkGap(ResourceEffectResolutionWorkDimension.SelectorEvaluations,
+                                            limits.MaxSelectorEvaluations, selectorEvaluations,
+                                            applied.ImplementationCall.PhysicalInvocation));
+                                        break;
+                                                }
+                                    var binding = ResourceEffectSelectorBinder.Bind(
+                                        declaration, applied.SelectorOccurrence!);
+                                    if (binding is not ResourceEffectSelectorBinding.Resolved selected)
+                                        throw new InvalidOperationException("An applied interface selector lost its binding.");
+                                    var concrete = applied.ImplementationCall;
+                                    var bindingCall = new DirectCallDefinitionResolution.Resolved(
+                                        concrete.Catalog, concrete.Generation, concrete.Participant,
+                                        concrete.Call, concrete.Definition, concrete.GenericScopes,
+                                        concrete.TypeResolutions.With(selected.DirectCall.TypeResolutions));
+                                    var concreteBinding = new ResourceEffectSelectorBinding.Resolved(
+                                        declaration, bindingCall,
+                                        selected.GenericBindings, selected.ResourceKinds,
+                                        selected.DirectCall.Definition);
+                                    if (!BindResolved(concreteBinding, applied.Evidence))
+                                        break;
+                                    continue;
+                                case ResourceEffectInterfaceApplication.NotApplicable:
+                                                    continue;
+                                case ResourceEffectInterfaceApplication.Ambiguous value:
+                                                    ambiguous = true;
+                                    Retain(InterfaceGap(ResourceEffectResolutionGapKind.InterfaceApplicationAmbiguous,
+                                        value.ImplementationCall, value.Gap));
+                                                    continue;
+                                case ResourceEffectInterfaceApplication.Unsupported value:
+                                                    unsupported = true;
+                                    Retain(InterfaceGap(ResourceEffectResolutionGapKind.InterfaceApplicationUnsupported,
+                                        value.ImplementationCall, value.Gap));
+                                                    continue;
+                                case ResourceEffectInterfaceApplication.Incomplete value:
+                                    Retain(InterfaceGap(ResourceEffectResolutionGapKind.InterfaceApplicationIncomplete,
+                                        value.ImplementationCall, value.Gap));
+                                                    continue;
+                                            }
                                 break;
                         }
                     }
@@ -669,9 +679,7 @@ public static class ResourceEffectResolver
             {
                 var key = new BoundEffectKey(
                     effect.PhysicalInvocation,
-                    effect.CanonicalEffect,
-                    CanonicalInterfaceApplication(
-                        effect.InterfaceApplication));
+            effect.CanonicalEffect);
                 if (grouped.TryGetValue(key, out CoalescedEffect? existing))
                 {
                     existing.Sources.AddRange(effect.Sources);
@@ -690,7 +698,13 @@ public static class ResourceEffectResolver
                     [
                         .. value.Sources
                             .Select(CanonicalizeSource)
-                            .Distinct(SourceComparer.Instance)
+                            .GroupBy(CanonicalDeclarationSource, StringComparer.Ordinal)
+                            .Select(group => new ResolvedResourceEffectSource(
+                                group.First().Model, group.First().ModelReceipt,
+                                group.First().Declaration, group.First().Provenances,
+                                [.. group.SelectMany(source => source.InterfaceApplications)
+                                    .DistinctBy(CanonicalInterfaceApplication)
+                                    .OrderBy(CanonicalInterfaceApplication, StringComparer.Ordinal)]))
                             .OrderBy(CanonicalSource, StringComparer.Ordinal),
                     ];
                     ResolvedResourceEffect first = value.First;
@@ -702,8 +716,7 @@ public static class ResourceEffectResolver
                         first.ResourceKinds,
                         first.Binding,
                         sources,
-                        first.CanonicalEffect,
-                        first.InterfaceApplication);
+                        first.CanonicalEffect);
                 }),
             ];
         }
@@ -1234,8 +1247,7 @@ public static class ResourceEffectResolver
                         effect => effect.CanonicalEffect,
                         StringComparer.Ordinal)
                     .ThenBy(
-                        effect => CanonicalInterfaceApplication(
-                            effect.InterfaceApplication),
+                        CanonicalInterfaceApplications,
                         StringComparer.Ordinal)
                     .ThenBy(
                         CanonicalSources,
@@ -1245,7 +1257,7 @@ public static class ResourceEffectResolver
         static string OccurrenceKey(ResolvedResourceEffect effect) =>
             OccurrenceKey(effect.DirectCall);
 
-        static string OccurrenceKey(
+    internal static string OccurrenceKey(
             DirectCallDefinitionResolution directCall)
         {
             var value = new StringBuilder();
@@ -1650,9 +1662,16 @@ public static class ResourceEffectResolver
                     .. source.Provenances.OrderBy(
                         ResourceEffectCanonicalizer.Provenance,
                         StringComparer.Ordinal),
-                ]);
+        ],
+        [.. source.InterfaceApplications.OrderBy(
+                    CanonicalInterfaceApplication, StringComparer.Ordinal)]);
 
         static string CanonicalSource(
+    ResolvedResourceEffectSource source) =>
+    CanonicalDeclarationSource(source) + "\u001f"
+    + string.Join("\u001e", source.InterfaceApplications.Select(CanonicalInterfaceApplication));
+
+    static string CanonicalDeclarationSource(
             ResolvedResourceEffectSource source) =>
             source.Model.Value
             + "\u001f"
@@ -1675,7 +1694,7 @@ public static class ResourceEffectResolver
                     .OrderBy(CanonicalSource, StringComparer.Ordinal)
                     .Select(CanonicalSource));
 
-        static ResourceEffectOccurrencePopulationReceipt
+    internal static ResourceEffectOccurrencePopulationReceipt
             CreatePopulationReceipt(
                 DirectCallDefinitionResolutionOutcome.Completed directCalls)
         {
@@ -1894,12 +1913,15 @@ public static class ResourceEffectResolver
         }
         Append(
             value,
-            CanonicalInterfaceApplication(
-                effect.InterfaceApplication));
+            CanonicalInterfaceApplications(effect));
         return value.ToString();
     }
 
-    static string CanonicalInterfaceApplication(
+    static string CanonicalInterfaceApplications(ResolvedResourceEffect effect) =>
+        string.Join("\u001e", effect.InterfaceApplications.Select(CanonicalInterfaceApplication)
+            .OrderBy(value => value, StringComparer.Ordinal));
+
+    internal static string CanonicalInterfaceApplication(
         ResourceEffectInterfaceApplicationEvidence? application)
     {
         if (application is null)
@@ -1916,6 +1938,9 @@ public static class ResourceEffectResolver
         Append(
             value,
             application.InterfaceDeclaration.MetadataToken);
+        AppendAssembly(value, application.InterfaceDeclaration.Assembly);
+        Append(value, (int)application.InterfaceDeclaration.Semantics);
+        AppendForwarding(value, application.InterfaceDeclaration.Forwarding);
         Append(
             value,
             MetadataReceiptEvidence.For(
@@ -1934,6 +1959,21 @@ public static class ResourceEffectResolver
         AppendTypeRef(
             value,
             application.InterfacePath.ClosedInterfaceType);
+        Append(value, CanonicalMember(application.ClosedSlot.Member));
+        Append(value, application.ClosedSlot.Member.SignatureHeader);
+        Append(value, application.ClosedSlot.Member.RequiredParameterCount);
+        Append(value, application.ClosedSlot.Member.HasThis ? 1 : 0);
+        Append(value, application.ClosedSlot.Member.ParameterDirections.Length);
+        foreach (ParameterDirection direction in application.ClosedSlot.Member.ParameterDirections)
+            Append(value, (int)direction);
+        AppendCatalogType(value, application.ClosedSlot.DeclaringType);
+        AppendCatalogType(value, application.ClosedSlot.ReturnType);
+        Append(value, application.ClosedSlot.ParameterTypes.Length);
+        foreach (CatalogTypeShape parameter in application.ClosedSlot.ParameterTypes)
+            AppendCatalogType(value, parameter);
+        AppendScopes(application.ClosedSlot.DeclaringGenericScopes);
+        AppendScopes(application.ClosedSlot.ParameterGenericScopes);
+        AppendScopes(application.ClosedSlot.ReturnGenericScopes);
         Append(
             value,
             application.Method.ImplementationMethodToken);
@@ -1951,6 +1991,46 @@ public static class ResourceEffectResolver
             Append(value, "implicit");
         }
         return value.ToString();
+
+        void AppendScopes(ImmutableArray<ResolvedResourceEffectGenericScope?> scopes)
+        {
+            Append(value, scopes.Length);
+            foreach (ResolvedResourceEffectGenericScope? scope in scopes)
+            {
+                Append(value, scope is null ? "slot-variable" : "invocation-variable");
+                if (scope is not null)
+                {
+                    Append(value, (int)scope.Kind);
+                    Append(value, CanonicalPhysical(scope.Owner));
+                }
+            }
+        }
+    }
+
+    static void AppendCatalogType(StringBuilder value, CatalogTypeShape type)
+    {
+        Append(value, (int)type.Kind);
+        Append(value, type.Definition is { } definition
+            ? MetadataReceiptEvidence.For(definition) : "");
+        Append(value, type.RawTypeKind);
+        Append(value, type.Rank);
+        Append(value, type.GenericParameterIndex);
+        Append(value, type.IsRequiredModifier ? 1 : 0);
+        Append(value, type.SignatureHeader);
+        Append(value, type.GenericArity);
+        Append(value, type.RequiredParameterCount);
+        Append(value, type.ArraySizes.Length);
+        foreach (int size in type.ArraySizes)
+            Append(value, size);
+        Append(value, type.ArrayLowerBounds.Length);
+        foreach (int bound in type.ArrayLowerBounds)
+            Append(value, bound);
+        Append(value, type.ElementType is not null ? 1 : 0);
+        if (type.ElementType is { } element)
+            AppendCatalogType(value, element);
+        Append(value, type.Components.Length);
+        foreach (CatalogTypeShape component in type.Components)
+            AppendCatalogType(value, component);
     }
 
     static string CanonicalInterfaceApplicationGap(
@@ -2156,8 +2236,7 @@ public static class ResourceEffectResolver
 
         sealed record BoundEffectKey(
             GraphNodeStorageKey PhysicalInvocation,
-            string CanonicalEffect,
-            string InterfaceApplication);
+    string CanonicalEffect);
 
         sealed class CoalescedEffect
         {

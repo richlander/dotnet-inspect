@@ -65,6 +65,8 @@ public enum ResourceEffectResolutionRejectionKind
     AdmissionReceiptMismatch,
     OccurrencePopulationReceiptMismatch,
     InterfaceApplicationGenerationMismatch,
+    InterfaceApplicationAdmissionMismatch,
+    InterfaceApplicationPopulationMismatch,
 }
 
 public sealed record ResourceEffectResolutionGap(
@@ -258,7 +260,8 @@ public sealed class ResolvedResourceEffectSource
         ResourceEffectModelIdentity model,
         ResourceEffectModelReceipt modelReceipt,
         AdmittedResourceEffectDeclaration declaration,
-        ImmutableArray<ResourceDeclarationProvenance> provenances)
+        ImmutableArray<ResourceDeclarationProvenance> provenances,
+        ImmutableArray<ResourceEffectInterfaceApplicationEvidence> interfaceApplications = default)
     {
         Model = model;
         ModelReceipt = modelReceipt
@@ -268,6 +271,7 @@ public sealed class ResolvedResourceEffectSource
         _provenances = ImmutableArrayValueEquality.RequireInitialized(
             provenances,
             nameof(provenances));
+        InterfaceApplications = interfaceApplications.IsDefault ? [] : interfaceApplications;
     }
 
     public ResourceEffectModelIdentity Model { get; }
@@ -275,6 +279,7 @@ public sealed class ResolvedResourceEffectSource
     public AdmittedResourceEffectDeclaration Declaration { get; }
     public ImmutableArray<ResourceDeclarationProvenance> Provenances =>
         _provenances;
+    public ImmutableArray<ResourceEffectInterfaceApplicationEvidence> InterfaceApplications { get; }
 }
 
 public enum ResolvedResourceEffectBoundaryLocationKind
@@ -669,9 +674,7 @@ public sealed class ResolvedResourceEffect
         ImmutableArray<ResolvedResourceKindReference> resourceKinds,
         ResolvedResourceEffectBinding binding,
         ImmutableArray<ResolvedResourceEffectSource> sources,
-        string canonicalEffect,
-        ResourceEffectInterfaceApplicationEvidence? interfaceApplication =
-            null)
+        string canonicalEffect)
     {
         AdmissionReceipt = admissionReceipt
             ?? throw new ArgumentNullException(nameof(admissionReceipt));
@@ -710,7 +713,8 @@ public sealed class ResolvedResourceEffect
             binding);
         CanonicalEffect = canonicalEffect
             ?? throw new ArgumentNullException(nameof(canonicalEffect));
-        InterfaceApplication = interfaceApplication;
+        InterfaceApplications = [.. sources.SelectMany(source => source.InterfaceApplications)
+            .DistinctBy(ResourceEffectResolver.CanonicalInterfaceApplication)];
     }
 
     public ResourceEffectAdmissionReceipt AdmissionReceipt { get; }
@@ -730,8 +734,9 @@ public sealed class ResolvedResourceEffect
     public ImmutableArray<ResolvedResourceEffectSource> Sources => _sources;
     public ImmutableArray<ResourceDeclarationProvenance> Provenances =>
         [.. _sources.SelectMany(source => source.Provenances)];
-    public ResourceEffectInterfaceApplicationEvidence? InterfaceApplication
-        { get; }
+    public ImmutableArray<ResourceEffectInterfaceApplicationEvidence> InterfaceApplications { get; }
+    public ResourceEffectInterfaceApplicationEvidence? InterfaceApplication =>
+        InterfaceApplications.Length == 1 ? InterfaceApplications[0] : null;
     internal string CanonicalEffect { get; }
 
     static ResourceEffectCompletion? EffectCompletion(

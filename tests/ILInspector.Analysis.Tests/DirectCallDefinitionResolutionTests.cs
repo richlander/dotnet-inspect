@@ -2301,10 +2301,20 @@ public sealed partial class DirectCallDefinitionResolutionTests
         bool addDuplicateMethodImpl = false,
         bool methodImplBodyAsMemberReference = false,
         bool unresolvedInterfaceImpl = false,
-        bool generic = false)
+        bool generic = false,
+        bool fixedGenericInterface = false,
+        bool addStringImplementationCall = false,
+        bool includeInterfaceCall = true,
+        bool methodGeneric = false,
+        bool callerGenericTypeArgument = false,
+        bool addSwappedGenericDecoy = false)
     {
         const string AssemblyName = "InterfaceDirectCalls";
+        addPublicDecoy |= addSwappedGenericDecoy;
+        bool genericInterface = generic || fixedGenericInterface;
+        bool genericImplementation = generic;
         var metadata = new MetadataBuilder();
+        var genericParameters = new List<(EntityHandle Owner, string Name)>();
         Guid mvid = Guid.NewGuid();
         metadata.AddModule(
             0,
@@ -2347,7 +2357,11 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     | TypeAttributes.Abstract,
                 metadata.GetOrAddString("N"),
                 metadata.GetOrAddString(
-                    generic ? "IContract`1" : "IContract"),
+                    fixedGenericInterface
+                        ? "IFixed`1"
+                        : genericInterface
+                            ? "IContract`1"
+                            : "IContract"),
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
@@ -2369,7 +2383,11 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 TypeAttributes.Public | TypeAttributes.Sealed,
                 metadata.GetOrAddString("N"),
                 metadata.GetOrAddString(
-                    generic ? "Contract`1" : "Contract"),
+                    fixedGenericInterface
+                        ? "Fixed"
+                        : genericImplementation
+                            ? "Contract`1"
+                            : "Contract"),
                 objectType,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(2));
@@ -2418,28 +2436,32 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 implementation,
                 missingContract);
         }
-        else if (generic)
+        else if (genericImplementation)
         {
-            metadata.AddGenericParameter(
-                contract,
-                GenericParameterAttributes.None,
-                metadata.GetOrAddString("T"),
-                0);
-            metadata.AddGenericParameter(
-                implementation,
-                GenericParameterAttributes.None,
-                metadata.GetOrAddString("T"),
-                0);
+            genericParameters.Add((contract, "T"));
+            genericParameters.Add((implementation, "T"));
             TypeSpecificationHandle openContract =
                 metadata.AddTypeSpecification(
                     metadata.GetOrAddBlob(
-                        new byte[]
-                        {
-                            0x15, 0x12, 0x08, 0x01, 0x13, 0x00,
-                        }));
+                        GenericInstanceSignature(
+                            contract,
+                            [0x13, 0x00])));
             metadata.AddInterfaceImplementation(
                 implementation,
                 openContract);
+        }
+        else if (fixedGenericInterface)
+        {
+            genericParameters.Add((contract, "T"));
+            TypeSpecificationHandle closedContract =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(
+                        GenericInstanceSignature(
+                            contract,
+                            [0x08])));
+            metadata.AddInterfaceImplementation(
+                implementation,
+                closedContract);
         }
         else
         {
@@ -2460,6 +2482,22 @@ public sealed partial class DirectCallDefinitionResolutionTests
         implementationIl.WriteByte((byte)ILOpCode.Ret);
         int implementationBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(implementationIl));
+        byte[] interfaceMethodSignature = methodGeneric
+            ? genericInterface
+                ? [0x30, 0x01, 0x02, 0x01, 0x13, 0x00, 0x1E, 0x00]
+                : [0x30, 0x01, 0x01, 0x01, 0x1E, 0x00]
+            : genericInterface
+                ? [0x20, 0x01, 0x01, 0x13, 0x00]
+                : [0x20, 0x00, 0x01];
+        byte[] implementationMethodSignature = methodGeneric
+            ? genericImplementation
+                ? [0x30, 0x01, 0x02, 0x01, 0x13, 0x00, 0x1E, 0x00]
+                : [0x30, 0x01, 0x01, 0x01, 0x1E, 0x00]
+            : genericImplementation
+                ? [0x20, 0x01, 0x01, 0x13, 0x00]
+                : fixedGenericInterface
+                    ? [0x20, 0x01, 0x01, 0x08]
+                    : [0x20, 0x00, 0x01];
         MethodDefinitionHandle interfaceMethod =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
@@ -2468,13 +2506,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     | MethodAttributes.NewSlot,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Target"),
-                metadata.GetOrAddBlob(
-                    generic
-                        ? new byte[]
-                        {
-                            0x20, 0x01, 0x01, 0x13, 0x00,
-                        }
-                        : new byte[] { 0x20, 0x00, 0x01 }),
+                metadata.GetOrAddBlob(interfaceMethodSignature),
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle implementationMethod =
@@ -2489,15 +2521,14 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     explicitImplementation
                         ? "ExplicitTarget"
                         : "Target"),
-                metadata.GetOrAddBlob(
-                    generic
-                        ? new byte[]
-                        {
-                            0x20, 0x01, 0x01, 0x13, 0x00,
-                        }
-                        : new byte[] { 0x20, 0x00, 0x01 }),
+                metadata.GetOrAddBlob(implementationMethodSignature),
                 implementationBody,
                 MetadataTokens.ParameterHandle(1));
+        if (methodGeneric)
+        {
+            genericParameters.Add((interfaceMethod, "U"));
+            genericParameters.Add((implementationMethod, "U"));
+        }
         MethodDefinitionHandle decoyMethod = default;
         if (addPublicDecoy)
         {
@@ -2507,15 +2538,13 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     | MethodAttributes.Virtual,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Target"),
-                metadata.GetOrAddBlob(
-                    generic
-                        ? new byte[]
-                        {
-                            0x20, 0x01, 0x01, 0x13, 0x00,
-                        }
-                        : new byte[] { 0x20, 0x00, 0x01 }),
+                metadata.GetOrAddBlob(addSwappedGenericDecoy
+                    ? new byte[] { 0x30, 0x01, 0x02, 0x01, 0x1E, 0x00, 0x13, 0x00 }
+                    : implementationMethodSignature),
                 implementationBody,
                 MetadataTokens.ParameterHandle(1));
+            if (methodGeneric)
+                genericParameters.Add((decoyMethod, "U"));
         }
         if (explicitImplementation)
         {
@@ -2526,15 +2555,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     implementation,
                     metadata.GetOrAddString("ExplicitTarget"),
                     metadata.GetOrAddBlob(
-                        generic
-                            ? new byte[]
-                            {
-                                0x20, 0x01, 0x01, 0x13, 0x00,
-                            }
-                            : new byte[]
-                            {
-                                0x20, 0x00, 0x01,
-                            }));
+                        implementationMethodSignature));
             }
             metadata.AddMethodImplementation(
                 implementation,
@@ -2557,13 +2578,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     | MethodAttributes.Virtual,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Target"),
-                metadata.GetOrAddBlob(
-                    generic
-                        ? new byte[]
-                        {
-                            0x20, 0x01, 0x01, 0x13, 0x00,
-                        }
-                        : new byte[] { 0x20, 0x00, 0x01 }),
+                metadata.GetOrAddBlob(implementationMethodSignature),
                 implementationBody,
                 MetadataTokens.ParameterHandle(1));
         }
@@ -2575,61 +2590,104 @@ public sealed partial class DirectCallDefinitionResolutionTests
         EntityHandle implementationCallTarget = implementationMethod;
         EntityHandle decoyCallTarget = decoyMethod;
         EntityHandle nonImplementerCallTarget = nonImplementerMethod;
-        if (generic)
+        EntityHandle stringImplementationCallTarget = default;
+        if (genericInterface)
         {
             TypeSpecificationHandle closedContract =
                 metadata.AddTypeSpecification(
                     metadata.GetOrAddBlob(
-                        new byte[]
-                        {
-                            0x15, 0x12, 0x08, 0x01, 0x08,
-                        }));
-            TypeSpecificationHandle closedImplementation =
-                metadata.AddTypeSpecification(
-                    metadata.GetOrAddBlob(
-                        new byte[]
-                        {
-                            0x15, 0x12, 0x0C, 0x01, 0x08,
-                        }));
+                        GenericInstanceSignature(
+                            contract,
+                            callerGenericTypeArgument ? [0x1E, 0x00] : [0x08])));
             BlobHandle constructedSignature =
-                metadata.GetOrAddBlob(
-                    new byte[]
-                    {
-                        0x20, 0x01, 0x01, 0x13, 0x00,
-                    });
+                metadata.GetOrAddBlob(interfaceMethodSignature);
             interfaceCallTarget = metadata.AddMemberReference(
                 closedContract,
                 metadata.GetOrAddString("Target"),
                 constructedSignature);
+            if (genericImplementation)
+            {
+                TypeSpecificationHandle closedImplementation =
+                    metadata.AddTypeSpecification(
+                        metadata.GetOrAddBlob(
+                            GenericInstanceSignature(
+                                implementation,
+                                callerGenericTypeArgument ? [0x1E, 0x00] : [0x08])));
             implementationCallTarget = metadata.AddMemberReference(
                 closedImplementation,
                 metadata.GetOrAddString(
                     explicitImplementation
                         ? "ExplicitTarget"
                         : "Target"),
-                constructedSignature);
+                    metadata.GetOrAddBlob(
+                        implementationMethodSignature));
             if (!decoyMethod.IsNil)
             {
                 decoyCallTarget = metadata.AddMemberReference(
                     closedImplementation,
                     metadata.GetOrAddString("Target"),
-                    constructedSignature);
+                        metadata.GetOrAddBlob(
+                            implementationMethodSignature));
+                }
+                if (addStringImplementationCall)
+                {
+                    TypeSpecificationHandle stringImplementation =
+                        metadata.AddTypeSpecification(
+                            metadata.GetOrAddBlob(
+                                GenericInstanceSignature(
+                                    implementation,
+                                    [0x0E])));
+                    stringImplementationCallTarget =
+                        metadata.AddMemberReference(
+                            stringImplementation,
+                            metadata.GetOrAddString("Target"),
+                            metadata.GetOrAddBlob(
+                                implementationMethodSignature));
+                }
             }
         }
+        if (methodGeneric)
+        {
+            interfaceCallTarget = metadata.AddMethodSpecification(
+                interfaceCallTarget,
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x0A, 0x01, 0x08 }));
+            implementationCallTarget =
+                metadata.AddMethodSpecification(
+                    implementationCallTarget,
+                    metadata.GetOrAddBlob(
+                        new byte[] { 0x0A, 0x01, 0x0E }));
+        }
+        if (includeInterfaceCall)
+        {
         callerInstructions.OpCode(ILOpCode.Ldnull);
-        if (generic)
+            if (genericInterface && methodGeneric)
+                callerInstructions.OpCode(callerGenericTypeArgument ? ILOpCode.Ldarg_0 : ILOpCode.Ldc_i4_0);
+            if (genericInterface || methodGeneric)
             callerInstructions.OpCode(ILOpCode.Ldc_i4_0);
         callerInstructions.OpCode(ILOpCode.Callvirt);
         callerInstructions.Token(interfaceCallTarget);
+        }
         callerInstructions.OpCode(ILOpCode.Ldnull);
-        if (generic)
-            callerInstructions.OpCode(ILOpCode.Ldc_i4_0);
+        if (genericImplementation || fixedGenericInterface)
+            callerInstructions.OpCode(callerGenericTypeArgument ? ILOpCode.Ldarg_0 : ILOpCode.Ldc_i4_0);
+        else if (methodGeneric)
+            callerInstructions.OpCode(ILOpCode.Ldnull);
+        if (genericImplementation && methodGeneric)
+        callerInstructions.OpCode(ILOpCode.Ldnull);
         callerInstructions.OpCode(ILOpCode.Callvirt);
         callerInstructions.Token(implementationCallTarget);
-        if (!decoyMethod.IsNil)
+        if (!stringImplementationCallTarget.IsNil)
         {
             callerInstructions.OpCode(ILOpCode.Ldnull);
-            if (generic)
+            callerInstructions.OpCode(ILOpCode.Ldnull);
+            callerInstructions.OpCode(ILOpCode.Callvirt);
+            callerInstructions.Token(stringImplementationCallTarget);
+        }
+        if (!decoyMethod.IsNil && !addSwappedGenericDecoy)
+        {
+            callerInstructions.OpCode(ILOpCode.Ldnull);
+            if (genericImplementation)
                 callerInstructions.OpCode(ILOpCode.Ldc_i4_0);
             callerInstructions.OpCode(ILOpCode.Callvirt);
             callerInstructions.Token(decoyCallTarget);
@@ -2643,16 +2701,31 @@ public sealed partial class DirectCallDefinitionResolutionTests
         callerInstructions.OpCode(ILOpCode.Ret);
         int callerBody = bodyEncoder.AddMethodBody(
             callerInstructions,
-            maxStack: generic ? 2 : 1);
+            maxStack:
+                genericInterface && methodGeneric ? 3 : genericInterface
+                || genericImplementation
+                || methodGeneric
+                    ? 2
+                    : 1);
         MethodDefinitionHandle caller =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Caller"),
                 metadata.GetOrAddBlob(
-                    new byte[] { 0x00, 0x00, 0x01 }),
+                    callerGenericTypeArgument
+                        ? new byte[] { 0x10, 0x01, 0x01, 0x01, 0x1E, 0x00 }
+                        : new byte[] { 0x00, 0x00, 0x01 }),
                 callerBody,
                 MetadataTokens.ParameterHandle(1));
+        if (callerGenericTypeArgument)
+            genericParameters.Add((caller, "V"));
+        foreach (var parameter in genericParameters.OrderBy(
+            parameter => CodedIndex.TypeOrMethodDef(parameter.Owner)))
+        {
+            metadata.AddGenericParameter(parameter.Owner, GenericParameterAttributes.None,
+                metadata.GetOrAddString(parameter.Name), 0);
+        }
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -2676,6 +2749,20 @@ public sealed partial class DirectCallDefinitionResolutionTests
             image,
             new CatalogCallGraphParticipant(index, assembly),
             new ExactPolicy([assembly, CoreLibraryAssembly]));
+    }
+
+    static byte[] GenericInstanceSignature(
+        TypeDefinitionHandle genericType,
+        byte[] argumentSignature)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(genericType) << 2);
+        signature.WriteCompressedInteger(1);
+        signature.WriteBytes(argumentSignature);
+        return signature.ToArray();
     }
 
     static ResolvedAssemblyReference CoreLibraryAssembly { get; } =

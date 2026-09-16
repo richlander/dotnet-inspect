@@ -17,6 +17,10 @@ public enum ResourceEffectInterfaceApplicationWorkDimension
     CandidateMethods,
     SignatureNodes,
     RetainedApplications,
+    SelectorBindings,
+    InterfaceMethods,
+    MetadataAssociations,
+    SlotComparisons,
 }
 
 public enum ResourceEffectInterfaceApplicationGapKind
@@ -49,7 +53,11 @@ public sealed class ResourceEffectInterfaceApplicationLimits
             MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
         int maxSignatureNodes =
             MetadataSafetyPolicy.MaxSignatureTypeNodes,
-        int maxRetainedApplications = 100_000)
+        int maxRetainedApplications = 100_000,
+        int maxSelectorBindings = 100_000,
+        int maxInterfaceMethods = MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
+        int maxMetadataAssociations = MethodSemanticsReadBudget.DefaultMaximumRetainedAssociations,
+        int maxSlotComparisons = 100_000)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxCandidateApplications);
@@ -63,6 +71,10 @@ public sealed class ResourceEffectInterfaceApplicationLimits
             maxSignatureNodes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxRetainedApplications);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSelectorBindings);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInterfaceMethods);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxMetadataAssociations);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSlotComparisons);
 
         MaxCandidateApplications = maxCandidateApplications;
         MaxInterfaceImplementations = maxInterfaceImplementations;
@@ -70,6 +82,10 @@ public sealed class ResourceEffectInterfaceApplicationLimits
         MaxCandidateMethods = maxCandidateMethods;
         MaxSignatureNodes = maxSignatureNodes;
         MaxRetainedApplications = maxRetainedApplications;
+        MaxSelectorBindings = maxSelectorBindings;
+        MaxInterfaceMethods = maxInterfaceMethods;
+        MaxMetadataAssociations = maxMetadataAssociations;
+        MaxSlotComparisons = maxSlotComparisons;
     }
 
     public int MaxCandidateApplications { get; }
@@ -78,6 +94,10 @@ public sealed class ResourceEffectInterfaceApplicationLimits
     public int MaxCandidateMethods { get; }
     public int MaxSignatureNodes { get; }
     public int MaxRetainedApplications { get; }
+    public int MaxSelectorBindings { get; }
+    public int MaxInterfaceMethods { get; }
+    public int MaxMetadataAssociations { get; }
+    public int MaxSlotComparisons { get; }
 }
 
 public sealed class ResourceEffectInterfaceImplementationEvidence
@@ -150,18 +170,52 @@ public abstract class ResourceEffectMethodImplementationEvidence
     }
 }
 
+public sealed class ResourceEffectClosedInterfaceSlot
+{
+    internal ResourceEffectClosedInterfaceSlot(
+        AssemblyCatalogId catalog,
+        AssemblyCatalogGenerationId generation,
+        MemberRef member,
+        ClosedSlotKey slot)
+    {
+        Catalog = catalog;
+        Generation = generation;
+        Member = member;
+        DeclaringType = slot.DeclaringType;
+        ParameterTypes = slot.ParameterTypes;
+        ReturnType = slot.ReturnType;
+        DeclaringGenericScopes = slot.DeclaringScopes;
+        ParameterGenericScopes = slot.ParameterScopes;
+        ReturnGenericScopes = slot.ReturnScopes;
+    }
+
+    public AssemblyCatalogId Catalog { get; }
+    public AssemblyCatalogGenerationId Generation { get; }
+    public MemberRef Member { get; }
+    public CatalogTypeShape DeclaringType { get; }
+    public ImmutableArray<CatalogTypeShape> ParameterTypes { get; }
+    public CatalogTypeShape ReturnType { get; }
+    // Generic leaves in structural preorder. Null is a symbolic slot variable;
+    // a scope identifies a variable introduced by the concrete invocation.
+    public ImmutableArray<ResolvedResourceEffectGenericScope?> DeclaringGenericScopes { get; }
+    public ImmutableArray<ResolvedResourceEffectGenericScope?> ParameterGenericScopes { get; }
+    public ImmutableArray<ResolvedResourceEffectGenericScope?> ReturnGenericScopes { get; }
+}
+
 public sealed class ResourceEffectInterfaceApplicationEvidence
 {
     internal ResourceEffectInterfaceApplicationEvidence(
         DirectCallDefinitionOccurrence interfaceDeclaration,
         DirectCallDefinitionOccurrence implementation,
         ResourceEffectInterfaceImplementationEvidence interfacePath,
-        ResourceEffectMethodImplementationEvidence method)
+        ResourceEffectMethodImplementationEvidence method,
+        ResourceEffectClosedInterfaceSlot closedSlot)
     {
         InterfaceDeclaration = interfaceDeclaration;
         Implementation = implementation;
         InterfacePath = interfacePath;
         Method = method;
+        ClosedSlot = closedSlot;
     }
 
     public DirectCallDefinitionOccurrence InterfaceDeclaration { get; }
@@ -169,26 +223,29 @@ public sealed class ResourceEffectInterfaceApplicationEvidence
     public ResourceEffectInterfaceImplementationEvidence InterfacePath
         { get; }
     public ResourceEffectMethodImplementationEvidence Method { get; }
+    public ResourceEffectClosedInterfaceSlot ClosedSlot { get; }
 }
 
 public abstract class ResourceEffectInterfaceApplication
 {
     private protected ResourceEffectInterfaceApplication(
-        DirectCallDefinitionResolution.Resolved interfaceCall,
+        DirectCallDefinitionResolution.Resolved? interfaceCall,
         DirectCallDefinitionResolution.Resolved implementationCall)
     {
-        InterfaceCall = interfaceCall;
+        SelectorOccurrence = interfaceCall;
         ImplementationCall = implementationCall;
     }
 
-    public DirectCallDefinitionResolution.Resolved InterfaceCall { get; }
+    internal DirectCallDefinitionResolution.Resolved? SelectorOccurrence { get; }
+    public DirectCallDefinitionOccurrence? InterfaceDeclaration =>
+        SelectorOccurrence?.Definition;
     public DirectCallDefinitionResolution.Resolved ImplementationCall
         { get; }
 
     public sealed class Applied : ResourceEffectInterfaceApplication
     {
         internal Applied(
-            DirectCallDefinitionResolution.Resolved interfaceCall,
+            DirectCallDefinitionResolution.Resolved? interfaceCall,
             DirectCallDefinitionResolution.Resolved implementationCall,
             ResourceEffectInterfaceApplicationEvidence evidence)
             : base(interfaceCall, implementationCall) =>
@@ -200,7 +257,7 @@ public abstract class ResourceEffectInterfaceApplication
     public sealed class NotApplicable : ResourceEffectInterfaceApplication
     {
         internal NotApplicable(
-            DirectCallDefinitionResolution.Resolved interfaceCall,
+            DirectCallDefinitionResolution.Resolved? interfaceCall,
             DirectCallDefinitionResolution.Resolved implementationCall)
             : base(interfaceCall, implementationCall)
         {
@@ -210,7 +267,7 @@ public abstract class ResourceEffectInterfaceApplication
     public sealed class Ambiguous : ResourceEffectInterfaceApplication
     {
         internal Ambiguous(
-            DirectCallDefinitionResolution.Resolved interfaceCall,
+            DirectCallDefinitionResolution.Resolved? interfaceCall,
             DirectCallDefinitionResolution.Resolved implementationCall,
             ResourceEffectInterfaceApplicationGap gap)
             : base(interfaceCall, implementationCall) =>
@@ -222,7 +279,7 @@ public abstract class ResourceEffectInterfaceApplication
     public sealed class Unsupported : ResourceEffectInterfaceApplication
     {
         internal Unsupported(
-            DirectCallDefinitionResolution.Resolved interfaceCall,
+            DirectCallDefinitionResolution.Resolved? interfaceCall,
             DirectCallDefinitionResolution.Resolved implementationCall,
             ResourceEffectInterfaceApplicationGap gap)
             : base(interfaceCall, implementationCall) =>
@@ -234,7 +291,7 @@ public abstract class ResourceEffectInterfaceApplication
     public sealed class Incomplete : ResourceEffectInterfaceApplication
     {
         internal Incomplete(
-            DirectCallDefinitionResolution.Resolved interfaceCall,
+            DirectCallDefinitionResolution.Resolved? interfaceCall,
             DirectCallDefinitionResolution.Resolved implementationCall,
             ResourceEffectInterfaceApplicationGap gap)
             : base(interfaceCall, implementationCall) =>
@@ -246,74 +303,114 @@ public abstract class ResourceEffectInterfaceApplication
 
 public sealed class ResourceEffectInterfaceApplicationIndex
 {
-    readonly ImmutableArray<ResourceEffectInterfaceApplication> _applications;
+    readonly ImmutableDictionary<AdmittedResourceEffectDeclaration,
+        ImmutableArray<ResourceEffectInterfaceApplication>> _applications;
+    readonly ImmutableHashSet<AdmittedResourceEffectDeclaration>
+        _globalGapDeclarations;
 
     internal ResourceEffectInterfaceApplicationIndex(
         AssemblyCatalogId catalog,
         AssemblyCatalogGenerationId generation,
-        ImmutableArray<ResourceEffectInterfaceApplication> applications,
-        ResourceEffectInterfaceApplicationGap? globalGap)
+        ResourceEffectAdmissionReceipt admissionReceipt,
+        ResourceEffectOccurrencePopulationReceipt populationReceipt,
+        ImmutableDictionary<AdmittedResourceEffectDeclaration,
+            ImmutableArray<ResourceEffectInterfaceApplication>> applications,
+        ResourceEffectInterfaceApplicationGap? globalGap,
+        ResourceEffectInterfaceApplicationGap? coverageGap = null,
+        ImmutableHashSet<AdmittedResourceEffectDeclaration>?
+            globalGapDeclarations = null)
     {
         Catalog = catalog;
         Generation = generation;
+        AdmissionReceipt = admissionReceipt;
+        PopulationReceipt = populationReceipt;
         _applications = applications;
         GlobalGap = globalGap;
+        CoverageGap = coverageGap;
+        _globalGapDeclarations = globalGapDeclarations
+            ?? (globalGap is null
+                ? ImmutableHashSet.Create<
+                    AdmittedResourceEffectDeclaration>(
+                        ReferenceEqualityComparer.Instance)
+                : applications.Keys.ToImmutableHashSet<
+                    AdmittedResourceEffectDeclaration>(
+                    ReferenceEqualityComparer.Instance));
     }
 
     public AssemblyCatalogId Catalog { get; }
     public AssemblyCatalogGenerationId Generation { get; }
+    public ResourceEffectAdmissionReceipt AdmissionReceipt { get; }
+    public ResourceEffectOccurrencePopulationReceipt PopulationReceipt { get; }
     public ImmutableArray<ResourceEffectInterfaceApplication> Applications =>
-        _applications;
+        [.. _applications.Values.SelectMany(value => value)];
     public ResourceEffectInterfaceApplicationGap? GlobalGap { get; }
+    public ResourceEffectInterfaceApplicationGap? CoverageGap { get; }
 
     public ImmutableArray<ResourceEffectInterfaceApplication> For(
-        DirectCallDefinitionResolution.Resolved interfaceCall)
-    {
-        ArgumentNullException.ThrowIfNull(interfaceCall);
-        if (interfaceCall.Catalog != Catalog
-            || !ReferenceEquals(interfaceCall.Generation, Generation))
+        AdmittedResourceEffectDeclaration declaration)
         {
-            throw new ArgumentException(
-                "The interface call belongs to a different catalog generation.",
-                nameof(interfaceCall));
-        }
-        return
-        [
-            .. _applications.Where(application =>
-                ReferenceEquals(
-                    application.InterfaceCall,
-                    interfaceCall)),
-        ];
+        ArgumentNullException.ThrowIfNull(declaration);
+        return _applications.TryGetValue(declaration, out var applications)
+            ? applications : [];
     }
+
+    internal ResourceEffectInterfaceApplicationGap? GlobalGapFor(
+        AdmittedResourceEffectDeclaration declaration) =>
+        GlobalGap is not null
+            && _globalGapDeclarations.Contains(declaration)
+                ? GlobalGap
+                : null;
+
+    internal static ResourceEffectInterfaceApplicationIndex Incomplete(
+        ResourceEffectAdmission admission,
+        DirectCallDefinitionResolutionOutcome.Completed calls,
+        ResourceEffectInterfaceApplicationGap gap) =>
+        new(
+            calls.Catalog,
+            calls.Generation,
+            admission.Receipt,
+            ResourceEffectResolver.CreatePopulationReceipt(calls),
+            ImmutableDictionary.Create<
+                AdmittedResourceEffectDeclaration,
+                ImmutableArray<ResourceEffectInterfaceApplication>>(
+                    ReferenceEqualityComparer.Instance),
+            globalGap: null,
+            coverageGap: gap);
 }
 
-internal sealed class ResourceEffectInterfaceApplicationPlan
+internal sealed partial class ResourceEffectInterfaceApplicationPlan
 {
-    const byte CallingConventionMask = 0x0F;
-    const byte Generic = 0x10;
     const byte HasThis = 0x20;
-    const byte ExplicitThis = 0x40;
 
     readonly ImmutableDictionary<
         ConcreteTypeKey,
         PendingConcreteType> _concreteTypes;
-    readonly ImmutableHashSet<ApplicationPairKey> _candidatePairs;
     readonly ImmutableArray<TypeResolutionRequest> _requests;
     readonly ResourceEffectInterfaceApplicationLimits _limits;
-    readonly ResourceEffectInterfaceApplicationGap? _globalGap;
+    readonly ResourceEffectAdmission _admission;
+    readonly PlanningWork _work;
+    readonly ImmutableArray<PendingConcreteType> _orderedConcreteTypes;
+    readonly ResourceEffectInterfaceApplicationGap? _coverageGap;
+    ResourceEffectInterfaceApplicationGap? _globalGap;
 
     ResourceEffectInterfaceApplicationPlan(
         ImmutableDictionary<ConcreteTypeKey, PendingConcreteType>
             concreteTypes,
-        ImmutableHashSet<ApplicationPairKey> candidatePairs,
+        ImmutableArray<PendingConcreteType> orderedConcreteTypes,
         ImmutableArray<TypeResolutionRequest> requests,
         ResourceEffectInterfaceApplicationLimits limits,
+        ResourceEffectAdmission admission,
+        PlanningWork work,
+        ResourceEffectInterfaceApplicationGap? coverageGap,
         ResourceEffectInterfaceApplicationGap? globalGap)
     {
         _concreteTypes = concreteTypes;
-        _candidatePairs = candidatePairs;
+        _orderedConcreteTypes = orderedConcreteTypes;
         _requests = requests;
         _limits = limits;
+        _admission = admission;
+        _work = work;
+        _coverageGap = coverageGap;
         _globalGap = globalGap;
     }
 
@@ -325,48 +422,32 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         ResourceEffectInterfaceApplicationLimits limits,
         CancellationToken cancellationToken)
     {
-        var interfaces = calls.Results
-            .OfType<DirectCallDefinitionResolution.Resolved>()
-            .Where(call => call.Definition.IsInterfaceDefinition)
-            .Where(call => IsSelectedInterfaceCall(
-                admission,
-                call))
-            .ToImmutableArray();
         var implementations = calls.Results
             .OfType<DirectCallDefinitionResolution.Resolved>()
             .Where(call => !call.Definition.IsInterfaceDefinition)
+            .OrderBy(ResourceEffectResolver.OccurrenceKey, StringComparer.Ordinal)
             .ToImmutableArray();
-        var pairs = ImmutableHashSet.CreateBuilder<ApplicationPairKey>();
-        ResourceEffectInterfaceApplicationGap? globalGap = null;
-        long candidateCount = 0;
-        foreach (DirectCallDefinitionResolution.Resolved interfaceCall
-            in interfaces)
-        {
-            foreach (DirectCallDefinitionResolution.Resolved implementation
-                in implementations)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                candidateCount++;
-                if (candidateCount > limits.MaxCandidateApplications)
+        ResourceEffectInterfaceApplicationGap? coverageGap =
+            calls.Results.Any(result =>
+                result is not DirectCallDefinitionResolution.Resolved)
+                ? new(
+                    ResourceEffectInterfaceApplicationGapKind
+                        .IncompleteMetadata)
                 {
-                    globalGap ??= WorkGap(
-                        ResourceEffectInterfaceApplicationWorkDimension
-                            .CandidateApplications,
-                        limits.MaxCandidateApplications,
-                        candidateCount);
-                    continue;
-                }
-                pairs.Add(new(
-                    interfaceCall.PhysicalInvocation,
-                    implementation.PhysicalInvocation));
-            }
+                    Detail =
+                        "At least one direct-call occurrence could not be "
+                        + "resolved, so interface-application coverage is "
+                        + "incomplete.",
         }
+                : null;
+        ResourceEffectInterfaceApplicationGap? globalGap = null;
 
         var concreteTypes =
             ImmutableDictionary.CreateBuilder<
                 ConcreteTypeKey,
                 PendingConcreteType>();
         var requests = new List<TypeResolutionRequest>();
+        var orderedConcreteTypes = ImmutableArray.CreateBuilder<PendingConcreteType>();
         var work = new PlanningWork();
         foreach (DirectCallDefinitionResolution.Resolved implementation
             in implementations)
@@ -381,120 +462,37 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                 work,
                 cancellationToken);
             concreteTypes.Add(key, pending);
+            orderedConcreteTypes.Add(pending);
             requests.AddRange(pending.Requests);
+            if (pending.GlobalGap?.Kind
+                == ResourceEffectInterfaceApplicationGapKind.WorkLimitExceeded)
+            {
+                globalGap = pending.GlobalGap;
+                break;
+            }
         }
 
         return new ResourceEffectInterfaceApplicationPlan(
             concreteTypes.ToImmutable(),
-            pairs.ToImmutable(),
+            orderedConcreteTypes.ToImmutable(),
             [
                 .. requests.Distinct(
                     TypeResolutionRequestComparer.Instance),
             ],
             limits,
+            admission,
+            work,
+            coverageGap,
             globalGap);
     }
 
-    static bool IsSelectedInterfaceCall(
-        ResourceEffectAdmission admission,
-        DirectCallDefinitionResolution.Resolved call)
-    {
-        foreach (AdmittedResourceEffectModel model in admission.Models)
-        {
-            foreach (AdmittedResourceEffectDeclaration declaration
-                in model.Declarations)
-            {
-                if (ResourceEffectSelectorBinder.Bind(
-                        declaration,
-                        call)
-                    is ResourceEffectSelectorBinding.Resolved)
-                {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    internal ResourceEffectInterfaceApplicationIndex Resolve(
-        TypeResolutionContext context,
-        DirectCallDefinitionResolutionOutcome.Completed calls,
-        CancellationToken cancellationToken)
-    {
-        if (context.Catalog != calls.Catalog
-            || !ReferenceEquals(context.Generation, calls.Generation))
-        {
-            throw new ArgumentException(
-                "Direct calls and interface application must use the same catalog generation.",
-                nameof(calls));
-        }
-
-        var interfaces = calls.Results
-            .OfType<DirectCallDefinitionResolution.Resolved>()
-            .Where(call => call.Definition.IsInterfaceDefinition)
-            .ToImmutableArray();
-        var implementations = calls.Results
-            .OfType<DirectCallDefinitionResolution.Resolved>()
-            .Where(call => !call.Definition.IsInterfaceDefinition)
-            .ToImmutableArray();
-        var applications =
-            ImmutableArray.CreateBuilder<
-                ResourceEffectInterfaceApplication>();
-        ResourceEffectInterfaceApplicationGap? globalGap = _globalGap;
-        long retained = 0;
-        foreach (DirectCallDefinitionResolution.Resolved interfaceCall
-            in interfaces)
-        {
-            foreach (DirectCallDefinitionResolution.Resolved implementation
-                in implementations)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var pair = new ApplicationPairKey(
-                    interfaceCall.PhysicalInvocation,
-                    implementation.PhysicalInvocation);
-                if (!_candidatePairs.Contains(pair))
-                    continue;
-                retained++;
-                if (retained > _limits.MaxRetainedApplications)
-                {
-                    globalGap ??= WorkGap(
-                        ResourceEffectInterfaceApplicationWorkDimension
-                            .RetainedApplications,
-                        _limits.MaxRetainedApplications,
-                        retained);
-                    continue;
-                }
-                if (!_concreteTypes.TryGetValue(
-                        ConcreteTypeKey.For(implementation),
-                        out PendingConcreteType? concreteType))
-                {
-                    applications.Add(Incomplete(
-                        interfaceCall,
-                        implementation,
-                        ResourceEffectInterfaceApplicationGapKind
-                            .IncompleteMetadata));
-                    continue;
-                }
-                applications.Add(
-                    ResolvePair(
-                        context,
-                        interfaceCall,
-                        implementation,
-                        concreteType));
-            }
-        }
-        return new ResourceEffectInterfaceApplicationIndex(
-            context.Catalog,
-            context.Generation,
-            applications.ToImmutable(),
-            globalGap);
-    }
-
-    static ResourceEffectInterfaceApplication ResolvePair(
+    ResourceEffectInterfaceApplication ResolvePair(
         TypeResolutionContext context,
         DirectCallDefinitionResolution.Resolved interfaceCall,
         DirectCallDefinitionResolution.Resolved implementationCall,
-        PendingConcreteType concreteType)
+        PendingConcreteType concreteType,
+        ClosedSlotKey slot,
+        MemberRef closedSlot)
     {
         if (concreteType.GlobalGap is { } typeGap)
         {
@@ -514,7 +512,7 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         }
 
         CatalogTypeShape interfaceDeclaringType =
-            interfaceCall.Definition.Correspondence.DeclaringType;
+            slot.DeclaringType;
         var matchedInterfaces =
             new List<PendingInterfaceImplementation>();
         ResolutionDisposition interfaceFailure =
@@ -523,9 +521,12 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         foreach (PendingInterfaceImplementation candidate
             in concreteType.Interfaces)
         {
-            CatalogMemberJoinProjection projection =
-                candidate.TypePlan.Project(context);
-            if (projection is not CatalogMemberJoinProjection.Issued issued)
+            if (!ChargeComparison(Marker(candidate.ClosedInterfaceType)))
+                return new ResourceEffectInterfaceApplication.Incomplete(
+                    interfaceCall, implementationCall, _globalGap!);
+            ClosedSlotProjection projection =
+                candidate.ClosedPlan.Project(context);
+            if (projection is not ClosedSlotProjection.Issued issued)
             {
                 if (CouldNameType(
                         candidate.ClosedInterfaceType,
@@ -554,18 +555,9 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                 }
                 continue;
             }
-            if (issued.Key.DeclaringType != interfaceDeclaringType)
+            if (issued.Key.DeclaringType != interfaceDeclaringType
+                || !issued.Key.DeclaringScopes.SequenceEqual(slot.DeclaringScopes))
             {
-                continue;
-            }
-            if (!GenericOwnerFramesMatch(
-                    interfaceCall,
-                    implementationCall,
-                    interfaceDeclaringType))
-            {
-                interfaceFailure = Stronger(
-                    interfaceFailure,
-                    ResolutionDisposition.Incomplete);
                 continue;
             }
             matchedInterfaces.Add(candidate);
@@ -603,6 +595,9 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         foreach (PendingMethodImplementation candidate
             in concreteType.MethodImplementations)
         {
+            if (!ChargeComparison(candidate.Declaration))
+                return new ResourceEffectInterfaceApplication.Incomplete(
+                    interfaceCall, implementationCall, _globalGap!);
             if (candidate.Declaration.Kind == MemberKind.Unsupported)
             {
                 methodImplFailure = Stronger(
@@ -617,9 +612,26 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
             {
                 continue;
             }
-            CatalogMemberJoinProjection projection =
-                candidate.DeclarationPlan.Project(context);
-            if (projection is not CatalogMemberJoinProjection.Issued issued)
+            ClosedSlotProjection projection;
+            if (candidate.DeclarationDefinitionToken != 0
+                && ReferenceEquals(concreteType.Assembly.Registration,
+                    interfaceCall.Definition.Registration)
+                && candidate.DeclarationDefinitionToken
+                    == interfaceCall.Definition.MetadataToken)
+            {
+                MemberRef declaration = InstantiateMember(
+                    candidate.Declaration, interfacePath.ClosedInterfaceType.TypeArguments)
+                    with
+                { DeclaringType = interfacePath.ClosedInterfaceType };
+                projection = new ResourceEffectClosedSlotPlan(
+                    concreteType.Assembly, declaration, concreteType.Origins,
+                    concreteType.GenericScopes).Project(context);
+            }
+            else
+            {
+                projection = candidate.DeclarationPlan.Project(context);
+            }
+            if (projection is not ClosedSlotProjection.Issued issued)
             {
                 methodImplFailure = Stronger(
                     methodImplFailure,
@@ -634,7 +646,9 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                     ResolutionDisposition.Incomplete);
                 continue;
             }
-            if (issued.Key == interfaceCall.Definition.Correspondence)
+            if (issued.Key.DeclaringType == slot.DeclaringType
+                && issued.Key.DeclaringScopes.SequenceEqual(slot.DeclaringScopes)
+                && SlotShapeMatches(slot, issued.Key, requireName: true))
             {
                 explicitMatches.Add(candidate);
             }
@@ -663,7 +677,8 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
             if (explicitMatch.BodyToken == 0
                 || !concreteType.Methods.TryGetValue(
                     explicitMatch.BodyToken,
-                    out PendingMethod? explicitBody))
+                    out PendingMethod? explicitBody)
+                || explicitBody.Unsupported)
             {
                 return new ResourceEffectInterfaceApplication.Unsupported(
                     interfaceCall,
@@ -672,9 +687,9 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                         ResourceEffectInterfaceApplicationGapKind
                             .UnsupportedMetadata));
             }
-            CatalogMemberJoinProjection bodyProjection =
+            ClosedSlotProjection bodyProjection =
                 explicitBody.Plan.Project(context);
-            if (bodyProjection is not CatalogMemberJoinProjection.Issued
+            if (bodyProjection is not ClosedSlotProjection.Issued
                     bodyIssued)
             {
                 return Failure(
@@ -693,7 +708,7 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                     "The authoritative MethodImpl body projection was indeterminate.");
             }
             if (!SlotShapeMatches(
-                    interfaceCall.Definition.Correspondence,
+                    slot,
                     bodyIssued.Key,
                     requireName: false))
             {
@@ -717,6 +732,8 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                 implementationCall,
                 concreteType,
                 interfacePath,
+                closedSlot,
+                slot,
                 new ResourceEffectMethodImplementationEvidence.Explicit(
                     explicitMatch.RowToken,
                     explicitMatch.BodyToken,
@@ -726,10 +743,13 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         var implicitMatches = new List<PendingMethod>();
         ResolutionDisposition implicitFailure =
             ResolutionDisposition.None;
-        foreach (PendingMethod candidate in concreteType.Methods.Values)
+        foreach (PendingMethod candidate in concreteType.Methods.Values.OrderBy(method => method.Token))
         {
+            if (!ChargeComparison(candidate.Member))
+                return new ResourceEffectInterfaceApplication.Incomplete(
+                    interfaceCall, implementationCall, _globalGap!);
             if (!string.Equals(
-                    candidate.Member.Name,
+                    candidate.MetadataName,
                     interfaceCall.Definition.Correspondence.Name,
                     StringComparison.Ordinal))
             {
@@ -737,9 +757,14 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
             }
             if (!candidate.IsImplicitCandidate)
                 continue;
-            CatalogMemberJoinProjection projection =
+            if (candidate.Unsupported)
+            {
+                implicitFailure = Stronger(implicitFailure, ResolutionDisposition.Unsupported);
+                continue;
+            }
+            ClosedSlotProjection projection =
                 candidate.Plan.Project(context);
-            if (projection is not CatalogMemberJoinProjection.Issued issued)
+            if (projection is not ClosedSlotProjection.Issued issued)
             {
                 implicitFailure = Stronger(
                     implicitFailure,
@@ -755,7 +780,7 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                 continue;
             }
             if (SlotShapeMatches(
-                    interfaceCall.Definition.Correspondence,
+                    slot,
                     issued.Key,
                     requireName: true))
             {
@@ -808,6 +833,8 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
             implementationCall,
             concreteType,
             interfacePath,
+            closedSlot,
+            slot,
             new ResourceEffectMethodImplementationEvidence.Implicit(
                 implicitMatch.Token,
                 implicitMatch.Member));
@@ -819,6 +846,8 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         DirectCallDefinitionResolution.Resolved implementationCall,
         PendingConcreteType concreteType,
         PendingInterfaceImplementation interfacePath,
+        MemberRef closedSlot,
+        ClosedSlotKey slot,
         ResourceEffectMethodImplementationEvidence method) =>
         new ResourceEffectInterfaceApplication.Applied(
             interfaceCall,
@@ -835,10 +864,12 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                     concreteType.TypeToken,
                     interfacePath.RowToken,
                     interfacePath.ClosedInterfaceType),
-                method));
+                method,
+                new ResourceEffectClosedInterfaceSlot(
+                    context.Catalog, context.Generation, closedSlot, slot)));
 
     static ResourceEffectInterfaceApplication Failure(
-        DirectCallDefinitionResolution.Resolved interfaceCall,
+        DirectCallDefinitionResolution.Resolved? interfaceCall,
         DirectCallDefinitionResolution.Resolved implementationCall,
         ResolutionDisposition failure,
         string detail)
@@ -873,15 +904,6 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                 gap),
         };
     }
-
-    static ResourceEffectInterfaceApplication.Incomplete Incomplete(
-        DirectCallDefinitionResolution.Resolved interfaceCall,
-        DirectCallDefinitionResolution.Resolved implementationCall,
-        ResourceEffectInterfaceApplicationGapKind kind) =>
-        new(
-            interfaceCall,
-            implementationCall,
-            new ResourceEffectInterfaceApplicationGap(kind));
 
     static PendingConcreteType ReadConcreteType(
         DirectCallDefinitionResolution.Resolved implementation,
@@ -940,6 +962,10 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
             var methods =
                 ImmutableDictionary.CreateBuilder<int, PendingMethod>();
             var requests = new List<TypeResolutionRequest>();
+            var origins = new Dictionary<TypeRef, ResolvedAssemblyReference>(
+                ReferenceEqualityComparer.Instance);
+            foreach (TypeRef argument in typeArguments)
+                AddOrigins(argument, implementation.Participant.Assembly, origins);
 
             foreach (InterfaceImplementationHandle handle
                 in type.GetInterfaceImplementations())
@@ -974,13 +1000,17 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                 CatalogMemberCorrespondencePlan plan =
                     CatalogMemberCorrespondencePlan.Create(
                         assembly,
-                        marker,
+                        Marker(GenericMemberIdentity.OpenDeclaringType(closedInterface)),
                         requiresOpenSignature: false);
                 requests.AddRange(plan.Requests);
+                var closedPlan = new ResourceEffectClosedSlotPlan(
+                    assembly, marker, origins, implementation.GenericScopes);
+                requests.AddRange(closedPlan.Requests);
                 interfaces.Add(new(
                     MetadataTokens.GetToken(handle),
                     closedInterface,
-                    plan));
+                    plan,
+                    closedPlan));
             }
 
             foreach (MethodDefinitionHandle handle in type.GetMethods())
@@ -1013,11 +1043,8 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                         limits.MaxSignatureNodes,
                         work.SignatureNodes);
                 }
-                CatalogMemberCorrespondencePlan plan =
-                    CatalogMemberCorrespondencePlan.Create(
-                        assembly,
-                        member,
-                        requiresOpenSignature: true);
+                var plan = new ResourceEffectClosedSlotPlan(
+                    assembly, member, origins, implementation.GenericScopes);
                 requests.AddRange(plan.Requests);
                 MethodAttributes attributes = method.Attributes;
                 methods.Add(
@@ -1026,7 +1053,11 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                         MetadataTokens.GetToken(handle),
                         member,
                         plan,
-                        IsImplicitCandidate(attributes, member)));
+                        reader.GetString(method.Name),
+                        IsImplicitCandidate(attributes),
+                        member.Kind == MemberKind.Unsupported
+                            || !MemberResolver.HasExactGenericParameters(
+                                reader, method.GetGenericParameters(), member.GenericArity)));
             }
 
             foreach (MethodImplementationHandle handle
@@ -1063,11 +1094,8 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                         limits.MaxSignatureNodes,
                         work.SignatureNodes);
                 }
-                CatalogMemberCorrespondencePlan plan =
-                    CatalogMemberCorrespondencePlan.Create(
-                        assembly,
-                        declaration,
-                        requiresOpenSignature: true);
+                var plan = new ResourceEffectClosedSlotPlan(
+                    assembly, declaration, origins, implementation.GenericScopes);
                 requests.AddRange(plan.Requests);
                 methodImplementations.Add(new(
                     MetadataTokens.GetToken(handle),
@@ -1076,7 +1104,9 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                             ? MetadataTokens.GetToken(row.MethodBody)
                             : 0,
                     declaration,
-                    plan));
+                    plan,
+                    row.MethodDeclaration.Kind == HandleKind.MethodDefinition
+                        ? MetadataTokens.GetToken(row.MethodDeclaration) : 0));
             }
 
             return new PendingConcreteType(
@@ -1090,7 +1120,9 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                     .. requests.Distinct(
                         TypeResolutionRequestComparer.Instance),
                 ],
-                GlobalGap: null);
+                GlobalGap: null,
+                origins,
+                implementation.GenericScopes);
         }
         catch (Exception ex) when (
             ex is IOException or UnauthorizedAccessException)
@@ -1171,19 +1203,15 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
             RequiredParameterCount = 0,
         };
 
-    static bool IsImplicitCandidate(
-        MethodAttributes attributes,
-        MemberRef member) =>
-        member.Kind == MemberKind.Method
-        && member.HasThis
-        && (attributes & MethodAttributes.MemberAccessMask)
+    static bool IsImplicitCandidate(MethodAttributes attributes) =>
+        (attributes & MethodAttributes.MemberAccessMask)
             == MethodAttributes.Public
         && (attributes & MethodAttributes.Virtual) != 0
         && (attributes & MethodAttributes.Static) == 0;
 
     static bool SlotShapeMatches(
-        CatalogMemberJoinKey slot,
-        CatalogMemberJoinKey candidate,
+        ClosedSlotKey slot,
+        ClosedSlotKey candidate,
         bool requireName) =>
         (!requireName
             || string.Equals(
@@ -1197,35 +1225,9 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         && slot.RequiredParameterCount
             == candidate.RequiredParameterCount
         && slot.ParameterTypes.SequenceEqual(candidate.ParameterTypes)
-        && slot.ReturnType == candidate.ReturnType;
-
-    static bool GenericOwnerFramesMatch(
-        DirectCallDefinitionResolution.Resolved interfaceCall,
-        DirectCallDefinitionResolution.Resolved implementationCall,
-        CatalogTypeShape interfaceType)
-    {
-        if (!ContainsGenericParameter(interfaceType))
-            return true;
-        return Equals(
-            interfaceCall.GenericScopes,
-            implementationCall.GenericScopes);
-    }
-
-    static bool ContainsGenericParameter(CatalogTypeShape type)
-    {
-        if (type.Kind
-            is CatalogTypeShapeKind.GenericParameter
-                or CatalogTypeShapeKind.MethodGenericParameter)
-        {
-            return true;
-        }
-        if (type.ElementType is not null
-            && ContainsGenericParameter(type.ElementType))
-        {
-            return true;
-        }
-        return type.Components.Any(ContainsGenericParameter);
-    }
+        && slot.ReturnType == candidate.ReturnType
+        && slot.ParameterScopes.SequenceEqual(candidate.ParameterScopes)
+        && slot.ReturnScopes.SequenceEqual(candidate.ReturnScopes);
 
     static bool CouldNameType(TypeRef candidate, TypeRef expected)
     {
@@ -1250,10 +1252,10 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
     }
 
     static ResolutionDisposition Classify(
-        CatalogMemberJoinProjection projection)
+        ClosedSlotProjection projection)
     {
         var incomplete =
-            (CatalogMemberJoinProjection.Incomplete)projection;
+            (ClosedSlotProjection.Incomplete)projection;
         ResolutionDisposition disposition =
             ResolutionDisposition.Incomplete;
         foreach (MemberCorrespondenceFailure failure
@@ -1298,8 +1300,8 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
     }
 
     static string ProjectionDetail(
-        CatalogMemberJoinProjection projection) =>
-        projection is CatalogMemberJoinProjection.Incomplete incomplete
+        ClosedSlotProjection projection) =>
+        projection is ClosedSlotProjection.Incomplete incomplete
             ? string.Join(
                 ", ",
                 incomplete.Failures.Select(
@@ -1324,40 +1326,33 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         };
 
     readonly record struct ConcreteTypeKey(
-        AssemblyAcquisitionRegistration Registration,
-        Guid ModuleVersionId,
-        int MethodToken,
-        TypeRef DeclaringType)
+        GraphNodeStorageKey PhysicalInvocation)
     {
         internal static ConcreteTypeKey For(
             DirectCallDefinitionResolution.Resolved call) =>
-            new(
-                call.Definition.Registration,
-                call.Definition.ModuleVersionId,
-                call.Definition.MetadataToken,
-                call.Call.Callee.DeclaringType);
+            new(call.PhysicalInvocation);
     }
-
-    readonly record struct ApplicationPairKey(
-        GraphNodeStorageKey InterfaceCall,
-        GraphNodeStorageKey ImplementationCall);
 
     sealed record PendingInterfaceImplementation(
         int RowToken,
         TypeRef ClosedInterfaceType,
-        CatalogMemberCorrespondencePlan TypePlan);
+        CatalogMemberCorrespondencePlan TypePlan,
+        ResourceEffectClosedSlotPlan ClosedPlan);
 
     sealed record PendingMethodImplementation(
         int RowToken,
         int BodyToken,
         MemberRef Declaration,
-        CatalogMemberCorrespondencePlan DeclarationPlan);
+        ResourceEffectClosedSlotPlan DeclarationPlan,
+        int DeclarationDefinitionToken);
 
     sealed record PendingMethod(
         int Token,
         MemberRef Member,
-        CatalogMemberCorrespondencePlan Plan,
-        bool IsImplicitCandidate);
+        ResourceEffectClosedSlotPlan Plan,
+        string MetadataName,
+        bool IsImplicitCandidate,
+        bool Unsupported);
 
     sealed record PendingConcreteType(
         ResolvedAssemblyReference Assembly,
@@ -1367,7 +1362,9 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         ImmutableArray<PendingMethodImplementation> MethodImplementations,
         ImmutableDictionary<int, PendingMethod> Methods,
         ImmutableArray<TypeResolutionRequest> Requests,
-        ResourceEffectInterfaceApplicationGap? GlobalGap)
+        ResourceEffectInterfaceApplicationGap? GlobalGap,
+        Dictionary<TypeRef, ResolvedAssemblyReference> Origins,
+        DirectCallGenericScopeOwners? GenericScopes)
     {
         internal static PendingConcreteType Unsupported(
             ResolvedAssemblyReference assembly) =>
@@ -1411,7 +1408,9 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
                 [],
                 ImmutableDictionary<int, PendingMethod>.Empty,
                 [],
-                gap);
+                gap,
+                new(ReferenceEqualityComparer.Instance),
+                null);
     }
 
     sealed class PlanningWork
@@ -1420,6 +1419,7 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         internal long MethodImplementations;
         internal long CandidateMethods;
         internal long SignatureNodes;
+        internal long SlotComparisons;
 
         internal bool Charge(TypeRef type, long maximum)
         {
@@ -1454,12 +1454,12 @@ internal sealed class ResourceEffectInterfaceApplicationPlan
         internal bool Charge(MemberRef member, long maximum)
         {
             if (!Charge(member.DeclaringType, maximum)
-                || !Charge(member.OpenSignatureReturn, maximum))
+                || !Charge(member.ReturnType, maximum))
             {
                 return false;
             }
             foreach (TypeRef parameter
-                in member.OpenSignatureParameters)
+                in member.ParameterTypes)
             {
                 if (!Charge(parameter, maximum))
                     return false;
@@ -1513,4 +1513,10 @@ internal sealed class ResourceEffectInterfaceApplicationExtension(
                 "Interface application planning did not run.");
         Index = _plan.Resolve(context, completed, cancellationToken);
     }
+
+    public IEnumerable<TypeResolutionRequest> PlanDefinitions(
+        TypeResolutionContext context,
+        CancellationToken cancellationToken) =>
+        (_plan ?? throw new InvalidOperationException("Interface planning did not run."))
+            .PlanDefinitions(context, cancellationToken);
 }
