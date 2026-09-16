@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
 
 namespace ILInspector.Metadata;
@@ -11,6 +12,11 @@ namespace ILInspector.Metadata;
 internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, GenericContext?>
 {
     public static TypeNodeProvider Instance { get; } = new();
+    // Signature helpers create separate providers, so local-definition work is
+    // shared at the reader boundary rather than repeated per decoded member.
+    static readonly ConditionalWeakTable<
+        MetadataReader,
+        ReaderTypeDefinitionIndexCache> LocalTypeDefinitions = new();
     readonly Action<string>? _beforeRetain;
     readonly Action<int>? _beforeMaterialize;
     readonly ConditionalWeakTable<MetadataReader, ReaderNameCache> _readerNames = new();
@@ -78,11 +84,13 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     /// counts along <paramref name="handle"/>'s declaring chain, so nested-type
     /// rendering can recover a segment's true arity even when its raw name lacks
     /// a canonical <c>`N</c> suffix (#4507). Scoped to <see cref="TypeDefinitionHandle"/>
-    /// (a local declaration): a <see cref="TypeReferenceHandle"/> has no
-    /// equivalent trusted source without loading the referenced assembly, which
-    /// this product does not do. Malformed generic-parameter ownership propagates
-    /// as a rejection instead of producing an ordinary raw-name rendering, gated
-    /// by <c>NestedGenericSignature_WithMalformedOwnership_IsReportedAsInspectionFailure</c>.
+    /// (a local declaration). A <see cref="TypeReferenceHandle"/> scoped to this
+    /// module first resolves its exact local TypeDef and then uses this same
+    /// evidence; an external reference has no equivalent trusted source without
+    /// loading the referenced assembly, which this product does not do.
+    /// Malformed generic-parameter ownership propagates as a rejection instead
+    /// of producing an ordinary raw-name rendering, gated by
+    /// <c>NestedGenericSignature_WithMalformedOwnership_IsReportedAsInspectionFailure</c>.
     /// </summary>
     static MetadataTypeNameParts WithTrustedArity(
         MetadataReader reader,
@@ -118,7 +126,10 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             out string? name,
             out RelationshipTraversalRejection? rejection);
         MetadataTypeNameParts? metadataName = resolved
-            ? TypeResolver.GetTypeNamePartsFromReference(reader, handle)
+            ? WithTrustedLocalReferenceArity(
+                reader,
+                handle,
+                TypeResolver.GetTypeNamePartsFromReference(reader, handle))
             : null;
         var read = new NamedTypeRead(
             resolved,
@@ -129,6 +140,53 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             materializationWork);
         Cache(reader, handle, read);
         return ReadNamedType(read, rawTypeKind);
+    }
+
+    MetadataTypeNameParts? WithTrustedLocalReferenceArity(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        MetadataTypeNameParts metadataName)
+    {
+        Span<TypeReferenceHandle> chain =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out _,
+                    out EntityHandle terminal,
+                    out _))
+        {
+            return null;
+        }
+        if (terminal.Kind != HandleKind.ModuleDefinition)
+            return terminal.IsNil ? null : metadataName;
+
+        if (MetadataTypeDefinitionName.Create(
+                metadataName.Namespace,
+                [.. metadataName.Segments])
+            is not MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            return null;
+        }
+        MetadataTypeDefinitionIndex definitions =
+            LocalTypeDefinitions.GetValue(
+                reader,
+                static _ => new ReaderTypeDefinitionIndexCache())
+            .GetOrCreate(reader, _beforeMaterialize);
+        if (!definitions.TryGetUniqueDefinition(
+                valid.Name,
+                out TypeDefinitionHandle definition))
+        {
+            return null;
+        }
+
+        return WithTrustedArity(
+            reader,
+            definition,
+            metadataName);
     }
 
     TypeNode ReadNamedType(
@@ -285,6 +343,26 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
             _retainedCharacters += characters;
             return true;
+        }
+    }
+
+    sealed class ReaderTypeDefinitionIndexCache
+    {
+        readonly object _gate = new();
+        MetadataTypeDefinitionIndex? _index;
+
+        internal MetadataTypeDefinitionIndex GetOrCreate(
+            MetadataReader reader,
+            Action<int>? beforeMaterialize)
+        {
+            lock (_gate)
+            {
+                return _index ??=
+                    MetadataTypeDefinitionIndex.Create(
+                        reader,
+                        definitionVisited: null,
+                        beforeMaterialize: beforeMaterialize);
+            }
         }
     }
 

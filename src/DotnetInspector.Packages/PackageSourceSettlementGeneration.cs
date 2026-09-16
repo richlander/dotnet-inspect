@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using InertText;
 using NuGetFetch;
 
@@ -197,6 +198,57 @@ internal sealed class PackageSourceSettlementGeneration
             candidates,
             failures,
             PackageAcquisitionPopulationCompletionKind.ExactCoordinates);
+    }
+
+    internal async Task<PackageAcquisitionPopulation>
+        ResolveGalleryExactPopulationAsync(
+        string packageId,
+        bool includePrerelease,
+        PackageSourceAuthorization authorization,
+        NuGetOperationContext operationContext)
+    {
+        ConfiguredPackageAuthority authority =
+            authorization.Authorities[0];
+        IPackageSourceClient client = GetClient(authority);
+        RequireAuthority(client.Source, authority);
+        if (client.Source.TransportKind
+            != PackageSourceKind.NuGetGallery)
+        {
+            throw new InvalidOperationException(
+                "Exact package population selection requires the NuGet Gallery client.");
+        }
+
+        PackageVersionDiscoveryResult discovery =
+            await DiscoverVersionsAsync(
+                packageId,
+                authorization,
+                PackageVersionDiscoveryContract.CompleteVersionEnumeration,
+                operationContext).ConfigureAwait(false);
+        PackageVersionSelectionRequest selection = includePrerelease
+            ? new PackageVersionSelectionRequest.LatestPrerelease(packageId)
+            : new PackageVersionSelectionRequest.LatestStable(packageId);
+        PackageVersionResolutionReceipt resolution =
+            PackageVersionSelectionResolver.Resolve(
+                selection,
+                discovery,
+                PackageVersionDiscoveryFreshness.Current);
+        ImmutableArray<PackageAcquisitionCandidate> candidates =
+            resolution is PackageVersionResolutionReceipt.Resolved resolved
+                ? [resolved.Candidate]
+                : [];
+        ImmutableArray<PackageAcquisitionPopulationFailure> failures =
+        [
+            .. discovery.Failures.Select(failure =>
+                PackageAcquisitionPopulationFailure.ForSource(failure)),
+        ];
+
+        return new PackageAcquisitionPopulation(
+            requestedCandidates: 1,
+            candidates,
+            failures,
+            discovery.Failures.Count == 0
+                ? PackageAcquisitionPopulationCompletionKind.ExactPackageComplete
+                : PackageAcquisitionPopulationCompletionKind.SourceFailed);
     }
 
     internal async Task<PackageAcquisitionPopulation>
