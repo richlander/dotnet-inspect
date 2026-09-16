@@ -13,6 +13,9 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class LibraryApiDiffOutput
 {
+    static readonly InspectionEnvelopeJsonContract<LibraryApiDiffOutcome> JsonContract =
+        new("library-api-diff", 1, LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome);
+
     internal static int Write(
         InspectionEnvelope<LibraryApiDiffOutcome> envelope,
         string name,
@@ -22,6 +25,19 @@ internal static class LibraryApiDiffOutput
     {
         foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics)
             CommandError.WriteNote(diagnostic.Summary.ToString());
+
+        if (options.EnvelopeOutput || options.IsContentJson)
+        {
+            if (!InspectionEnvelopeOutput.TryWrite(
+                    envelope,
+                    JsonContract,
+                    options.EnvelopeOutput,
+                    options.CompactJson))
+            {
+                return 1;
+            }
+            return envelope.Content is LibraryApiDiffOutcome.Available ? 0 : 1;
+        }
 
         if (envelope.Content
             is not LibraryApiDiffOutcome.Available available)
