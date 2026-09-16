@@ -198,6 +198,23 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void SelectReturnToSenderTargets_RejectsInvalidConstraintSignaturesBeforeSampling()
+    {
+        string assemblyPath = CreateInvalidConstraintSignatureFixture();
+        try
+        {
+            Assert.Empty(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void SelectReturnToSenderTargets_RejectsUnavailableCanonicalSignaturesBeforeSampling()
     {
         string assemblyPath = CreateUnavailableCanonicalSignatureFixture();
@@ -220,7 +237,9 @@ public class FidelityCheckGeneratedFilterTests
         var assemblyPath = CompileFixture("""
             public static class GenericOnlyFixture
             {
-                public static int Pick<T>() where T : System.IDisposable => 1;
+                public static int Pick<T, U>()
+                    where T : U
+                    where U : System.IDisposable => 1;
             }
             """);
         try
@@ -232,7 +251,7 @@ public class FidelityCheckGeneratedFilterTests
 
             Assert.Equal("GenericOnlyFixture", target.Type);
             Assert.Equal("Pick", target.Method);
-            Assert.Equal("mss1:1(0:)n", target.Signature);
+            Assert.Equal("mss1:2(0:)n", target.Signature);
         }
         finally
         {
@@ -2536,6 +2555,128 @@ public class FidelityCheckGeneratedFilterTests
         badSignatureType.CreateType();
         goodType.CreateType();
         assembly.Save(path);
+        return path;
+    }
+
+    static string CreateInvalidConstraintSignatureFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "InvalidConstraintSignature.dll");
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("InvalidConstraintSignature.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("InvalidConstraintSignature"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("InvalidConstraintSignatureFixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        TypeReferenceHandle modifier = metadata.AddTypeReference(
+            resolutionScope: default,
+            @namespace: metadata.GetOrAddString("bad-namespace"),
+            name: metadata.GetOrAddString("BadModifier"));
+        TypeReferenceHandle disposable = metadata.AddTypeReference(
+            resolutionScope: default,
+            @namespace: metadata.GetOrAddString("System"),
+            name: metadata.GetOrAddString("IDisposable"));
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x10);
+        methodSignature.WriteCompressedInteger(1);
+        methodSignature.WriteCompressedInteger(0);
+        methodSignature.WriteByte(0x08);
+
+        var methodBodies = new BlobBuilder();
+        var methodBodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        int AddBody()
+        {
+            var instructions = new BlobBuilder();
+            var encoder = new InstructionEncoder(
+                instructions,
+                new ControlFlowBuilder());
+            encoder.OpCode(ILOpCode.Ldc_i4_1);
+            encoder.OpCode(ILOpCode.Ret);
+            return methodBodyEncoder.AddMethodBody(encoder, maxStack: 1);
+        }
+
+        MethodDefinitionHandle badIndexMethod = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("BadGenericIndex"),
+            metadata.GetOrAddBlob(methodSignature),
+            AddBody(),
+            MetadataTokens.ParameterHandle(1));
+        GenericParameterHandle badIndexParameter = metadata.AddGenericParameter(
+            badIndexMethod,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        var badIndexConstraint = new BlobBuilder();
+        badIndexConstraint.WriteByte(0x1E);
+        badIndexConstraint.WriteCompressedInteger(1);
+        metadata.AddGenericParameterConstraint(
+            badIndexParameter,
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(badIndexConstraint)));
+
+        MethodDefinitionHandle modifiedMethod = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ModifiedConstraint"),
+            metadata.GetOrAddBlob(methodSignature),
+            AddBody(),
+            MetadataTokens.ParameterHandle(1));
+        GenericParameterHandle modifiedParameter = metadata.AddGenericParameter(
+            modifiedMethod,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("U"),
+            index: 0);
+        var modifiedConstraint = new BlobBuilder();
+        modifiedConstraint.WriteByte(0x1F);
+        modifiedConstraint.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(modifier) << 2) | 1);
+        modifiedConstraint.WriteByte(0x12);
+        modifiedConstraint.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(disposable) << 2) | 1);
+        metadata.AddGenericParameterConstraint(
+            modifiedParameter,
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(modifiedConstraint)));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
         return path;
     }
 

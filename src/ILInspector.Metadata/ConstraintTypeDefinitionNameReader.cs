@@ -157,12 +157,18 @@ internal static class ConstraintTypeDefinitionNameReader
         public ConstraintShape GetGenericTypeParameter(
             GenericContext? context,
             int index) =>
-            ConstraintShape.EmptyConstraint;
+            context is not null
+                && (uint)index < (uint)context.TypeParameters.Count
+                    ? ConstraintShape.EmptyConstraint
+                    : ConstraintShape.Unavailable;
 
         public ConstraintShape GetGenericMethodParameter(
             GenericContext? context,
             int index) =>
-            ConstraintShape.EmptyConstraint;
+            context is not null
+                && (uint)index < (uint)context.MethodParameters.Count
+                    ? ConstraintShape.EmptyConstraint
+                    : ConstraintShape.Unavailable;
 
         public ConstraintShape GetFunctionPointerType(
             MethodSignature<ConstraintShape> signature) =>
@@ -172,6 +178,6 @@ internal static class ConstraintTypeDefinitionNameReader
             ConstraintShape modifier,
             ConstraintShape unmodifiedType,
             bool isRequired) =>
-            unmodifiedType;
+            ConstraintShape.Unavailable;
     }
 }
