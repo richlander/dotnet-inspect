@@ -68,6 +68,27 @@ public sealed record BlobDto(
     byte[]?[] Blobs,
     IReadOnlyDictionary<string, byte[]?> BlobsByName);
 
+public sealed record ConditionalOutputDto(string Name)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? AlwaysNullable { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int DefaultHidden { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int? NullableDefaultHidden { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NullHidden { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string NonNullableNullHidden { get; init; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WidgetDto?[]? NullableItems { get; init; }
+}
+
 public sealed class HiddenTypeJsonIncludeDto
 {
     public string Public { get; set; } = "public";
@@ -90,6 +111,7 @@ public sealed class HiddenTypeJsonIncludeDto
 [JsonSerializable(typeof(InertWidgetDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
 [JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(ConditionalOutputDto))]
 [JsonSerializable(typeof(HiddenTypeJsonIncludeDto))]
 [JsonSerializable(typeof(global::@string), TypeInfoPropertyName = "StringDto")]
 [JsonSerializable(typeof(global::@byte), TypeInfoPropertyName = "ByteDto")]
@@ -165,6 +187,12 @@ public static partial class TypeScriptFixtureExports
             new WidgetDto(name, count),
             FixtureJsonContext.Default.WidgetDto);
     }
+
+    [JSExport]
+    public static string GetConditionalOutput(string name) =>
+        JsonSerializer.Serialize(
+            new ConditionalOutputDto(name),
+            FixtureJsonContext.Default.ConditionalOutputDto);
 
     [JSExport]
     public static async Task<string> GetInertWidgetAsync(string name)

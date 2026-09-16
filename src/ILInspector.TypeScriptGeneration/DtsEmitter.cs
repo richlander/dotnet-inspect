@@ -945,18 +945,27 @@ static class DtsEmitter
             recordTypeNames = names;
         }
 
+        JsonWireDirection declarationDirection =
+            (directions & JsonWireDirection.Serialize)
+                != JsonWireDirection.None
+                ? JsonWireDirection.Serialize
+                : JsonWireDirection.Deserialize;
         var members = record.Members
-            .Where(member => JsonWireMemberRules.IsSerialized(
-                member,
-                directions,
-                assemblyIdentity,
-                declaredTypesByScopedIdentity))
             .Select(member => (
                 Member: member,
-                ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
+                Presence: JsonWireMemberRules.GetPresence(
+                    member,
+                    declarationDirection,
+                    assemblyIdentity,
+                    declaredTypesByScopedIdentity),
+                ResolvedName: member.JsonPropertyName
+                    ?? ApplyNamingPolicy(member.Name, namingPolicy)))
+            .Where(item => item.Presence is
+                JsonWireMemberPresence.Present
+                or JsonWireMemberPresence.Conditional)
             .ToArray();
 
-        foreach ((ApiMember member, _) in members)
+        foreach ((ApiMember member, _, _) in members)
         {
             if (TryGetArrayParameter(
                     member.SignatureModel,
@@ -975,7 +984,10 @@ static class DtsEmitter
             sb.Append('<').AppendJoin(", ", genericParameters).Append('>');
         sb.Append(" {\n");
 
-        foreach ((ApiMember member, string resolvedName) in members)
+        foreach ((
+            ApiMember member,
+            JsonWireMemberPresence presence,
+            string resolvedName) in members)
         {
             string tsName = FormatPropertyKey(resolvedName);
             string propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType ?? "unknown";
@@ -989,30 +1001,49 @@ static class DtsEmitter
             }
             else
             {
-                tsType = TsTypeMapper.MapJsonWireType(
-                    propertyType,
+                IReadOnlySet<string>? blockedAliases = BlockedAliases(
+                    member.SignatureModel?.ReturnTypeReferences,
                     typeEnvironment.KnownTypeNames,
-                    diagnostics,
-                    location,
-                    BlockedAliases(
-                        member.SignatureModel?.ReturnTypeReferences,
-                        typeEnvironment.KnownTypeNames,
-                        typeEnvironment.KnownTypeIdentities),
+                    typeEnvironment.KnownTypeIdentities);
+                IReadOnlyDictionary<string, string> mappedTypeNames =
                     MappedTypeNames(
                         typeEnvironment,
                         member.SignatureModel?.ReturnTypeReferences
                             ?? [])
-                        .Concat(recordTypeNames)
-                        .GroupBy(item => item.Key, StringComparer.Ordinal)
-                        .ToDictionary(
-                            group => group.Key,
-                            group => group.Last().Value,
-                            StringComparer.Ordinal),
-                    member.SignatureModel?.ReturnTypeShape,
-                    typeEnvironment.IdentityNames,
-                    typeEnvironment.UnionContext);
+                    .Concat(recordTypeNames)
+                    .GroupBy(item => item.Key, StringComparer.Ordinal)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.Last().Value,
+                        StringComparer.Ordinal);
+                tsType = presence == JsonWireMemberPresence.Conditional
+                    ? TsTypeMapper.MapJsonWirePresentValueType(
+                        propertyType,
+                        typeEnvironment.KnownTypeNames,
+                        diagnostics,
+                        location,
+                        blockedAliases,
+                        mappedTypeNames,
+                        member.SignatureModel?.ReturnTypeShape,
+                        typeEnvironment.IdentityNames,
+                        typeEnvironment.UnionContext)
+                    : TsTypeMapper.MapJsonWireType(
+                        propertyType,
+                        typeEnvironment.KnownTypeNames,
+                        diagnostics,
+                        location,
+                        blockedAliases,
+                        mappedTypeNames,
+                        member.SignatureModel?.ReturnTypeShape,
+                        typeEnvironment.IdentityNames,
+                        typeEnvironment.UnionContext);
             }
-            sb.Append("  readonly ").Append(tsName).Append(": ").Append(tsType).Append(";\n");
+            sb.Append("  readonly ").Append(tsName);
+            sb.Append(
+                presence == JsonWireMemberPresence.Conditional
+                    ? "?: "
+                    : ": ");
+            sb.Append(tsType).Append(";\n");
         }
 
         sb.Append("}\n\n");
@@ -1144,10 +1175,12 @@ static class DtsEmitter
                 type.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None;
             var resolvedNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (ApiMember member in type.Members
-                .Where(member => JsonWireMemberRules.IsSerialized(
-                    member,
-                    assemblyIdentity,
-                    declaredTypesByScopedIdentity)))
+                .Where(member =>
+                    JsonWireMemberRules.ParticipatesInWireContract(
+                        member,
+                        JsonWireDirection.Both,
+                        assemblyIdentity,
+                        declaredTypesByScopedIdentity)))
             {
                 string resolvedName = member.JsonPropertyName
                     ?? ApplyNamingPolicy(member.Name, namingPolicy);
@@ -1459,7 +1492,7 @@ static class DtsEmitter
                             type,
                             JsonWireDirection.Both);
                     return type.Members.Where(member =>
-                        JsonWireMemberRules.IsSerialized(
+                        JsonWireMemberRules.ParticipatesInWireContract(
                             member,
                             directions));
                 })
@@ -1493,8 +1526,9 @@ static class DtsEmitter
             || type.Members.Any(member =>
                 member.HasUnsupportedJsonWireAttributes
                 && !HasApprovedInertStringConverter(member)
-                && JsonWireMemberRules.IsSerialized(
+                && JsonWireMemberRules.ParticipatesInWireContract(
                     member,
+                    JsonWireDirection.Both,
                     assemblyIdentity,
                     declaredTypesByScopedIdentity)))
         {

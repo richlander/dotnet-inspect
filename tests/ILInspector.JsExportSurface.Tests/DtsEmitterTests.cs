@@ -3067,7 +3067,7 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_PreservesWhenReadingMemberInSerializeOnlyDeclaration()
+    public void Emit_UsesExactOptionalPropertiesForConditionalOutputMembers()
     {
         string dts = EmitFixtureDtsWithWireContracts();
 
@@ -3077,9 +3077,115 @@ public sealed class DtsEmitterTests
               readonly name: string;
               readonly serverNote: DirectionalNote | null;
               readonly alwaysPresent: string;
+              readonly alwaysNullable: string | null;
+              readonly defaultHidden?: number;
+              readonly nullableDefaultHidden?: number;
+              readonly nullHidden?: string;
+              readonly nonNullableNullHidden?: string;
+              readonly nullableItems?: ReadonlyArray<DirectionalNote | null>;
+              readonly conditionalNote?: DirectionalConditionalNote;
             }
             """,
             dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_KeepsWritingConditionRequiredForDeserializeOnlyRecord()
+    {
+        var record = new ApiType
+        {
+            Name = "Input",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    HasSetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "string?",
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.WhenWritingNull,
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Records = [record],
+                WireDirections = new Dictionary<
+                    ApiType,
+                    JsonWireDirection>
+                {
+                    [record] = JsonWireDirection.Deserialize,
+                },
+            });
+
+        Assert.Contains(
+            "  readonly Value: string | null;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "  readonly Value?:",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RejectsNameCollisionWithConditionalMember()
+    {
+        var record = new ApiType
+        {
+            Name = "Output",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Always",
+                    Kind = "property",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "int",
+                    JsonPropertyName = "value",
+                },
+                new ApiMember
+                {
+                    Name = "Sometimes",
+                    Kind = "property",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "int",
+                    JsonPropertyName = "value",
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.WhenWritingDefault,
+                    ],
+                },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(
+                    new ILInspector.JsExportSurface.JsExportSurface
+                    {
+                        Records = [record],
+                        WireDirections = new Dictionary<
+                            ApiType,
+                            JsonWireDirection>
+                        {
+                            [record] = JsonWireDirection.Serialize,
+                        },
+                    }));
+
+        Assert.Contains(
+            "multiple members resolve to the same JSON property name",
+            exception.Message,
             StringComparison.Ordinal);
     }
 

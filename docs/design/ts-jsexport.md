@@ -235,6 +235,26 @@ use `ReadonlyArray<T>`, and string-keyed dictionaries use
 `Readonly<Record<string, T>>`. Direct JS-interop arrays remain mutable because
 they are runtime values, not serialized snapshots.
 
+For a serialize-only record, owner-issued `Conditional` member presence becomes
+an exact optional property:
+
+```ts
+readonly property?: T;
+```
+
+Optionality describes possible key absence independently of nullability. When
+System.Text.Json omits the member's null or default value, the generated
+present-value type removes only that member's outer `null`; nested nullability
+and `null` supplied by another authenticated wire contract remain intact. A
+`Present` nullable member therefore remains `property: T | null`, while a
+nullable `WhenWritingNull` member becomes `property?: T`. `Never` remains
+present. The emitter consumes `JsExportSurface` presence facts rather than
+reading serializer attributes or inferring absence from C# nullability.
+
+A bidirectional record whose serialize and deserialize presence differs still
+fails visibly. Separate input and output declarations are a later
+direction-specific contract, not a shape the emitter guesses in this slice.
+
 ### Translating unions and nullability
 
 C# and TypeScript can both describe alternative and nullable values, but they
@@ -1194,6 +1214,11 @@ issue references below.
   without renaming or replacing module infrastructure, parameter order and
   types remain unchanged, and every wire-type reference resolves to the
   allocated declaration for its exact typed identity;
+- compiled conditional-presence fixtures emit exact optional serialize-side
+  properties under `exactOptionalPropertyTypes`, remove only member-level outer
+  `null` from present values, preserve nested and unconditionally present
+  nullability, retain `Never` as required, and continue to reject a
+  direction-sensitive bidirectional record;
 - an overloaded compiled fixture with distinct results proves each
   generated facade function indexes the owner-issued exact runtime key rather
   than the ambiguous bare method name;

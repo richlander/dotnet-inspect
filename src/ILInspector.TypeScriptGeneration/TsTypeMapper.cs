@@ -292,6 +292,30 @@ static class TsTypeMapper
             identityNames,
             unionContext);
 
+    public static string MapJsonWirePresentValueType(
+        string csharpType,
+        IReadOnlySet<string> recordNames,
+        TypeScriptGenerationDiagnostics? diagnostics = null,
+        string? location = null,
+        IReadOnlySet<string>? blockedAliases = null,
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null,
+        ApiTypeShape? typeShape = null,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
+            identityNames = null,
+        TsJsonUnionMappingContext? unionContext = null) =>
+        Map(
+            csharpType.Trim(),
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases,
+            mappedTypeNames,
+            TsTypeMappingContext.JsonWire,
+            typeShape,
+            identityNames,
+            unionContext,
+            suppressOuterNull: true);
+
     static string Map(
         string csharpType,
         IReadOnlySet<string> recordNames,
@@ -303,7 +327,8 @@ static class TsTypeMapper
         ApiTypeShape? typeShape = null,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
             identityNames = null,
-        TsJsonUnionMappingContext? unionContext = null)
+        TsJsonUnionMappingContext? unionContext = null,
+        bool suppressOuterNull = false)
     {
         string trimmed = csharpType.Trim();
 
@@ -324,7 +349,7 @@ static class TsTypeMapper
                 && IsGenericShape(typeShape, "System.Nullable`1")
                     ? GenericArgumentShape(typeShape, 0)
                     : typeShape;
-            return $"{Map(
+            string mappedInner = Map(
                 inner,
                 recordNames,
                 diagnostics,
@@ -334,7 +359,10 @@ static class TsTypeMapper
                 mappingContext,
                 nullableInnerShape,
                 identityNames,
-                unionContext)} | null";
+                unionContext);
+            return suppressOuterNull
+                ? mappedInner
+                : $"{mappedInner} | null";
         }
 
         // System.Text.Json encodes a byte[] value as one Base64 JSON string. Direct JS interop
@@ -391,7 +419,7 @@ static class TsTypeMapper
                     trimmed);
                 return "unknown";
             }
-            return $"{Map(
+            string mappedInner = Map(
                 nullableArg!,
                 recordNames,
                 diagnostics,
@@ -401,7 +429,10 @@ static class TsTypeMapper
                 mappingContext,
                 GenericArgumentShape(typeShape, 0),
                 identityNames,
-                unionContext)} | null";
+                unionContext);
+            return suppressOuterNull
+                ? mappedInner
+                : $"{mappedInner} | null";
         }
 
         if (TryMapDictionary(

@@ -116,6 +116,25 @@ public sealed class TsTypeMapperTests
     }
 
     [Theory]
+    [InlineData("string?", "string")]
+    [InlineData("int?", "number")]
+    [InlineData("Nullable<int>", "number")]
+    [InlineData("System.Nullable<int>", "number")]
+    [InlineData(
+        "WidgetDto?[]?",
+        "ReadonlyArray<WidgetDto | null>")]
+    public void MapJsonWirePresentValueType_RemovesOnlyOuterNull(
+        string csharpType,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            TsTypeMapper.MapJsonWirePresentValueType(
+                csharpType,
+                RecordNames));
+    }
+
+    [Theory]
     [InlineData("byte[]")]
     [InlineData("System.Byte[]")]
     public void MapInteropType_PreservesByteArraysAsNumericArrays(string csharpType)

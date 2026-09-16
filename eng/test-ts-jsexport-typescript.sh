@@ -76,6 +76,45 @@ export async function readInertDisplay(): Promise<string> {
 export const untreated: InertString = "plain text";
 TS
 
+cat > "$scratch/conditional-usage.ts" <<'TS'
+import { getConditionalOutput } from "./facade.js";
+import type { ConditionalOutputDto, WidgetDto } from "./facade.js";
+
+export function readConditionalOutput(value: ConditionalOutputDto): string {
+  const alwaysNullable: string | null = value.alwaysNullable;
+  const defaultHidden: number | undefined = value.defaultHidden;
+  const nullableDefaultHidden: number | undefined =
+    value.nullableDefaultHidden;
+  const nullHidden: string | undefined = value.nullHidden;
+  const nonNullableNullHidden: string | undefined =
+    value.nonNullableNullHidden;
+  const nullableItems: ReadonlyArray<WidgetDto | null> | undefined =
+    value.nullableItems;
+
+  return [
+    alwaysNullable ?? "null",
+    defaultHidden ?? "default",
+    nullableDefaultHidden ?? "default",
+    nullHidden ?? "missing",
+    nonNullableNullHidden ?? "missing",
+    nullableItems?.[0]?.name ?? "missing",
+  ].join("|");
+}
+
+export async function loadConditionalOutput(): Promise<string> {
+  return readConditionalOutput(await getConditionalOutput("sample"));
+}
+
+declare const output: ConditionalOutputDto;
+
+// Exact optional properties permit absence, not an explicit undefined value.
+// @ts-expect-error
+export const invalidConditionalOutput: ConditionalOutputDto = {
+  ...output,
+  nullHidden: undefined,
+};
+TS
+
 cat > "$scratch/union-usage.ts" <<'TS'
 import {
   getBoxedCount,
@@ -352,6 +391,7 @@ cat > "$scratch/tsconfig.json" <<'JSON'
   "include": [
     "facade.ts",
     "callback-usage.ts",
+    "conditional-usage.ts",
     "inert-usage.ts",
     "union-usage.ts"
   ]

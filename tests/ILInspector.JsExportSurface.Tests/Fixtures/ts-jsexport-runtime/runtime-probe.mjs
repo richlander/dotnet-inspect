@@ -55,6 +55,8 @@ const configureHostKey =
 const echoKey = facadeSource.match(/"(Echo\.-?\d+)"/)?.[1];
 const getWidgetAsyncKey =
   facadeSource.match(/"(GetWidgetAsync\.-?\d+)"/)?.[1];
+const getConditionalOutputKey =
+  facadeSource.match(/"(GetConditionalOutput\.-?\d+)"/)?.[1];
 const getInertWidgetAsyncKey =
   facadeSource.match(/"(GetInertWidgetAsync\.-?\d+)"/)?.[1];
 const getRuntimeApiAsyncKey =
@@ -133,6 +135,10 @@ assert.ok(echoKey, "The generated Echo runtime dispatch key was not found.");
 assert.ok(
   getWidgetAsyncKey,
   "The generated GetWidgetAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getConditionalOutputKey,
+  "The generated GetConditionalOutput runtime dispatch key was not found.",
 );
 assert.ok(
   getInertWidgetAsyncKey,
@@ -285,6 +291,12 @@ function managedExports(methods = {}) {
             [getWidgetAsyncKey]:
               methods.getWidgetAsync
               ?? (async (name, count) => JSON.stringify({ name, count })),
+            [getConditionalOutputKey]:
+              methods.getConditionalOutput
+              ?? ((name) => JSON.stringify({
+                name,
+                alwaysNullable: null,
+              })),
             [getInertWidgetAsyncKey]:
               methods.getInertWidgetAsync
               ?? (async (name) => JSON.stringify({
