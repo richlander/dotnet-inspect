@@ -14,6 +14,7 @@ import {
 } from "../src/type-panel.ts";
 import type {
   ExactTypeApi,
+  InertString,
   InspectionDiagnostic,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import type {
@@ -74,6 +75,12 @@ class FakeRoot {
   querySelectorAll(selector: string) {
     return this.multiple.get(selector) ?? [];
   }
+}
+
+function inertString(value: string): InertString {
+  // Test fixtures model values after the generated JSON boundary.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as InertString;
 }
 
 function keyboardEvent(
@@ -1053,7 +1060,8 @@ test("type metadata renders exact ambiguity instead of a legacy Type surface", (
         exactTypeInspection: unavailableExactTypeInspection(2, [{
           code: "exact-type.ambiguous",
           severity: 2,
-          summary: "The Type resolved to more than one exact Metadata definition.",
+          summary: inertString(
+            "The Type resolved to more than one exact Metadata definition."),
           correspondence: null,
         }]),
       },
@@ -1085,7 +1093,8 @@ test("type metadata renders exact diagnostics for incomplete available content",
           [{
             code: "exact-type.inspection-incomplete",
             severity: 1,
-            summary: "One metadata row could not be decoded.",
+            summary: inertString(
+              "One metadata row could not be decoded."),
             correspondence: null,
           }],
           false),
@@ -1118,7 +1127,8 @@ test("type metadata renders nonfatal exact constraint diagnostics", () => {
           [{
             code: "exact-type.constraint-resolution-incomplete",
             severity: 1,
-            summary: "Generic-constraint classification was incomplete.",
+            summary: inertString(
+              "Generic-constraint classification was incomplete."),
             correspondence: null,
           }],
           true),
