@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
@@ -26,6 +27,8 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.dll";
     const string SpellingType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetySpellingFixture";
+    const string ReadonlyPropertyType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReadonlyPropertyFixture";
     const string ExplicitLayoutType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitLayoutFixture";
     const string AccessorType =
@@ -38,6 +41,30 @@ public sealed class BrowserMemberDeclarationTests
     {
         byte[] image = File.ReadAllBytes(
             FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using (var peReader = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            ApiSurface extractedSurface = ApiSurfaceExtractor.Extract(peReader);
+            ApiType extractedType = Assert.Single(
+                extractedSurface.Types,
+                candidate => candidate.FullName == SpellingType);
+            ApiMember restrictedProperty = Assert.Single(
+                extractedType.Members,
+                candidate => candidate.Name == "InternalSet");
+            Assert.Equal(
+                "internal",
+                restrictedProperty.SignatureModel!.Accessors
+                    .Single(accessor => accessor.Kind == "set")
+                    .Accessibility);
+            ApiType extractedReadonlyType = Assert.Single(
+                extractedSurface.Types,
+                candidate => candidate.FullName == ReadonlyPropertyType);
+            ApiMember readonlyProperty = Assert.Single(
+                extractedReadonlyType.Members,
+                candidate => candidate.Name == "Value");
+            Assert.True(
+                readonlyProperty.SignatureModel!.Accessors.Single().IsReadOnly);
+        }
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
                 PackageId,
@@ -78,6 +105,47 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Null(pointerNoneDeclaration.Unavailable);
         Assert.False(pointerNoneDeclaration.Compatibility);
 
+        BrowserMemberDeclaration propertyDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "Type"));
+        Assert.Equal(
+            "public string Type { get; set; }",
+            Assert.IsType<string>(propertyDeclaration.Text));
+        Assert.Null(propertyDeclaration.Unavailable);
+        Assert.False(propertyDeclaration.Compatibility);
+
+        BrowserMemberDeclaration internalSetDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "InternalSet"));
+        Assert.Equal(
+            "public int InternalSet { get; internal set; }",
+            Assert.IsType<string>(internalSetDeclaration.Text));
+        Assert.Null(internalSetDeclaration.Unavailable);
+        Assert.False(internalSetDeclaration.Compatibility);
+
+        BrowserMemberDeclaration initOnlyDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "InitOnly"));
+        Assert.Null(initOnlyDeclaration.Text);
+        Assert.Contains(
+            "accessor return shape",
+            Assert.IsType<string>(initOnlyDeclaration.Unavailable),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(initOnlyDeclaration.Compatibility);
+
+        JsonElement readonlyPropertyType =
+            Type(surfaceDocument.RootElement, ReadonlyPropertyType);
+        BrowserMemberDeclaration readonlyPropertyDeclaration =
+            await Declaration(
+                readonlyPropertyType,
+                Member(readonlyPropertyType, "Value"));
+        Assert.Null(readonlyPropertyDeclaration.Text);
+        Assert.Contains(
+            "readonly accessor",
+            Assert.IsType<string>(readonlyPropertyDeclaration.Unavailable),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(readonlyPropertyDeclaration.Compatibility);
+
         JsonElement explicitLayoutType =
             Type(surfaceDocument.RootElement, ExplicitLayoutType);
         BrowserMemberDeclaration safeFieldDeclaration = await Declaration(
@@ -94,14 +162,14 @@ public sealed class BrowserMemberDeclarationTests
         Assert.False(safeFieldDeclaration.Compatibility);
 
         JsonElement accessorType = Type(surfaceDocument.RootElement, AccessorType);
-        BrowserMemberDeclaration propertyDeclaration =
+        BrowserMemberDeclaration accessorContractDeclaration =
             await Declaration(accessorType, Member(accessorType, "Value"));
-        Assert.Null(propertyDeclaration.Text);
+        Assert.Null(accessorContractDeclaration.Text);
         Assert.Contains(
-            "not supported",
-            Assert.IsType<string>(propertyDeclaration.Unavailable),
+            "contract",
+            Assert.IsType<string>(accessorContractDeclaration.Unavailable),
             StringComparison.OrdinalIgnoreCase);
-        Assert.False(propertyDeclaration.Compatibility);
+        Assert.False(accessorContractDeclaration.Compatibility);
 
         JsonElement enumType = Type(surfaceDocument.RootElement, EnumType);
         Assert.DoesNotContain(

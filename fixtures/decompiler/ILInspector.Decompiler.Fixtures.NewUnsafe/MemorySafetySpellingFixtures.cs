@@ -27,8 +27,23 @@ public sealed class MemorySafetySpellingFixture
 
     public static int NormalMethod() => 42;
 
+    public string Type { get; set; } = "";
+
+    public int InternalSet { get; internal set; }
+
+    public int InitOnly { get; init; }
+
     [DllImport("__dotnet_inspect_memory_safety_fixture__")]
     public static safe extern int SafeExtern();
+}
+
+public struct MemorySafetyReadonlyPropertyFixture
+{
+    int _value;
+
+    public MemorySafetyReadonlyPropertyFixture(int value) => _value = value;
+
+    public readonly int Value => _value;
 }
 
 [StructLayout(LayoutKind.Explicit, Pack = 2, Size = 16)]

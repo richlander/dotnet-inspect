@@ -48,10 +48,11 @@ public sealed record CSharpFormatOptions
     public bool ForceAsync { get; init; }
     public bool ForceUnsafe { get; init; }
     /// <summary>
-    /// Opts into model-aware method/field spelling. Null retains the compatibility
-    /// view. Unavailable evidence or unsupported forms throw NotSupportedException;
-    /// use FormatMemberOutcome for one declaration or CSharpTypePrinter for an
-    /// atomic type-level, diagnostic-bearing print outcome.
+    /// Opts into model-aware method/field spelling and the supported standalone
+    /// selected-member forms. Null retains the compatibility view. Unavailable
+    /// evidence or unsupported forms throw NotSupportedException; use
+    /// FormatMemberOutcome for one declaration or CSharpTypePrinter for an atomic
+    /// type-level, diagnostic-bearing print outcome.
     /// </summary>
     public CSharpMemorySafetyLanguage? MemorySafetyLanguage { get; init; }
     /// <summary>An affirmative choice to emit an extern declaration, not a body-RVA inference.</summary>
