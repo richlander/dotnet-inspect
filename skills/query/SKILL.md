@@ -59,7 +59,7 @@ envelope output. Explicitly projected Diff JSON retains its presentation
 schema. Load `skill compatibility` for outcome and scope details.
 Asset-mode `depends`, other commands, and `--evidence-envelope` remain unadopted.
 
-On `find`, plain `--json` retains the typed result shape. Adding
+On `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a
 JSON document containing the same selected rows and snake_case fields as the
 `--tsv` and `--jsonl` formats.
