@@ -194,9 +194,11 @@ owner:
    implementation Analysis Findings;
 2. [Diff History inspection](diff-history.md) resolves the baseline source
    Member once and issues its detached exact declaration-and-kind receipt;
-3. #7248 executes one bounded reporter-bound source/destination PackageHouse
-   cell pair, exact-binds that same receipt in the pair-local Workspace, and
-   invokes this query while both endpoints are live;
+3. #7248 invokes this query first through internal exact same-cell
+   correspondence for the detached baseline observation, then through one
+   bounded reporter-bound source/destination PackageHouse cell pair per later
+   checkpoint after exact-binding that same receipt in the pair-local
+   Workspace;
 4. Diff History evaluates its chosen checkpoints serially and joins detached
    sparse node and correspondence-edge evidence;
 5. the subject CLI and Browser/Wasm consume the same shared

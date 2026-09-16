@@ -240,7 +240,8 @@ This operation is step 2 of the seven-step temporal ownership path:
 4. Diff History detached baseline receipt, exact pair-local source binding, and
    direct source-to-checkpoint correspondence — owned by
    [Diff History inspection](diff-history.md).
-5. Bounded PackageHouse source/destination cell-pair Analysis — #7248.
+5. Bounded PackageHouse baseline-cell and source/destination cell-pair
+   Analysis — #7248.
 6. Shared Diff History and metadata-only version-count terminals, followed by
    subject CLI cutover with top-level `timeline` removal.
 7. Browser Compare and version-count adoption.

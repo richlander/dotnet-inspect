@@ -349,13 +349,28 @@ the operation publishes no `DiffHistoryOutcome`. A separately owner-typed
 timeout, acquisition failure, or other operational non-success retains that
 owner's native outcome and is not relabeled as caller cancellation.
 
-The source observation uses that resolved Member directly; it does not invent
-a same-Version correspondence edge. For every other selected checkpoint, #7248
-executes the exact prepared source and destination cells in one fresh bounded
-Workspace. It exact-binds the same detached source receipt against that source
-cell, producing a new Workspace-local `MemberSubject` associated with the
-pair's source observation, and invokes strict API coordinate correspondence
-with the receipt's stored `ApiDeclarationKind`.
+The bounded #7248 composition has one baseline form and one checkpoint form.
+The baseline form executes the exact prepared source cell, performs the one
+selector resolution above, and issues the receipt while its source Workspace
+is live. To consume the existing matched-Member Analysis query, it invokes
+strict API coordinate correspondence internally with that same source
+observation as both endpoints and with the resolved pair-local `MemberSubject`
+and declaration kind. An exact internal self-correspondence feeds native
+Analysis for the baseline Member. It is producer-adapter evidence only: History
+publishes the detached baseline Finding observation and receipt, not a
+same-Version declaration edge.
+
+A non-exact internal self-correspondence or baseline Analysis non-success
+remains the baseline evaluation's native non-success. It does not erase a
+successfully issued receipt or prevent later independent checkpoints. The
+baseline Workspace closes before its detached result is published.
+
+For every other selected checkpoint, the checkpoint form executes the exact
+prepared source and destination cells in one fresh bounded Workspace. It
+exact-binds the same detached source receipt against that source cell,
+producing a new Workspace-local `MemberSubject` associated with the pair's
+source observation, and invokes strict API coordinate correspondence with the
+receipt's stored `ApiDeclarationKind`.
 
 Exact binding is not another selector resolution. It does not parse display
 text, replay an ordinal or digest, infer declaration kind from `MemberAnchor`,
@@ -740,6 +755,11 @@ The implementation slices must supply Release gates for:
 - baseline Member selection exactly once, with absent, ambiguous, refused,
   and failed source outcomes preventing destination Analysis rather than
   selecting a later same-named or same-ordinal seed;
+- baseline execution producing one detached native Finding observation through
+  exact internal same-cell correspondence, publishing no same-Version
+  declaration edge, and retaining that observation after its Workspace closes;
+- internal baseline correspondence or Analysis non-success remaining visible
+  without erasing a valid receipt or preventing later independent checkpoints;
 - at least three checkpoints whose two non-source pairs re-execute the exact
   source cell, exact-bind the same detached receipt into different pair-local
   Workspaces, consume its stored declaration kind, and never replay the
