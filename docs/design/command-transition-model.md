@@ -21,7 +21,7 @@ The governing rule is:
 
 The proposed [subject-owned Diff](#subject-owned-diff) adoption is tracked by
 [#7046](https://github.com/richlander/dotnet-inspect/issues/7046), under
-[Compare delivery #5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[Compare delivery #7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 This document owns its command placement and completed-host-adoption boundary.
 It supersedes the top-level placement proposed in #6988; the
 [History owner](diff-history.md) retains temporal and population-count
