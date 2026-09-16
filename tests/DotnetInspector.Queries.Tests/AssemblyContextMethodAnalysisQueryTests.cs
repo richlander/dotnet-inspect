@@ -30,7 +30,8 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
             AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                 group,
                 participant,
-                token);
+                token,
+                TestContext.Current.CancellationToken);
 
         AssemblyMethodAnalysis result = Assert.IsType<
             AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
@@ -83,7 +84,8 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                     group,
                     participant,
-                    token)).Value;
+                    token,
+                    TestContext.Current.CancellationToken)).Value;
 
         Assert.Empty(result.Allocations);
         Assert.Empty(result.DirectCalls);
@@ -119,13 +121,15 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                     group,
                     participant,
-                    kickoff.MetadataToken)).Value;
+                    kickoff.MetadataToken,
+                    TestContext.Current.CancellationToken)).Value;
         AssemblyMethodAnalysis moveNextAnalysis = Assert.IsType<
             AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
                 AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                     group,
                     participant,
-                    moveNext.MetadataToken)).Value;
+                    moveNext.MetadataToken,
+                    TestContext.Current.CancellationToken)).Value;
 
         Assert.DoesNotContain(
             kickoffAnalysis.DirectCalls,
@@ -176,7 +180,8 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                     group,
                     Assert.Single(group.Participants),
-                    token)).Value;
+                    token,
+                    TestContext.Current.CancellationToken)).Value;
 
         Assert.True(result.Signals.Unsafe);
         Assert.Contains(
@@ -199,7 +204,8 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                     group,
                     Assert.Single(group.Participants),
-                    0x02000001));
+                    0x02000001,
+                    TestContext.Current.CancellationToken));
 
         Assert.Contains("not a MethodDef", failed.Error.Message);
     }
@@ -220,14 +226,71 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                     group,
                     Assert.Single(group.Participants),
-                    token));
+                    token,
+                    TestContext.Current.CancellationToken));
 
         Assert.Contains("does not have an IL body", failed.Error.Message);
     }
 
+    [Fact]
+    public async Task MethodAnalysis_CancellationDuringAnalysisPropagatesCallerToken()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodAnalysisProbe).Assembly.Location);
+        await using var workspace = new InspectionWorkspace();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var policy = new AnalysisCancellationBindingPolicy(
+            entered,
+            release);
+        using AssemblyContextGroup group = Group(
+            workspace,
+            image,
+            policy);
+        policy.Arm();
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        int token = typeof(MethodAnalysisProbe)
+            .GetMethod(nameof(MethodAnalysisProbe.Target))!
+            .MetadataToken;
+
+        Task<AssemblyContextEntry<AssemblyMethodAnalysis>> operation =
+            Task.Run(() =>
+#pragma warning disable xUnit1051 // The linked caller token is the contract under test.
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    Assert.Single(group.Participants),
+                    token,
+                    cancellation.Token));
+#pragma warning restore xUnit1051
+        try
+        {
+            Assert.True(
+                entered.Wait(
+                    TimeSpan.FromSeconds(30),
+                    TestContext.Current.CancellationToken),
+                "Analysis did not reach binding-policy resolution.");
+            cancellation.Cancel();
+            release.Set();
+
+            OperationCanceledException error =
+                await Assert.ThrowsAsync<OperationCanceledException>(
+                    async () => await operation);
+            Assert.Equal(
+                cancellation.Token,
+                error.CancellationToken);
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
     static AssemblyContextGroup Group(
         InspectionWorkspace workspace,
-        byte[] content)
+        byte[] content,
+        IAssemblyBindingPolicy? bindingPolicy = null)
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(content);
@@ -244,8 +307,46 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                     writable: false),
                 AssemblyResolutionProvenance.Local(
                     "method-analysis-fixture")),
-            new MissingBindingPolicy());
+            bindingPolicy ?? new MissingBindingPolicy());
         return workspace.CreateAssemblyContextGroup([participant]);
+    }
+
+    sealed class AnalysisCancellationBindingPolicy(
+        ManualResetEventSlim entered,
+        ManualResetEventSlim release) : IAssemblyBindingPolicy
+    {
+        readonly AssemblyBindingPolicyVersion _version = new();
+        int _armed;
+        int _observed;
+
+        public AssemblyBindingPolicyVersion Version
+        {
+            get
+            {
+                if (Volatile.Read(ref _armed) != 0
+                    && Interlocked.Exchange(ref _observed, 1) == 0)
+                {
+                    entered.Set();
+                    if (!release.Wait(TimeSpan.FromSeconds(30)))
+                    {
+                        throw new TimeoutException(
+                            "The Analysis cancellation probe was not released.");
+                    }
+                }
+
+                return _version;
+            }
+        }
+
+        public void Arm() => Volatile.Write(ref _armed, 1);
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) =>
+            new(
+                _version,
+                AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.CandidateUnavailable)));
     }
 
     sealed class MissingBindingPolicy : IAssemblyBindingPolicy
