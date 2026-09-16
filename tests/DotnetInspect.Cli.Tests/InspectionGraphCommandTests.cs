@@ -499,7 +499,7 @@ public sealed class InspectionGraphCommandTests
         }
 
         Assert.Equal(
-            (36, 10, 1244),
+            (38, 12, 1258),
             await Counts("DotnetInspector.Presentation.dll"));
         Assert.Equal(
             (13, 4, 72),
