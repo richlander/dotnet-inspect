@@ -117,7 +117,7 @@ public sealed partial class EhStructuringPass : IIrPass
         var continuations = new Dictionary<IrNode, int>();
         var rebuilt = BuildContainer(function, blocks, 0, blocks.Count, forest.Roots, offsetToIndex, continuations);
         TrimTailLeaves(rebuilt, continuations);
-        InlineReturnLeaves(rebuilt);
+        InlineReturnLeaves(function, rebuilt);
         SynthesizeInlineCatchVariables(function, rebuilt);
         context.Stepper.StepOver("raise exception regions into try/catch/finally", function.Body);
         function.Body.ReplaceWith(rebuilt);
@@ -1034,7 +1034,7 @@ public sealed partial class EhStructuringPass : IIrPass
     /// enclosing finally that may change the local it returns. With the leaves
     /// gone the structuring pass raises the bodies.
     /// </summary>
-    static void InlineReturnLeaves(BlockContainer root)
+    static void InlineReturnLeaves(IrFunction function, BlockContainer root)
     {
         var byOffset = new Dictionary<int, Block>();
         foreach (var block in root.Descendants.OfType<Block>())
@@ -1044,7 +1044,11 @@ public sealed partial class EhStructuringPass : IIrPass
             if (byOffset.TryGetValue(leave.TargetOffset, out var target)
                 && CloneTerminator(target) is { } clone)
             {
-                if (TerminatorValueMayChangeAcrossFinally(root, leave, target))
+                if (TerminatorValueMayChangeAcrossFinally(
+                    function,
+                    root,
+                    leave,
+                    target))
                 {
                     continue;
                 }
@@ -1058,6 +1062,7 @@ public sealed partial class EhStructuringPass : IIrPass
     }
 
     static bool TerminatorValueMayChangeAcrossFinally(
+        IrFunction function,
         BlockContainer root,
         Leave leave,
         Block target)
@@ -1076,6 +1081,17 @@ public sealed partial class EhStructuringPass : IIrPass
             return false;
 
         bool addressTaken = AddressTaken(root, returned.Index, returned.IsArgument);
+        if (function.IsMetadataBacked)
+        {
+            return SharedCleanupMayWritePlace(
+                function,
+                root,
+                leave,
+                returned.Index,
+                returned.IsArgument,
+                addressTaken);
+        }
+
         for (IrNode? ancestor = leave.Parent;
              ancestor is not null;
              ancestor = ancestor.Parent)
@@ -1088,6 +1104,68 @@ public sealed partial class EhStructuringPass : IIrPass
                         returned.Index,
                         returned.IsArgument)
                     || addressTaken))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool SharedCleanupMayWritePlace(
+        IrFunction function,
+        BlockContainer root,
+        Leave leave,
+        int index,
+        bool isArgument,
+        bool addressTaken)
+    {
+        if (function.ExceptionFlow is not
+            InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available available
+            || available.Value.NormalTransferAt(
+                leave.SourceOffset,
+                leave.TargetOffset) is not
+                InstructionExceptionFlowResult<
+                    InstructionNormalTransfer>.Available
+                    {
+                        Value:
+                        {
+                            Kind: InstructionNormalTransferKind.Leave,
+                        } transfer,
+                    })
+        {
+            return true;
+        }
+
+        foreach (InstructionCleanupHandler cleanup
+            in transfer.CleanupHandlers)
+        {
+            if (available.Value.GetClause(cleanup.Clause) is not
+                InstructionExceptionFlowResult<
+                    InstructionExceptionClause>.Available clause
+                || clause.Value.HandlerRegion != cleanup.Handler)
+            {
+                return true;
+            }
+
+            TryFinally? matched = null;
+            foreach (TryFinally candidate in
+                root.Descendants.OfType<TryFinally>())
+            {
+                if (candidate.ExceptionClause?.Id != clause.Value.Id)
+                    continue;
+                if (matched is not null)
+                    return true;
+                matched = candidate;
+            }
+
+            if (matched is null
+                || addressTaken
+                || MayWritePlace(
+                    matched.FinallyBody,
+                    index,
+                    isArgument))
             {
                 return true;
             }
