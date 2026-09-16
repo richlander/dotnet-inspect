@@ -133,6 +133,19 @@ evidence owner into its detached validation/build clones, whose source offsets
 and exact structured associations remain the projection currency; clone
 detachment alone never selects Layer 0 compatibility.
 
+The classic async inverse is the step-7 Decompiler consumer. Its raw
+`BodyIndex` obtains protected and handler membership from `LocationAt` on the
+execution method's exact `InstructionExceptionFlowFacts` observation. Its
+planning index requires `TryCatch`, `CatchClause`, and `TryFinally` projections
+to retain the exact clause and region associations issued by that observation,
+then compares each provenance-bearing planning node with the shared imported
+context at the same IL offset. Equal ranges from another body observation do
+not correspond. Missing, unavailable, ambiguous, or re-paired production
+evidence declines through the existing visible classic-inverse failure path.
+The recipe, protocol roles, structured-ancestor accounting, and reconstruction
+policy remain Decompiler-owned. Explicit non-Metadata Layer 0 requests retain
+their range-based compatibility path.
+
 ## Nine-step adoption plan
 
 Tracker #6965 owns this complete sequence:
@@ -165,8 +178,9 @@ Metadata-backed Decompiler importer, correlated `MethodInstructions` handoff,
 exact flat-to-structured clause association, and Instructions-backed EH
 membership and normal-edge validation. Step 6 is implemented by
 `ProtectedRegionControlFlow`'s shared normal-transfer query, Decompiler-owned
-raisability policy, and exact bounded association check. Steps 7 through 9
-remain.
+raisability policy, and exact bounded association check. Step 7 is implemented
+by classic async's shared `LocationAt` queries, exact structured association
+checks, and same-observation raw/planning join. Steps 8 and 9 remain.
 
 ## Production-host path
 
@@ -215,6 +229,11 @@ handoff, exact flat and structured clause association, Metadata catch order,
 the runtime `TextReader.Read(Span<char>)` cleanup identity, visible refusal of
 missing or rejected evidence, closed Metadata body failure, and the explicit
 synthetic compatibility path.
+`ClassicInverseCoreExceptionTests` gates production catch/finally membership
+through shared facts, visible missing-correlation refusal, exact protected,
+catch, and finally associations, same-range foreign-body rejection, and the
+same-observation raw/planning join. The full `ClassicInverseCoreTests` fixture
+population gates unchanged recipe and accounting behavior.
 
 This composition does not add exceptional search/unwind semantics, a
 cross-method exception graph, shared Analysis/Decompiler policy, or a new

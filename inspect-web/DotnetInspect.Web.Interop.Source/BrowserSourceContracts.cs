@@ -1,7 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
+using InertText;
 using Inspector.Findings;
 using ILInspector.Research;
 
@@ -18,7 +20,8 @@ namespace DotnetInspect.Web.Interop.Source;
 /// </remarks>
 public sealed record BrowserSource(
     string Provider,
-    string Provenance,
+    [property: JsonConverter(typeof(InertStringJsonConverter))]
+    InertString Provenance,
     string? Url,
     string? PdbSourceLimitation,
     string Text);
@@ -153,7 +156,7 @@ public sealed record BrowserMemberFindingCensus
         IReadOnlyList<ResearchViews.FactRow>? facts,
         AnnotatedSourceDocument document,
         IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>? sourceFactIdentities,
-        string provenance,
+        InertString provenance,
         string? contextLimitation,
         BrowserAnnotatedSourceInvocationDestination[]?
             invocationDestinations = null,
@@ -315,7 +318,7 @@ public sealed record BrowserAnnotatedSource
     private BrowserAnnotatedSource(
         JsonElement Document,
         BrowserAnnotatedSourceViewerCatalog ViewerCatalog,
-        string Provenance,
+        InertString Provenance,
         string? ContextLimitation)
     {
         this.Document = Document;
@@ -326,12 +329,13 @@ public sealed record BrowserAnnotatedSource
 
     public JsonElement Document { get; }
     public BrowserAnnotatedSourceViewerCatalog ViewerCatalog { get; }
-    public string Provenance { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString Provenance { get; }
     public string? ContextLimitation { get; }
 
     internal static BrowserAnnotatedSource Create(
         AnnotatedSourceDocument document,
-        string provenance,
+        InertString provenance,
         string? contextLimitation,
         BrowserAnnotatedSourceInvocationDestination[]?
             invocationDestinations = null,
@@ -340,7 +344,9 @@ public sealed record BrowserAnnotatedSource
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
-        ArgumentException.ThrowIfNullOrWhiteSpace(provenance);
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            provenance.ToString(),
+            nameof(provenance));
 
         using JsonDocument serialized = JsonDocument.Parse(
             JsonSerializer.Serialize(
