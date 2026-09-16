@@ -58,6 +58,35 @@ whitespace; it is rejected with projected or other Diff operations. Share is
 non-projectable for the ordered comparison endpoints.
 This does not add Evidence capture or change the current Browser projection.
 
+## Where did this API coordinate go?
+
+Use subject-owned `--match` when the question is correspondence for one Type or
+Member rather than all API changes:
+
+```bash
+dnx dotnet-inspect -y -- type System.Text.Json.Schema.JsonSchemaExporter \
+  --package System.Text.Json@9.0.0..8.0.6 --match
+dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer Deserialize:1 \
+  --package System.Text.Json@9.0.0..10.0.0 --match
+```
+
+The endpoints are two literal versions and remain in caller order. A Member
+selector is resolved at the source only; use a unique name, `Name:N`,
+`Name~digest`, or `--index N`. The destination coordinate comes from API
+correspondence, so do not resolve the same ordinal independently there.
+This operation matches declarations, not accessor bodies. A selector such as
+`Foo:1` or `Foo~digest:1` is refused when the ordinal selects an accessor of a
+singleton Property/Event; omit the accessor ordinal to match the declaration.
+An ordinal selecting among overloaded indexer declarations remains valid.
+`--tfm` selects one API surface, optional `--library` narrows only the source
+Library, and `--all` widens only source selection to the existing IncludeAll
+API scope. Destination declaration matching remains strict and independent of
+ordinary accessibility changes. Use `--json` for complete Content or
+`--envelope` for Content, Share, and diagnostics. Do not combine this mode with
+History, `--at`, row projections, projection filters, sections,
+body/source/Analysis requests, or non-package sources. Root `match` is
+unrelated implementation-clone comparison.
+
 ## Did runtime behavior change? (allocations, exceptions)
 
 `-S "Analysis Diff"` compares body-level signal *deltas* between the two

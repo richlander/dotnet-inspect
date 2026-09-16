@@ -199,6 +199,55 @@ Subject-owned Diff preserves those distinctions as an explicit operation and
 mode, not a `History` output section. Its native temporal evidence remains
 owned by [Diff History inspection](diff-history.md).
 
+### Subject-owned API coordinate match
+
+`--match` on `type` and `member` is an explicit pairwise operation over the
+already selected API subject. It changes operation arity without changing
+focus:
+
+```bash
+dotnet-inspect type System.Text.Json.Schema.JsonSchemaExporter \
+  --package System.Text.Json@9.0.0..8.0.6 --match
+dotnet-inspect member System.Text.Json.JsonSerializer Deserialize:1 \
+  --package System.Text.Json@9.0.0..10.0.0 --match
+```
+
+The package range supplies exactly two literal endpoints in caller order.
+`--match` authorizes acquisition of those two payload cells only; it does not
+resolve an intermediate version population, run History, or change the default
+unary behavior when omitted. `--tfm` selects one API surface, and `--all`
+widens source selection from the public API to the existing IncludeAll scope.
+An optional `--library` narrows the source Library only; destination Library
+selection is owned by coordinate-library pairing.
+
+The source Type query is exact. Member focus adds one source selector using the
+existing name, `Name:N`, `Name~digest`, or `--index N` grammar. A bare name may
+resolve only when unique. This operation matches declarations, not accessor
+bodies: `Foo:1`, `Foo~digest:1`, or `Foo --index 1` is refused when it selects
+an accessor of a singleton Property or Event. Omit that accessor ordinal to
+match the Property/Event declaration. An ordinal that selects among overloaded
+indexer declarations remains valid.
+
+The source selector is not independently replayed at the destination: the
+destination coordinate comes from the established Metadata correspondence and
+forwarding contracts. `--all` does not filter the destination: strict native
+declaration matching remains independent of ordinary accessibility changes.
+The
+[coordinate-library pairing](coordinate-library-pairing.md) and
+[forwarded API coordinate correspondence](forwarded-api-coordinate-correspondence.md)
+owners define those semantics; this section owns only CLI admission and
+placement.
+
+Admission rejects `--at`, Type/member populations, Count and row projections,
+projection filters, sections, body/source/Analysis requests,
+platform/project/local sources, and other rendering modes before package
+acquisition. Markdown and plain text lower the typed result through its
+host-neutral presentation. `--json` emits the unprojected Content, while
+`--envelope` emits that identical Content with Share and diagnostics. This
+operation does not reuse or relocate the root `match` command, whose subject is
+implementation-clone comparison rather than cross-version API-coordinate
+correspondence.
+
 ## Subject-owned Diff
 
 ### Claim and scope

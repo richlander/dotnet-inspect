@@ -604,9 +604,25 @@ dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
 ```bash
 dotnet-inspect diff --package Markout@0.33.0..0.35.2
 dotnet-inspect diff --platform System.Runtime@9.0.0..10.0.0 --breaking
+dotnet-inspect type System.Text.Json.Schema.JsonSchemaExporter --package System.Text.Json@9.0.0..8.0.6 --match
+dotnet-inspect member System.Text.Json.JsonSerializer Deserialize:1 --package System.Text.Json@9.0.0..10.0.0 --match
 dotnet-inspect timeline --package Markout@0.33.0..0.35.2 --type Markout.MarkoutWriterOptions --members --at all -S Transitions -n 10 --tail
 dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all -S Evaluations --rows 2..
 ```
+
+`type`/`member --match` follows one source API coordinate across exactly two
+literal package versions, preserving the written direction. Member matching
+resolves its selector only at the source; the destination selector comes from
+API correspondence, so a moved overload ordinal is not independently replayed.
+Matching is declaration-only: an ordinal selecting a singleton Property/Event
+accessor is refused; omit the accessor ordinal to match that declaration.
+Ordinals selecting among overloaded indexer declarations remain supported.
+Use `--tfm` to select one API surface and optional `--library` to narrow the
+source Library. `--all` widens source selection to the existing IncludeAll API
+scope; destination declaration matching remains strict and does not apply a
+second accessibility filter. Plain text and Markdown render the typed result;
+`--json` emits complete Content, and `--envelope` adds Share and diagnostics.
+This is separate from root `match`, which compares implementation structure.
 
 Ordinary API diffs with one Library at each endpoint consume the shared
 [Library API Diff contract](docs/design/library-api-diff-presentation.md)
