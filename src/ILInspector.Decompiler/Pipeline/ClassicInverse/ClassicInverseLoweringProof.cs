@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+
+using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -23,10 +27,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// The proof's work is proportional to what it charges. One charged pass builds
 /// every index the later phases need — state stores and awaiter transfers by
 /// block, blocks by start offset, dispatch tests by tested state, spill stores
-/// by slot, exception-region membership by raw offset, and each node's position
-/// in its parent — so no phase rescans the body per state. Every later phase
-/// charges for each element it touches, which makes a reintroduced whole-body
-/// rescan visible as budget consumption rather than as silent quadratic work.
+/// by slot, shared exception-region membership by imported offset, and each
+/// node's position in its parent — so no phase rescans the body per state.
+/// Every later phase charges for each element it touches, which makes a
+/// reintroduced whole-body rescan visible as budget consumption rather than as
+/// silent quadratic work.
 /// </para>
 /// <para>Owning design: <c>docs/design/classic-async-reconstruction.md</c>.</para>
 /// </summary>
@@ -200,11 +205,10 @@ internal sealed partial class ClassicInverseLoweringProof
     }
 
     /// <summary>
-    /// Exception regions are proved in both coordinate spaces. A planning view
-    /// that retains flat regions must retain their exact imported identity, and
-    /// its actual <see cref="TryCatch"/>/<see cref="TryFinally"/> structure must
-    /// describe the same regions. Every planning node with imported provenance
-    /// then keeps the same try/handler membership at that raw offset. Nodes
+    /// Production exception contexts are proved against one exact Instructions
+    /// observation. Structured nodes retain its clause and region identities,
+    /// while imported offsets query its validated location context. Explicit
+    /// non-Metadata Layer 0 inputs retain range-based compatibility. Nodes
     /// synthesized only to wrap separately covered descendants carry no offset
     /// and therefore add no vacuous correspondence.
     /// </summary>
@@ -213,20 +217,46 @@ internal sealed partial class ClassicInverseLoweringProof
         BodyIndex raw,
         ClassicInverseBudget budget)
     {
-        if (planning.ImportedExceptionRegions.Count > 0
-            && !planning.ImportedExceptionRegions.SequenceEqual(
-                raw.ImportedExceptionRegions))
+        if (planning.SharedExceptionFlow is not null
+            || raw.SharedExceptionFlow is not null)
         {
-            return "the raw import and planning view retain different "
-                + "exception-region identities";
-        }
+            if (planning.SharedExceptionFlow is null
+                || raw.SharedExceptionFlow is null
+                || !ReferenceEquals(
+                    planning.SharedExceptionFlow,
+                    raw.SharedExceptionFlow))
+            {
+                return "the raw import and planning view do not share one "
+                    + "Instructions exception-flow observation";
+            }
 
-        if (!planning.StructuredExceptionRegions.SequenceEqual(
-                raw.ImportedExceptionRegions.Select(
-                    static region => region.Identity)))
+            if (planning.StructuredExceptionClauses.Count
+                    != raw.SharedExceptionFlow.Clauses.Length
+                || !planning.StructuredExceptionClauses.SetEquals(
+                    raw.SharedExceptionFlow.Clauses.Select(
+                        static clause => clause.Id)))
+            {
+                return "the planning view structures different exception "
+                    + "clauses from the shared Instructions observation";
+            }
+        }
+        else
         {
-            return "the planning view structures different exception regions "
-                + "from the raw import";
+            if (planning.ImportedExceptionRegions.Count > 0
+                && !planning.ImportedExceptionRegions.SequenceEqual(
+                    raw.ImportedExceptionRegions))
+            {
+                return "the raw import and planning view retain different "
+                    + "exception-region identities";
+            }
+
+            if (!planning.StructuredExceptionRegions.SequenceEqual(
+                    raw.ImportedExceptionRegions.Select(
+                        static region => region.Identity)))
+            {
+                return "the planning view structures different exception "
+                    + "regions from the raw import";
+            }
         }
 
         foreach ((int offset, ImmutableArray<ExceptionMembership> expected)
@@ -238,14 +268,20 @@ internal sealed partial class ClassicInverseLoweringProof
                     + "has no raw import correspondence";
             }
 
-            ImmutableArray<ExceptionMembership>? actual =
-                raw.ImportedExceptionContextAt(offset, budget);
-            if (actual is null)
-                return BudgetFailure;
-            if (!expected.SequenceEqual(actual.Value))
+            if (!raw.TryImportedExceptionContextAt(
+                    offset,
+                    budget,
+                    out ImmutableArray<ExceptionMembership> actual))
+            {
+                return budget.Exhausted
+                    ? BudgetFailure
+                    : raw.ExceptionFailure
+                        ?? "the shared Instructions exception context is unavailable";
+            }
+            if (!expected.SequenceEqual(actual))
             {
                 return $"the structured exception context at IL_{offset:x4} "
-                    + "does not match the raw exception-region extents";
+                    + "does not match the imported exception context";
             }
         }
 
@@ -268,12 +304,17 @@ internal sealed partial class ClassicInverseLoweringProof
         int GuardCount,
         BodyIndex Index);
 
-    /// <summary>Stable identity of one imported or structured handler region.</summary>
+    /// <summary>
+    /// Compatibility identity for a non-Metadata imported or structured
+    /// handler region.
+    /// </summary>
     readonly record struct ExceptionRegionIdentity(
         HandlerKind Kind,
         string CatchType);
 
-    /// <summary>The imported extents carried by one handler region.</summary>
+    /// <summary>
+    /// Compatibility extents carried by one non-Metadata handler region.
+    /// </summary>
     readonly record struct ExceptionRegionLayout(
         ExceptionRegionIdentity Identity,
         int TryOffset,
@@ -283,12 +324,13 @@ internal sealed partial class ClassicInverseLoweringProof
         int FilterOffset);
 
     /// <summary>
-    /// One region in the exception-context stack. <c>IsHandler</c> separates
-    /// the protected range from its handler without inferring either from
-    /// display text.
+    /// One region in the exception-context stack. Production membership carries
+    /// the Instructions identity; compatibility membership carries the former
+    /// local ordinal and handler role.
     /// </summary>
     readonly record struct ExceptionMembership(
-        int Region,
+        InstructionExceptionRegionId? SharedRegion,
+        int CompatibilityRegion,
         bool IsHandler);
 
     /// <summary>One callback's import anchor and exact typed member identities.</summary>
@@ -543,6 +585,7 @@ internal sealed partial class ClassicInverseLoweringProof
                     setResult,
                     setException,
                     exceptionLocal,
+                    budget,
                     out failure))
             {
                 return null;
@@ -796,10 +839,10 @@ internal sealed partial class ClassicInverseLoweringProof
     }
 
     /// <summary>
-    /// The unmodified import carries the completion catch as an exception
-    /// region, not as tree structure: its exact kind, catch type, filter
-    /// absence, handler range, and handler-entry variable are the facts that
-    /// bind <c>SetException</c> to the exception the runtime caught.
+    /// The unmodified production import carries the completion catch through
+    /// exact Instructions clause and location facts, not tree structure. Catch
+    /// type and handler-entry binding remain Decompiler-owned recipe evidence.
+    /// Explicit non-Metadata inputs retain range-based compatibility.
     /// </summary>
     static bool ProveRawCompletionHandler(
         IrFunction body,
@@ -807,8 +850,20 @@ internal sealed partial class ClassicInverseLoweringProof
         Call setResult,
         Call setException,
         int exceptionLocal,
+        ClassicInverseBudget budget,
         out string? failure)
     {
+        if (index.SharedExceptionFlow is not null)
+        {
+            return ProveSharedRawCompletionHandler(
+                index,
+                setResult,
+                setException,
+                exceptionLocal,
+                budget,
+                out failure);
+        }
+
         List<HandlerRegion> catches =
         [
             .. body.Regions.Where(static region =>
@@ -870,6 +925,110 @@ internal sealed partial class ClassicInverseLoweringProof
         failure = null;
         return true;
     }
+
+    static bool ProveSharedRawCompletionHandler(
+        BodyIndex index,
+        Call setResult,
+        Call setException,
+        int exceptionLocal,
+        ClassicInverseBudget budget,
+        out string? failure)
+    {
+        InstructionExceptionFlowFacts facts = index.SharedExceptionFlow!;
+        if (facts.Clauses.Any(static clause =>
+                clause.Kind is ExceptionRegionKind.Filter
+                    or ExceptionRegionKind.Fault))
+        {
+            failure = "the import carries a filter or fault handler region";
+            return false;
+        }
+
+        InstructionExceptionClause[] catches =
+        [
+            .. facts.Clauses.Where(static clause =>
+                clause.Kind == ExceptionRegionKind.Catch),
+        ];
+        if (catches is not [InstructionExceptionClause completion])
+        {
+            failure = "the completion protocol needs exactly one catch handler "
+                + $"region; the import has {catches.Length}";
+            return false;
+        }
+
+        DecompilerExceptionClauseImport[] imports =
+        [
+            .. index.SharedClauseImports.Where(imported =>
+                ReferenceEquals(imported.Facts, completion)),
+        ];
+        if (imports is not [DecompilerExceptionClauseImport imported])
+        {
+            failure = "the completion catch has no exact Decompiler import "
+                + "association";
+            return false;
+        }
+        if (imported.Region.CatchType is not { } catchType
+            || !MemberIdentity.IsCoreLibraryType(
+                ClassicInverseNodeFacts.Definition(catchType),
+                "System",
+                "Exception"))
+        {
+            failure = "the completion catch does not catch core-library "
+                + $"System.Exception (it catches "
+                + $"'{imported.Region.CatchType?.ToDisplayString() ?? "<none>"}')";
+            return false;
+        }
+        if (completion.FilterRegion is not null)
+        {
+            failure = "the completion catch carries an exception filter";
+            return false;
+        }
+
+        if (!index.TryImportedExceptionContextAt(
+                setException.SourceOffset,
+                budget,
+                out ImmutableArray<ExceptionMembership> exceptionContext)
+            || !exceptionContext.Any(membership =>
+                membership.SharedRegion == completion.HandlerRegion))
+        {
+            failure = index.ExceptionFailure
+                ?? "the SetException callback is outside the completion catch handler";
+            return false;
+        }
+        if (!index.TryImportedExceptionContextAt(
+                setResult.SourceOffset,
+                budget,
+                out ImmutableArray<ExceptionMembership> resultContext)
+            || resultContext.Any(membership =>
+                membership.SharedRegion == completion.HandlerRegion))
+        {
+            failure = index.ExceptionFailure
+                ?? "the SetResult callback is inside the completion catch handler";
+            return false;
+        }
+
+        InstructionExceptionRegion handler = AssertSharedRegion(
+            facts,
+            completion.HandlerRegion);
+        List<StoreLocal> entries =
+        [
+            .. index.CaughtStores.Where(
+                store => store.SourceOffset == handler.Extent.Start),
+        ];
+        if (entries is not [StoreLocal entry] || entry.Index != exceptionLocal)
+        {
+            failure = "the completion catch does not store the caught exception "
+                + "into the local SetException reads";
+            return false;
+        }
+
+        failure = null;
+        return true;
+    }
+
+    static InstructionExceptionRegion AssertSharedRegion(
+        InstructionExceptionFlowFacts facts,
+        InstructionExceptionRegionId id)
+        => facts.Regions.Single(region => region.Id == id);
 
     /// <summary>
     /// The planning view carries the same catch as structure. Its exact type,
@@ -1734,12 +1893,25 @@ internal sealed partial class ClassicInverseLoweringProof
                 new(ReferenceEqualityComparer.Instance);
         readonly Dictionary<int, ImmutableArray<ExceptionMembership>>
             _structuredExceptionContexts = [];
-        readonly Dictionary<TryCatch, ImmutableArray<int>> _tryCatchRegions =
+        readonly Dictionary<TryCatch, ImmutableArray<ExceptionMembership>>
+            _tryCatchProtectedRegions =
             new(ReferenceEqualityComparer.Instance);
-        readonly Dictionary<TryFinally, int> _tryFinallyRegions =
+        readonly Dictionary<CatchClause, ExceptionMembership>
+            _catchHandlerRegions =
+            new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<TryFinally, ExceptionMembership>
+            _tryFinallyProtectedRegions =
+            new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<TryFinally, ExceptionMembership>
+            _tryFinallyHandlerRegions =
             new(ReferenceEqualityComparer.Instance);
         readonly List<ExceptionRegionIdentity> _structuredExceptionRegions = [];
+        readonly HashSet<MethodExceptionClauseId>
+            _structuredExceptionClauses = [];
         readonly HashSet<int> _sourceOffsets = [];
+        InstructionExceptionFlowFacts? _sharedExceptionFlow;
+        ImmutableArray<DecompilerExceptionClauseImport> _sharedClauseImports =
+            [];
         ImmutableArray<ExceptionRegionLayout> _importedExceptionRegions = [];
 
         BodyIndex(TypeRef machine, bool isRawImport)
@@ -1784,11 +1956,20 @@ internal sealed partial class ClassicInverseLoweringProof
 
         internal string? ExceptionFailure { get; private set; }
 
+        internal InstructionExceptionFlowFacts? SharedExceptionFlow
+            => _sharedExceptionFlow;
+
+        internal ImmutableArray<DecompilerExceptionClauseImport>
+            SharedClauseImports => _sharedClauseImports;
+
         internal IReadOnlyList<ExceptionRegionLayout>
             ImportedExceptionRegions => _importedExceptionRegions;
 
         internal IReadOnlyList<ExceptionRegionIdentity>
             StructuredExceptionRegions => _structuredExceptionRegions;
+
+        internal IReadOnlySet<MethodExceptionClauseId>
+            StructuredExceptionClauses => _structuredExceptionClauses;
 
         internal IReadOnlyDictionary<int, ImmutableArray<ExceptionMembership>>
             StructuredExceptionContexts => _structuredExceptionContexts;
@@ -1893,17 +2074,74 @@ internal sealed partial class ClassicInverseLoweringProof
         internal int PositionOf(IrNode node)
             => _positions.GetValueOrDefault(node, -1);
 
-        internal ImmutableArray<ExceptionMembership>?
-            ImportedExceptionContextAt(
-                int offset,
-                ClassicInverseBudget budget)
+        internal bool TryImportedExceptionContextAt(
+            int offset,
+            ClassicInverseBudget budget,
+            out ImmutableArray<ExceptionMembership> context)
         {
-            var context =
+            if (_sharedExceptionFlow is not null)
+            {
+                if (!budget.Charge())
+                {
+                    context = [];
+                    return false;
+                }
+
+                switch (_sharedExceptionFlow.LocationAt(offset))
+                {
+                    case InstructionExceptionFlowResult<
+                        ImmutableArray<InstructionExceptionRegion>>.Available
+                        available:
+                    {
+                        var shared =
+                            ImmutableArray.CreateBuilder<ExceptionMembership>(
+                                available.Value.Length);
+                        foreach (InstructionExceptionRegion region
+                            in available.Value)
+                        {
+                            if (!budget.Charge())
+                            {
+                                context = [];
+                                return false;
+                            }
+                            shared.Add(SharedMembership(region.Id));
+                        }
+                        context = shared.ToImmutable();
+                        return true;
+                    }
+                    case InstructionExceptionFlowResult<
+                        ImmutableArray<InstructionExceptionRegion>>.Unavailable
+                        unavailable:
+                        ExceptionFailure =
+                            $"Instructions exception context at IL_{offset:x4} "
+                            + $"is unavailable ({unavailable.Reason}): "
+                            + unavailable.Detail;
+                        context = [];
+                        return false;
+                    case InstructionExceptionFlowResult<
+                        ImmutableArray<InstructionExceptionRegion>>.Ambiguous
+                        ambiguous:
+                        ExceptionFailure =
+                            $"Instructions exception context at IL_{offset:x4} "
+                            + "is ambiguous: "
+                            + ambiguous.Detail;
+                        context = [];
+                        return false;
+                    default:
+                        throw new InvalidOperationException(
+                            "Unknown Instructions exception-context result.");
+                }
+            }
+
+            var compatibility =
                 ImmutableArray.CreateBuilder<ExceptionMembership>();
             for (int i = 0; i < _importedExceptionRegions.Length; i++)
             {
                 if (!budget.Charge())
-                    return null;
+                {
+                    context = [];
+                    return false;
+                }
 
                 ExceptionRegionLayout region =
                     _importedExceptionRegions[i];
@@ -1912,17 +2150,24 @@ internal sealed partial class ClassicInverseLoweringProof
                         region.TryOffset,
                         region.TryLength))
                 {
-                    context.Add(new(i, IsHandler: false));
+                    compatibility.Add(
+                        CompatibilityMembership(
+                            i,
+                            isHandler: false));
                 }
                 else if (Contains(
                     offset,
                     region.HandlerOffset,
                     region.HandlerLength))
                 {
-                    context.Add(new(i, IsHandler: true));
+                    compatibility.Add(
+                        CompatibilityMembership(
+                            i,
+                            isHandler: true));
                 }
             }
-            return context.ToImmutable();
+            context = compatibility.ToImmutable();
+            return true;
         }
 
         internal static BodyIndex? Build(
@@ -1934,16 +2179,10 @@ internal sealed partial class ClassicInverseLoweringProof
             ClassicInverseBudget budget)
         {
             var index = new BodyIndex(machine, isRawImport);
-            if (!index.BuildImportedExceptionRegions(body.Regions, budget))
+            if (!index.InitializeExceptionFacts(body, budget))
                 return null;
             if (index.ExceptionFailure is not null)
                 return index;
-            // The import carries a user finally as a region; the planning view
-            // carries it as structure. Each space reads its own evidence.
-            index.HasFinallyContext = isRawImport
-                && index._importedExceptionRegions.Any(
-                    static region =>
-                        region.Identity.Kind == HandlerKind.Finally);
 
             foreach (IrNode node in body.Body.Descendants.Prepend(body.Body))
             {
@@ -1967,6 +2206,83 @@ internal sealed partial class ClassicInverseLoweringProof
             if (!index.BuildControlFlow(budget))
                 return null;
             return index;
+        }
+
+        bool InitializeExceptionFacts(
+            IrFunction body,
+            ClassicInverseBudget budget)
+        {
+            switch (body.ExceptionFlow)
+            {
+                case InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Available available:
+                    _sharedExceptionFlow = available.Value;
+                    _sharedClauseImports = body.ExceptionClauseImports;
+                    if (_sharedExceptionFlow.Clauses.Length > 2)
+                    {
+                        ExceptionFailure =
+                            "the closed recipes admit one completion catch "
+                            + "and at most one finally";
+                        return true;
+                    }
+                    if (_sharedClauseImports.Length
+                            != _sharedExceptionFlow.Clauses.Length
+                        || _sharedExceptionFlow.Clauses.Any(clause =>
+                            _sharedClauseImports.Count(imported =>
+                                ReferenceEquals(
+                                    imported.Facts,
+                                    clause)) != 1))
+                    {
+                        ExceptionFailure =
+                            "the imported exception clauses do not preserve "
+                            + "the exact Instructions associations";
+                        return true;
+                    }
+                    HasFinallyContext = IsRawImport
+                        && _sharedExceptionFlow.Clauses.Any(
+                            static clause =>
+                                clause.Kind
+                                    == ExceptionRegionKind.Finally);
+                    return true;
+
+                case InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Unavailable unavailable:
+                    ExceptionFailure =
+                        "Instructions exception-flow evidence is unavailable "
+                        + $"({unavailable.Reason}): {unavailable.Detail}";
+                    return true;
+
+                case InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Ambiguous ambiguous:
+                    ExceptionFailure =
+                        "Instructions exception-flow evidence is ambiguous: "
+                        + ambiguous.Detail;
+                    return true;
+
+                case null when body.IsMetadataBacked:
+                    ExceptionFailure =
+                        "metadata-backed classic async reconstruction has no "
+                        + "correlated Instructions exception-flow evidence";
+                    return true;
+
+                case null:
+                    if (!BuildImportedExceptionRegions(
+                            body.Regions,
+                            budget))
+                    {
+                        return false;
+                    }
+                    HasFinallyContext = IsRawImport
+                        && _importedExceptionRegions.Any(
+                            static region =>
+                                region.Identity.Kind
+                                    == HandlerKind.Finally);
+                    return true;
+
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown Instructions exception-flow result.");
+            }
         }
 
         bool BuildImportedExceptionRegions(
@@ -2028,39 +2344,31 @@ internal sealed partial class ClassicInverseLoweringProof
                     when ReferenceEquals(node, tryCatch.TryBody):
                     context = Append(
                         context,
-                        _tryCatchRegions[tryCatch],
-                        isHandler: false);
+                        _tryCatchProtectedRegions[tryCatch]);
                     break;
 
-                case TryCatch tryCatch when node is CatchClause:
-                {
-                    int clause = node.ChildIndex - 1;
-                    ImmutableArray<int> regions =
-                        _tryCatchRegions[tryCatch];
-                    if (clause < 0 || clause >= regions.Length)
+                case TryCatch when node is CatchClause clause:
+                    if (!_catchHandlerRegions.TryGetValue(
+                            clause,
+                            out ExceptionMembership handler))
                     {
                         ExceptionFailure =
                             "a structured catch clause has no exception-region identity";
                         return true;
                     }
-                    context = context.Add(new(
-                        regions[clause],
-                        IsHandler: true));
+                    context = context.Add(handler);
                     break;
-                }
 
                 case TryFinally tryFinally
                     when ReferenceEquals(node, tryFinally.TryBody):
-                    context = context.Add(new(
-                        _tryFinallyRegions[tryFinally],
-                        IsHandler: false));
+                    context = context.Add(
+                        _tryFinallyProtectedRegions[tryFinally]);
                     break;
 
                 case TryFinally tryFinally
                     when ReferenceEquals(node, tryFinally.FinallyBody):
-                    context = context.Add(new(
-                        _tryFinallyRegions[tryFinally],
-                        IsHandler: true));
+                    context = context.Add(
+                        _tryFinallyHandlerRegions[tryFinally]);
                     break;
             }
 
@@ -2084,53 +2392,172 @@ internal sealed partial class ClassicInverseLoweringProof
             switch (node)
             {
                 case TryCatch tryCatch:
-                {
-                    if (tryCatch.Children.Count != 2
-                        || _structuredExceptionRegions.Count >= 2)
-                    {
-                        ExceptionFailure =
-                            "the closed recipes admit one completion catch and at most one finally";
-                        return true;
-                    }
-                    var regions = ImmutableArray.CreateBuilder<int>(
-                        tryCatch.Children.Count - 1);
-                    for (int i = 1; i < tryCatch.Children.Count; i++)
-                    {
-                        if (!budget.Charge())
-                            return false;
-                        var clause =
-                            (CatchClause)tryCatch.Children[i];
-                        regions.Add(_structuredExceptionRegions.Count);
-                        _structuredExceptionRegions.Add(new(
-                            clause.Filter is null
-                                ? HandlerKind.Catch
-                                : HandlerKind.Filter,
-                            ClassicInverseTypedIdentity.Type(
-                                clause.ExceptionType)));
-                    }
-                    _tryCatchRegions[tryCatch] = regions.ToImmutable();
-                    break;
-                }
+                    return RegisterTryCatch(tryCatch, budget);
 
                 case TryFinally tryFinally:
-                    if (_structuredExceptionRegions.Count >= 2)
-                    {
-                        ExceptionFailure =
-                            "the closed recipes admit one completion catch and at most one finally";
-                        return true;
-                    }
-                    if (!budget.Charge())
-                        return false;
-                    _tryFinallyRegions[tryFinally] =
-                        _structuredExceptionRegions.Count;
-                    _structuredExceptionRegions.Add(new(
-                        HandlerKind.Finally,
-                        ClassicInverseTypedIdentity.Type(null)));
-                    break;
+                    return RegisterTryFinally(tryFinally, budget);
             }
 
             return true;
         }
+
+        bool RegisterTryCatch(
+            TryCatch tryCatch,
+            ClassicInverseBudget budget)
+        {
+            if (tryCatch.Children.Count != 2
+                || StructuredRegionCount >= 2)
+            {
+                ExceptionFailure =
+                    "the closed recipes admit one completion catch and at most one finally";
+                return true;
+            }
+
+            if (_sharedExceptionFlow is not null)
+                return RegisterSharedTryCatch(tryCatch, budget);
+
+            var protectedRegions =
+                ImmutableArray.CreateBuilder<ExceptionMembership>(
+                    tryCatch.Children.Count - 1);
+            for (int i = 1; i < tryCatch.Children.Count; i++)
+            {
+                if (!budget.Charge())
+                    return false;
+                var clause = (CatchClause)tryCatch.Children[i];
+                int region = _structuredExceptionRegions.Count;
+                protectedRegions.Add(
+                    CompatibilityMembership(
+                        region,
+                        isHandler: false));
+                _catchHandlerRegions[clause] =
+                    CompatibilityMembership(
+                        region,
+                        isHandler: true);
+                _structuredExceptionRegions.Add(new(
+                    clause.Filter is null
+                        ? HandlerKind.Catch
+                        : HandlerKind.Filter,
+                    ClassicInverseTypedIdentity.Type(
+                        clause.ExceptionType)));
+            }
+            _tryCatchProtectedRegions[tryCatch] =
+                protectedRegions.ToImmutable();
+            return true;
+        }
+
+        bool RegisterSharedTryCatch(
+            TryCatch tryCatch,
+            ClassicInverseBudget budget)
+        {
+            if (tryCatch.ExceptionProtectedRegion is not
+                { Role: InstructionExceptionRegionRole.Protected }
+                protectedRegion
+                || protectedRegion.Body != _sharedExceptionFlow!.Body)
+            {
+                ExceptionFailure =
+                    "the structured completion try has no exact Instructions "
+                    + "protected-region association";
+                return true;
+            }
+
+            _tryCatchProtectedRegions[tryCatch] =
+                [SharedMembership(protectedRegion)];
+            for (int i = 1; i < tryCatch.Children.Count; i++)
+            {
+                if (!budget.Charge())
+                    return false;
+                var clause = (CatchClause)tryCatch.Children[i];
+                if (clause.ExceptionClause is not { } facts
+                    || !_sharedExceptionFlow.Clauses.Any(
+                        candidate => ReferenceEquals(candidate, facts))
+                    || facts.ProtectedRegion != protectedRegion
+                    || facts.HandlerRegion.Role
+                        != InstructionExceptionRegionRole.Handler
+                    || facts.Kind
+                        != (clause.Filter is null
+                            ? ExceptionRegionKind.Catch
+                            : ExceptionRegionKind.Filter))
+                {
+                    ExceptionFailure =
+                        "a structured catch clause has no exact Instructions "
+                        + "clause association";
+                    return true;
+                }
+                if (!_structuredExceptionClauses.Add(facts.Id))
+                {
+                    ExceptionFailure =
+                        "a structured exception clause is associated more than once";
+                    return true;
+                }
+                _catchHandlerRegions[clause] =
+                    SharedMembership(facts.HandlerRegion);
+            }
+            return true;
+        }
+
+        bool RegisterTryFinally(
+            TryFinally tryFinally,
+            ClassicInverseBudget budget)
+        {
+            if (StructuredRegionCount >= 2)
+            {
+                ExceptionFailure =
+                    "the closed recipes admit one completion catch and at most one finally";
+                return true;
+            }
+            if (!budget.Charge())
+                return false;
+
+            if (_sharedExceptionFlow is not null)
+            {
+                if (tryFinally.ExceptionClause is not
+                    {
+                        Kind: ExceptionRegionKind.Finally,
+                        ProtectedRegion.Role:
+                            InstructionExceptionRegionRole.Protected,
+                        HandlerRegion.Role:
+                            InstructionExceptionRegionRole.Handler,
+                    } facts
+                    || !_sharedExceptionFlow.Clauses.Any(
+                        candidate => ReferenceEquals(candidate, facts))
+                    || facts.Id.Body != _sharedExceptionFlow.Body)
+                {
+                    ExceptionFailure =
+                        "the structured finally has no exact Instructions "
+                        + "clause association";
+                    return true;
+                }
+                if (!_structuredExceptionClauses.Add(facts.Id))
+                {
+                    ExceptionFailure =
+                        "a structured exception clause is associated more than once";
+                    return true;
+                }
+                _tryFinallyProtectedRegions[tryFinally] =
+                    SharedMembership(facts.ProtectedRegion);
+                _tryFinallyHandlerRegions[tryFinally] =
+                    SharedMembership(facts.HandlerRegion);
+                return true;
+            }
+
+            int region = _structuredExceptionRegions.Count;
+            _tryFinallyProtectedRegions[tryFinally] =
+                CompatibilityMembership(
+                    region,
+                    isHandler: false);
+            _tryFinallyHandlerRegions[tryFinally] =
+                CompatibilityMembership(
+                    region,
+                    isHandler: true);
+            _structuredExceptionRegions.Add(new(
+                HandlerKind.Finally,
+                ClassicInverseTypedIdentity.Type(null)));
+            return true;
+        }
+
+        int StructuredRegionCount => _sharedExceptionFlow is null
+            ? _structuredExceptionRegions.Count
+            : _structuredExceptionClauses.Count;
 
         static ExceptionRegionIdentity IdentityOf(HandlerRegion region)
             => new(
@@ -2139,16 +2566,30 @@ internal sealed partial class ClassicInverseLoweringProof
 
         static ImmutableArray<ExceptionMembership> Append(
             ImmutableArray<ExceptionMembership> context,
-            ImmutableArray<int> regions,
-            bool isHandler)
+            ImmutableArray<ExceptionMembership> regions)
         {
             var appended = ImmutableArray.CreateBuilder<ExceptionMembership>(
                 context.Length + regions.Length);
             appended.AddRange(context);
-            foreach (int region in regions)
-                appended.Add(new(region, isHandler));
+            appended.AddRange(regions);
             return appended.ToImmutable();
         }
+
+        static ExceptionMembership SharedMembership(
+            InstructionExceptionRegionId region)
+            => new(
+                region,
+                CompatibilityRegion: -1,
+                IsHandler:
+                    region.Role == InstructionExceptionRegionRole.Handler);
+
+        static ExceptionMembership CompatibilityMembership(
+            int region,
+            bool isHandler)
+            => new(
+                SharedRegion: null,
+                CompatibilityRegion: region,
+                IsHandler: isHandler);
 
         static bool Contains(int offset, int start, int length)
             => length >= 0

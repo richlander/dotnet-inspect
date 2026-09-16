@@ -1004,8 +1004,6 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(draft).toBeFocused();
     expect(searchRequests).toBe(0);
     await draft.fill("Microsoft.Extensions.Hosting");
-    await page.locator('[data-query-mode="changes"]').click();
-    await page.locator('[data-query-mode="packages"]').click();
     await expect(draft).toHaveValue("Microsoft.Extensions.Hosting");
     expect(searchRequests).toBe(0);
     await draft.fill("   ");
@@ -1268,14 +1266,22 @@ test.describe("Package Activity website over real Wasm", () => {
       });
     });
 
-    await page.goto("/query");
-    await expect(page.locator("#package-query-prefix"))
-      .toBeVisible({ timeout: 120_000 });
-    await page.locator('[data-query-mode="changes"]').click();
-    await expect(page.locator('[data-query-mode="changes"]'))
-      .toHaveText("Activity");
+    await page.goto("/");
+    const homeSearch = page.locator("#spotlight-input");
+    await expect(homeSearch).toBeVisible({ timeout: 120_000 });
+    await homeSearch.fill("activity");
+    await page.locator('[data-sl-package-activity="1"]').click();
+    await expect(page).toHaveURL(/\/activity$/);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(homeSearch).toBeFocused();
+    await page.goForward();
+    await expect(page).toHaveURL(/\/activity$/);
     await expect(page.locator("#package-changes-heading"))
       .toHaveText("Package Activity");
+    await page.reload();
+    await expect(page.locator("#package-changes-heading"))
+      .toHaveText("Package Activity", { timeout: 120_000 });
     await expect(page).toHaveTitle("Package Activity · dotnet-inspect");
     const packageSet = page.locator("#package-changes-package-set");
     await expect(packageSet).toBeVisible();

@@ -1,13 +1,25 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 using ILInspector.Decompiler.Pipeline;
+using InstructionExceptionClause =
+    ILInspector.Instructions.InstructionExceptionClause;
+using InstructionExceptionFlowFacts =
+    ILInspector.Instructions.InstructionExceptionFlowFacts;
+using InstructionExceptionRegion =
+    ILInspector.Instructions.InstructionExceptionRegion;
+using InstructionExceptionRegionId =
+    ILInspector.Instructions.InstructionExceptionRegionId;
+using MethodInstructions =
+    ILInspector.Instructions.MethodInstructions;
 
 namespace ILInspector.Decompiler.Tests;
 
 public sealed partial class ClassicInverseCoreTests
 {
     [Fact]
-    public void ClassicInverseCompletionCatchRejectsDetachedPlanningRepair()
+    public void
+        ClassicInverseCompletionCatchUsesSharedFactsInsteadOfCompatibilityRanges()
     {
         using RequestScope baseline = OpenRequest("AwaitValue");
         Reconstruct(baseline.Request);
@@ -67,7 +79,7 @@ public sealed partial class ClassicInverseCoreTests
                 ];
             });
 
-        ClassicInverseDecision decision = DecideWithRepairedExceptionRegions(
+        ClassicInverseDecision decision = DecideWithRestoredPlanningRegions(
             narrowed,
             originalRegions,
             body =>
@@ -80,12 +92,13 @@ public sealed partial class ClassicInverseCoreTests
                 Assert.True(IsWithin(getAwaiter, completion.TryBody));
             });
 
-        AssertExceptionContextDecline(decision);
+        Assert.IsType<ClassicInverseDecision.Reconstruct>(decision);
         Assert.True(narrowedStart >= 0);
     }
 
     [Fact]
-    public void ClassicInverseFinallyRejectsDetachedPlanningRepair()
+    public void
+        ClassicInverseFinallyUsesSharedFactsInsteadOfCompatibilityRanges()
     {
         using RequestScope baseline = OpenRequest("AwaitInTryFinally");
         Reconstruct(baseline.Request);
@@ -162,7 +175,7 @@ public sealed partial class ClassicInverseCoreTests
                 ];
             });
 
-        ClassicInverseDecision decision = DecideWithRepairedExceptionRegions(
+        ClassicInverseDecision decision = DecideWithRestoredPlanningRegions(
             narrowed,
             originalRegions,
             body =>
@@ -175,11 +188,277 @@ public sealed partial class ClassicInverseCoreTests
                 Assert.True(IsWithin(getAwaiter, tryFinally.TryBody));
             });
 
-        AssertExceptionContextDecline(decision);
+        Assert.IsType<ClassicInverseDecision.Reconstruct>(decision);
         Assert.True(narrowedStart >= 0);
     }
 
-    static ClassicInverseDecision DecideWithRepairedExceptionRegions(
+    [Fact]
+    public void ClassicInverseMissingSharedExceptionFlowDeclinesVisibly()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        scope.Request.ExecutionBody.ExceptionInstructions = null;
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(scope.Request));
+
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            decline.Reason);
+        Assert.Contains(
+            "no correlated Instructions exception-flow evidence",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClassicInverseUnavailableSharedExceptionFlowDeclinesVisibly()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        MethodInstructions available =
+            Assert.IsType<MethodInstructions>(
+                scope.Request.ExecutionBody.ExceptionInstructions);
+        scope.Request.ExecutionBody.ExceptionInstructions =
+            new MethodInstructions(
+                available.Instructions,
+                available.Blocks);
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(scope.Request));
+
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            decline.Reason);
+        Assert.Contains(
+            "Instructions exception-flow evidence is unavailable",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ClassicInverseStructuredContextRejectsSameRangeForeignBodyIdentity()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        using RequestScope foreign = OpenRequest("TwoSequentialAwaits");
+        InstructionExceptionFlowFacts localFacts =
+            AvailableFacts(scope.Request.ExecutionBody);
+        InstructionExceptionFlowFacts foreignFacts =
+            AvailableFacts(foreign.Request.ExecutionBody);
+        InstructionExceptionClause localClause = Assert.Single(
+            localFacts.Clauses,
+            static clause => clause.Kind == ExceptionRegionKind.Catch);
+        InstructionExceptionClause foreignClause = Assert.Single(
+            foreignFacts.Clauses,
+            static clause => clause.Kind == ExceptionRegionKind.Catch);
+
+        Assert.Equal(
+            Region(localFacts, localClause.ProtectedRegion).Extent,
+            Region(foreignFacts, foreignClause.ProtectedRegion).Extent);
+        Assert.NotEqual(
+            localClause.ProtectedRegion,
+            foreignClause.ProtectedRegion);
+
+        Action<IrFunction, ImmutableArray<IIrPass>> runner =
+            Assert.IsType<Action<IrFunction, ImmutableArray<IIrPass>>>(
+                scope.Request.RunPasses);
+        ClassicInverseRequest stale = CopyRequest(
+            scope.Request,
+            runPasses: (body, passes) =>
+            {
+                runner(body, passes);
+                if (body.Name != "MoveNext")
+                    return;
+
+                TryCatch original = Assert.Single(
+                    body.Body.Descendants.OfType<TryCatch>());
+                IReadOnlyList<IrNode> children =
+                    original.DetachChildren();
+                var replacement = new TryCatch(
+                    (BlockContainer)children[0],
+                    children.Skip(1).Cast<CatchClause>())
+                {
+                    ExceptionProtectedRegion =
+                        foreignClause.ProtectedRegion,
+                };
+                original.ReplaceWith(replacement);
+            });
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(stale));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            decline.Reason);
+        Assert.Contains(
+            "no exact Instructions protected-region association",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ClassicInverseCatchRejectsSameRangeForeignClauseIdentity()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        using RequestScope foreign = OpenRequest("TwoSequentialAwaits");
+        InstructionExceptionClause foreignClause = Assert.Single(
+            AvailableFacts(foreign.Request.ExecutionBody).Clauses,
+            static clause => clause.Kind == ExceptionRegionKind.Catch);
+        Action<IrFunction, ImmutableArray<IIrPass>> runner =
+            Assert.IsType<Action<IrFunction, ImmutableArray<IIrPass>>>(
+                scope.Request.RunPasses);
+        ClassicInverseRequest stale = CopyRequest(
+            scope.Request,
+            runPasses: (body, passes) =>
+            {
+                runner(body, passes);
+                if (body.Name != "MoveNext")
+                    return;
+
+                TryCatch original = Assert.Single(
+                    body.Body.Descendants.OfType<TryCatch>());
+                CatchClause originalClause =
+                    Assert.Single(original.Clauses);
+                Assert.Null(originalClause.Filter);
+                var replacementClause = new CatchClause(
+                    originalClause.ExceptionType,
+                    (BlockContainer)originalClause.Body.Clone())
+                {
+                    VariableIndex = originalClause.VariableIndex,
+                    ExceptionClause = foreignClause,
+                };
+                var replacement = new TryCatch(
+                    (BlockContainer)original.TryBody.Clone(),
+                    [replacementClause])
+                {
+                    ExceptionProtectedRegion =
+                        original.ExceptionProtectedRegion,
+                };
+                original.ReplaceWith(replacement);
+            });
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(stale));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            decline.Reason);
+        Assert.Contains(
+            "structured catch clause has no exact Instructions clause association",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ClassicInversePlanningAndRawRequireOneExceptionFlowObservation()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        using RequestScope foreign = OpenRequest("TwoSequentialAwaits");
+        InstructionExceptionClause foreignClause = Assert.Single(
+            AvailableFacts(foreign.Request.ExecutionBody).Clauses,
+            static clause => clause.Kind == ExceptionRegionKind.Catch);
+        Action<IrFunction, ImmutableArray<IIrPass>> runner =
+            Assert.IsType<Action<IrFunction, ImmutableArray<IIrPass>>>(
+                scope.Request.RunPasses);
+        ClassicInverseRequest mismatched = CopyRequest(
+            scope.Request,
+            runPasses: (body, passes) =>
+            {
+                runner(body, passes);
+                if (body.Name != "MoveNext")
+                    return;
+
+                TryCatch original = Assert.Single(
+                    body.Body.Descendants.OfType<TryCatch>());
+                CatchClause originalClause =
+                    Assert.Single(original.Clauses);
+                Assert.Null(originalClause.Filter);
+                var replacementClause = new CatchClause(
+                    originalClause.ExceptionType,
+                    (BlockContainer)originalClause.Body.Clone())
+                {
+                    VariableIndex = originalClause.VariableIndex,
+                    ExceptionClause = foreignClause,
+                };
+                var replacement = new TryCatch(
+                    (BlockContainer)original.TryBody.Clone(),
+                    [replacementClause])
+                {
+                    ExceptionProtectedRegion =
+                        foreignClause.ProtectedRegion,
+                };
+                original.ReplaceWith(replacement);
+                body.ExceptionInstructions =
+                    foreign.Request.ExecutionBody.ExceptionInstructions;
+                body.ExceptionClauseImports =
+                    foreign.Request.ExecutionBody.ExceptionClauseImports;
+            });
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(mismatched));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            decline.Reason);
+        Assert.Contains(
+            "do not share one Instructions exception-flow observation",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ClassicInverseFinallyRejectsSameRangeForeignClauseIdentity()
+    {
+        using RequestScope scope = OpenRequest("AwaitInTryFinally");
+        using RequestScope foreign = OpenRequest("AwaitInTryFinally");
+        InstructionExceptionFlowFacts localFacts =
+            AvailableFacts(scope.Request.ExecutionBody);
+        InstructionExceptionFlowFacts foreignFacts =
+            AvailableFacts(foreign.Request.ExecutionBody);
+        InstructionExceptionClause localClause = Assert.Single(
+            localFacts.Clauses,
+            static clause => clause.Kind == ExceptionRegionKind.Finally);
+        InstructionExceptionClause foreignClause = Assert.Single(
+            foreignFacts.Clauses,
+            static clause => clause.Kind == ExceptionRegionKind.Finally);
+        Assert.Equal(
+            Region(localFacts, localClause.ProtectedRegion).Extent,
+            Region(foreignFacts, foreignClause.ProtectedRegion).Extent);
+        Assert.NotEqual(localClause.Id, foreignClause.Id);
+
+        Action<IrFunction, ImmutableArray<IIrPass>> runner =
+            Assert.IsType<Action<IrFunction, ImmutableArray<IIrPass>>>(
+                scope.Request.RunPasses);
+        ClassicInverseRequest stale = CopyRequest(
+            scope.Request,
+            runPasses: (body, passes) =>
+            {
+                runner(body, passes);
+                if (body.Name != "MoveNext")
+                    return;
+
+                TryFinally original = Assert.Single(
+                    body.Body.Descendants.OfType<TryFinally>());
+                var replacement = new TryFinally(
+                    (BlockContainer)original.TryBody.Clone(),
+                    (BlockContainer)original.FinallyBody.Clone())
+                {
+                    ExceptionClause = foreignClause,
+                };
+                original.ReplaceWith(replacement);
+            });
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(stale));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            decline.Reason);
+        Assert.Contains(
+            "structured finally has no exact Instructions clause association",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    static ClassicInverseDecision DecideWithRestoredPlanningRegions(
         RequestScope narrowed,
         ImmutableArray<HandlerRegion> originalRegions,
         Action<IrFunction> assertPlanning)
@@ -217,10 +496,7 @@ public sealed partial class ClassicInverseCoreTests
                 repaired.ExecutionBody,
                 budget);
         Assert.False(budget.Exhausted);
-        Assert.Contains(
-            "structured exception context",
-            Assert.IsType<string>(shell.Protocol.Failure),
-            StringComparison.Ordinal);
+        Assert.Null(shell.Protocol.Failure);
 
         ClassicInverseDecision decision =
             ClassicInverseCore.Decide(repaired);
@@ -231,19 +507,16 @@ public sealed partial class ClassicInverseCoreTests
         return decision;
     }
 
-    static void AssertExceptionContextDecline(
-        ClassicInverseDecision decision)
-    {
-        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
-            decision);
-        Assert.Equal(
-            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
-            decline.Reason);
-        Assert.Contains(
-            "structured exception context",
-            decline.Detail,
-            StringComparison.Ordinal);
-    }
+    static InstructionExceptionFlowFacts AvailableFacts(
+        IrFunction function)
+        => Assert.IsType<ILInspector.Instructions.InstructionExceptionFlowResult<
+            InstructionExceptionFlowFacts>.Available>(
+                function.ExceptionFlow).Value;
+
+    static InstructionExceptionRegion Region(
+        InstructionExceptionFlowFacts facts,
+        InstructionExceptionRegionId id)
+        => Assert.Single(facts.Regions, region => region.Id == id);
 
     static bool IsWithin(IrNode node, IrNode ancestor)
     {

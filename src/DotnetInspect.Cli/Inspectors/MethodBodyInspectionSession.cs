@@ -73,13 +73,19 @@ public sealed class MethodBodyInspectionSession
     /// </summary>
     public static MethodBodyInspectionSession Open(string assemblyPath, IAssemblyReferenceResolver? resolver = null,
         bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null,
-        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
+        bool includeImplementationProfiles = false)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         if (includeAllocations)
             features |= Analysis.LibraryBodyAnalysisFeatures.Allocations;
         if (includeOpportunities)
             features |= Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
+        if (includeImplementationProfiles)
+        {
+            features |= Analysis.LibraryBodyAnalysisFeatures
+                .ImplementationProfiles;
+        }
         var assembly = ResolvedAssemblyReference.CreateFromPath(
             assemblyPath,
             AssemblyResolutionProvenance.Local("method body inspection"));

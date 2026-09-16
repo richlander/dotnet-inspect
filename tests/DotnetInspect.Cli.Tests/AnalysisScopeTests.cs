@@ -29,6 +29,7 @@ public class AnalysisScopeTests
     }
 
     [Theory]
+    [InlineData(SectionNames.ImplementationProfiles)]
     [InlineData(SectionNames.TopLeverage)]
     [InlineData(SectionNames.Calls)]
     [InlineData(SectionNames.Callers)]

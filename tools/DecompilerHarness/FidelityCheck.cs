@@ -14,6 +14,7 @@ using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -205,7 +206,11 @@ static class FidelityCheck
         return 0;
     }
 
-    public static int RunMethodDelta(IReadOnlyList<string> assemblies, string deltaPath, int maxExamples, bool lowered = false)
+    public static async Task<int> RunMethodDelta(
+        IReadOnlyList<string> assemblies,
+        string deltaPath,
+        int maxExamples,
+        bool lowered = false)
     {
         var artifact = JsonSerializer.Deserialize<CorpusMethodDeltaArtifact>(
             File.ReadAllText(deltaPath),
@@ -228,17 +233,29 @@ static class FidelityCheck
         // lookup bug.
         var supported = allTargets.Where(target => !IsSynthesizedTarget(target)).ToArray();
 
-        var results = EvaluateTargets(assemblies, supported, lowered).ToList();
+        var results = lowered
+            ? EvaluateTargets(assemblies, supported, lowered: true).ToList()
+            : (await EvaluateChangedMethodTargets(assemblies, supported)).ToList();
         foreach (var target in allTargets.Where(IsSynthesizedTarget))
             results.Add(new TargetedCompileBackResult(
                 target,
                 new CompileBackResult(
                     target.Type, target.Method, target.Overload, target.Signature,
-                    CompileBackStatus.ContextFail, "", "", "generated-member-unsupported")));
+                    CompileBackStatus.ContextFail,
+                    "",
+                    "",
+                    "generated-member-unsupported",
+                    lowered ? CaptureMode.WholeModule : CaptureMode.ProductArtifact,
+                    lowered
+                        ? "legacy whole-module (lowered)"
+                        : "product-artifact RTS; compile-back-floor=false")));
 
         Console.WriteLine(
             $"Changed-method delta contracts: baseline v{artifact.BaselineFidelityContractVersion}, "
             + $"current v{artifact.CurrentFidelityContractVersion}; evaluating v{CurrentContractVersion}");
+        Console.WriteLine(lowered
+            ? "Changed-method engine: legacy whole-module (lowered)"
+            : "Changed-method engine: product-artifact RTS (raised; compile-back-floor=false)");
         ReportTargeted(results, allTargets.Length, maxExamples);
         return 0;
     }
@@ -333,6 +350,7 @@ static class FidelityCheck
         WholeModule,
         Cluster,
         ClusterBailed,
+        ProductArtifact,
     }
 
     /// <summary>
@@ -380,7 +398,8 @@ static class FidelityCheck
         string Type,
         string Method,
         int Overload,
-        string Signature);
+        string Signature,
+        MetadataMethodAddress? Address = null);
 
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
@@ -862,7 +881,7 @@ static class FidelityCheck
     }
 
     static string TargetKey(MethodTarget target)
-        => $"{target.AssemblyPath}!{target.Type}::{target.Method}{target.Signature}";
+        => $"{target.AssemblyPath}!{target.Type}::{target.Method}#{target.Overload}{target.Signature}";
 
     internal static IReadOnlyList<CompileBackResult> EvaluateTargets(
         IReadOnlyList<string> assemblies,
@@ -901,6 +920,173 @@ static class FidelityCheck
 
     static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered)
         => EvaluateTargets(assemblies, targets, lowered, options: null);
+
+    internal static async Task<IReadOnlyList<CompileBackResult>> EvaluateChangedMethodTargetsForTesting(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<CompileBackTarget> targets)
+    {
+        var methodTargets = targets
+            .Select(target => new MethodTarget(
+                Assembly: Path.GetFileNameWithoutExtension(target.AssemblyPath),
+                AssemblyPath: PortablePath(target.AssemblyPath),
+                Type: target.Type,
+                Method: target.Method,
+                Overload: target.Overload,
+                Signature: target.Signature,
+                DisplayMethod: $"{target.Type}::{target.Method}"))
+            .ToArray();
+        return (await EvaluateChangedMethodTargets(assemblies, methodTargets))
+            .Select(row => row.Result)
+            .ToArray();
+    }
+
+    static async Task<IReadOnlyList<TargetedCompileBackResult>> EvaluateChangedMethodTargets(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<MethodTarget> targets)
+    {
+        if (targets.Count == 0)
+            return [];
+
+        using var metadata = CorpusMetadata.Create(assemblies);
+        var pending = targets.ToDictionary(TargetKey, StringComparer.Ordinal);
+        var rows = new List<TargetedCompileBackResult>();
+        foreach (var assemblyPath in assemblies)
+        {
+            var portablePath = PortablePath(assemblyPath);
+            var assemblyTargets = pending.Values
+                .Where(target => string.Equals(target.AssemblyPath, portablePath, StringComparison.Ordinal))
+                .OrderBy(target => target.DisplayMethod, StringComparer.Ordinal)
+                .ToArray();
+            if (assemblyTargets.Length == 0)
+                continue;
+
+            try
+            {
+                using var source = MetadataSource.Open(assemblyPath, context: metadata);
+                RegisterSourceContext(source, metadata);
+                var resolved = new List<(MethodTarget Target, CompileBackTarget Request)>();
+                foreach (var target in assemblyTargets)
+                {
+                    if (ResolveChangedMethodAddress(source, target) is not { } address)
+                    {
+                        rows.Add(TargetUnavailable(target, "target-method-not-found"));
+                        pending.Remove(TargetKey(target));
+                        continue;
+                    }
+
+                    resolved.Add((
+                        target,
+                        new CompileBackTarget(
+                            assemblyPath,
+                            target.Type,
+                            target.Method,
+                            target.Overload,
+                            target.Signature,
+                            address)));
+                }
+
+                if (resolved.Count != 0)
+                {
+                    var evaluation = await ReturnToSenderFidelityEvaluator.EvaluateAsync(
+                        assemblyPath,
+                        resolved.Select(item => item.Request).ToArray(),
+                        "product-artifact RTS; compile-back-floor=false",
+                        CaptureMode.ProductArtifact);
+                    if (evaluation.CompileBackFloorAppliedMethods != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"Raised changed-method RTS applied the compile-back floor to "
+                            + $"{evaluation.CompileBackFloorAppliedMethods} methods.");
+                    }
+
+                    for (int index = 0; index < resolved.Count; index++)
+                    {
+                        var item = resolved[index];
+                        rows.Add(new TargetedCompileBackResult(item.Target, evaluation.Results[index]));
+                        pending.Remove(TargetKey(item.Target));
+                    }
+                }
+            }
+            catch (Exception ex) when (
+                ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
+            {
+                foreach (var target in assemblyTargets.Where(target => pending.ContainsKey(TargetKey(target))))
+                {
+                    rows.Add(TargetUnavailable(
+                        target,
+                        $"return-to-sender-context-unavailable: {ex.Message}"));
+                    pending.Remove(TargetKey(target));
+                }
+            }
+        }
+
+        foreach (var target in pending.Values.OrderBy(target => target.DisplayMethod, StringComparer.Ordinal))
+            rows.Add(TargetUnavailable(target, "target-method-not-found"));
+
+        var rowsByTarget = rows.ToDictionary(
+            row => TargetKey(row.Target),
+            StringComparer.Ordinal);
+        return targets
+            .Select(target => rowsByTarget[TargetKey(target)])
+            .ToArray();
+    }
+
+    static MetadataMethodAddress? ResolveChangedMethodAddress(
+        MetadataSource source,
+        MethodTarget target)
+    {
+        var reader = source.Reader;
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (!string.Equals(reader.GetFullTypeName(typeDef), target.Type, StringComparison.Ordinal))
+                continue;
+
+            int overload = 0;
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                string methodName = reader.GetString(method.Name);
+                if (!string.Equals(methodName, target.Method, StringComparison.Ordinal))
+                    continue;
+
+                if (overload++ != target.Overload)
+                    continue;
+                if (method.RelativeVirtualAddress == 0)
+                    return null;
+
+                var candidate = new IrImporter.StableSampleCandidate(
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    typeHandle,
+                    methodHandle);
+                string liveSignature = CorpusMethodIdentity.SignatureText(candidate.Build(source).Signature);
+                return string.Equals(liveSignature, target.Signature, StringComparison.Ordinal)
+                    ? MetadataMethodAddress.Create(reader, methodHandle)
+                    : null;
+            }
+
+            return null;
+        }
+
+        return null;
+    }
+
+    static TargetedCompileBackResult TargetUnavailable(MethodTarget target, string detail)
+        => new(
+            target,
+            new CompileBackResult(
+                target.Type,
+                target.Method,
+                target.Overload,
+                target.Signature,
+                CompileBackStatus.ContextFail,
+                "",
+                "",
+                detail,
+                CaptureMode.ProductArtifact,
+                "product-artifact RTS; compile-back-floor=false"));
 
     static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(
         IReadOnlyList<string> assemblies,

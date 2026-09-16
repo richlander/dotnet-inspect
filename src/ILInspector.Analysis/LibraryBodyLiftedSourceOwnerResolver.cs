@@ -1040,17 +1040,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     }
 
     int PeelToDefinitionToken(int token)
-    {
-        var handle = MetadataTokens.EntityHandle(token);
-        if (handle.Kind == HandleKind.MethodSpecification)
-        {
-            var spec = _reader.GetMethodSpecification(
-                (MethodSpecificationHandle)handle);
-            if (spec.Method.Kind == HandleKind.MethodDefinition)
-                return MetadataTokens.GetToken(spec.Method);
-        }
-        return token;
-    }
+        => MemberResolver.DefinitionToken(_reader, token);
 
     readonly record struct LiftedOwnerGroupKey(
         TypeDefinitionHandle OwnerType,

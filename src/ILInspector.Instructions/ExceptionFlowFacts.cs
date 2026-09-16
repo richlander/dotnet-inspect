@@ -262,6 +262,52 @@ public sealed class InstructionExceptionFlowFacts
     public ImmutableArray<InstructionExceptionRegion> Regions { get; }
 
     /// <summary>
+    /// Resolves an owner-issued clause identity within this method-body
+    /// observation.
+    /// </summary>
+    public InstructionExceptionFlowResult<InstructionExceptionClause>
+        GetClause(MethodExceptionClauseId id)
+    {
+        if (id.Body != Body
+            || (uint)id.Ordinal >= (uint)Clauses.Length
+            || Clauses[id.Ordinal].Id != id)
+        {
+            return new InstructionExceptionFlowResult<
+                InstructionExceptionClause>.Unavailable(
+                    InstructionExceptionFlowUnavailableReason.BodyIdentityMismatch,
+                    "The exception clause identity was not issued by this "
+                    + "method-body observation.");
+        }
+
+        return new InstructionExceptionFlowResult<
+            InstructionExceptionClause>.Available(Clauses[id.Ordinal]);
+    }
+
+    /// <summary>
+    /// Resolves an owner-issued region identity within this method-body
+    /// observation.
+    /// </summary>
+    public InstructionExceptionFlowResult<InstructionExceptionRegion>
+        GetRegion(InstructionExceptionRegionId id)
+    {
+        if (id.Body != Body
+            || !_regionsByOrdinal.TryGetValue(
+                id.Ordinal,
+                out InstructionExceptionRegion? region)
+            || region.Id != id)
+        {
+            return new InstructionExceptionFlowResult<
+                InstructionExceptionRegion>.Unavailable(
+                    InstructionExceptionFlowUnavailableReason.BodyIdentityMismatch,
+                    "The exception region identity was not issued by this "
+                    + "method-body observation.");
+        }
+
+        return new InstructionExceptionFlowResult<
+            InstructionExceptionRegion>.Available(region);
+    }
+
+    /// <summary>
     /// Returns the outer-to-inner validated regions containing an admitted instruction offset.
     /// </summary>
     public InstructionExceptionFlowResult<ImmutableArray<InstructionExceptionRegion>>

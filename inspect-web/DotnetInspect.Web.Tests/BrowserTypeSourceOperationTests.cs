@@ -199,7 +199,7 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         Assert.NotNull(result.Value);
         Assert.Equal("decompiled", result.Value.Provider);
         Assert.Contains("JsExportRootAttribute", result.Value.Text);
-        Assert.Contains(packageId, result.Value.Provenance);
+        Assert.Contains(packageId, result.Value.Provenance.ToString());
         Assert.Null(result.Value.Url);
         Assert.NotNull(result.Value.PdbSourceLimitation);
         await AssertReleased(id, packageId);
