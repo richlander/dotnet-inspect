@@ -175,12 +175,13 @@ public sealed class PackageSourceOperationLease : IDisposable
     public Task<PackageVersionDiscoveryResult> DiscoverVersionsAsync(
         string packageId,
         PackageSourceAuthorization authorization,
-        PackageVersionDiscoveryContract contract)
+        PackageVersionDiscoveryContract contract,
+        Action<string>? log = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(authorization);
         ArgumentNullException.ThrowIfNull(contract);
-        return DiscoverCoreAsync(StartWork(), packageId, authorization, contract);
+        return DiscoverCoreAsync(StartWork(), packageId, authorization, contract, log);
     }
 
     public Task<ConfiguredPackageManifestResult> AcquireCandidateManifestAsync(
@@ -331,11 +332,12 @@ public sealed class PackageSourceOperationLease : IDisposable
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverCoreAsync(
         ActiveWorkRegistration work, string packageId, PackageSourceAuthorization authorization,
-        PackageVersionDiscoveryContract contract)
+        PackageVersionDiscoveryContract contract,
+        Action<string>? log)
     {
         using (work)
             return await work.Generation.DiscoverVersionsAsync(
-                packageId, authorization, contract, operationContext: work.Context).ConfigureAwait(false);
+                packageId, authorization, contract, operationContext: work.Context, log).ConfigureAwait(false);
     }
 
     private static async Task<ConfiguredPackageManifestResult> ManifestCoreAsync(

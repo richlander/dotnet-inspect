@@ -139,28 +139,31 @@ public class HarnessReportComparerTests
     }
 
     [Fact]
-    public void ReadCorpusSnapshot_PreservesSchemaVersion()
+    public void ReadCorpusSnapshot_PreservesSchemaVersionAndRejectsMismatch()
     {
-        string baseline = Path.Combine(
-            FindRepositoryRoot(),
-            "tools",
-            "DecompilerHarness",
-            "corpus",
-            "pr-quick-baseline.json");
-        var report = HarnessReportReader.Read(baseline);
+        var beforeNode = JsonNode.Parse(File.ReadAllText(CorpusBaselinePath()))!.AsObject();
+        var afterNode = beforeNode.DeepClone().AsObject();
+        int beforeSchemaVersion = beforeNode["schemaVersion"]!.GetValue<int>();
+        int afterSchemaVersion = beforeSchemaVersion + 1;
+        afterNode["schemaVersion"] = afterSchemaVersion;
 
-        Assert.Equal(5, report.SchemaVersion);
-    }
+        string beforePath = WriteTemporaryJson(beforeNode);
+        string afterPath = WriteTemporaryJson(afterNode);
+        try
+        {
+            var before = HarnessReportReader.Read(beforePath);
+            var after = HarnessReportReader.Read(afterPath);
 
-    [Fact]
-    public void Compare_RejectsDifferentCorpusSnapshotSchemas()
-    {
-        string baseline = CorpusBaselinePath();
-        var before = HarnessReportReader.Read(baseline);
-        var after = before with { SchemaVersion = before.SchemaVersion + 1 };
-
-        Assert.Throws<InvalidOperationException>(
-            () => HarnessReportComparer.Compare(before, after));
+            Assert.Equal(beforeSchemaVersion, before.SchemaVersion);
+            Assert.Equal(afterSchemaVersion, after.SchemaVersion);
+            Assert.Throws<InvalidOperationException>(
+                () => HarnessReportComparer.Compare(before, after));
+        }
+        finally
+        {
+            File.Delete(beforePath);
+            File.Delete(afterPath);
+        }
     }
 
     [Fact]
